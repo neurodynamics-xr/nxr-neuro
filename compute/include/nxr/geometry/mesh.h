@@ -39,7 +39,6 @@ namespace facet {
 namespace nxr::operators { struct DECOperators; struct DecMatrices; class CholeskyCache; }
 namespace nxr::operators::laplacian::connection { enum class CovariantCoupling; }
 namespace nxr::geometry {
-namespace ops = nxr::operators;
 struct MeshGeometry; struct MeshTopology;
 
 enum class ConnectionType { Euclidean, LeviCivita, Trivial };   // the choice of connection (G7: formerly GaugeType; "gauge" names only the tangent-space convention)
@@ -103,10 +102,10 @@ public:
     // (`intrinsic()` below is the older data facet; it keeps its name.)
     IntrinsicSurface& intrinsicSurface();
     const ManifoldOptions& options() const;
-    // The cotangent Laplacian of the operator mesh, held for the Manifold's lifetime (ManifoldOperators views it).
+    // The cotangent Laplacian of the operator mesh, held for the Manifold's lifetime (operators::ManifoldOperators views it).
     const Eigen::SparseMatrix<double>& operatorCotan();
     // The operator mesh's DEC matrices (d0, d1, ⋆0 = the mixed-Voronoi mass, raw ⋆1, ⋆2, ⋆1⁻¹), and A/3 per vertex on it; lazily built, held for the lifetime.
-    const ops::DecMatrices& operatorDecMatrices();
+    const operators::DecMatrices& operatorDecMatrices();
     const Eigen::VectorXd&  operatorDualAreas();
 
     // ── Geometry facets (additive; thin views over the accessors above) ──
@@ -146,11 +145,11 @@ public:
 
     // Lazy operator-assembly helpers shared by gauge + operators facets.
     // The DEC of the OPERATOR mesh (follows the mesh option: d0ᵀ⋆1d0 == the cotan Laplacian, ⋆0 == the mixed-Voronoi mass), cached.
-    ops::DECOperators& decOperators();
+    operators::DECOperators& decOperators();
     // The DEC of the INPUT mesh (geometry-central's, embedded) — edges and faces are the input's: for what is indexed by them (a 1-form given on the
     // input's edges, Whitney interpolation on its faces, the trivial connection, the face Dirac), cached.
-    ops::DECOperators& decEmbedded();
-    ops::CholeskyCache& choleskyCache();   // owned cache, lazy-initialised
+    operators::DECOperators& decEmbedded();
+    operators::CholeskyCache& choleskyCache();   // owned cache, lazy-initialised
 
     // ── Operators facet ──
     facet::OperatorsFacet operators();
@@ -203,7 +202,7 @@ private:
     // covariant: delegates to connection() + connection().grid() + cotan() then assembles.
     const Eigen::SparseMatrix<std::complex<double>>& connectionLaplacianCached_();
     const Eigen::SparseMatrix<double>& covariantLaplacianCached_(
-        ops::laplacian::connection::CovariantCoupling coupling);
+        operators::laplacian::connection::CovariantCoupling coupling);
 
     // Covariant gradient G (3E x 3N) — differential::covariantGradient(*this), cached
     // (mesh-only; depends on the frames, not the gauge or any parameter).
@@ -217,18 +216,18 @@ private:
     const Eigen::SparseMatrix<double>& diracExtrinsicBlockCached_();
     // Assemble L(τ) = (1−τ)(cotanL⊗I₄) + τ·E by value. τ ∈ [0,1] (validated).
     Eigen::SparseMatrix<double> diracFamily_(double tau);
-    // First-order Dirac D (4F×4V), cached (OperatorId::DiracD). ops::dirac::matrix.
+    // First-order Dirac D (4F×4V), cached (OperatorId::DiracD). nxr::operators::dirac::matrix.
     const Eigen::SparseMatrix<double>& diracMatrixCached_();
     // First-order INTRINSIC Dirac D_int (4F×4V), cached (OperatorId::DiracIntrinsicD).
-    // ops::dirac::matrixIntrinsic (immersion/edge-based; the spin-connection root).
+    // nxr::operators::dirac::matrixIntrinsic (immersion/edge-based; the spin-connection root).
     const Eigen::SparseMatrix<double>& diracIntrinsicMatrixCached_();
 
     // Face-domain relative-Dirac extrinsic block Ẽ (4F×4F), cached (OperatorId::DiracFace).
     const Eigen::SparseMatrix<double>& diracFaceExtrinsicBlockCached_();
-    // First-order face Dirac D̃ (4V×4F), cached (OperatorId::DiracFaceD). ops::dirac::matrixFace.
+    // First-order face Dirac D̃ (4V×4F), cached (OperatorId::DiracFaceD). nxr::operators::dirac::matrixFace.
     const Eigen::SparseMatrix<double>& diracFaceMatrixCached_();
     // First-order INTRINSIC face Dirac D̃_int (4V×4F), cached (OperatorId::DiracFaceIntrinsicD).
-    // ops::dirac::matrixFaceIntrinsic (centroid immersion dual of matrixFace).
+    // nxr::operators::dirac::matrixFaceIntrinsic (centroid immersion dual of matrixFace).
     const Eigen::SparseMatrix<double>& diracFaceIntrinsicMatrixCached_();
     // DEC 2-form Laplacian K̃ = d₁⋆₁⁻¹d₁ᵀ ([F×F]) — the diracFace intrinsic anchor.
     // Cached (mesh-fixed; not user-facing, so no OperatorId) so a τ-sweep reuses it.
@@ -236,9 +235,9 @@ private:
     // Assemble L̃(τ) = (1−τ)(K̃⊗I₄) + τ·Ẽ by value, K̃ = d₁⋆₁⁻¹d₁ᵀ. τ ∈ [0,1].
     Eigen::SparseMatrix<double> diracFaceFamily_(double tau);
     // Barycentric dual-mesh face gradient G̃ (3F×F), cached (OperatorId::GradFace).
-    // ops::facegrad::gradient.
+    // nxr::operators::facegrad::gradient.
     const Eigen::SparseMatrix<double>& gradFaceCached_();
-    // Face Laplacian K̃ = G̃ᵀ⋆_F G̃ (F×F), cached (OperatorId::LapFace). ops::facegrad::laplacian.
+    // Face Laplacian K̃ = G̃ᵀ⋆_F G̃ (F×F), cached (OperatorId::LapFace). nxr::operators::facegrad::laplacian.
     const Eigen::SparseMatrix<double>& lapFaceCached_();
 
     friend class facet::OperatorsFacet;
@@ -247,7 +246,7 @@ private:
     ManifoldOptions                          options_;
     std::unique_ptr<IntrinsicSurface>        surface_;           // the one intrinsic construction (flips only when options_.mesh == Intrinsic)
     std::unique_ptr<Eigen::SparseMatrix<double>> operatorCotan_; // its cotan Laplacian, never released
-    std::unique_ptr<ops::DecMatrices>        operatorDec_;       // the DEC of the operator mesh
+    std::unique_ptr<operators::DecMatrices>        operatorDec_;       // the DEC of the operator mesh
     std::unique_ptr<Eigen::VectorXd>         operatorDualAreas_;
 
     Eigen::MatrixXd                          vertexPositions_;  // [nV,3] retained input
@@ -260,9 +259,9 @@ private:
     // Validates Σ singularities == eulerCharacteristic(); throws on mismatch.
     void validateSingularities_(const std::map<int,double>& s) const;
 
-    std::unique_ptr<ops::DECOperators>  decCache_;
-    std::unique_ptr<ops::DECOperators>  decEmbeddedCache_;
-    std::unique_ptr<ops::CholeskyCache> choleskyCachePtr_;
+    std::unique_ptr<operators::DECOperators>  decCache_;
+    std::unique_ptr<operators::DECOperators>  decEmbeddedCache_;
+    std::unique_ptr<operators::CholeskyCache> choleskyCachePtr_;
 };
 
 // Extrinsic Delaunay edge-flip repair (geometry-central fixDelaunay).

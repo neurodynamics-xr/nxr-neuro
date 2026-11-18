@@ -13,7 +13,7 @@
 //
 // The stored Hodge–Dirac package supplies P [K x V_glued] (the eigenvectors operator transposed: vertex potentials, mode-major), mu, kind (0 exact, 2 coexact), the glued
 // positions [V_glued x 3] and faces [nF x 3], and the vertex mass (mixed Voronoi of the glued mesh as the solve took it: nxr.operators.intrinsic_delaunay.lumped_mass).
-// Face operators: Brainstorm's ambient hat-function gradient (grad phi_i = N x opposite edge / 2A) — not the face-native dual calculus of ops::facegrad.
+// Face operators: Brainstorm's ambient hat-function gradient (grad phi_i = N x opposite edge / 2A) — not the face-native dual calculus of nxr::operators::facegrad.
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <cstdint>

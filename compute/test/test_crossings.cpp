@@ -58,8 +58,8 @@ int main() {
     else if (tag == "n") for (double f : nums(s)) ncount.push_back(static_cast<int>(f));
   }
   // the surface: the frames (the signpost basis), the transport of each tile centre's frame (the Levi-Civita rho), the golden's anchors and normals
-  nxr::chart::ChartKit kit(pos.data(), nv, faces.data(), nf);
-  const nxr::chart::Basis B = kit.basis();
+  nxr::geometry::ChartKit kit(pos.data(), nv, faces.data(), nf);
+  const nxr::geometry::Basis B = kit.basis();
   nxr::select::track_crossings::Surface S;
   S.positions = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(pos.data(), nv, 3);
   S.normals = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(normals.data(), nv, 3);

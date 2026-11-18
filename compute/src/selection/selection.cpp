@@ -382,7 +382,7 @@ bool disjoint(const Selection& s) {
   return true;
 }
 
-Selection resolve_distance(const Selection& s, chart::ChartKit& kit) {
+Selection resolve_distance(const Selection& s, geometry::ChartKit& kit) {
   if (s.type != Type::distance) throw std::invalid_argument(std::string("resolve_distance: a distance, not a ") + type_name(s.type));
   if (*s.center >= kit.n()) throw std::invalid_argument("resolve_distance: centre " + std::to_string(*s.center) + " outside the surface");
   std::vector<std::int32_t> out{static_cast<std::int32_t>(*s.center)};   // the centre is always held (a radius 0 holds it alone)

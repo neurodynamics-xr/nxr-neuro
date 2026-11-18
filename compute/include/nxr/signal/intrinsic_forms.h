@@ -47,11 +47,11 @@ struct Complex {
  *  the two input edges whose angles bracket its own (exact on every input edge; no rescaling of the cone angle, which distorts on a rough mesh). */
 void attachEmbedding(Complex& c, const double* positions, const std::int32_t* inputFaces, int nFin);
 
-/** The embedding of the signposts from an IntrinsicSurface (normals: geometry-central's corner-angle-weighted; per vertex its input edges' raw signpost angles
+/** The embedding of the signposts from an geometry::IntrinsicSurface (normals: geometry-central's corner-angle-weighted; per vertex its input edges' raw signpost angles
  *  and directions). `complexOf` calls it. */
 void attachEmbedding(Complex& c, nxr::geometry::IntrinsicSurface& surface);
 
-/** The complex of an IntrinsicSurface (geometry-central's intrinsic Delaunay triangulation, with signposts): its edges, lengths, d0, d1, the stars (⋆0 the mesh's recorded mass, ⋆1 the
+/** The complex of an geometry::IntrinsicSurface (geometry-central's intrinsic Delaunay triangulation, with signposts): its edges, lengths, d0, d1, the stars (⋆0 the mesh's recorded mass, ⋆1 the
  *  cotan weights, ⋆2 = 1 / area), the signposts, and the embedding (`positions` [3 nV], the INPUT `faces` [3 nF_in] for the area-weighted vertex normals).
  *  What `eigen solve` stores, built in memory (tests; a caller with no stored package). */
 Complex complexOf(nxr::geometry::IntrinsicSurface& surface);

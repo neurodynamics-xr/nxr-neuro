@@ -461,8 +461,8 @@ int main() {
     const SurfaceInput NS = read_surface(sub, "cortex", true);
     const int nV = static_cast<int>(NS.n_vertices());
     const SurfaceLevel NL = read_surface_level(sub, NS, level);
-    nxr::chart::ChartKit kit(NS.vertices.data(), nV, NS.faces.data(), static_cast<int>(NS.n_faces()));
-    const nxr::chart::Basis B = kit.basis();
+    nxr::geometry::ChartKit kit(NS.vertices.data(), nV, NS.faces.data(), static_cast<int>(NS.n_faces()));
+    const nxr::geometry::Basis B = kit.basis();
     nxr::geometry::Mat3 e1(nV, 3), e2(nV, 3);
     for (int i = 0; i < nV; ++i) for (int k = 0; k < 3; ++k) { e1(i, k) = B.e1[static_cast<std::size_t>(3 * i + k)]; e2(i, k) = B.e2[static_cast<std::size_t>(3 * i + k)]; }
     const Eigen::VectorXd gauge = nxr::geometry::gaugeAngle(kit, e1);

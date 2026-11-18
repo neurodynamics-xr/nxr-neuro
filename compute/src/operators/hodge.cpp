@@ -36,12 +36,10 @@ Eigen::VectorXd randomOmega(int nE, unsigned int seed) {
 namespace nxr::operators {
 
 using namespace geometrycentral::surface;
-using nxr::operators::DECOperators;
-using nxr::operators::CholeskyCache;
 using nxr::signal::whitney;
 
 HodgeResult hodge(
-    Manifold& m,
+    geometry::Manifold& m,
     const DECOperators& dec,
     CholeskyCache& cache,
     const Eigen::VectorXd& omega

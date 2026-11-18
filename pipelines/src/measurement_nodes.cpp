@@ -27,6 +27,7 @@
 #include "nxr/measurement/summarize.h"
 #include "nxr/quantity/quantity.h"
 #include "nxr/select/grid.h"
+#include "nxr/select/partition.h"
 #include "nxr/selection/resolved.h"
 #include "nxr/selection/selection.h"
 

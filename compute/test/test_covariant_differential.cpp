@@ -120,7 +120,7 @@ static void testCovariantGradient() {
       W.setFromTriplets(tw.begin(), tw.end()); }
     Eigen::SparseMatrix<double> GtWG = G.transpose() * W * G;
 
-    namespace cl = ops::laplacian::connection;
+    namespace cl = nxr::operators::laplacian::connection;
     Eigen::SparseMatrix<double> Camb =
         m.operators().laplacian().covariant(cl::CovariantCoupling::Ambient);
     EXPECT((Eigen::MatrixXd(GtWG) - Eigen::MatrixXd(Camb)).cwiseAbs().maxCoeff() < 1e-9,

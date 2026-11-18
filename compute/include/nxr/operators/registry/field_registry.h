@@ -6,9 +6,6 @@
 #include <functional>
 
 namespace nxr::operators::registry {
-using nxr::geometry::Manifold;
-using nxr::geometry::OperatorId;
-using nxr::geometry::ConnectionType;
 
 
 // New axes the operator registry didn't need (operators don't carry n-form degree

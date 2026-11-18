@@ -24,7 +24,7 @@ static Eigen::Matrix3d frameOf(const geometry::VertexFrames& vf, int v) {
     return Fv;
 }
 
-Eigen::Matrix3d frameTransport(Manifold& m, int i, int j) {
+Eigen::Matrix3d frameTransport(geometry::Manifold& m, int i, int j) {
     const int nV = m.nV();
     if (i < 0 || i >= nV || j < 0 || j >= nV)
         throw Error(ErrorCode::InvalidInput,
@@ -34,7 +34,7 @@ Eigen::Matrix3d frameTransport(Manifold& m, int i, int j) {
     return frameOf(vf, j).transpose() * frameOf(vf, i);   // P_ij = Fj^T Fi
 }
 
-Eigen::MatrixXd vertexFrameMatrices(Manifold& m) {
+Eigen::MatrixXd vertexFrameMatrices(geometry::Manifold& m) {
     geometry::VertexFrames vf = geometry::vertexFrames(m);
     const int nV = m.nV();
     Eigen::MatrixXd out(nV, 9);
@@ -47,7 +47,7 @@ Eigen::MatrixXd vertexFrameMatrices(Manifold& m) {
     return out;
 }
 
-Eigen::MatrixXd liftToWorld(Manifold& m, const Eigen::MatrixXd& Lloc) {
+Eigen::MatrixXd liftToWorld(geometry::Manifold& m, const Eigen::MatrixXd& Lloc) {
     const int nV = m.nV();
     if (Lloc.rows() != nV || Lloc.cols() != 3)
         throw Error(ErrorCode::InvalidInput,
@@ -60,7 +60,7 @@ Eigen::MatrixXd liftToWorld(Manifold& m, const Eigen::MatrixXd& Lloc) {
     return out;
 }
 
-Eigen::MatrixXd liftToFrame(Manifold& m, const Eigen::MatrixXd& Lworld) {
+Eigen::MatrixXd liftToFrame(geometry::Manifold& m, const Eigen::MatrixXd& Lworld) {
     const int nV = m.nV();
     if (Lworld.rows() != nV || Lworld.cols() != 3)
         throw Error(ErrorCode::InvalidInput,
@@ -73,7 +73,7 @@ Eigen::MatrixXd liftToFrame(Manifold& m, const Eigen::MatrixXd& Lworld) {
     return out;
 }
 
-Eigen::SparseMatrix<double> covariantGradient(Manifold& m) {
+Eigen::SparseMatrix<double> covariantGradient(geometry::Manifold& m) {
     using namespace geometrycentral::surface;
     geometry::VertexFrames vf = geometry::vertexFrames(m);
     auto& mesh = m.mesh();

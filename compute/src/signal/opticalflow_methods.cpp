@@ -55,7 +55,7 @@ const char* flowMethodName(FlowMethod m) {
 
 struct FlowEngine::Impl {
     FlowMethodOptions o;
-    RowMat3 pos; FaceMat faces; RowMat3 normals;
+    RowMat3 pos; operators::FaceMat faces; RowMat3 normals;
     double alpha = 1, maxAbs = 0;
     PcgOptions pcg;
     std::unique_ptr<OpticalflowScalar> flow;
@@ -97,7 +97,7 @@ struct FlowEngine::Impl {
     }
 };
 
-FlowEngine::FlowEngine(const FlowMethodOptions& options, const RowMat3& positions, const FaceMat& faces, const RowMat3& normals, double alpha) : p_(std::make_unique<Impl>()) {
+FlowEngine::FlowEngine(const FlowMethodOptions& options, const RowMat3& positions, const operators::FaceMat& faces, const RowMat3& normals, double alpha) : p_(std::make_unique<Impl>()) {
     Impl& s = *p_;
     s.o = options; s.pos = positions; s.faces = faces; s.normals = normals; s.alpha = alpha;
     s.pcg.tolerance = options.tolerance; s.pcg.maxIterations = options.maxIterations; s.pcg.preconditioner = options.preconditioner;

@@ -89,8 +89,8 @@ static double gaugeFaceTransport(
 //   frame is rotation .* grid.
 GaugeRotations integrateTrivialGaugeRotations(
     Manifold& m,
-    const ops::DECOperators& dec,
-    ops::CholeskyCache& cache,
+    const nxr::operators::DECOperators& dec,
+    nxr::operators::CholeskyCache& cache,
     const std::map<int, double>& singularityMap)
 {
     // 1. Solve for φ (per-edge trivial-connection 1-form, length nE).

@@ -12,18 +12,6 @@
 #include "nxr/operators/dec.h"
 
 namespace nxr::operators {
-namespace ops = nxr::operators;
-using nxr::geometry::Manifold;
-using nxr::geometry::IntrinsicSurface;
-using nxr::geometry::IntrinsicRecord;
-using nxr::geometry::IntrinsicOptions;
-using nxr::geometry::DelaunayOptions;
-using nxr::geometry::MassKind;
-using nxr::geometry::TangentBasis;
-using nxr::geometry::ConnectionType;
-using nxr::geometry::OperatorId;
-using nxr::geometry::MeshKind;
-using nxr::geometry::ManifoldOptions;
 using core::Error;
 using core::ErrorCode;
 using core::CancellationToken;
@@ -36,7 +24,7 @@ namespace nxr::operators {
 // Pre-factored Cholesky / LU decompositions of mesh-derived
 // matrices, cached across compute calls. Each factor is built
 // lazily on first request and reused on every subsequent call
-// for the lifetime of the owning Manifold.
+// for the lifetime of the owning geometry::Manifold.
 //
 // Why this exists: mesh-derived sparse factorizations cost
 // O(n^1.5) to build but only O(nnz) per back-substitution. Each

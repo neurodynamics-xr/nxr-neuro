@@ -58,8 +58,8 @@ namespace {
 // The vertex FEM mass the registry names as this operator's natural mass.
 // The registry documents the DEFAULT family (massMixedVoronoi); spec.mass remains
 // the caller's override within that family (galerkin and barycentric are named options).
-Eigen::SparseMatrix<double> naturalVertexMass(Manifold& m, const char* id,
-                                              ops::MassMatrixVariant variant) {
+Eigen::SparseMatrix<double> naturalVertexMass(geometry::Manifold& m, const char* id,
+                                              nxr::operators::MassMatrixVariant variant) {
     // A real check (an `assert` is compiled out of release builds, and this guard exists for them): a registry entry that
     // disagrees with the construction below is a programming error, so fail loudly instead of silently solving the wrong pencil.
     const auto* v = registry::operatorById(id);
@@ -67,15 +67,15 @@ Eigen::SparseMatrix<double> naturalVertexMass(Manifold& m, const char* id,
         throw Error(ErrorCode::InvalidInput,
             std::string("eigenProblemFor: registry natural_mass of '") + id + "' disagrees with the vertex-mass family used to build it");
     switch (variant) {
-        case ops::MassMatrixVariant::MixedVoronoi: return m.operators().mass().mixedVoronoi();
-        case ops::MassMatrixVariant::Barycentric:  return m.operators().mass().barycentric();
-        case ops::MassMatrixVariant::Galerkin:     return m.operators().mass().galerkin();
+        case nxr::operators::MassMatrixVariant::MixedVoronoi: return m.operators().mass().mixedVoronoi();
+        case nxr::operators::MassMatrixVariant::Barycentric:  return m.operators().mass().barycentric();
+        case nxr::operators::MassMatrixVariant::Galerkin:     return m.operators().mass().galerkin();
     }
     throw Error(ErrorCode::InvalidInput, "eigenProblemFor: unknown mass variant");
 }
 } // namespace
 
-EigenProblem eigenProblemFor(Manifold& m, const EigenOperatorSpec& spec) {
+EigenProblem eigenProblemFor(geometry::Manifold& m, const EigenOperatorSpec& spec) {
     EigenProblem p;
     p.sigma = kShiftLadder;   // no fixed shift on the null space — the ladder (compute.h)
     switch (spec.op) {
@@ -127,9 +127,9 @@ EigenProblem eigenProblemFor(Manifold& m, const EigenOperatorSpec& spec) {
             break;
         }
         case EigenOperator::HodgeDirac: {
-            const auto h = ops::hodgedirac::assemble(m, spec.star1Floor, spec.mollify, spec.flipEps);
+            const auto h = nxr::operators::hodgedirac::assemble(m, spec.star1Floor, spec.mollify, spec.flipEps);
             p.K = h.K;
-            p.M = ops::hodgedirac::massMatrix(h);
+            p.M = nxr::operators::hodgedirac::massMatrix(h);
             p.blockSize = 1;
             break;
         }
@@ -138,7 +138,7 @@ EigenProblem eigenProblemFor(Manifold& m, const EigenOperatorSpec& spec) {
         case EigenOperator::SpinIntrinsicYe:
             throw Error(ErrorCode::InvalidInput,
                 "eigenProblemFor: the spin Diracs are solved on vertex spinors by a quotient, not as a (K, M) pencil",
-                "use eigenOperator(), or ops::spin::assemble for the 4F×4F face operator");
+                "use eigenOperator(), or nxr::operators::spin::assemble for the 4F×4F face operator");
     }
     return p;
 }
@@ -262,11 +262,11 @@ EigenResult denseEigen(const EigenProblem& p, int k) {
 
 } // namespace
 
-EigenResult eigenOperator(Manifold& m, const EigenOperatorSpec& spec, int k,
+EigenResult eigenOperator(geometry::Manifold& m, const EigenOperatorSpec& spec, int k,
                           double sigma, bool normalize, bool reconstructMultiplets,
                           bool dense, const CancellationToken& cancel,
                           const ProgressObserver& progress) {
-    using ops::spin::Kind;
+    using nxr::operators::spin::Kind;
     if (spec.op == EigenOperator::SpinExtrinsic || spec.op == EigenOperator::SpinIntrinsicHY ||
         spec.op == EigenOperator::SpinIntrinsicYe) {
         if (dense) throw Error(ErrorCode::InvalidInput, "eigenOperator: dense is not defined for the spin quotient");
@@ -275,7 +275,7 @@ EigenResult eigenOperator(Manifold& m, const EigenOperatorSpec& spec, int k,
                          k, cancel, progress);
     }
     if (spec.op == EigenOperator::HodgeDirac) {
-        const auto h = ops::hodgedirac::assemble(m, spec.star1Floor, spec.mollify, spec.flipEps);
+        const auto h = nxr::operators::hodgedirac::assemble(m, spec.star1Floor, spec.mollify, spec.flipEps);
         if (std::isnan(sigma) && !dense)   // default: the k lowest +μ by the exact/coexact split (+ mirror)
         {   // the reference method (nxr, Rheome) holds ABOUT `count` modes; eigenOperator's contract is k eigenpairs: the k lowest of it
             HodgeSolveOptions ho;
@@ -287,7 +287,7 @@ EigenResult eigenOperator(Manifold& m, const EigenOperatorSpec& spec, int k,
             return r;
         }
         EigenProblem hp;
-        hp.K = h.K; hp.M = ops::hodgedirac::massMatrix(h); hp.blockSize = 1; hp.sigma = sigma;
+        hp.K = h.K; hp.M = nxr::operators::hodgedirac::massMatrix(h); hp.blockSize = 1; hp.sigma = sigma;
         EigenResult r = dense ? denseEigen(hp, k)
                               : eigen(hp.K, hp.M, k, sigma, normalize, /*removeDC=*/false, cancel, progress);
         r.kind = classifyHodgeModes(h, r.eigenvectors, r.eigenvalues);

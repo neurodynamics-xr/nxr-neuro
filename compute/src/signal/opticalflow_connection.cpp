@@ -163,7 +163,7 @@ Eigen::SparseMatrix<double> realConnectionLaplacian(nxr::geometry::IntrinsicSurf
     return C;
 }
 
-Pencil componentPencil(const double* P, int n, const std::vector<int32_t>& F, const DelaunayOptions& o) {
+Pencil componentPencil(const double* P, int n, const std::vector<int32_t>& F, const geometry::DelaunayOptions& o) {
     const int nF = static_cast<int>(F.size() / 3);
     nxr::geometry::IntrinsicOptions io;
     io.mollify = o.mollify; io.flipEps = o.flipEps; io.mass = nxr::geometry::MassKind::InputMixedVoronoi;
@@ -262,7 +262,7 @@ struct ConnectionFlow::Impl {
     }
 };
 
-ConnectionFlow::ConnectionFlow(const RowMat3& positions, const FaceMat& faces, double alpha, double maxAbs, const DelaunayOptions& o) : p_(std::make_unique<Impl>()) {
+ConnectionFlow::ConnectionFlow(const RowMat3& positions, const operators::FaceMat& faces, double alpha, double maxAbs, const geometry::DelaunayOptions& o) : p_(std::make_unique<Impl>()) {
     Impl& s = *p_;
     s.V = positions.rows(); s.alpha = alpha; s.scale = maxAbs;
     if (!(alpha > 0) || !std::isfinite(alpha)) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "opticalFlow: alpha = " + std::to_string(alpha) + ", the smoothness weight must be positive and finite");

@@ -71,12 +71,12 @@ static void runMesh(const std::string& name, const Mesh& mesh, int k, bool cutMu
 
     // one-shot: what the one-shot command does
     Manifold m1(mesh.V.data(), mesh.nV(), mesh.F.data(), mesh.nF());
-    auto ops1 = ops::assembleManifoldOperators(m1);
+    auto ops1 = nxr::operators::assembleManifoldOperators(m1);
     const EigenResult oneShot = eigen(ops1.cotanLaplacian, ops1.mass, k, kShiftLadder, /*normalize=*/true, /*removeDC=*/true);
 
     // step by step, on a fresh Manifold: assemble, solve, normalize, removeDC
     Manifold m2(mesh.V.data(), mesh.nV(), mesh.F.data(), mesh.nF());
-    auto ops2 = ops::assembleManifoldOperators(m2);
+    auto ops2 = nxr::operators::assembleManifoldOperators(m2);
     EigenResult raw = eigen(ops2.cotanLaplacian, ops2.mass, k);
     raw.eigenvectors = normalize(raw.eigenvectors, ops2.mass);
     const EigenResult stepped = removeDC(raw);

@@ -49,7 +49,7 @@ static void testExtrinsicBlock() {
     Manifold m(V.data(), 12, F.data(), 20);
     const int N = m.nV();   // 12
 
-    Eigen::SparseMatrix<double> E = ops::dirac::extrinsicBlock(m);
+    Eigen::SparseMatrix<double> E = nxr::operators::dirac::extrinsicBlock(m);
     EXPECT(E.rows() == 4*N && E.cols() == 4*N, "E is [4V, 4V] = [48, 48]");
 
     Eigen::SparseMatrix<double> asym = E - Eigen::SparseMatrix<double>(E.transpose());
@@ -68,7 +68,7 @@ static void testFlatKernel() {
     std::cout << "\n=== dirac: flat-region kernel ===\n";
     std::vector<double> V; std::vector<int32_t> F; flatPatch(V, F);
     Manifold m(V.data(), 7, F.data(), 6);
-    Eigen::SparseMatrix<double> E = ops::dirac::extrinsicBlock(m);
+    Eigen::SparseMatrix<double> E = nxr::operators::dirac::extrinsicBlock(m);
     // Flat: Gauss map constant ⇒ N_r − N_q ≡ 0 ⇒ D ≡ 0 ⇒ E ≡ 0 (entirely kernel).
     EXPECT(E.norm() < 1e-10, "E vanishes on a flat patch (pure kernel)");
 }
@@ -108,7 +108,7 @@ static void testDiracFamily() {
     }
 
     // dirac(1) == extrinsic block E.
-    EXPECT((m.operators().dirac(1.0) - ops::dirac::extrinsicBlock(m)).norm() < 1e-12,
+    EXPECT((m.operators().dirac(1.0) - nxr::operators::dirac::extrinsicBlock(m)).norm() < 1e-12,
            "dirac(1) == extrinsicBlock");
 
     // Convex blend identity: dirac(τ) == (1−τ)dirac(0) + τ·dirac(1).
@@ -143,7 +143,7 @@ static void testDiracCache() {
     double tau = 0.9;
     Eigen::SparseMatrix<double> expect =
         (1.0 - tau) * kron4(m.operators().laplacian().cotan())
-        + tau * ops::dirac::extrinsicBlock(m);
+        + tau * nxr::operators::dirac::extrinsicBlock(m);
     EXPECT((m.operators().dirac(tau) - expect).norm() < 1e-12, "re-blend with cached E is correct");
     m.releaseOperator(OperatorId::Dirac);
     EXPECT(!m.isOperatorCached(OperatorId::Dirac), "releaseOperator(Dirac) clears E");
@@ -205,7 +205,7 @@ static void testDiracMatrixD() {
     const int N = m.nV();    // 12
     const int Fn = m.nF();   // 20
 
-    Eigen::SparseMatrix<double> D = ops::dirac::matrix(m);
+    Eigen::SparseMatrix<double> D = nxr::operators::dirac::matrix(m);
     EXPECT(D.rows() == 4*Fn && D.cols() == 4*N, "D is [4F, 4V] = [80, 48]");
 
     // HEADLINE anchor: E = DᵀW_F D byte-matches the cached extrinsic block (and
@@ -213,7 +213,7 @@ static void testDiracMatrixD() {
     Eigen::SparseMatrix<double> W = faceMass4(m);
     Eigen::SparseMatrix<double> Dt = D.transpose();
     Eigen::SparseMatrix<double> E_from_D = (Dt * W * D).pruned();
-    EXPECT((E_from_D - ops::dirac::extrinsicBlock(m)).norm() < 1e-12,
+    EXPECT((E_from_D - nxr::operators::dirac::extrinsicBlock(m)).norm() < 1e-12,
            "DᵀW_F D == extrinsicBlock (E is D's Galerkin square)");
 
     // First-order property: D annihilates a CONSTANT quaternionic field (the
@@ -225,7 +225,7 @@ static void testDiracMatrixD() {
     EXPECT((D * U).cwiseAbs().maxCoeff() < 1e-10, "D kills constant quaternionic fields");
 
     // The facet accessor returns the same matrix as the free function.
-    EXPECT((m.operators().diracD() - D).norm() < 1e-12, "operators().diracD() == ops::dirac::matrix");
+    EXPECT((m.operators().diracD() - D).norm() < 1e-12, "operators().diracD() == nxr::operators::dirac::matrix");
 }
 
 static void testDiracMatrixFlat() {
@@ -233,7 +233,7 @@ static void testDiracMatrixFlat() {
     std::vector<double> V; std::vector<int32_t> F; flatPatch(V, F);
     Manifold m(V.data(), 7, F.data(), 6);
     // Flat: Gauss map constant ⇒ every N_r − N_q ≡ 0 ⇒ D ≡ 0 (pure kernel).
-    EXPECT(ops::dirac::matrix(m).norm() < 1e-10, "D vanishes on a flat patch");
+    EXPECT(nxr::operators::dirac::matrix(m).norm() < 1e-10, "D vanishes on a flat patch");
 }
 
 static void testDiracMatrixCache() {

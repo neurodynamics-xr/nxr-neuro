@@ -260,7 +260,7 @@ static void testA7() {
     std::cout << "A7 Hodge–Dirac: spectrum ±sqrt(l(l+1)), kernel of dimension 2, D^2 = the Hodge Laplacian\n";
     const Mesh m = icosphere(2);
     Manifold M(m.V.data(), m.nV(), m.F.data(), m.nF());
-    const auto h = ops::hodgedirac::assemble(M);
+    const auto h = nxr::operators::hodgedirac::assemble(M);
     CHECK(h.record.flips >= 0 && h.record.delaunay && h.nV == m.nV() && h.nF == m.nF() && h.nE == (int)M.intrinsicSurface().mesh().nEdges(), "the pencil is on the intrinsic triangulation (" + std::to_string(h.record.flips) + " flips)");
     const int N = h.nV + h.nE + h.nF;
     Eigen::MatrixXd K = Eigen::MatrixXd(h.K);
@@ -304,7 +304,7 @@ static void testManifold() {
     auto& surf = M.intrinsicSurface();
     const Eigen::SparseMatrix<double> L = surf.cotanLaplacian();
     CHECK((L - M.operatorCotan()).norm() < 1e-12 * L.norm(), "the Manifold's cotan Laplacian is the surface's");
-    auto dec = ops::assembleDECOperators(M);
+    auto dec = nxr::operators::assembleDECOperators(M);
     const Eigen::SparseMatrix<double> L2 = dec.d0.transpose() * dec.hodge1 * dec.d0;
     CHECK((L - L2).norm() < 1e-10 * L.norm(), "d0^T *1 d0 is the cotan Laplacian (DEC of the intrinsic triangulation)");
     CHECK((dec.hodge0.diagonal() - Eigen::Map<const Eigen::VectorXd>(surf.massDiagonal().data(), M.nV())).cwiseAbs().maxCoeff() < 1e-15, "*0 is the input's mixed-Voronoi mass");

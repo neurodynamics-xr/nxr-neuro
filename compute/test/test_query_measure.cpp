@@ -78,7 +78,7 @@ int main() {
     const int nF = static_cast<int>(F.size() / 3);
 
     Manifold m(V.data(), nV, F.data(), nF);
-    auto ops = ops::assembleManifoldOperators(m);
+    auto ops = nxr::operators::assembleManifoldOperators(m);
     const double totalArea = ops.totalArea;
     std::cout << "  mesh: " << nV << " V, " << nF << " F, total area " << totalArea << std::endl;
 

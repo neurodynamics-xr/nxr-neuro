@@ -17,7 +17,7 @@ using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
 struct Sphere {
-    RowMat3 P; FaceMat F; RowMat3 N;
+    RowMat3 P; nxr::operators::FaceMat F; RowMat3 N;
     VectorXd mass;
 };
 
@@ -26,7 +26,7 @@ static Sphere makeSphere(int level) {
     icosphere(level, V, Ff);
     Sphere s;
     s.P = Eigen::Map<RowMat3>(V.data(), V.size() / 3, 3);
-    s.F = Eigen::Map<FaceMat>(Ff.data(), Ff.size() / 3, 3);
+    s.F = Eigen::Map<nxr::operators::FaceMat>(Ff.data(), Ff.size() / 3, 3);
     s.N = vertexNormals(s.P, s.F);
     Eigen::SparseMatrix<double> L;
     embeddedLaplacian(s.P, s.F, L, s.mass);

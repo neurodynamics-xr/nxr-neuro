@@ -11,18 +11,6 @@
 #include "nxr/geometry/mesh.h"
 
 namespace nxr::operators {
-namespace ops = nxr::operators;
-using nxr::geometry::Manifold;
-using nxr::geometry::IntrinsicSurface;
-using nxr::geometry::IntrinsicRecord;
-using nxr::geometry::IntrinsicOptions;
-using nxr::geometry::DelaunayOptions;
-using nxr::geometry::MassKind;
-using nxr::geometry::TangentBasis;
-using nxr::geometry::ConnectionType;
-using nxr::geometry::OperatorId;
-using nxr::geometry::MeshKind;
-using nxr::geometry::ManifoldOptions;
 using core::Error;
 using core::ErrorCode;
 using core::CancellationToken;
@@ -41,15 +29,15 @@ namespace nxr::operators::dirac {
 // area-weighted Galerkin square is E = Dᵀ ⋆_F D (extrinsicBlock builds E from
 // THIS matrix, so the two never drift). Quaternion order [w,x,y,z]; row 4*f+c,
 // column 4*v+c. Geometry-only (vertex normals + face areas).
-Eigen::SparseMatrix<double> matrix(Manifold& m);
-Eigen::SparseMatrix<double> extrinsicBlock(Manifold& m);
+Eigen::SparseMatrix<double> matrix(geometry::Manifold& m);
+Eigen::SparseMatrix<double> extrinsicBlock(geometry::Manifold& m);
 // First-order (rectangular) INTRINSIC Dirac operator D_int : [4F×4V] — identical
 // block structure to matrix(), but built from the IMMERSION (vertex positions /
 // opposite edge vectors) instead of the Gauss map. This is the spin-connection /
 // tangent-frame-transport root; its area-weighted Galerkin square Dᵀ ⋆_F D equals
 // the intrinsic Dirac² (the cotan-Laplacian-scalar-part operator). Geometry-only
 // (vertex positions + face areas). Quaternion order [w,x,y,z].
-Eigen::SparseMatrix<double> matrixIntrinsic(Manifold& m);
+Eigen::SparseMatrix<double> matrixIntrinsic(geometry::Manifold& m);
 // Face-domain (Poincaré dual) first-order Dirac operator D̃ : [4V×4F] — maps a
 // quaternionic field on faces to one on vertices, from EXACT per-face normals
 // aggregated over vertex stars (the dual of matrix). Its Galerkin square is the
@@ -58,13 +46,13 @@ Eigen::SparseMatrix<double> matrixIntrinsic(Manifold& m);
 // [w,x,y,z]; row 4*v+c, column 4*f+c. Geometry-only (face normals + vertex dual
 // areas). Closed-mesh v1: both throw Error(InvalidInput) on an open boundary
 // (vertex stars must be closed) — exact on closed cortical hemispheres.
-Eigen::SparseMatrix<double> matrixFace(Manifold& m);
+Eigen::SparseMatrix<double> matrixFace(geometry::Manifold& m);
 
 // matrixFaceIntrinsic: INTRINSIC face-domain Dirac D̃_int [4V×4F] — the centroid
 // (immersion) dual of matrixFace (face centroids instead of the Gauss map), mirroring
 // how matrixIntrinsic relates to matrix. Geometry-only; closed-mesh v1.
-Eigen::SparseMatrix<double> matrixFaceIntrinsic(Manifold& m);
-Eigen::SparseMatrix<double> extrinsicBlockFace(Manifold& m);
+Eigen::SparseMatrix<double> matrixFaceIntrinsic(geometry::Manifold& m);
+Eigen::SparseMatrix<double> extrinsicBlockFace(geometry::Manifold& m);
 } // namespace nxr::operators::dirac
 
 namespace nxr::operators::hodgedirac {
@@ -88,13 +76,13 @@ struct HodgeDirac {
     int star1Clamped = 0;               // edges whose cotan weight was raised to the floor
     double mollifyEps = 0.0;            // length added to every edge by mollify (0 = none needed)
     Eigen::MatrixXi faces;              // [nF, 3] the intrinsic triangulation's faces (vertex indices are the input's)
-    IntrinsicRecord record;             // mollify, ε, flipEps, flips, gauge of the construction
-    // the intrinsic complex in the stored layout (IntrinsicSurface::Complex): corners 3f + k, edges tail → tip, signed face edges (1-based), lengths,
+    geometry::IntrinsicRecord record;             // mollify, ε, flipEps, flips, gauge of the construction
+    // the intrinsic complex in the stored layout (geometry::IntrinsicSurface::Complex): corners 3f + k, edges tail → tip, signed face edges (1-based), lengths,
     // the raw signpost angles of each corner's halfedge, the cone angles and the reference neighbours (angle 0 of the gauge)
-    IntrinsicSurface::Complex complex;
+    geometry::IntrinsicSurface::Complex complex;
 };
-// Uses the Manifold's operator mesh when it is the intrinsic one built with these options, else builds its own by the same construction.
-HodgeDirac assemble(Manifold& m, double star1Floor = 0.0, double mollify = 1e-6, double flipEps = 1e-6);
+// Uses the geometry::Manifold's operator mesh when it is the intrinsic one built with these options, else builds its own by the same construction.
+HodgeDirac assemble(geometry::Manifold& m, double star1Floor = 0.0, double mollify = 1e-6, double flipEps = 1e-6);
 Eigen::SparseMatrix<double> massMatrix(const HodgeDirac& h);   // diag(M)
 } // namespace nxr::operators::hodgedirac
 
@@ -112,9 +100,9 @@ struct SpinDirac {
     Eigen::VectorXd H;               // [F] integrated mean curvature per face
     Eigen::VectorXd area;            // [F]
 };
-SpinDirac assemble(Manifold& m, Kind kind);
+SpinDirac assemble(geometry::Manifold& m, Kind kind);
 // A (4F×4V): (Aψ)_f = Σ_{v∈f} p_fv ψ_v. covariant: p_fv = unit quaternion turning the area-weighted vertex normal onto the face's
 // (Ye et al. adj_vf_cov; for the intrinsic operators); else 1 (adj_vf; for the extrinsic).
-Eigen::SparseMatrix<double> vertexToFace(Manifold& m, bool covariant);
+Eigen::SparseMatrix<double> vertexToFace(geometry::Manifold& m, bool covariant);
 } // namespace nxr::operators::spin
 

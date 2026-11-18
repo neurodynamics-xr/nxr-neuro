@@ -40,7 +40,7 @@ namespace nxr::operators::differential {
 // dirac(1) = D_N; its imag block is the extrinsic curvature endomorphism W_ext,
 // which is identically zero on a flat/developable region (constant normals ⇒
 // D_N=0) and nonzero on curved regions.
-Eigen::SparseMatrix<double> assembleExtrinsicWeitzenbock(Manifold& m) {
+Eigen::SparseMatrix<double> assembleExtrinsicWeitzenbock(geometry::Manifold& m) {
     const int N = m.nV();
 
     // Squared immersion Dirac S = Δ₄ + D_N. Built through the public operators

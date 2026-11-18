@@ -22,12 +22,12 @@ namespace cn = nxr::signal::connection;
 static double maxAbs(const VectorXd& a) { return a.size() ? a.cwiseAbs().maxCoeff() : 0; }
 static double relMax(const VectorXd& a, const VectorXd& b) { return a.size() != b.size() ? 1e9 : maxAbs(a - b) / std::max(1e-300, maxAbs(b)); }
 
-struct Mesh { RowMat3 P; FaceMat F; };
+struct Mesh { RowMat3 P; nxr::operators::FaceMat F; };
 static Mesh sphere(int sub, double R) {
     std::vector<double> V; std::vector<int32_t> F;
     icosphere(sub, V, F, R);
     Mesh m; m.P = Eigen::Map<const RowMat3>(V.data(), static_cast<Eigen::Index>(V.size() / 3), 3);
-    m.F = Eigen::Map<const FaceMat>(F.data(), static_cast<Eigen::Index>(F.size() / 3), 3);
+    m.F = Eigen::Map<const nxr::operators::FaceMat>(F.data(), static_cast<Eigen::Index>(F.size() / 3), 3);
     return m;
 }
 // the travelling bump of the Studio test (MATLAB's optical_flow_validate): a Gaussian of geodesic width sigma = 0.2 R whose centre turns about y at omega0
@@ -79,7 +79,7 @@ int main() {
             const int n = static_cast<int>(g.num()), nT = static_cast<int>(g.num());
             const double alpha = g.num(), peak = g.num();
             const RowMat3 P = g.mat("positions");
-            const FaceMat F = g.mat("faces").cast<std::int32_t>();
+            const nxr::operators::FaceMat F = g.mat("faces").cast<std::int32_t>();
             const MatrixXd I = g.mat("I"), Ct = g.mat("C"), Mg = g.mat("M"), Ng = g.mat("normals"), gg = g.mat("g"), zg = g.mat("z"), zvg = g.mat("zv"), vg = g.mat("velocity");
             (void)Ng;
             cn::ConnectionFlow flow(P, F, alpha, peak);

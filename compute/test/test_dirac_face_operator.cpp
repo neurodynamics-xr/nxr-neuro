@@ -43,7 +43,7 @@ static void testExtrinsicBlockFace() {
     Manifold m(V.data(), 12, F.data(), 20);
     const int Fn = m.nF();   // 20
 
-    Eigen::SparseMatrix<double> E = ops::dirac::extrinsicBlockFace(m);
+    Eigen::SparseMatrix<double> E = nxr::operators::dirac::extrinsicBlockFace(m);
     EXPECT(E.rows() == 4*Fn && E.cols() == 4*Fn, "E~ is [4F, 4F] = [80, 80]");
 
     Eigen::SparseMatrix<double> asym = E - Eigen::SparseMatrix<double>(E.transpose());
@@ -88,7 +88,7 @@ static void testBoundaryThrows() {
     // diracFace is closed-mesh v1: an open boundary (open vertex stars) must throw,
     // not silently produce a degraded operator (CONTRIBUTING.md §6 fail-loud).
     bool threw = false;
-    try { ops::dirac::extrinsicBlockFace(m); } catch (const std::exception&) { threw = true; }
+    try { nxr::operators::dirac::extrinsicBlockFace(m); } catch (const std::exception&) { threw = true; }
     EXPECT(threw, "extrinsicBlockFace throws on an open boundary");
     bool threwFamily = false;
     try { m.operators().diracFace(1.0); } catch (const std::exception&) { threwFamily = true; }
@@ -97,7 +97,7 @@ static void testBoundaryThrows() {
 
 // K̃ = d₁ ⋆₁⁻¹ d₁ᵀ, the DEC 2-form Laplacian (independent oracle for the τ=0 anchor).
 static Eigen::SparseMatrix<double> twoFormLaplacian(Manifold& m) {
-    const ops::DECOperators& dec = m.operators().dec();
+    const nxr::operators::DECOperators& dec = m.operators().dec();
     Eigen::SparseMatrix<double> d1t = dec.d1.transpose();
     return dec.d1 * dec.hodge1Inverse * d1t;     // [F×E][E×E][E×F] = [F×F]
 }
@@ -134,7 +134,7 @@ static void testDiracFaceFamily() {
                std::string("diracFace(") + std::to_string(tau) + ") is [4F x 4F] symmetric");
     }
 
-    EXPECT((m.operators().diracFace(1.0) - ops::dirac::extrinsicBlockFace(m)).norm() < 1e-12,
+    EXPECT((m.operators().diracFace(1.0) - nxr::operators::dirac::extrinsicBlockFace(m)).norm() < 1e-12,
            "diracFace(1) == extrinsicBlockFace");
 
     double tau = 0.4;
@@ -234,14 +234,14 @@ static void testDiracMatrixFace() {
     const int N = m.nV();    // 12
     const int Fn = m.nF();   // 20
 
-    Eigen::SparseMatrix<double> D = ops::dirac::matrixFace(m);
+    Eigen::SparseMatrix<double> D = nxr::operators::dirac::matrixFace(m);
     EXPECT(D.rows() == 4*N && D.cols() == 4*Fn, "D~ is [4V, 4F] = [48, 80]");
 
     // HEADLINE anchor: Ẽ = D̃ᵀW_V D̃ byte-matches the cached face extrinsic block.
     Eigen::SparseMatrix<double> W = vertexDualMass4(m);
     Eigen::SparseMatrix<double> Dt = D.transpose();
     Eigen::SparseMatrix<double> E_from_D = (Dt * W * D).pruned();
-    EXPECT((E_from_D - ops::dirac::extrinsicBlockFace(m)).norm() < 1e-12,
+    EXPECT((E_from_D - nxr::operators::dirac::extrinsicBlockFace(m)).norm() < 1e-12,
            "D~ᵀW_V D~ == extrinsicBlockFace (Ẽ is D~'s Galerkin square)");
 
     // First-order property: D̃ annihilates a CONSTANT (per-face) quaternionic field
@@ -252,7 +252,7 @@ static void testDiracMatrixFace() {
     EXPECT((D * U).cwiseAbs().maxCoeff() < 1e-10, "D~ kills constant face-quaternionic fields");
 
     EXPECT((m.operators().diracFaceD() - D).norm() < 1e-12,
-           "operators().diracFaceD() == ops::dirac::matrixFace");
+           "operators().diracFaceD() == nxr::operators::dirac::matrixFace");
 }
 
 static void testDiracFaceMatrixCacheAndBoundary() {

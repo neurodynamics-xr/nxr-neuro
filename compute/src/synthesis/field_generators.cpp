@@ -49,7 +49,7 @@ Eigen::VectorXd randomFaceScalar(int nF, unsigned int seed) {
     return f;
 }
 
-Eigen::VectorXd eigenmodeField(const EigenResult& eig, int k_index) {
+Eigen::VectorXd eigenmodeField(const operators::EigenResult& eig, int k_index) {
     if (k_index < 0 || k_index >= eig.k) {
         throw Error(ErrorCode::InvalidInput,
             "eigenmodeField: eigenmode index out of range");
@@ -58,7 +58,7 @@ Eigen::VectorXd eigenmodeField(const EigenResult& eig, int k_index) {
 }
 
 Eigen::VectorXd randomDecomposed1Form(
-    const DECOperators& dec,
+    const operators::DECOperators& dec,
     int nV, int nE, int nF,
     double alphaStrength,
     double betaStrength,
@@ -88,7 +88,7 @@ Eigen::VectorXd randomDecomposed1Form(
 
 Eigen::MatrixXf heatDiffusion(
     const Eigen::SparseMatrix<double>& M,
-    const EigenResult& eig,
+    const operators::EigenResult& eig,
     const Eigen::VectorXd& u0,
     const std::vector<double>& timesteps,
     double alpha
@@ -132,7 +132,7 @@ Eigen::MatrixXf heatDiffusion(
 }
 
 Eigen::MatrixXf dampedWave(
-    const EigenResult& eig,
+    const operators::EigenResult& eig,
     const std::vector<int>& modeIndices,
     const std::vector<double>& amplitudes,
     const std::vector<double>& dampings,

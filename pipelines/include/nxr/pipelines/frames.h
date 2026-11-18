@@ -58,6 +58,6 @@ StoredFrames read_stored_frames(nxr::io::SubjectWriter& sub, const std::string& 
 /** THE GAUGE RECORD of a stored tangent quantity (docs/specs/2026-11-17-geometry-central-switch.md, 5.1): {gauge: "geometry-central@<commit>/vertex", gauge_surface: <surface id>,
  *  gauge_record: {mollify, epsilon, flipEps, mass, boundary_vertices, fingerprint}} from the chart kit's intrinsic surfaces (one per connected piece: their fingerprints joined).
  *  Merged into the row's provenance; the runner reads it into a port's gauge, and refuses a tangent quantity stored without one. */
-nxr::io::Json gauge_block(nxr::chart::ChartKit& kit, int n_vertices, const std::string& surface_id);
+nxr::io::Json gauge_block(nxr::geometry::ChartKit& kit, int n_vertices, const std::string& surface_id);
 
 }  // namespace nxr::pipelines

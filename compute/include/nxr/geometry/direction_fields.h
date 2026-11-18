@@ -56,7 +56,7 @@ struct SmoothVertexFieldResult {
  * Compute the trivial connection 1-form φ = δβ (per-edge rotation angles).
  *
  * Solves the Poisson system A β = -K + 2π σ where:
- *   A   = d0ᵀ ★₁ d0 (cotangent Laplacian, via CholeskyCache::hodgeExact)
+ *   A   = d0ᵀ ★₁ d0 (cotangent Laplacian, via operators::CholeskyCache::hodgeExact)
  *   K   = per-vertex Gaussian curvature (angle defect)
  *   σ   = singularity index at each vertex (0 for non-singular)
  *
@@ -73,8 +73,8 @@ struct SmoothVertexFieldResult {
  */
 Eigen::VectorXd computeTrivialConnection(
     Manifold& m,
-    const ops::DECOperators& dec,
-    ops::CholeskyCache& cache,
+    const operators::DECOperators& dec,
+    operators::CholeskyCache& cache,
     const std::map<int, double>& singularityMap
 );
 
@@ -115,8 +115,8 @@ struct GaugeRotations {
 };
 GaugeRotations integrateTrivialGaugeRotations(
     Manifold& m,
-    const ops::DECOperators& dec,
-    ops::CholeskyCache& cache,
+    const operators::DECOperators& dec,
+    operators::CholeskyCache& cache,
     const std::map<int, double>& singularityMap);
 
 /**
@@ -131,8 +131,8 @@ GaugeRotations integrateTrivialGaugeRotations(
  */
 DirectionFieldResult trivial(
     Manifold& m,
-    const ops::DECOperators& dec,
-    ops::CholeskyCache& cache,
+    const operators::DECOperators& dec,
+    operators::CholeskyCache& cache,
     const std::map<int, double>& singularityMap
 );
 

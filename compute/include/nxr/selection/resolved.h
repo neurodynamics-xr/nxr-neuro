@@ -172,7 +172,3 @@ ProductForm resolve_product(const Selection& product, const std::vector<Space>& 
 ProductForm resolve_box(const Selection& span, const std::vector<Line>& axes);
 
 }  // namespace nxr::selection
-
-// TEMPORARY (toolbox refactor, removed in batch B5 with the forwarders): callers that reached the makers (time_grid, ...) through this header keep compiling.
-// The class side does not depend on them; the dependency runs select -> selection (partition.h includes this header).
-#include "nxr/select/partition.h"

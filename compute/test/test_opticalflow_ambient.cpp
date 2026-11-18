@@ -22,7 +22,7 @@ int main() {
     const MatrixXd Vg = g.mat("positions"), Fg = g.mat("faces"), A = g.mat("A");
     const MatrixXd b1 = g.mat("bst_1_1"); g.mat("bst_1_2"); g.mat("bst_1_3");
     const RowMat3 pos = Vg;
-    const FaceMat faces = Fg.cast<std::int32_t>();
+    const nxr::operators::FaceMat faces = Fg.cast<std::int32_t>();
     const RowMat3 nrm = vertexNormals(pos, faces);
     const FlowForm lb{Regulariser::Ambient, DataFit::Triangle};
     {

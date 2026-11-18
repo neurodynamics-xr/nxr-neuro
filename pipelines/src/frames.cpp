@@ -57,7 +57,7 @@ nxr::geometry::Axes axes_of(const std::string& convention) {
 Json vec_json(const Eigen::Vector3d& v) { return Json::array({v.x(), v.y(), v.z()}); }
 }  // namespace
 
-Json gauge_block(nxr::chart::ChartKit& kit, int n_vertices, const std::string& surface_id) {
+Json gauge_block(nxr::geometry::ChartKit& kit, int n_vertices, const std::string& surface_id) {
   std::vector<const nxr::geometry::IntrinsicSurface*> seen;
   std::string fingerprint;
   Json rec;
@@ -148,19 +148,19 @@ FramesMade make_frames(DatasetWriter* dsp, SubjectWriter& sub, const FramesCompu
     say(Json{{"stage", "canonical"}, {"surface", sname}, {"singular", ns}});
   }
   // the signpost gauge (the reference when there is no canonical frame, and the gauge angle of north)
-  std::optional<nxr::chart::ChartKit> kit;
+  std::optional<nxr::geometry::ChartKit> kit;
   Mat3 ref1, ref2;
   std::string reference = "canonical frames";
   if (e1.rows() == nV) { ref1 = e1; ref2 = e2; }
   else {
     kit.emplace(S.vertices.data(), nV, S.faces.data(), nF);
-    const nxr::chart::Basis b = kit->basis();
+    const nxr::geometry::Basis b = kit->basis();
     ref1.resize(nV, 3); ref2.resize(nV, 3);
     for (int i = 0; i < nV; ++i) for (int k = 0; k < 3; ++k) { ref1(i, k) = b.e1[static_cast<std::size_t>(3 * i + k)]; ref2(i, k) = b.e2[static_cast<std::size_t>(3 * i + k)]; }
     reference = "signpost gauge";
   }
   if (stored_canon) {
-    nxr::chart::ChartKit k2(S.vertices.data(), nV, S.faces.data(), nF);
+    nxr::geometry::ChartKit k2(S.vertices.data(), nV, S.faces.data(), nF);
     const Eigen::VectorXd g = nxr::geometry::gaugeAngle(k2, e1);
     angle_gauge = gauge_block(k2, nV, S.id);
     gauge_angle.resize(static_cast<std::size_t>(nV));

@@ -46,7 +46,7 @@ std::vector<std::pair<int, int>> tileAdjacency(const int32_t* faces, int nF, con
     return {s.begin(), s.end()};
 }
 
-LeviCivita leviCivita(chart::ChartKit& kit, const geometry::Mat3& e1, const geometry::Mat3& e2, const VectorXd& gauge, const std::vector<int32_t>& node, int nodes, const std::vector<int>& centres) {
+LeviCivita leviCivita(geometry::ChartKit& kit, const geometry::Mat3& e1, const geometry::Mat3& e2, const VectorXd& gauge, const std::vector<int32_t>& node, int nodes, const std::vector<int>& centres) {
     (void)e1; (void)e2;
     const int V = static_cast<int>(node.size());
     LeviCivita lc;

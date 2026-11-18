@@ -17,18 +17,6 @@
 #include "nxr/operators/dirac.h"
 
 namespace nxr::operators {
-namespace ops = nxr::operators;
-using nxr::geometry::Manifold;
-using nxr::geometry::IntrinsicSurface;
-using nxr::geometry::IntrinsicRecord;
-using nxr::geometry::IntrinsicOptions;
-using nxr::geometry::DelaunayOptions;
-using nxr::geometry::MassKind;
-using nxr::geometry::TangentBasis;
-using nxr::geometry::ConnectionType;
-using nxr::geometry::OperatorId;
-using nxr::geometry::MeshKind;
-using nxr::geometry::ManifoldOptions;
 using core::Error;
 using core::ErrorCode;
 using core::CancellationToken;
@@ -171,7 +159,7 @@ enum class EigenOperator {
 struct EigenOperatorSpec {
     EigenOperator op;
     double tau = 0.0;                                       // Dirac / DiracFace blend ∈ [0,1]
-    ops::MassMatrixVariant mass = ops::MassMatrixVariant::MixedVoronoi;  // vertex-domain mass choice
+    operators::MassMatrixVariant mass = nxr::operators::MassMatrixVariant::MixedVoronoi;  // vertex-domain mass choice
     bool graphDegreeMass = false;   // LaplacianGraph: mass = diag(degree) (L φ = λ D φ) instead of identity
     double star1Floor = 0.0;        // HodgeDirac: floor of ⋆1, 0 = off (default, as nxr)
     double mollify    = 1e-6;       // HodgeDirac: the mollification margin relative to the mean edge length (shared name `mollify`)
@@ -187,7 +175,7 @@ struct EigenProblem {
 };
 
 // Build the (K, M, σ, blockSize) generalized eigenproblem for a named operator.
-EigenProblem eigenProblemFor(Manifold& m, const EigenOperatorSpec& spec);
+EigenProblem eigenProblemFor(geometry::Manifold& m, const EigenOperatorSpec& spec);
 
 // blockKron(M, b): expand a [n×n] sparse to [bn×bn] block-diagonal (kron(M, I_b),
 // entry (i,j,v) → (b·i+c, b·j+c, v) for c=0..b−1). Exposed for callers that build
@@ -201,7 +189,7 @@ Eigen::SparseMatrix<double> blockKron(const Eigen::SparseMatrix<double>& M, int 
 // (exact eigenvalues + multiplicities; small meshes / verification only — throws
 // EigensolveInvalidK if the dense size exceeds the cap unless the mesh is small).
 EigenResult eigenOperator(
-    Manifold& m,
+    geometry::Manifold& m,
     const EigenOperatorSpec& spec,
     int k,
     double sigma                       = kShiftLadder,
@@ -224,7 +212,7 @@ EigenResult eigenSliced(const Eigen::SparseMatrix<double>& A, const Eigen::Spars
 
 // Hodge–Dirac mode kinds from M-orthonormal pencil eigenvectors X (columns): 0 exact (0-form block dominates),
 // 2 coexact (2-form block dominates), 1 harmonic (|μ| ≤ tol·max|μ|).
-Eigen::VectorXi classifyHodgeModes(const ops::hodgedirac::HodgeDirac& h, const Eigen::MatrixXd& X,
+Eigen::VectorXi classifyHodgeModes(const operators::hodgedirac::HodgeDirac& h, const Eigen::MatrixXd& X,
                                    const Eigen::VectorXd& mu, double tol = 1e-8);
 
 // ── The Hodge–Dirac mode solve: the REFERENCE method, and its named options ──
@@ -280,7 +268,7 @@ HodgeLadders hodgeLadders(const Eigen::SparseMatrix<double>& L0, const Eigen::Sp
 // The result holds ABOUT `count` modes (all under the single λ cut; options.limit keeps at most that many of the lowest).
 // bothSigns adds the −μ mirror (1-form block negated). Result: eigenvalues μ ascending (signed if bothSigns:
 // −μ_max … −μ_min, then +μ_min … +μ_max), eigenvectors [N×k] (M-orthonormal when the solve is), kind per column.
-EigenResult hodgeDiracModes(const ops::hodgedirac::HodgeDirac& h, int count, bool bothSigns = false,
+EigenResult hodgeDiracModes(const operators::hodgedirac::HodgeDirac& h, int count, bool bothSigns = false,
                             const HodgeSolveOptions& options = {}, const CancellationToken& cancel = {},
                             const ProgressObserver& progress = {});
 
@@ -291,7 +279,7 @@ EigenResult reconstructDiracMultiplets(const EigenResult& r, const Eigen::Sparse
 // The k spin-Dirac eigenpairs nearest 0 as Ye et al. (dirac_eigen.m): on vertex spinors ψ, AᵀDM⁻¹DAψ = μ AᵀDAψ,
 // solved as AᵀDAψ = ν (AᵀDM⁻¹DA + ε AᵀMA) ψ for the k largest |ν|, μ = 1/ν. M = area ⊗ I₄. Returns μ ascending (signed),
 // ψ [4V×k] normalised to ψᵀ AᵀMA ψ = 1. A = covariant vertexToFace for the intrinsic kinds, plain for the extrinsic.
-EigenResult eigenSpin(Manifold& m, ops::spin::Kind kind, int k,
+EigenResult eigenSpin(geometry::Manifold& m, operators::spin::Kind kind, int k,
                       const CancellationToken& cancel = {}, const ProgressObserver& progress = {});
 
 
@@ -318,14 +306,14 @@ EigenResult eigenSpin(Manifold& m, ops::spin::Kind kind, int k,
 Eigen::VectorXd poisson(
     const Eigen::SparseMatrix<double>& K,
     const Eigen::SparseMatrix<double>& M,
-    ops::CholeskyCache& cache,
+    operators::CholeskyCache& cache,
     const std::map<int, double>& densityMap
 );
 
 /** Convenience overload: forwards to (K, M) using ops.cotanLaplacian, ops.mass. */
 inline Eigen::VectorXd poisson(
-    const ops::ManifoldOperators& ops,
-    ops::CholeskyCache& cache,
+    const operators::ManifoldOperators& ops,
+    nxr::operators::CholeskyCache& cache,
     const std::map<int, double>& densityMap
 ) {
     return poisson(ops.cotanLaplacian, ops.mass, cache, densityMap);

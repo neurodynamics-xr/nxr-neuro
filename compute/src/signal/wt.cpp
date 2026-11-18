@@ -1,5 +1,5 @@
 #include "nxr/signal/wavelet.h"
-#include "nxr/signal/fourier.h"   // the old name nxr::fft (forwarder), until the callers are renamed
+#include "nxr/signal/fourier.h"
 #include <algorithm>
 #include <cmath>
 #include <numeric>

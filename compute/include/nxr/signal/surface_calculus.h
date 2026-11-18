@@ -12,8 +12,6 @@
 #include "nxr/operators/dec.h"
 
 namespace nxr::signal {
-using nxr::geometry::Manifold;
-using nxr::operators::DECOperators;
 
 // ── Vector Field Operations ──────────────────────────────────
 
@@ -21,8 +19,8 @@ using nxr::operators::DECOperators;
  *  Formula: V(f) = (N × (a + b + c)) / (6A)
  *  Returns [nF, 3] matrix (row-major vectors). */
 Eigen::MatrixXd whitney(
-    Manifold& m,
-    const DECOperators& dec,
+    geometry::Manifold& m,
+    const operators::DECOperators& dec,
     const Eigen::VectorXd& oneForm
 );
 
@@ -38,7 +36,7 @@ struct IsolineResult {
  *  numLevels evenly-spaced contour values in [minValue, maxValue].
  *  If minValue == maxValue, auto-detects range from the data. */
 IsolineResult isoline(
-    Manifold& m,
+    geometry::Manifold& m,
     const Eigen::VectorXd& scalarField,
     int numLevels = 20,
     double minValue = 0.0,
@@ -63,7 +61,7 @@ struct StreamlineResult {
  * @param maxSteps   max integration steps per streamline
  */
 StreamlineResult streamline(
-    Manifold& m,
+    geometry::Manifold& m,
     const Eigen::MatrixXd& faceField,
     int numSeeds = 15,
     double stepCoef = 0.15,

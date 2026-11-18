@@ -21,8 +21,6 @@ namespace nxr::signal {
 
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
-using nxr::geometry::Manifold;
-using nxr::operators::DECOperators;
 
 // ─── Whitney interpolation: 1-form (edges) → face vectors ────
 //
@@ -40,8 +38,8 @@ using nxr::operators::DECOperators;
 // if the halfedge traversal direction is opposite to the edge's canonical
 // direction).
 Eigen::MatrixXd whitney(
-    Manifold& m,
-    const DECOperators& /*dec*/,  // unused here; we use raw halfedge iteration
+    geometry::Manifold& m,
+    const operators::DECOperators& /*dec*/,  // unused here; we use raw halfedge iteration
     const Eigen::VectorXd& oneForm
 ) {
     auto& mesh = m.mesh();
@@ -102,7 +100,6 @@ namespace nxr::operators {
 
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
-using nxr::geometry::Manifold;
 
 // ─── Scalar gradient: vertex scalar field → face vectors ─────
 //
@@ -112,7 +109,7 @@ using nxr::geometry::Manifold;
 //   ∇u = (1 / 2A) [ u_i (N × e_jk) + u_j (N × e_ki) + u_k (N × e_ij) ]
 // where e_jk, e_ki, e_ij are edges OPPOSITE to vertex i, j, k respectively.
 Eigen::MatrixXd gradient(
-    Manifold& m,
+    geometry::Manifold& m,
     const Eigen::VectorXd& u
 ) {
     auto& mesh = m.mesh();

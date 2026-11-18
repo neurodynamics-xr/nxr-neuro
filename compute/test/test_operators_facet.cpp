@@ -98,7 +98,7 @@ static void testConnectionCovariant() {
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
     Manifold m(V.data(), 12, F.data(), 20);     // LC active
     auto ops = m.operators();
-    namespace cl = ops::laplacian::connection;
+    namespace cl = nxr::operators::laplacian::connection;
 
     const auto& K = ops.laplacian().connection();
     EXPECT(K.rows() == 12 && K.cols() == 12, "connection L [12,12] complex");
@@ -129,7 +129,7 @@ static void testCovariantCouplingCacheKey() {
     std::cout << "\n=== operators: covariant cache keys on coupling ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
-    namespace cl = ops::laplacian::connection;
+    namespace cl = nxr::operators::laplacian::connection;
     // Request Product then Ambient on the SAME instance — must NOT alias.
     Eigen::SparseMatrix<double> Cp = m.operators().laplacian().covariant(cl::CovariantCoupling::Product);
     Eigen::SparseMatrix<double> Ca = m.operators().laplacian().covariant(cl::CovariantCoupling::Ambient);

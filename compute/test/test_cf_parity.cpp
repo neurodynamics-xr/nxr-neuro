@@ -74,14 +74,14 @@ int main() {
         Manifold m(P.data(), nV, Fi.data(), nF);
 
         // Crane's Dirac D (Gauss map) and the edge-vector Dirac: matrices
-        EXPECT(rel(ops::dirac::matrix(m), coo(eb + "/exports/export/diracD", 4 * nF, 4 * nV)) < 1e-9, "diracD matrix == cortical-flow export (rel Frobenius " + num(rel(ops::dirac::matrix(m), coo(eb + "/exports/export/diracD", 4 * nF, 4 * nV))) + ")");
-        EXPECT(rel(ops::dirac::matrixIntrinsic(m), coo(eb + "/exports/export/diracIntrinsicD", 4 * nF, 4 * nV)) < 1e-9, "diracIntrinsicD matrix == export");
+        EXPECT(rel(nxr::operators::dirac::matrix(m), coo(eb + "/exports/export/diracD", 4 * nF, 4 * nV)) < 1e-9, "diracD matrix == cortical-flow export (rel Frobenius " + num(rel(nxr::operators::dirac::matrix(m), coo(eb + "/exports/export/diracD", 4 * nF, 4 * nV))) + ")");
+        EXPECT(rel(nxr::operators::dirac::matrixIntrinsic(m), coo(eb + "/exports/export/diracIntrinsicD", 4 * nF, 4 * nV)) < 1e-9, "diracIntrinsicD matrix == export");
 
         // Crane spectrum: sqrt of the eigenvalues of E u = mu^2 M_V u, M_V = barycentric (lumped) x I4
         {
-            SM E = ops::dirac::extrinsicBlock(m);
+            SM E = nxr::operators::dirac::extrinsicBlock(m);
             (void)E;
-            nxr::operators::EigenOperatorSpec crane{nxr::operators::EigenOperator::Dirac, 1.0, ops::MassMatrixVariant::Barycentric};   // tau = 1: E, mass barycentric x I4
+            nxr::operators::EigenOperatorSpec crane{nxr::operators::EigenOperator::Dirac, 1.0, nxr::operators::MassMatrixVariant::Barycentric};   // tau = 1: E, mass barycentric x I4
             auto r = nxr::operators::eigenOperator(m, crane, 12, nxr::operators::kShiftLadder, true, /*multiplets=*/true);
             auto ref = readNpy(eb + "/diracD_mu.npy");
             double d = 0; int cnt = 0;
@@ -90,16 +90,16 @@ int main() {
         }
 
         // spin Diracs
-        auto ex = ops::spin::assemble(m, ops::spin::Kind::Extrinsic), hy = ops::spin::assemble(m, ops::spin::Kind::IntrinsicHY), ye = ops::spin::assemble(m, ops::spin::Kind::IntrinsicYe);
+        auto ex = nxr::operators::spin::assemble(m, nxr::operators::spin::Kind::Extrinsic), hy = nxr::operators::spin::assemble(m, nxr::operators::spin::Kind::IntrinsicHY), ye = nxr::operators::spin::assemble(m, nxr::operators::spin::Kind::IntrinsicYe);
         const std::string es = eb + "/exports/export-spin/bunny";
         EXPECT(rel(ex.D, csr(es + ".extrinsic", 4 * nF, 4 * nF)) < 1e-12, "spin extrinsic == export (rel " + num(rel(ex.D, csr(es + ".extrinsic", 4 * nF, 4 * nF))) + ")");
         EXPECT(rel(hy.D, csr(es + ".intrinsicHY", 4 * nF, 4 * nF)) < 1e-12, "spin intrinsicHY == export (rel " + num(rel(hy.D, csr(es + ".intrinsicHY", 4 * nF, 4 * nF))) + ")");
         EXPECT(rel(ye.D, csr(es + ".intrinsicYe", 4 * nF, 4 * nF)) < 1e-12, "spin intrinsicYe == export (rel " + num(rel(ye.D, csr(es + ".intrinsicYe", 4 * nF, 4 * nF))) + ")");
-        EXPECT(rel(ops::spin::vertexToFace(m, true), csr(es + ".Acov", 4 * nF, 4 * nV)) < 1e-9, "vertexToFace covariant == export Acov");
-        EXPECT(rel(ops::spin::vertexToFace(m, false), csr(es + ".Aplain", 4 * nF, 4 * nV)) < 1e-12, "vertexToFace plain == export Aplain");
+        EXPECT(rel(nxr::operators::spin::vertexToFace(m, true), csr(es + ".Acov", 4 * nF, 4 * nV)) < 1e-9, "vertexToFace covariant == export Acov");
+        EXPECT(rel(nxr::operators::spin::vertexToFace(m, false), csr(es + ".Aplain", 4 * nF, 4 * nV)) < 1e-12, "vertexToFace plain == export Aplain");
         auto H = readBin<double>(es + ".H.f64"); double dH = 0; for (int f = 0; f < nF; ++f) dH = std::max(dH, std::abs(H[f] - ex.H(f)));
         EXPECT(dH < 1e-12, "H per face == export (max diff " + num(dH) + ")");
-        for (auto [name, kind] : {std::pair<const char*, ops::spin::Kind>{"intrinsicHY", ops::spin::Kind::IntrinsicHY}, {"extrinsic", ops::spin::Kind::Extrinsic}}) {
+        for (auto [name, kind] : {std::pair<const char*, nxr::operators::spin::Kind>{"intrinsicHY", nxr::operators::spin::Kind::IntrinsicHY}, {"extrinsic", nxr::operators::spin::Kind::Extrinsic}}) {
             auto r = nxr::operators::eigenSpin(m, kind, 24);
             auto ref = readNpy(eb + "/spin_" + std::string(name) + "_mu.npy");
             std::vector<double> a(r.eigenvalues.data(), r.eigenvalues.data() + r.k), b(ref);
@@ -113,7 +113,7 @@ int main() {
 
         // Hodge-Dirac
         {
-            auto h = ops::hodgedirac::assemble(m);
+            auto h = nxr::operators::hodgedirac::assemble(m);
             const std::string eh = eb + "/exports/export";
             auto mass = readBin<double>(eh + "/hodge.mass.f64");
             EXPECT(h.nV == nV && h.nF == nF && (int)mass.size() == h.K.rows(), "Hodge N = V+E+F = " + std::to_string(h.K.rows()));
@@ -136,13 +136,13 @@ int main() {
             const int cV = (int)Pc.size() / 3, cF = (int)Fc.size() / 3;
             std::cout << "\n=== glued sub-0002 cortex: " << cV << " V, " << cF << " F ===\n";
             Manifold g(Pc.data(), cV, Fc.data(), cF);
-            const double rc = rel(ops::dirac::matrixIntrinsic(g), coo(xc + ".crane", 4 * cF, 4 * cV));
+            const double rc = rel(nxr::operators::dirac::matrixIntrinsic(g), coo(xc + ".crane", 4 * cF, 4 * cV));
             EXPECT(rc < 1e-9, "glued: diracIntrinsicD matrix (export crane) == export, rel " + num(rc));
-            auto hy = ops::spin::assemble(g, ops::spin::Kind::IntrinsicHY);
+            auto hy = nxr::operators::spin::assemble(g, nxr::operators::spin::Kind::IntrinsicHY);
             const double rh = rel(hy.D, csr(xc + ".intrinsicHY", 4 * cF, 4 * cF));
             // 8 of 1.9 M entries differ by up to 6e-7 (rel 1e-8): fold-back faces, where tan(theta/2) = sin/(1+cos) amplifies the rounding of cos
             EXPECT(rh < 1e-7, "glued: spin intrinsicHY == export (fold-back rounding aside), rel " + num(rh));
-            auto h = ops::hodgedirac::assemble(g);
+            auto h = nxr::operators::hodgedirac::assemble(g);
             auto mass = readBin<double>(xc + ".hodge.mass.f64");
             std::cout << "  Hodge N " << h.K.rows() << " vs export " << mass.size() << "; star1 clamped " << h.star1Clamped << "\n";
             EXPECT((int)mass.size() == h.K.rows(), "glued: Hodge N == export");

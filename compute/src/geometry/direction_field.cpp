@@ -54,8 +54,6 @@ namespace nxr::geometry::connection {
 
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
-using nxr::operators::DECOperators;
-using nxr::operators::CholeskyCache;
 
 // ─────────────────────────────────────────────────────────────
 // Helper: 2D orthonormal basis on a face from its normal and
@@ -110,8 +108,8 @@ static double transportNoRotation(
 
 Eigen::VectorXd computeTrivialConnection(
     Manifold& m,
-    const DECOperators& dec,
-    CholeskyCache& cache,
+    const operators::DECOperators& dec,
+    operators::CholeskyCache& cache,
     const std::map<int, double>& singularityMap
 ) {
     auto& mesh = m.mesh();
@@ -144,7 +142,7 @@ Eigen::VectorXd computeTrivialConnection(
 static Eigen::VectorXd propagateAngles(
     Manifold& m,
     const Eigen::VectorXd& phi,   // connection 1-form on edges
-    const DECOperators& /*dec*/
+    const operators::DECOperators& /*dec*/
 ) {
     auto& mesh = m.mesh();
     auto& geom = m.geometry();
@@ -308,8 +306,8 @@ static Eigen::MatrixXd buildVertexVectorsFromAngles(
 
 DirectionFieldResult trivial(
     Manifold& m,
-    const DECOperators& dec,
-    CholeskyCache& cache,
+    const operators::DECOperators& dec,
+    operators::CholeskyCache& cache,
     const std::map<int, double>& singularityMap
 ) {
     DirectionFieldResult result;
@@ -369,7 +367,6 @@ namespace nxr::signal {
 
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
-using nxr::geometry::Manifold;
 
 namespace {
 
@@ -427,7 +424,7 @@ IntersectResult lineIntersectsEdge2D(
 } // namespace (anonymous)
 
 StreamlineResult streamline(
-    Manifold& m,
+    geometry::Manifold& m,
     const Eigen::MatrixXd& faceField,
     int numSeeds,
     double stepCoef,

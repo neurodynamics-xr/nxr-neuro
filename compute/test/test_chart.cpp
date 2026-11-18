@@ -1,4 +1,4 @@
-// nxr::chart: the charts on geometry-central (ChartKit, a thin wrapper of HeatMethodDistanceSolver and VectorHeatMethodSolver on one IntrinsicSurface per connected piece, G4 of
+// nxr::geometry: the charts on geometry-central (ChartKit, a thin wrapper of HeatMethodDistanceSolver and VectorHeatMethodSolver on one IntrinsicSurface per connected piece, G4 of
 // docs/specs/2026-11-17-geometry-central-switch.md). The values are geometry-central's, in THE gauge (its vertex gauge of the input mesh), so the checks are
 // (1) the wrapper IS geometry-central: the kit's distance, transport, log map and basis equal the solvers' and IntrinsicSurface's own, to rounding (the port's 1e-4 of G3 is gone);
 // (2) analytic results: the sphere's geodesic polar coordinates, read in the gauge and in a shared north; the gauge round trip; the transport is rotation-linear; a plane's gradient;
@@ -49,12 +49,12 @@ int main() {
     std::vector<double> V; std::vector<int32_t> F;
     icosphere(3, V, F, 1.0);
     const int n = static_cast<int>(V.size() / 3);
-    nxr::chart::ChartKit kit(V.data(), n, F.data(), static_cast<int>(F.size() / 3));
+    nxr::geometry::ChartKit kit(V.data(), n, F.data(), static_cast<int>(F.size() / 3));
     const int seed = 7;
     const Eigen::Vector3d p(V[3 * seed], V[3 * seed + 1], V[3 * seed + 2]);
-    const nxr::chart::Basis bs = kit.basis();
+    const nxr::geometry::Basis bs = kit.basis();
     const Eigen::Vector3d E1(bs.e1[3 * seed], bs.e1[3 * seed + 1], bs.e1[3 * seed + 2]), E2(bs.e2[3 * seed], bs.e2[3 * seed + 1], bs.e2[3 * seed + 2]);
-    const nxr::chart::LogMap lm = kit.logMap(seed);
+    const nxr::geometry::LogMap lm = kit.logMap(seed);
     const Eigen::Vector3d z(0, 0, 1), N = (z - z.dot(p) * p).normalized();   // the shared north: z on the tangent plane
     const double N3[3] = {N[0], N[1], N[2]};
     const double hN = kit.gaugeHeading(seed, N3);
@@ -135,7 +135,7 @@ int main() {
             const int a = j * (g + 1) + i, b = a + 1, c = a + g + 1, d = c + 1;
             for (int x : {a, b, d, a, d, c}) Fp.push_back(x);
         }
-        nxr::chart::ChartKit pk(Pp.data(), (g + 1) * (g + 1), Fp.data(), static_cast<int>(Fp.size() / 3));
+        nxr::geometry::ChartKit pk(Pp.data(), (g + 1) * (g + 1), Fp.data(), static_cast<int>(Fp.size() / 3));
         VectorXd fx((g + 1) * (g + 1));
         for (int v = 0; v < fx.size(); ++v) fx[v] = 2.0 * Pp[3 * v] - 3.0 * Pp[3 * v + 1];
         const VectorXd gr = pk.gradient(fx);
@@ -157,20 +157,20 @@ int main() {
         for (int32_t f : F) F2.push_back(f + n);
         V2.push_back(0); V2.push_back(0); V2.push_back(9);   // a vertex in no face
         const int n2 = 2 * n + 1;
-        nxr::chart::ChartKit k2(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3));
+        nxr::geometry::ChartKit k2(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3));
         const VectorXd d = k2.heatDistance(seed);
         bool inf = true, finite = true;
         for (int i = 0; i < n; ++i) finite = finite && std::isfinite(d[i]);
         for (int i = n; i < 2 * n; ++i) inf = inf && std::isinf(d[i]);
         EXPECT(finite && inf, "distance is finite on the seed's piece and Infinity on the other");
-        const nxr::chart::LogMap l2 = k2.logMap(seed);
+        const nxr::geometry::LogMap l2 = k2.logMap(seed);
         bool nan = true, same = true;
         for (int i = n; i < n2; ++i) nan = nan && std::isnan(l2.r[i]) && std::isnan(l2.theta[i]);
         for (int i = 0; i < n; ++i) same = same && std::abs(l2.r[i] - lm.r[i]) < 1e-12;
         EXPECT(nan && same, "the log map is NaN off the seed's piece, and the piece is solved by itself (equal to the single sphere's)");
         const VectorXd x2 = k2.transported(seed, 0.0);
         EXPECT(std::isnan(x2[2 * n]) && std::isnan(x2[2 * (n2 - 1)]), "the transport is NaN off the seed's piece");
-        const nxr::chart::Basis b2 = k2.basis();
+        const nxr::geometry::Basis b2 = k2.basis();
         EXPECT(std::isnan(b2.e1[3 * (n2 - 1)]) && std::abs(b2.e1[3 * seed] - bs.e1[3 * seed]) < 1e-15, "the basis is NaN at a vertex in no face and per piece elsewhere");
         bool refusedFree = false;
         try { k2.heatDistance(n2 - 1); } catch (const std::exception&) { refusedFree = true; }

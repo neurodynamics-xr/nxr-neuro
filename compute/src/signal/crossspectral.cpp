@@ -182,7 +182,7 @@ namespace nxr::signal {
 using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXcd; using Eigen::VectorXd;
 
 namespace {
-PhaseGradient phaseGradientOverDisc(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, chart::ChartKit& kit, int anchor,
+PhaseGradient phaseGradientOverDisc(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, geometry::ChartKit& kit, int anchor,
                                     const std::vector<int>& disc, const AnatomicalFrame* anatomy) {
     if (z.size() != ops.nV) throw std::invalid_argument("weightedPhaseGradient: z needs one value per vertex");
     if (faces.rows() != ops.nF || areas.size() != ops.nF) throw std::invalid_argument("weightedPhaseGradient: faces and areas must be the operators' faces");
@@ -235,7 +235,7 @@ PhaseGradient phaseGradientOverDisc(const VectorXcd& z, const operators::FaceOpe
 }
 }  // namespace
 
-PhaseGradient weightedPhaseGradient(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, chart::ChartKit& kit, int anchor, double radius,
+PhaseGradient weightedPhaseGradient(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, geometry::ChartKit& kit, int anchor, double radius,
                                     const AnatomicalFrame* anatomy, double maxRadius) {
     if (anchor < 0 || anchor >= ops.nV) throw std::invalid_argument("weightedPhaseGradient: the anchor is outside the mesh");
     if (kit.n() != ops.nV) throw std::invalid_argument("weightedPhaseGradient: the chart kit is of another mesh");
@@ -244,7 +244,7 @@ PhaseGradient weightedPhaseGradient(const VectorXcd& z, const operators::FaceOpe
     return phaseGradientOverDisc(z, ops, faces, areas, kit, anchor, disc, anatomy);
 }
 
-PhaseGradient weightedPhaseGradient(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, chart::ChartKit& kit, int anchor,
+PhaseGradient weightedPhaseGradient(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, geometry::ChartKit& kit, int anchor,
                                     const selection::Elements& disc, const AnatomicalFrame* anatomy) {
     if (disc.members() != 1) throw std::invalid_argument("weightedPhaseGradient: the neighbourhood is one member (the disc of a distance selection), got " + std::to_string(disc.members()));
     if (disc.size != ops.nV) throw std::invalid_argument("weightedPhaseGradient: the neighbourhood lies on another manifold than the mesh");

@@ -27,14 +27,14 @@ namespace nxr::geometry {
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
 
-// ── Manifold implementation ────────────────────────────
+// ── geometry::Manifold implementation ────────────────────────────
 
-Manifold::Manifold(const double* vertices, int nV, const int32_t* faces, int nF, bool intrinsicDelaunay,
-                   const DelaunayOptions& delaunayOptions)
-    : Manifold(vertices, nV, faces, nF,
-               ManifoldOptions{intrinsicDelaunay ? MeshKind::Intrinsic : MeshKind::Embedded, delaunayOptions}) {}
+geometry::Manifold::Manifold(const double* vertices, int nV, const int32_t* faces, int nF, bool intrinsicDelaunay,
+                   const geometry::DelaunayOptions& delaunayOptions)
+    : geometry::Manifold(vertices, nV, faces, nF,
+               geometry::ManifoldOptions{intrinsicDelaunay ? geometry::MeshKind::Intrinsic : geometry::MeshKind::Embedded, delaunayOptions}) {}
 
-Manifold::Manifold(const double* vertices, int nV, const int32_t* faces, int nF, const ManifoldOptions& options)
+geometry::Manifold::Manifold(const double* vertices, int nV, const int32_t* faces, int nF, const geometry::ManifoldOptions& options)
     : options_(options) {
     // Build polygon list from flat face array
     std::vector<std::vector<size_t>> polygons(nF);
@@ -72,49 +72,49 @@ Manifold::Manifold(const double* vertices, int nV, const int32_t* faces, int nF,
     }
 
     // THE intrinsic surface: geometry-central's signpost intrinsic Delaunay triangulation of the mollified input (or the input as it is).
-    IntrinsicOptions io;
-    io.intrinsic = options_.mesh == MeshKind::Intrinsic;
+    geometry::IntrinsicOptions io;
+    io.intrinsic = options_.mesh == geometry::MeshKind::Intrinsic;
     io.mollify   = options_.delaunay.mollify;
     io.flipEps   = options_.delaunay.flipEps;
-    io.mass      = MassKind::InputMixedVoronoi;
-    surface_ = std::make_unique<IntrinsicSurface>(vertices, nV, faces, nF, io);
+    io.mass      = geometry::MassKind::InputMixedVoronoi;
+    surface_ = std::make_unique<geometry::IntrinsicSurface>(vertices, nV, faces, nF, io);
 }
 
 // Singularity-aware constructor (pattern 2): delegates to primary ctor,
 // then validates Gauss-Bonnet and sets the active gauge to Trivial.
-Manifold::Manifold(const double* vertices, int nV, const int32_t* faces, int nF,
+geometry::Manifold::Manifold(const double* vertices, int nV, const int32_t* faces, int nF,
                    const std::map<int,double>& singularities, bool intrinsicDelaunay,
-                   const DelaunayOptions& delaunayOptions)
-    : Manifold(vertices, nV, faces, nF, intrinsicDelaunay, delaunayOptions) {
+                   const geometry::DelaunayOptions& delaunayOptions)
+    : geometry::Manifold(vertices, nV, faces, nF, intrinsicDelaunay, delaunayOptions) {
     validateSingularities_(singularities);
-    activeConnectionType_     = ConnectionType::Trivial;
+    activeConnectionType_     = geometry::ConnectionType::Trivial;
     activeSingularities_ = singularities;
 }
 
-Manifold::~Manifold() = default;
+geometry::Manifold::~Manifold() = default;
 
-int Manifold::nV() const { return static_cast<int>(mesh_->nVertices()); }
-int Manifold::nE() const { return static_cast<int>(mesh_->nEdges()); }
-int Manifold::nF() const { return static_cast<int>(mesh_->nFaces()); }
+int geometry::Manifold::nV() const { return static_cast<int>(mesh_->nVertices()); }
+int geometry::Manifold::nE() const { return static_cast<int>(mesh_->nEdges()); }
+int geometry::Manifold::nF() const { return static_cast<int>(mesh_->nFaces()); }
 
-ManifoldSurfaceMesh& Manifold::mesh() { return *mesh_; }
-VertexPositionGeometry& Manifold::geometry() { return *geometry_; }
+ManifoldSurfaceMesh& geometry::Manifold::mesh() { return *mesh_; }
+VertexPositionGeometry& geometry::Manifold::geometry() { return *geometry_; }
 
-bool Manifold::isIntrinsicDelaunay() const { return options_.mesh == MeshKind::Intrinsic; }
-IntrinsicSurface& Manifold::intrinsicSurface() { return *surface_; }
-const ManifoldOptions& Manifold::options() const { return options_; }
-const Eigen::SparseMatrix<double>& Manifold::operatorCotan() {
+bool geometry::Manifold::isIntrinsicDelaunay() const { return options_.mesh == geometry::MeshKind::Intrinsic; }
+geometry::IntrinsicSurface& geometry::Manifold::intrinsicSurface() { return *surface_; }
+const geometry::ManifoldOptions& geometry::Manifold::options() const { return options_; }
+const Eigen::SparseMatrix<double>& geometry::Manifold::operatorCotan() {
     if (!operatorCotan_) operatorCotan_ = std::make_unique<Eigen::SparseMatrix<double>>(surface_->cotanLaplacian());
     return *operatorCotan_;
 }
 
-const ops::DecMatrices& Manifold::operatorDecMatrices() {
+const nxr::operators::DecMatrices& geometry::Manifold::operatorDecMatrices() {
     if (!operatorDec_) {
         // geometry-central's DEC of the intrinsic triangulation: d0, d1, ⋆1 (the cotan weights), ⋆2 (1/area) and ⋆0 = vertexDualAreas, which the
-        // IntrinsicSurface serves as the input's mixed-Voronoi mass. Edge e is `e.halfedge()` (tail → tip); the vertices are the input's.
+        // geometry::IntrinsicSurface serves as the input's mixed-Voronoi mass. Edge e is `e.halfedge()` (tail → tip); the vertices are the input's.
         auto& g = surface_->geometry();
         g.requireDECOperators();
-        auto dm = std::make_unique<ops::DecMatrices>();
+        auto dm = std::make_unique<nxr::operators::DecMatrices>();
         dm->d0 = g.d0; dm->d1 = g.d1;
         dm->hodge0 = g.hodge0; dm->hodge1 = g.hodge1; dm->hodge2 = g.hodge2; dm->hodge1Inverse = g.hodge1Inverse;
         g.unrequireDECOperators();
@@ -123,7 +123,7 @@ const ops::DecMatrices& Manifold::operatorDecMatrices() {
     return *operatorDec_;
 }
 
-const Eigen::VectorXd& Manifold::operatorDualAreas() {
+const Eigen::VectorXd& geometry::Manifold::operatorDualAreas() {
     if (!operatorDualAreas_) {
         const std::vector<double> b = surface_->barycentricMass();
         operatorDualAreas_ = std::make_unique<Eigen::VectorXd>(Eigen::Map<const Eigen::VectorXd>(b.data(), static_cast<Eigen::Index>(b.size())));
@@ -156,8 +156,8 @@ static Eigen::SparseMatrix<double> diagonalMatrix(const std::vector<double>& d) 
     return M;
 }
 
-Eigen::SparseMatrix<double> vertexMass(Manifold& m, MassMatrixVariant variant) {
-    IntrinsicSurface& surf = m.intrinsicSurface();
+Eigen::SparseMatrix<double> vertexMass(geometry::Manifold& m, MassMatrixVariant variant) {
+    geometry::IntrinsicSurface& surf = m.intrinsicSurface();
     switch (variant) {
         case MassMatrixVariant::MixedVoronoi: return diagonalMatrix(surf.massDiagonal());
         case MassMatrixVariant::Barycentric:  return diagonalMatrix(surf.barycentricMass());
@@ -168,7 +168,7 @@ Eigen::SparseMatrix<double> vertexMass(Manifold& m, MassMatrixVariant variant) {
 
 // ── Operator Assembly ────────────────────────────────────────
 
-ManifoldOperators assembleManifoldOperators(Manifold& m,
+ManifoldOperators assembleManifoldOperators(geometry::Manifold& m,
                                     MassMatrixVariant variant) {
     auto& mesh = m.mesh();
     // embGeom — always the embedded VertexPositionGeometry. Used for vertex normals (extrinsic quantity).
@@ -232,7 +232,7 @@ MassMatrixVariant parseMassMatrixVariant(const std::string& name) {
 
 // ── DEC Operators ────────────────────────────────────────────
 
-DECOperators assembleDECOperators(Manifold& m) {
+DECOperators assembleDECOperators(geometry::Manifold& m) {
     const DecMatrices& d = m.operatorDecMatrices();
     return DECOperators(d.d0, d.d1, d.hodge0, d.hodge1, d.hodge2, d.hodge1Inverse);
 }
@@ -240,12 +240,12 @@ DECOperators assembleDECOperators(Manifold& m) {
 // ── Zero-copy passthrough accessors ──────────────────────────
 // Bit-identical to the matching field on the struct returned by assembleDECOperators.
 
-const Eigen::SparseMatrix<double>& d0(Manifold& m)            { return m.operatorDecMatrices().d0; }
-const Eigen::SparseMatrix<double>& d1(Manifold& m)            { return m.operatorDecMatrices().d1; }
-const Eigen::SparseMatrix<double>& hodge0(Manifold& m)        { return m.operatorDecMatrices().hodge0; }
-const Eigen::SparseMatrix<double>& hodge1(Manifold& m)        { return m.operatorDecMatrices().hodge1; }
-const Eigen::SparseMatrix<double>& hodge2(Manifold& m)        { return m.operatorDecMatrices().hodge2; }
-const Eigen::SparseMatrix<double>& hodge1Inverse(Manifold& m) { return m.operatorDecMatrices().hodge1Inverse; }
-const Eigen::VectorXd&             vertexDualAreas(Manifold& m) { return m.operatorDualAreas(); }
+const Eigen::SparseMatrix<double>& d0(geometry::Manifold& m)            { return m.operatorDecMatrices().d0; }
+const Eigen::SparseMatrix<double>& d1(geometry::Manifold& m)            { return m.operatorDecMatrices().d1; }
+const Eigen::SparseMatrix<double>& hodge0(geometry::Manifold& m)        { return m.operatorDecMatrices().hodge0; }
+const Eigen::SparseMatrix<double>& hodge1(geometry::Manifold& m)        { return m.operatorDecMatrices().hodge1; }
+const Eigen::SparseMatrix<double>& hodge2(geometry::Manifold& m)        { return m.operatorDecMatrices().hodge2; }
+const Eigen::SparseMatrix<double>& hodge1Inverse(geometry::Manifold& m) { return m.operatorDecMatrices().hodge1Inverse; }
+const Eigen::VectorXd&             vertexDualAreas(geometry::Manifold& m) { return m.operatorDualAreas(); }
 
 } // namespace nxr::operators

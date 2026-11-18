@@ -29,7 +29,7 @@ namespace nxr::operators::facegrad {
 // constants are annihilated; each output 3-vector is tangent to its face.
 // Closed-mesh v1: every interior face has exactly 3 edge-neighbors — fail loud on
 // an open boundary (a boundary face's missing twin would corrupt the stencil).
-Eigen::SparseMatrix<double> gradient(Manifold& m) {
+Eigen::SparseMatrix<double> gradient(geometry::Manifold& m) {
     using namespace geometrycentral;
     using namespace geometrycentral::surface;
 
@@ -83,7 +83,7 @@ Eigen::SparseMatrix<double> gradient(Manifold& m) {
 // (A_f on each of the 3 components). Built from THE SAME gradient triplets so the
 // pair never drifts (mirrors extrinsicBlockFace building Ẽ from matrixFace).
 // Symmetric PSD; kernel = constants on a closed (genus-0) mesh.
-Eigen::SparseMatrix<double> laplacian(Manifold& m) {
+Eigen::SparseMatrix<double> laplacian(geometry::Manifold& m) {
     using namespace geometrycentral::surface;
 
     Eigen::SparseMatrix<double> G = gradient(m);   // [3F × F]

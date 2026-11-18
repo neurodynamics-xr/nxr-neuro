@@ -13,18 +13,6 @@
 #include "nxr/operators/dec.h"
 
 namespace nxr::operators {
-namespace ops = nxr::operators;
-using nxr::geometry::Manifold;
-using nxr::geometry::IntrinsicSurface;
-using nxr::geometry::IntrinsicRecord;
-using nxr::geometry::IntrinsicOptions;
-using nxr::geometry::DelaunayOptions;
-using nxr::geometry::MassKind;
-using nxr::geometry::TangentBasis;
-using nxr::geometry::ConnectionType;
-using nxr::geometry::OperatorId;
-using nxr::geometry::MeshKind;
-using nxr::geometry::ManifoldOptions;
 using core::Error;
 using core::ErrorCode;
 using core::CancellationToken;
@@ -66,9 +54,9 @@ struct HodgeResult {
  * @param omega  input 1-form on edges (random or user-supplied)
  */
 HodgeResult hodge(
-    Manifold& m,
-    const ops::DECOperators& dec,
-    ops::CholeskyCache& cache,
+    geometry::Manifold& m,
+    const operators::DECOperators& dec,
+    operators::CholeskyCache& cache,
     const Eigen::VectorXd& omega
 );
 } // namespace nxr::operators

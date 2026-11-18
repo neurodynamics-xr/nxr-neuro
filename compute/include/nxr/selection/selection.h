@@ -49,7 +49,7 @@
 
 #include "nxr/selection/lookup.h"
 
-namespace nxr::chart { class ChartKit; }
+namespace nxr::geometry { class ChartKit; }
 
 namespace nxr::selection {
 
@@ -213,6 +213,6 @@ Selection member_indices(const Selection& set, std::int64_t member);
  *  element. Other members: false (not decided here). Roll-ups and `within` need this; a measurement over members does not. */
 bool disjoint(const Selection& set);
 /** distance: the elements it holds, by heat-method geodesic distance (geometry-central, through the chart kit); a radius 0 holds the centre */
-Selection resolve_distance(const Selection& distance, chart::ChartKit& kit);
+Selection resolve_distance(const Selection& distance, geometry::ChartKit& kit);
 
 }  // namespace nxr::selection

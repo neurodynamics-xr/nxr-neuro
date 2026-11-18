@@ -33,10 +33,10 @@ namespace {
 
 using ComplexTriplet = Eigen::Triplet<std::complex<double>>;
 
-// Vertex connection Laplacian on the n-RoSy bundle: the IntrinsicSurface's (geometry-central's `vertexConnectionLaplacian` for n = 1; for n > 1 its
-// transport raised to the n-th power with its edge cotangent weights), on the Manifold's intrinsic triangulation — in geometry-central's gauge. The
+// Vertex connection Laplacian on the n-RoSy bundle: the geometry::IntrinsicSurface's (geometry-central's `vertexConnectionLaplacian` for n = 1; for n > 1 its
+// transport raised to the n-th power with its edge cotangent weights), on the geometry::Manifold's intrinsic triangulation — in geometry-central's gauge. The
 // connection lifts the scalar Laplacian's cotangent weight to the complex tangent bundle.
-void assembleVertexCL(IntrinsicSurface& surface, int nSym, std::vector<ComplexTriplet>& out) {
+void assembleVertexCL(geometry::IntrinsicSurface& surface, int nSym, std::vector<ComplexTriplet>& out) {
     const Eigen::SparseMatrix<std::complex<double>> K = surface.connectionLaplacian(nSym);
     out.reserve(static_cast<size_t>(K.nonZeros()));
     for (int c = 0; c < K.outerSize(); ++c)
@@ -175,7 +175,7 @@ Eigen::SparseMatrix<double> lowerToReal2N(
 } // namespace
 
 ConnectionLaplacian assembleConnectionLaplacian(
-    Manifold& m,
+    geometry::Manifold& m,
     const ConnectionLaplacianOptions& opts
 ) {
     if (opts.nSym <= 0) {
@@ -191,7 +191,7 @@ ConnectionLaplacian assembleConnectionLaplacian(
     int N = 0;
     switch (opts.domain) {
         case ConnectionDomain::Vertex:
-            // The intrinsic surface's cotan weights and transport (the signpost intrinsic Delaunay triangulation by default; MeshKind::Embedded: the input).
+            // The intrinsic surface's cotan weights and transport (the signpost intrinsic Delaunay triangulation by default; geometry::MeshKind::Embedded: the input).
             N = m.nV();
             assembleVertexCL(m.intrinsicSurface(), opts.nSym, triplets);
             break;
@@ -225,7 +225,7 @@ ConnectionLaplacian assembleConnectionLaplacian(
     // Populate tangent frame (gauge) used to build this Laplacian.
     // Eigenvectors U[:,k] satisfy: field at v = real(U[v,k])*e1(v) + imag(U[v,k])*e2(v).
     //
-    // The vertex frame is geometry-central's gauge (IntrinsicSurface::tangentBasis): n the corner-angle-weighted normal, e1 the average of the outgoing
+    // The vertex frame is geometry-central's gauge (geometry::IntrinsicSurface::tangentBasis): n the corner-angle-weighted normal, e1 the average of the outgoing
     // edges each rotated back by its own rescaled angle (angle 0 = the input's v.halfedge()), e2 = n × e1.
     if (opts.domain == ConnectionDomain::Vertex) {
         const geometry::VertexFrames vf = geometry::vertexFrames(m);
@@ -278,10 +278,10 @@ ConnectionLaplacianFormat parseConnectionLaplacianFormat(const std::string& name
 }
 
 ConnectionLaplacian assembleTrivialConnectionLaplacian(
-    Manifold& m,
+    geometry::Manifold& m,
     const std::map<int, double>& singularityMap,
-    const ops::DECOperators& dec,
-    ops::CholeskyCache& cache,
+    const nxr::operators::DECOperators& dec,
+    nxr::operators::CholeskyCache& cache,
     const ConnectionLaplacianOptions& opts
 ) {
     if (opts.domain != ConnectionDomain::Vertex) {
@@ -369,7 +369,7 @@ ConnectionLaplacian assembleTrivialConnectionLaplacian(
 }
 
 Eigen::SparseMatrix<std::complex<double>>
-assembleConnectionGradient(Manifold& m, int nSym) {
+assembleConnectionGradient(geometry::Manifold& m, int nSym) {
     if (nSym <= 0)
         throw Error(ErrorCode::InvalidInput,
                     "assembleConnectionGradient: nSym must be > 0",

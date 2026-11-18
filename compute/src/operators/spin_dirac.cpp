@@ -33,7 +33,7 @@ static std::array<double, 16> leftMul(double a, double b, double c, double d) {
     return {a, -b, -c, -d,  b, a, -d, c,  c, d, a, -b,  d, -c, b, a};
 }
 
-static void requireClosed(Manifold& m, const char* who) {
+static void requireClosed(geometry::Manifold& m, const char* who) {
     if (m.mesh().hasBoundary())
         throw Error(ErrorCode::ClosedMeshRequired, std::string(who) + ": the mesh must be closed", "spin Diracs are for closed, oriented surfaces");
 }
@@ -47,7 +47,7 @@ static Eigen::Vector3d faceNormal(const VertexPositionGeometry& g, Face f) {
     return Eigen::Vector3d(x.x / l, x.y / l, x.z / l);
 }
 
-SpinDirac assemble(Manifold& m, Kind kind) {
+SpinDirac assemble(geometry::Manifold& m, Kind kind) {
     requireClosed(m, "spin::assemble");
     auto& mesh = m.mesh();
     auto& geom = m.geometry();
@@ -91,7 +91,7 @@ SpinDirac assemble(Manifold& m, Kind kind) {
     return out;
 }
 
-Eigen::SparseMatrix<double> vertexToFace(Manifold& m, bool covariant) {
+Eigen::SparseMatrix<double> vertexToFace(geometry::Manifold& m, bool covariant) {
     auto& mesh = m.mesh();
     auto& geom = m.geometry();
     const int nF = m.nF(), nV = m.nV();
@@ -133,12 +133,12 @@ Eigen::SparseMatrix<double> vertexToFace(Manifold& m, bool covariant) {
 
 namespace nxr::operators {
 
-EigenResult eigenSpin(Manifold& m, ops::spin::Kind kind, int k, const CancellationToken&, const ProgressObserver&) {
+EigenResult eigenSpin(geometry::Manifold& m, nxr::operators::spin::Kind kind, int k, const CancellationToken&, const ProgressObserver&) {
     using SM = Eigen::SparseMatrix<double>;
     const int nV = m.nV(), nF = m.nF();
     if (k < 1 || k > 4 * nV - 1) throw Error(ErrorCode::EigensolveInvalidK, "eigenSpin: k out of range");
-    ops::spin::SpinDirac sd = ops::spin::assemble(m, kind);
-    SM A = ops::spin::vertexToFace(m, kind != ops::spin::Kind::Extrinsic);
+    nxr::operators::spin::SpinDirac sd = nxr::operators::spin::assemble(m, kind);
+    SM A = nxr::operators::spin::vertexToFace(m, kind != nxr::operators::spin::Kind::Extrinsic);
     Eigen::VectorXd a4(4 * nF);
     for (int f = 0; f < nF; ++f) a4.segment(4 * f, 4).setConstant(sd.area(f));
     SM M(4 * nF, 4 * nF), Mi(4 * nF, 4 * nF);

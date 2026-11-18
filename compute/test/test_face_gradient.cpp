@@ -67,7 +67,7 @@ static void testGradFace() {
     Manifold m(V.data(), 12, F.data(), 20);
     const int Fn = m.nF();   // 20
 
-    Eigen::SparseMatrix<double> G = ops::facegrad::gradient(m);
+    Eigen::SparseMatrix<double> G = nxr::operators::facegrad::gradient(m);
     EXPECT(G.rows() == 3*Fn && G.cols() == Fn, "gradFace is [3F x F] = [60, 20]");
 
     Eigen::VectorXd ones = Eigen::VectorXd::Ones(Fn);
@@ -93,8 +93,8 @@ static void testLapFace() {
     Manifold m(V.data(), 12, F.data(), 20);
     const int Fn = m.nF();
 
-    Eigen::SparseMatrix<double> G = ops::facegrad::gradient(m);
-    Eigen::SparseMatrix<double> K = ops::facegrad::laplacian(m);
+    Eigen::SparseMatrix<double> G = nxr::operators::facegrad::gradient(m);
+    Eigen::SparseMatrix<double> K = nxr::operators::facegrad::laplacian(m);
     EXPECT(K.rows()==Fn && K.cols()==Fn, "lapFace is [F x F] = [20, 20]");
     EXPECT((K - Eigen::SparseMatrix<double>(K.transpose())).norm() < 1e-10, "lapFace symmetric");
 

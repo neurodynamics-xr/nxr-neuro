@@ -55,7 +55,7 @@ struct FlowStep {
 
 class FlowEngine {
 public:
-    FlowEngine(const FlowMethodOptions& options, const RowMat3& positions, const FaceMat& faces, const RowMat3& normals, double alpha);
+    FlowEngine(const FlowMethodOptions& options, const RowMat3& positions, const operators::FaceMat& faces, const RowMat3& normals, double alpha);
     ~FlowEngine();
     FlowEngine(const FlowEngine&) = delete;
     FlowEngine& operator=(const FlowEngine&) = delete;

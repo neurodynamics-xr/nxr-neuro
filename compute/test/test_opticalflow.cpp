@@ -21,7 +21,7 @@ int main() {
     const MatrixXd Vg = g.mat("positions"), Fg = g.mat("faces"), N = g.mat("normals"), A = g.mat("A"), e1 = g.mat("e1"), e2 = g.mat("e2"), v1 = g.mat("v1"), v2 = g.mat("v2"),
                    dv = g.mat("div"), cu = g.mat("curl"), sp = g.mat("speed"), J = g.mat("J"), an = g.mat("act_analytic"), nm = g.mat("act_norm");
     const RowMat3 pos = Vg;
-    const FaceMat faces = Fg.cast<std::int32_t>();
+    const nxr::operators::FaceMat faces = Fg.cast<std::int32_t>();
     const RowMat3 nrm = N;
     {
         const TangentBasis tb = tangentBasis(nrm);
@@ -41,7 +41,7 @@ int main() {
     std::vector<double> Vv; std::vector<int32_t> Ff;
     icosphere(3, Vv, Ff);
     RowMat3 P = Eigen::Map<RowMat3>(Vv.data(), Vv.size() / 3, 3);
-    FaceMat Fm = Eigen::Map<FaceMat>(Ff.data(), Ff.size() / 3, 3);
+    nxr::operators::FaceMat Fm = Eigen::Map<nxr::operators::FaceMat>(Ff.data(), Ff.size() / 3, 3);
     const double theta = 0.06;
     MatrixXd bump(P.rows(), 3);
     const Eigen::Vector3d c0 = Eigen::Vector3d(1, 0.3, 0.5).normalized();

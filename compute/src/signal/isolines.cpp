@@ -26,7 +26,7 @@ using namespace geometrycentral::surface;
 // For each triangle, for each contour level, find the exactly 2 edges
 // where the level crosses and emit a line segment between those crossings.
 IsolineResult isoline(
-    Manifold& m,
+    geometry::Manifold& m,
     const Eigen::VectorXd& scalarField,
     int numLevels,
     double minValue,

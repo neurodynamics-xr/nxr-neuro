@@ -58,7 +58,7 @@ namespace nxr::geometry::transport {
 // Stateful solver around a single (Laplacian, vector heat, Poisson)
 // factor triple. Owned by the binding shell's per-mesh holder
 // (ContextHolder / ContextWrapper) and lazily constructed on first
-// use, mirroring CholeskyCache's lifetime model.
+// use, mirroring operators::CholeskyCache's lifetime model.
 //
 // The solver is opaque to JS — three free functions below operate
 // on a long-lived solver passed by reference. The shells expose

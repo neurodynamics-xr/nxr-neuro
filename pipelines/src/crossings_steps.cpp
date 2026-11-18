@@ -123,12 +123,12 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
     for (const auto& m : c.bound.level_members(nxr::io::text(*t.row, "id")))
       if (nxr::io::integer(m, "member_ordinal") == static_cast<std::int64_t>(level)) { st.level_selection_id = nxr::io::text(m, "id"); st.level_selection = nxr::io::text(m, "name"); break; }
     // the frames: the canonical ones when stored, else the signpost basis (said); the transport of each tile centre's frame to every vertex of its tile
-    nxr::chart::ChartKit kit(S.vertices.data(), nV, S.faces.data(), nF);
+    nxr::geometry::ChartKit kit(S.vertices.data(), nV, S.faces.data(), nF);
     const StoredFrames sf = c.bound.stored_frames(S.name, nV);
     std::string frame = "canonical";                                     // the frame (G6: "frame", never "gauge")
     if (sf.canonical) { st.e1 = sf.e1; st.e2 = sf.e2; }
     else {
-      const nxr::chart::Basis b = kit.basis();
+      const nxr::geometry::Basis b = kit.basis();
       st.e1.resize(nV, 3); st.e2.resize(nV, 3);
       for (int i = 0; i < nV; ++i) for (int k = 0; k < 3; ++k) { st.e1(i, k) = b.e1[static_cast<std::size_t>(3 * i + k)]; st.e2(i, k) = b.e2[static_cast<std::size_t>(3 * i + k)]; }
       frame = "gauge";

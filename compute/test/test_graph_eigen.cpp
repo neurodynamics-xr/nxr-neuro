@@ -29,7 +29,7 @@ int main() {
     Eigen::MatrixXd L = Eigen::MatrixXd::Zero(12, 12); std::set<std::pair<int,int>> E;
     for (int f = 0; f < 20; ++f) for (int k = 0; k < 3; ++k) { int a = F[3*f+k], b = F[3*f+(k+1)%3]; E.insert({std::min(a,b), std::max(a,b)}); }
     for (auto [a, b] : E) { L(a,a) += 1; L(b,b) += 1; L(a,b) -= 1; L(b,a) -= 1; }
-    EXPECT((Eigen::MatrixXd(ops::graphLaplacian(m)) - L).norm() < 1e-12, "graphLaplacian == D - A");
+    EXPECT((Eigen::MatrixXd(nxr::operators::graphLaplacian(m)) - L).norm() < 1e-12, "graphLaplacian == D - A");
 
     nxr::operators::EigenOperatorSpec idm{nxr::operators::EigenOperator::LaplacianGraph};
     auto r = nxr::operators::eigenOperator(m, idm, 11, nxr::operators::kShiftLadder, true, false, /*dense=*/true);

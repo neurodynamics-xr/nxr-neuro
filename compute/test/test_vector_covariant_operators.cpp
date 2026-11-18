@@ -252,10 +252,10 @@ static void test_cellD_extrinsic_weitzenbock() {
     // shortcut coincides with the geometric squared-Dirac construction.
     Eigen::SparseMatrix<double> prodLocal =
         m.operators().laplacian().covariant(
-            ops::laplacian::connection::CovariantCoupling::Product);
+            nxr::operators::laplacian::connection::CovariantCoupling::Product);
     Eigen::SparseMatrix<double> ambLocal =
         m.operators().laplacian().covariant(
-            ops::laplacian::connection::CovariantCoupling::Ambient);
+            nxr::operators::laplacian::connection::CovariantCoupling::Ambient);
     Eigen::SparseMatrix<double> prodWorld = localToWorld(prodLocal, m);
     Eigen::SparseMatrix<double> ambWorld  = localToWorld(ambLocal, m);
     // Sanity: ambient covariant in world == kron(I₃,cotanL).

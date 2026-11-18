@@ -7,9 +7,9 @@ namespace nxr::geometry::facet {
 
 class ConnectionFacet {
 public:
-    ConnectionFacet(Manifold& m, ConnectionType type, std::map<int,double> singularities)
+    ConnectionFacet(geometry::Manifold& m, geometry::ConnectionType type, std::map<int,double> singularities)
         : m_(m), type_(type), sing_(std::move(singularities)) {}
-    ConnectionType type() const { return type_; }
+    geometry::ConnectionType type() const { return type_; }
     const std::map<int,double>& singularities() const { return sing_; }
     // Realized per-vertex frame in this gauge: [nV,3] complex c = e1 + i e2.
     // Levi-Civita/Euclidean: the raw vertex grid. Trivial: rotation .* grid —
@@ -20,22 +20,22 @@ public:
     // convention as grid(), via the dual-graph face rotations.
     Eigen::MatrixXcd faceGrid() const;
 private:
-    Manifold& m_;
-    ConnectionType type_;
+    geometry::Manifold& m_;
+    geometry::ConnectionType type_;
     std::map<int,double> sing_;
 };
 
 class OperatorsFacet {
 public:
-    explicit OperatorsFacet(Manifold& m) : m_(m) {}
+    explicit OperatorsFacet(geometry::Manifold& m) : m_(m) {}
 
-    // Views hold Manifold& (not OperatorsFacet&) so a stored view
+    // Views hold geometry::Manifold& (not OperatorsFacet&) so a stored view
     // (auto v = m.operators().laplacian()) does not dangle when the
-    // OperatorsFacet temporary expires. Manifold befriends OperatorsFacet,
+    // OperatorsFacet temporary expires. geometry::Manifold befriends OperatorsFacet,
     // and per CWG 45 its nested views inherit that access to the private
     // *Cached_() helpers.
     struct LaplacianView {
-        Manifold& m;
+        geometry::Manifold& m;
         const Eigen::SparseMatrix<double>& cotan() const;   // real, intrinsic (directly from GC cotan cache)
         const Eigen::SparseMatrix<double>& graph() const;   // real, topological
 
@@ -44,23 +44,23 @@ public:
         // Default coupling is Ambient — the full 3D-frame embedded covariant.
         // Product (intrinsic connection on the tangent block) is opt-in.
         const Eigen::SparseMatrix<double>& covariant(
-            ops::laplacian::connection::CovariantCoupling coupling =
-                ops::laplacian::connection::CovariantCoupling::Ambient) const;
+            operators::laplacian::connection::CovariantCoupling coupling =
+                operators::laplacian::connection::CovariantCoupling::Ambient) const;
     };
 
     // ── Task C2: dec / mass / hodge ──────────────────────────────────────────
-    // Views hold Manifold& m (not OperatorsFacet&) — same C1 pattern;
+    // Views hold geometry::Manifold& m (not OperatorsFacet&) — same C1 pattern;
     // a stored view (auto v = m.operators().mass()) does not dangle.
 
     struct MassView {
-        Manifold& m;
+        geometry::Manifold& m;
         const Eigen::SparseMatrix<double>& mixedVoronoi() const;   // the default mass
         const Eigen::SparseMatrix<double>& barycentric()  const;   // A/3 per vertex (formerly "lumped")
         const Eigen::SparseMatrix<double>& galerkin()     const;
     };
 
     struct HodgeView {
-        Manifold& m;
+        geometry::Manifold& m;
         const Eigen::SparseMatrix<double>& h0()    const;
         const Eigen::SparseMatrix<double>& h1()    const;
         const Eigen::SparseMatrix<double>& h2()    const;
@@ -68,7 +68,7 @@ public:
     };
 
     // dec(): returns the full DECOperators bundle {d0,d1,hodge0..2,hodge1Inverse}.
-    const ops::DECOperators& dec()  const;
+    const operators::DECOperators& dec()  const;
     MassView  mass()  const { return MassView{m_}; }
     HodgeView hodge() const { return HodgeView{m_}; }
 
@@ -128,7 +128,7 @@ public:
     const Eigen::SparseMatrix<double>& lapFace() const;
 
 private:
-    Manifold& m_;
+    geometry::Manifold& m_;
 };
 
 

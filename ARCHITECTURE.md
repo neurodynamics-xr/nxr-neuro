@@ -200,4 +200,22 @@ Two cheap steps toward running the graph on a GPU. They change no result: the CP
 **One dispatch point.** The executor never calls a node's functions itself. It describes the call (`NodeCall`: the phase, the node's prepared state, its inputs) and hands it to `dispatch` (`pipelines/include/nxr/pipelines/dispatch.h`, `pipelines/src/dispatch.cpp`), which checks the traits and runs the phase on the context's backend (`Backend::cpu`). A GPU backend is added in that one place, without touching a pipeline, a node or the runner. Enforced by the test `dispatch_is_the_only_call_path` (`cmake/check_dispatch.cmake`), which fails when any other file calls a node's `prepare`, `start`, `chunk`, `chunk_at`, `fold`, `finish` or `run` through a step.
 
 A new dependency, or a new modality folder (e.g. `pet/`), needs the maintainers' OK and a dated amendment in the table in `docs/reference.md`.
-Namespaces follow the folder: `nxr::compute` and topic namespaces (`nxr::welch`, `nxr::filter`, `nxr::flow`, …), `nxr::io`, `nxr::bst`, `nxr::meeg`, `nxr::pipelines`.
+Namespaces follow the folder: one namespace per toolbox, `nxr::<toolbox>` (`nxr::signal`, `nxr::geometry`, `nxr::operators`, …), `nxr::io`, `nxr::bst`, `nxr::meeg`, `nxr::pipelines`; functions are flat in their toolbox namespace (`nxr::signal::fft`), and a type whose name two headers of one toolbox share lives in a sub-namespace named after its header (`nxr::signal::timefilterbank::Family`).
+
+## The toolboxes (compute is cut into ten folders; added 2026-11-17)
+
+`compute/include/nxr/<toolbox>/` and `compute/src/<toolbox>/` hold one toolbox each; no header stays at the top of `compute/include/nxr/`, and there is no umbrella header. The includes between toolboxes run one way:
+
+| toolbox | holds | may include |
+|---|---|---|
+| `core` | types, errors, cancellation, progress, parallel, general matrix algebra (the Hermitian and antisymmetric factors, congruence, row scaling) | nothing (library `nxr_core`) |
+| `quantity`, `optimisation`, `stats`, `geometry` | quantities and units; general solvers (`fminsearch`); statistics (summary, histogram, circular, lag, null tests, PCA); the manifold, its intrinsic geometry, frames, charts, distances | `core` |
+| `operators` | the assembled and computed operators (Laplacians, DEC, Dirac family, eigenmodes, Hodge weights, the resample operator) | `core`, `geometry` |
+| `selection` | the Selection class and its resolution | `core`, `geometry` |
+| `measurement` | measures over selections, reductions, roll-ups | `core`, `stats`, `selection` |
+| `select` | the makers of selections (bands, grids, dyadic partitions, events, regions, cores, tracks) | `core`, `geometry`, `stats`, `selection`, `measurement` |
+| `signal` | transforms and filters of signals (Fourier, filters, windows, filter banks, wavelets, cross-spectral measures, phase gradient, optical flow) | `core`, `geometry`, `operators`, `stats`, `selection`, `measurement` |
+| `synthesis` | generators of fields and surrogates | `core`, `geometry`, `operators`, `stats` |
+| `meeg` (`nxr_meeg`) | forward and inverse models, covariance, cross-spectra of sensors and sources | `core`, `optimisation` (never compute); the connectome and montage code that still needs geometry stays in `nxr_compute` under `nxr/meeg/` |
+
+Enforced by the test `layering_toolboxes_follow_the_dag` (`cmake/check_toolboxes.cmake`, with its WILL_FAIL twin `layering_toolboxes_catches`). A few includes that predate the cut and run against the table (a `Manifold` owns its operators; the operators call two synthesis helpers) are counted in `cmake/toolboxes_allow.txt`: the count may only fall, and a new one fails the test. The same word names a thing in every layer: the C++ function, the registered node (`<toolbox>.<function>`) and the binding entry (the test `names_across_layers`, `pipelines/test/names.tsv`).

@@ -40,10 +40,10 @@ TangentBasis tangentBasis(const RowMat3& vertexNormals, const Eigen::Vector3d& a
     return tb;
 }
 
-RowMat3 vertexNormals(const RowMat3& positions, const FaceMat& faces) { return nxr::operators::FaceOperators(positions, faces, false).normals; }
+RowMat3 vertexNormals(const RowMat3& positions, const operators::FaceMat& faces) { return nxr::operators::FaceOperators(positions, faces, false).normals; }
 
 // The embedded cotan Laplacian and the lumped Galerkin mass (row sums = a third of each incident face's area).
-void embeddedLaplacian(const RowMat3& positions, const FaceMat& faces, Eigen::SparseMatrix<double>& K, VectorXd& mass) {
+void embeddedLaplacian(const RowMat3& positions, const operators::FaceMat& faces, Eigen::SparseMatrix<double>& K, VectorXd& mass) {
     std::vector<double> P(static_cast<std::size_t>(positions.size()));
     for (Eigen::Index i = 0; i < positions.rows(); ++i) for (int d = 0; d < 3; ++d) P[static_cast<std::size_t>(3 * i + d)] = positions(i, d);
     std::vector<int32_t> F(static_cast<std::size_t>(faces.size()));
@@ -57,7 +57,7 @@ void embeddedLaplacian(const RowMat3& positions, const FaceMat& faces, Eigen::Sp
     mass = M * VectorXd::Ones(M.cols());
 }
 
-OpticalflowScalar::OpticalflowScalar(const RowMat3& positions, const FaceMat& faces, const RowMat3& normals, double alpha, double maxAbs, const FlowForm& form)
+OpticalflowScalar::OpticalflowScalar(const RowMat3& positions, const operators::FaceMat& faces, const RowMat3& normals, double alpha, double maxAbs, const FlowForm& form)
     : nV_(positions.rows()), form_(form), faces_(faces), scale_(maxAbs + EPS), fg_(positions, faces, false), tb_(tangentBasis(normals, form.frameAxis)) {
     if (form_.dataFit == DataFit::Auto) form_.dataFit = form_.regulariser == Regulariser::Connection ? DataFit::Gauge : DataFit::Triangle;
     if ((form_.regulariser == Regulariser::Connection) != (form_.dataFit == DataFit::Gauge))
@@ -208,7 +208,7 @@ VectorXd OpticalflowScalar::stepPcg(const VectorXd& previous, const VectorXd& ne
     return toVelocity(x);
 }
 
-MatrixXd opticalflowScalar(const MatrixXd& activityMapIn, const RowMat3& positions, const FaceMat& faces, const RowMat3& normals, double alpha, const FlowForm& form) {
+MatrixXd opticalflowScalar(const MatrixXd& activityMapIn, const RowMat3& positions, const operators::FaceMat& faces, const RowMat3& normals, double alpha, const FlowForm& form) {
     const Eigen::Index nV = positions.rows(), nT = activityMapIn.cols();
     if (activityMapIn.rows() != nV) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "opticalflowScalar: the map has " + std::to_string(activityMapIn.rows()) + " rows, the mesh " + std::to_string(nV) + " vertices");
     if (nT < 2) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "opticalflowScalar: optical flow needs at least two frames");
@@ -218,7 +218,7 @@ MatrixXd opticalflowScalar(const MatrixXd& activityMapIn, const RowMat3& positio
     return out;
 }
 
-FlowReader::FlowReader(const RowMat3& positions, const FaceMat& faces) : fg_(positions, faces, false) {}
+FlowReader::FlowReader(const RowMat3& positions, const operators::FaceMat& faces) : fg_(positions, faces, false) {}
 
 void FlowReader::read(const VectorXd& velocity, VectorXd& divergence, VectorXd& vorticity, VectorXd& speed) const {
     const Eigen::Index V = fg_.nV;
@@ -235,7 +235,7 @@ void FlowReader::read(const VectorXd& velocity, VectorXd& divergence, VectorXd& 
     for (Eigen::Index v = 0; v < V; ++v) speed[v] = std::sqrt(J[0](v, 0) * J[0](v, 0) + J[1](v, 0) * J[1](v, 0) + J[2](v, 0) * J[2](v, 0));
 }
 
-FlowReadout flowReadout(const MatrixXd& velocity, const RowMat3& positions, const FaceMat& faces) {
+FlowReadout flowReadout(const MatrixXd& velocity, const RowMat3& positions, const operators::FaceMat& faces) {
     const nxr::operators::FaceOperators fg(positions, faces, false);
     const Eigen::Index V = fg.nV, T = velocity.cols();
     if (velocity.rows() != 3 * V) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "flowReadout: the velocity has " + std::to_string(velocity.rows()) + " rows, 3 x " + std::to_string(V) + " expected");
@@ -286,7 +286,7 @@ MatrixXd activation(const Eigen::MatrixXcd& Jin, ActivationMethod method, bool a
     return A;
 }
 
-Apparent apparent(const MatrixXd& A, const RowMat3& positions, const FaceMat& faces, const ApparentOptions& o) {
+Apparent apparent(const MatrixXd& A, const RowMat3& positions, const operators::FaceMat& faces, const ApparentOptions& o) {
     if ((A.array() < 0).any()) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "apparent: A must be a real non-negative activation map; build it with activation()");
     if (A.rows() != positions.rows()) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "apparent: A has " + std::to_string(A.rows()) + " vertices, the surface " + std::to_string(positions.rows()));
     if (A.cols() < 2) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "apparent: optical flow needs at least two frames; got " + std::to_string(A.cols()));

@@ -58,8 +58,8 @@ static void testRhombus() {
     EXPECT(!mRaw.isIntrinsicDelaunay(), "raw not normalized");
     EXPECT( mN.isIntrinsicDelaunay(),  "normalized flag set");
 
-    auto Lraw = ops::assembleManifoldOperators(mRaw).cotanLaplacian;
-    auto Ln   = ops::assembleManifoldOperators(mN).cotanLaplacian;
+    auto Lraw = nxr::operators::assembleManifoldOperators(mRaw).cotanLaplacian;
+    auto Ln   = nxr::operators::assembleManifoldOperators(mN).cotanLaplacian;
     EXPECT(Lraw.rows()==4 && Ln.rows()==4, "both cotan are 4x4 (same vertices)");
 
     // raw has a negative cotan weight (positive off-diagonal); normalized does not.
@@ -81,8 +81,8 @@ static void testIcosphereNoOp() {
         6,2,10, 8,6,7, 9,8,1};
     Manifold mRaw(V.data(), 12, F.data(), 20, false);
     Manifold mN  (V.data(), 12, F.data(), 20, true);
-    auto Lraw = ops::assembleManifoldOperators(mRaw).cotanLaplacian;
-    auto Ln   = ops::assembleManifoldOperators(mN).cotanLaplacian;
+    auto Lraw = nxr::operators::assembleManifoldOperators(mRaw).cotanLaplacian;
+    auto Ln   = nxr::operators::assembleManifoldOperators(mN).cotanLaplacian;
     double diff = (Eigen::MatrixXd(Lraw) - Eigen::MatrixXd(Ln)).cwiseAbs().maxCoeff();
     EXPECT(diff < 1e-9, "icosphere already Delaunay: normalized cotan == raw cotan");
 }

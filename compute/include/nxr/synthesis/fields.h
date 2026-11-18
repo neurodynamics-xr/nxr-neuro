@@ -13,10 +13,6 @@
 #include "nxr/operators/dec.h"
 
 namespace nxr::synthesis {
-using nxr::geometry::Manifold;
-using nxr::operators::EigenResult;
-using nxr::operators::ManifoldOperators;
-using nxr::operators::DECOperators;
 
 // ── Field Generators ─────────────────────────────────────────
 //
@@ -49,9 +45,9 @@ Eigen::VectorXd randomFaceScalar(int nF, unsigned int seed = 42);
 /** Generate a random 1-form on edges. */
 Eigen::VectorXd randomOmega(int nE, unsigned int seed = 42);
 
-/** Extract the k-th eigenmode from a precomputed EigenResult as a
+/** Extract the k-th eigenmode from a precomputed operators::EigenResult as a
  *  vertex scalar field. */
-Eigen::VectorXd eigenmodeField(const EigenResult& eig, int k_index);
+Eigen::VectorXd eigenmodeField(const operators::EigenResult& eig, int k_index);
 
 /** Synthesize a 1-form on edges by combining independently-random
  *  exact and co-exact contributions:
@@ -69,7 +65,7 @@ Eigen::VectorXd eigenmodeField(const EigenResult& eig, int k_index);
  *  non-trivial in principle, but its construction needs its own
  *  primitive and isn't required for the gpjs-style validation). */
 Eigen::VectorXd randomDecomposed1Form(
-    const DECOperators& dec,
+    const operators::DECOperators& dec,
     int nV, int nE, int nF,
     double alphaStrength,
     double betaStrength,
@@ -118,7 +114,7 @@ Eigen::VectorXd randomDecomposed1Form(
  */
 Eigen::MatrixXf heatDiffusion(
     const Eigen::SparseMatrix<double>& M,
-    const EigenResult& eig,
+    const operators::EigenResult& eig,
     const Eigen::VectorXd& u0,
     const std::vector<double>& timesteps,
     double alpha = 1.0
@@ -126,8 +122,8 @@ Eigen::MatrixXf heatDiffusion(
 
 /** Convenience overload: forwards to the (M, …) form using ops.mass. */
 inline Eigen::MatrixXf heatDiffusion(
-    const ManifoldOperators& ops,
-    const EigenResult& eig,
+    const operators::ManifoldOperators& ops,
+    const operators::EigenResult& eig,
     const Eigen::VectorXd& u0,
     const std::vector<double>& timesteps,
     double alpha = 1.0
@@ -156,7 +152,7 @@ inline Eigen::MatrixXf heatDiffusion(
  *  @return             [T, nV] float32 time series, frame-major
  */
 Eigen::MatrixXf dampedWave(
-    const EigenResult& eig,
+    const operators::EigenResult& eig,
     const std::vector<int>& modeIndices,
     const std::vector<double>& amplitudes,
     const std::vector<double>& dampings,

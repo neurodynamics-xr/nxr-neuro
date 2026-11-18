@@ -38,7 +38,6 @@
 namespace nxr::signal {
 
 namespace connection { class ConnectionFlow; }
-using nxr::operators::FaceMat;
 using nxr::operators::RowMat3;
 
 struct TangentBasis {
@@ -136,7 +135,7 @@ struct FlowReadout {
     Eigen::MatrixXd divergence, vorticity, speed;   // [V x frames]
 };
 /** Rheome's flow_readout: the divergence is that of the field as given, the vorticity that of its tangent part. */
-FlowReadout flowReadout(const Eigen::MatrixXd& velocity, const RowMat3& positions, const FaceMat& faces);
+FlowReadout flowReadout(const Eigen::MatrixXd& velocity, const RowMat3& positions, const operators::FaceMat& faces);
 
 enum class ActivationMethod { Analytic, Norm };
 /** Rheome's activation: J [3V x T] real (the Hilbert transform is taken here) or complex (already analytic) -> [V x T]. Analytic needs T >= 8. */
@@ -164,7 +163,7 @@ struct Apparent {
     Eigen::MatrixXd speed;          // [V x T-1] x rate; empty without a rate
 };
 /** Rheome's apparent: A [V x T] real, non-negative; at least two frames. */
-Apparent apparent(const Eigen::MatrixXd& A, const RowMat3& positions, const FaceMat& faces, const ApparentOptions& options = {});
+Apparent apparent(const Eigen::MatrixXd& A, const RowMat3& positions, const operators::FaceMat& faces, const ApparentOptions& options = {});
 
 /** The flow weights b [K x frames] of a velocity field [3V x frames] on the basis' glued surface. */
 Eigen::MatrixXd flowCoefficients(const nxr::operators::Basis& basis, const Eigen::MatrixXd& velocity);

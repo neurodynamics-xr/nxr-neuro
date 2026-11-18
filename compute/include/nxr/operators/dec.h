@@ -11,18 +11,6 @@
 #include "nxr/geometry/mesh.h"
 
 namespace nxr::operators {
-namespace ops = nxr::operators;
-using nxr::geometry::Manifold;
-using nxr::geometry::IntrinsicSurface;
-using nxr::geometry::IntrinsicRecord;
-using nxr::geometry::IntrinsicOptions;
-using nxr::geometry::DelaunayOptions;
-using nxr::geometry::MassKind;
-using nxr::geometry::TangentBasis;
-using nxr::geometry::ConnectionType;
-using nxr::geometry::OperatorId;
-using nxr::geometry::MeshKind;
-using nxr::geometry::ManifoldOptions;
 using core::Error;
 using core::ErrorCode;
 using core::CancellationToken;
@@ -37,8 +25,8 @@ namespace nxr::operators {
  * Mass-matrix variant for the FEM L² inner product ⟨u, v⟩ = uᵀ M v.
  *
  * - MixedVoronoi (DEFAULT): diagonal; each vertex's mixed Voronoi area (Meyer, Desbrun, Schröder & Barr 2003) of the
- *   mollified INPUT triangulation, recorded before the first flip (`IntrinsicSurface::inputMixedVoronoiMass`) — the mass of the Studio, nxr and Rheome. With
- *   MeshKind::Embedded: of the input as it is.
+ *   mollified INPUT triangulation, recorded before the first flip (`geometry::IntrinsicSurface::inputMixedVoronoiMass`) — the mass of the Studio, nxr and Rheome. With
+ *   geometry::MeshKind::Embedded: of the input as it is.
  * - Galerkin: full sparse, the L² integrals of piecewise-linear hat functions on the triangulation as it is (per-triangle element
  *   matrix (A_T / 12) · [[2 1 1][1 2 1][1 1 2]]). A named option.
  * - Barycentric: diagonal, M_ii = (Σ adjacent triangle areas) / 3 on the triangulation as it is (geometry-central's "lumped"; renamed to what
@@ -70,7 +58,7 @@ enum class MassMatrixVariant {
 //       want a single uniform field shape regardless of which variant
 //       the caller requested.
 //
-// Lifetime contract: bindings must keep the owning Manifold alive
+// Lifetime contract: bindings must keep the owning geometry::Manifold alive
 // for the entire lifetime of any ManifoldOperators / DECOperators they hold,
 // and must NOT call unrequire* on the underlying geometry while the
 // structs are alive. ContextHolder / ContextWrapper enforce this by
@@ -104,7 +92,7 @@ struct ManifoldOperators {
         vertexNormals(std::move(vertexNormals_)),
         totalArea(totalArea_) {}
 
-    const Eigen::SparseMatrix<double>& cotanLaplacian;  // view: the operator mesh's cotangent Laplacian (Manifold::operatorCotan)
+    const Eigen::SparseMatrix<double>& cotanLaplacian;  // view: the operator mesh's cotangent Laplacian (geometry::Manifold::operatorCotan)
     Eigen::SparseMatrix<double> mass;                   // owned: depends on massVariant
     MassMatrixVariant massVariant;                      // which variant produced `mass`
     Eigen::VectorXd vertexDualAreas;                    // [nV] A/3-per-vertex on the operator mesh (variant-independent)
@@ -115,13 +103,13 @@ struct ManifoldOperators {
     // mesh metadata that's already canonical on the context.
 };
 
-/** Assemble operators from a context, on the Manifold's operator mesh (nxr/intrinsic_surface.h). Default mass variant is MixedVoronoi. */
+/** Assemble operators from a context, on the geometry::Manifold's operator mesh (nxr/intrinsic_surface.h). Default mass variant is MixedVoronoi. */
 ManifoldOperators assembleManifoldOperators(
-    Manifold& m,
+    geometry::Manifold& m,
     MassMatrixVariant variant = MassMatrixVariant::MixedVoronoi);
 
-/** The mass matrix of a variant on the Manifold's operator mesh (diagonal for MixedVoronoi and Barycentric). */
-Eigen::SparseMatrix<double> vertexMass(Manifold& m, MassMatrixVariant variant = MassMatrixVariant::MixedVoronoi);
+/** The mass matrix of a variant on the geometry::Manifold's operator mesh (diagonal for MixedVoronoi and Barycentric). */
+Eigen::SparseMatrix<double> vertexMass(geometry::Manifold& m, MassMatrixVariant variant = MassMatrixVariant::MixedVoronoi);
 
 /** String → enum helper for binding shells (WASM, addon, MEX).
  *  Accepts "mixedVoronoi", "galerkin" and "barycentric" ("lumped" is retired: no alias). Throws
@@ -140,7 +128,7 @@ struct DECOperators {
       : d0(d0_), d1(d1_), hodge0(hodge0_), hodge1(hodge1_),
         hodge2(hodge2_), hodge1Inverse(hodge1Inverse_) {}
 
-    // All fields are views into matrices the Manifold holds (the operator mesh's DEC, or for decEmbedded() geometry-central's cached
+    // All fields are views into matrices the geometry::Manifold holds (the operator mesh's DEC, or for decEmbedded() geometry-central's cached
     // ones) — see the comment block above ManifoldOperators for the lifetime contract. dec.hodge0 is the same matrix as ops.mass when
     // ops.massVariant == MixedVoronoi (the default).
     const Eigen::SparseMatrix<double>& d0;      // vertex → edge
@@ -151,28 +139,28 @@ struct DECOperators {
     const Eigen::SparseMatrix<double>& hodge1Inverse;
 };
 
-// The matrices of the operator mesh's DEC, held by the Manifold (DECOperators views them).
+// The matrices of the operator mesh's DEC, held by the geometry::Manifold (DECOperators views them).
 struct DecMatrices {
     Eigen::SparseMatrix<double> d0, d1, hodge0, hodge1, hodge2, hodge1Inverse;
 };
 
-// The stand-alone DEC FOLLOWS THE MESH OPTION: on the Manifold's operator mesh (the intrinsic mollified Delaunay mesh by default,
-// the input with MeshKind::Embedded), so that d0ᵀ ⋆1 d0 == the cotan Laplacian (`operators().laplacian().cotan()`) and ⋆0 == the mass of the
-// default mass (the mixed-Voronoi mass of the mollified input; ops::massMatrix variants Barycentric and Galerkin are other masses). ⋆1 is the RAW cotan weight, NOT floored
+// The stand-alone DEC FOLLOWS THE MESH OPTION: on the geometry::Manifold's operator mesh (the intrinsic mollified Delaunay mesh by default,
+// the input with geometry::MeshKind::Embedded), so that d0ᵀ ⋆1 d0 == the cotan Laplacian (`operators().laplacian().cotan()`) and ⋆0 == the mass of the
+// default mass (the mixed-Voronoi mass of the mollified input; nxr::operators::massMatrix variants Barycentric and Galerkin are other masses). ⋆1 is the RAW cotan weight, NOT floored
 // (a cocircular edge gives ⋆1 = 0 and hodge1Inverse is then singular; the floored ⋆1 of the Hodge–Dirac pencil is `star1Floor` in
-// ops::hodgedirac::assemble). Edges and faces are the operator mesh's (the flipped faces under the intrinsic option; edge e keeps its index through
-// the flips), vertices are the input's. What is indexed by the INPUT's edges and faces uses `Manifold::decEmbedded()`.
-DECOperators assembleDECOperators(Manifold& m);
+// nxr::operators::hodgedirac::assemble). Edges and faces are the operator mesh's (the flipped faces under the intrinsic option; edge e keeps its index through
+// the flips), vertices are the input's. What is indexed by the INPUT's edges and faces uses `geometry::Manifold::decEmbedded()`.
+DECOperators assembleDECOperators(geometry::Manifold& m);
 
-// Zero-copy passthrough accessors, valid for the Manifold's lifetime, of the operator mesh's DEC (the same matrices as decOperators()).
-const Eigen::SparseMatrix<double>& d0(Manifold& m);
-const Eigen::SparseMatrix<double>& d1(Manifold& m);
-const Eigen::SparseMatrix<double>& hodge0(Manifold& m);
-const Eigen::SparseMatrix<double>& hodge1(Manifold& m);
-const Eigen::SparseMatrix<double>& hodge2(Manifold& m);
-const Eigen::SparseMatrix<double>& hodge1Inverse(Manifold& m);
+// Zero-copy passthrough accessors, valid for the geometry::Manifold's lifetime, of the operator mesh's DEC (the same matrices as decOperators()).
+const Eigen::SparseMatrix<double>& d0(geometry::Manifold& m);
+const Eigen::SparseMatrix<double>& d1(geometry::Manifold& m);
+const Eigen::SparseMatrix<double>& hodge0(geometry::Manifold& m);
+const Eigen::SparseMatrix<double>& hodge1(geometry::Manifold& m);
+const Eigen::SparseMatrix<double>& hodge2(geometry::Manifold& m);
+const Eigen::SparseMatrix<double>& hodge1Inverse(geometry::Manifold& m);
 // A/3 per vertex on the operator mesh (variant-independent).
-const Eigen::VectorXd&             vertexDualAreas(Manifold& m);
+const Eigen::VectorXd&             vertexDualAreas(geometry::Manifold& m);
 } // namespace nxr::operators
 
 namespace nxr::operators::facegrad {
@@ -185,11 +173,11 @@ namespace nxr::operators::facegrad {
 // = the outward in-plane edge normal). Σ_k l_k = 0 ⇒ constants annihilated and
 // the self term vanishes; output is tangent to each face. Closed-mesh v1 (every
 // face has exactly 3 edge-neighbors): throws Error(InvalidInput) on a boundary.
-Eigen::SparseMatrix<double> gradient(Manifold& m);
+Eigen::SparseMatrix<double> gradient(geometry::Manifold& m);
 // laplacian: the face Laplacian K̃ = gradientᵀ ⋆_F gradient [F×F] (⋆_F = face
 // areas), built from THE SAME gradient so the two never drift. Symmetric PSD;
 // kernel = constants (genus-0). The dual of the cotan Laplacian.
-Eigen::SparseMatrix<double> laplacian(Manifold& m);
+Eigen::SparseMatrix<double> laplacian(geometry::Manifold& m);
 } // namespace nxr::operators::facegrad
 
 namespace nxr::operators {
@@ -197,7 +185,7 @@ namespace nxr::operators {
  *  For triangle (vi, vj, vk): ∇u = (1 / 2A) Σ (uₖ - uᵢ) (N × eⱼᵢ)
  *  Returns [nF, 3] matrix. */
 Eigen::MatrixXd gradient(
-    Manifold& m,
+    geometry::Manifold& m,
     const Eigen::VectorXd& scalarField
 );
 } // namespace nxr::operators

@@ -251,7 +251,7 @@ static void test_eigenproblem_uses_registry_mass() {
     {
         EigenOperatorSpec spec;
         spec.op   = EigenOperator::LaplacianCotan;
-        spec.mass = ops::MassMatrixVariant::MixedVoronoi;  // default
+        spec.mass = nxr::operators::MassMatrixVariant::MixedVoronoi;  // default
         EigenProblem p = eigenProblemFor(m, spec);
 
         const OperatorVariant* lb = operatorById("laplaceBeltrami");
@@ -277,7 +277,7 @@ static void test_eigenproblem_uses_registry_mass() {
         EigenOperatorSpec spec;
         spec.op   = EigenOperator::Dirac;
         spec.tau  = 0.0;
-        spec.mass = ops::MassMatrixVariant::MixedVoronoi;  // default
+        spec.mass = nxr::operators::MassMatrixVariant::MixedVoronoi;  // default
         EigenProblem p = eigenProblemFor(m, spec);
 
         const OperatorVariant* rd = operatorById("relativeDirac");

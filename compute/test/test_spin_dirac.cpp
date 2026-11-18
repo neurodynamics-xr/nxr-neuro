@@ -20,14 +20,14 @@
 #include "mesh_helpers.h"
 #include <algorithm>
 using namespace nxr::geometry;
-using ops::spin::Kind;
+using nxr::operators::spin::Kind;
 
 int main() {
     std::vector<double> V; std::vector<int32_t> F; icosphere(3, V, F);
     Manifold m(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
     const int nF = m.nF();
     std::cout << "\n=== spin::assemble on the unit icosphere (level 3, " << nF << " faces) ===\n";
-    auto ex = ops::spin::assemble(m, Kind::Extrinsic), hy = ops::spin::assemble(m, Kind::IntrinsicHY), ye = ops::spin::assemble(m, Kind::IntrinsicYe);
+    auto ex = nxr::operators::spin::assemble(m, Kind::Extrinsic), hy = nxr::operators::spin::assemble(m, Kind::IntrinsicHY), ye = nxr::operators::spin::assemble(m, Kind::IntrinsicYe);
     EXPECT(ex.D.rows() == 4 * nF, "D is 4F x 4F");
     for (auto* s : {&ex, &hy, &ye}) EXPECT((s->D - Eigen::SparseMatrix<double>(s->D.transpose())).norm() < 1e-12, "D symmetric");
     Eigen::SparseMatrix<double> Hd(4 * nF, 4 * nF);

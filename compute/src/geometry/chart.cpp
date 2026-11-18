@@ -10,7 +10,7 @@
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vector_heat_method.h"
 
-namespace nxr::chart {
+namespace nxr::geometry {
 
 using Eigen::VectorXd;
 namespace gcs = geometrycentral::surface;
@@ -217,4 +217,4 @@ Basis ChartKit::basis() const {
     return out;
 }
 
-}  // namespace nxr::chart
+}  // namespace nxr::geometry

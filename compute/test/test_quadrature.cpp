@@ -154,13 +154,13 @@ static void waves() {
     const VectorXd area = faceAreas(pos, fc);
     EXPECT(std::abs(area.sum() - 4 * kPi) < 0.1, "the faces' areas sum to about 4 pi (" + std::to_string(area.sum()) + ")");
     // a log-map disc round the north pole (25 degrees)
-    nxr::chart::ChartKit kit(pos.data(), nV, Fv.data(), nF);
+    nxr::geometry::ChartKit kit(pos.data(), nV, Fv.data(), nF);
     int pole = 0;
     for (int i = 1; i < nV; ++i) if (pos(i, 2) > pos(pole, 2)) pole = i;
     const double rad = 25 * kPi / 180;
     const Eigen::Vector3d east(1, 0, 0);
     // the anatomical frame (SCS axes: anterior +x) on the signpost basis, to read the direction from anterior
-    const nxr::chart::Basis cb = kit.basis();
+    const nxr::geometry::Basis cb = kit.basis();
     nxr::geometry::Mat3 fe1(nV, 3), fe2(nV, 3), fn(nV, 3);
     for (int i = 0; i < nV; ++i) for (int d = 0; d < 3; ++d) { fe1(i, d) = cb.e1[3 * i + d]; fe2(i, d) = cb.e2[3 * i + d]; fn(i, d) = cb.n[3 * i + d]; }
     nxr::geometry::AnatomicalOptions ao; ao.side = nxr::geometry::Side::Left;
@@ -232,7 +232,7 @@ static void corrugated() {
     }
     nxr::operators::FaceOperators ops(pos, fc);
     const VectorXd area = faceAreas(pos, fc);
-    nxr::chart::ChartKit kit(pos.data(), nV, Fv.data(), nF);
+    nxr::geometry::ChartKit kit(pos.data(), nV, Fv.data(), nF);
     const int anchor = (ny / 2) * nx + nx / 2;
     const double x0 = pos(anchor, 0), slope = A * kc * std::cos(kc * x0);
     const Eigen::Vector3d along = Eigen::Vector3d(1, 0, slope).normalized();

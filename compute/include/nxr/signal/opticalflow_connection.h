@@ -41,7 +41,7 @@ struct Corners {
 /** `assembleFaceGradient` (faceGradient.ts), the part the flow reads: per face the three hat functions' gradients, stored as float32 as the Studio stores them. */
 struct FaceGradient { int nF = 0; std::vector<float> grads; };   // [9 nF]
 
-/** `cornersOf`: the corners of the input faces (their signposts and angles, before any flip: `IntrinsicSurface::inputCorners`); P [3n] the input positions, F [3 nF] the input faces. */
+/** `cornersOf`: the corners of the input faces (their signposts and angles, before any flip: `geometry::IntrinsicSurface::inputCorners`); P [3n] the input positions, F [3 nF] the input faces. */
 Corners cornersOf(const nxr::geometry::IntrinsicSurface::InputCorners& m, const double* P, const int32_t* F);
 /** `assembleFaceGradient` from float32 positions. */
 FaceGradient assembleFaceGradient(const float* position, const int32_t* index, int nV, int nF);
@@ -68,7 +68,7 @@ Eigen::SparseMatrix<double> realConnectionLaplacian(nxr::geometry::IntrinsicSurf
 class ConnectionFlow {
 public:
     /** `maxAbs` the window's peak (the unit amplitude); `positions` [V x 3], `faces` [F x 3] (any number of connected pieces, solved independently). */
-    ConnectionFlow(const RowMat3& positions, const FaceMat& faces, double alpha, double maxAbs, const geometry::DelaunayOptions& o = {});
+    ConnectionFlow(const RowMat3& positions, const operators::FaceMat& faces, double alpha, double maxAbs, const geometry::DelaunayOptions& o = {});
     ~ConnectionFlow();
     ConnectionFlow(const ConnectionFlow&) = delete;
     ConnectionFlow& operator=(const ConnectionFlow&) = delete;

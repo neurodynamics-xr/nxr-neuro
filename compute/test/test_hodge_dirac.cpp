@@ -23,7 +23,7 @@
 #include <Eigen/Eigenvalues>
 #include <algorithm>
 using namespace nxr::geometry;
-using ops::hodgedirac::HodgeDirac;
+using nxr::operators::hodgedirac::HodgeDirac;
 
 static Eigen::MatrixXd dense(const Eigen::SparseMatrix<double>& S) { return Eigen::MatrixXd(S); }
 
@@ -31,7 +31,7 @@ static void testStructure() {
     std::cout << "\n=== hodgedirac::assemble: structure on the unit icosphere (level 2) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(2, V, F);
     Manifold m(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
-    HodgeDirac h = ops::hodgedirac::assemble(m);
+    HodgeDirac h = nxr::operators::hodgedirac::assemble(m);
     EXPECT(h.nV == 162 && h.nE == 480 && h.nF == 320 && h.K.rows() == 962, "V,E,F = 162,480,320; N = 962");
     EXPECT((h.K - Eigen::SparseMatrix<double>(h.K.transpose())).norm() < 1e-14, "K symmetric");
     EXPECT(h.M.minCoeff() > 0, "M > 0");
@@ -42,7 +42,7 @@ static void testStructure() {
     // K blocks: ⋆1 d0 under the 1-form/0-form block, ⋆2 d1 under 2/1
     Eigen::SparseMatrix<double> A = h.star1.asDiagonal() * h.d0;
     EXPECT((h.K.block(h.nV, 0, h.nE, h.nV) - A).norm() < 1e-14, "K[1-forms, 0-forms] = star1 d0");
-    ops::hodgedirac::HodgeDirac hc = ops::hodgedirac::assemble(m, 10.0);   // floor above every weight
+    nxr::operators::hodgedirac::HodgeDirac hc = nxr::operators::hodgedirac::assemble(m, 10.0);   // floor above every weight
     EXPECT(hc.star1Clamped == hc.nE && hc.star1.minCoeff() >= 10.0, "star1 floor clamps (all edges at floor 10)");
 }
 
@@ -50,8 +50,8 @@ static void testSpectrumAndSplit() {
     std::cout << "\n=== dense pencil: +-mu symmetry, zero modes, D^2 = Hodge Laplacians, the split ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(2, V, F);
     Manifold m(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
-    HodgeDirac h = ops::hodgedirac::assemble(m);
-    Eigen::MatrixXd Kd = dense(h.K), Md = dense(ops::hodgedirac::massMatrix(h));
+    HodgeDirac h = nxr::operators::hodgedirac::assemble(m);
+    Eigen::MatrixXd Kd = dense(h.K), Md = dense(nxr::operators::hodgedirac::massMatrix(h));
     Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> es(Kd, Md);
     Eigen::VectorXd mu = es.eigenvalues();
     int zeros = 0; std::vector<double> pos, neg;
@@ -90,7 +90,7 @@ static void testSlicingAndShift() {
     std::cout << "\n=== spectrum slicing and the explicit-shift indefinite solve (level 3, 642 vertices) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(3, V, F);
     Manifold m(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
-    HodgeDirac h = ops::hodgedirac::assemble(m);
+    HodgeDirac h = nxr::operators::hodgedirac::assemble(m);
     Eigen::SparseMatrix<double> L0 = h.d0.transpose() * h.star1.asDiagonal() * h.d0, M0(h.nV, h.nV);
     M0 = h.star0.asDiagonal();
     auto one = nxr::operators::eigenSliced(L0, M0, 150, 400);          // one window
@@ -107,7 +107,7 @@ static void testSlicingAndShift() {
     // thousands of modes through the split: ask for 300 positive modes
     nxr::operators::EigenResult r = nxr::operators::hodgeDiracModes(h, 620, false, [] { nxr::operators::HodgeSolveOptions o; o.limit = 300; o.slice = 60; o.normalize = true; return o; }());
     EXPECT(r.k == 300 && std::is_sorted(r.eigenvalues.data(), r.eigenvalues.data() + 300), "300 +mu modes, sorted");
-    Eigen::SparseMatrix<double> M = ops::hodgedirac::massMatrix(h);
+    Eigen::SparseMatrix<double> M = nxr::operators::hodgedirac::massMatrix(h);
     double res2 = (h.K * r.eigenvectors - M * r.eigenvectors * r.eigenvalues.asDiagonal()).cwiseAbs().maxCoeff();
     EXPECT(res2 < 1e-6, "300-mode residual " + std::to_string(res2));
     {
@@ -173,7 +173,7 @@ static void testReferenceMethod() {
     std::cout << "\n=== the reference method (nxr, Rheome) and its named options (level 3, 642 vertices) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(3, V, F);
     Manifold m(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
-    HodgeDirac h = ops::hodgedirac::assemble(m);
+    HodgeDirac h = nxr::operators::hodgedirac::assemble(m);
     EXPECT(h.star1Clamped == 0, "no *1 floor by default (nxr), clamped " + std::to_string(h.star1Clamped));
     const int count = 100;
     nxr::operators::EigenResult ref = nxr::operators::hodgeDiracModes(h, count);
@@ -199,7 +199,7 @@ static void testReferenceMethod() {
     EXPECT(d0 < 1e-9, "reference mu == dense ladders (none lost, none repeated), max diff " + std::to_string(d0));
     EXPECT(d2 < 1e-8, "sliced option mu == dense ladders, max diff " + std::to_string(d2));
     std::cout << "  (relative ladder, one solve, vs dense: max diff " << d1 << ")\n";
-    Eigen::SparseMatrix<double> M = ops::hodgedirac::massMatrix(h);
+    Eigen::SparseMatrix<double> M = nxr::operators::hodgedirac::massMatrix(h);
     double res = (h.K * ref.eigenvectors - M * ref.eigenvectors * ref.eigenvalues.asDiagonal()).cwiseAbs().maxCoeff();
     double orth = (ref.eigenvectors.transpose() * M * ref.eigenvectors - Eigen::MatrixXd::Identity(ref.k, ref.k)).cwiseAbs().maxCoeff();
     EXPECT(res < 1e-9, "reference residual " + std::to_string(res));

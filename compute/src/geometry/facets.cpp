@@ -90,24 +90,24 @@ void Manifold::setConnection(ConnectionType type, const std::map<int,double>& si
 
 // ── B2: Lazy DEC / Cholesky cache + gauge() overload bodies ──────────────────
 
-ops::DECOperators& Manifold::decOperators() {
+nxr::operators::DECOperators& Manifold::decOperators() {
     if (!decCache_)
-        decCache_ = std::make_unique<ops::DECOperators>(ops::assembleDECOperators(*this));
+        decCache_ = std::make_unique<nxr::operators::DECOperators>(nxr::operators::assembleDECOperators(*this));
     return *decCache_;
 }
 
-ops::DECOperators& Manifold::decEmbedded() {
+nxr::operators::DECOperators& Manifold::decEmbedded() {
     if (!decEmbeddedCache_) {
         auto& g = geometry();
         g.requireDECOperators();
-        decEmbeddedCache_ = std::make_unique<ops::DECOperators>(g.d0, g.d1, g.hodge0, g.hodge1, g.hodge2, g.hodge1Inverse);
+        decEmbeddedCache_ = std::make_unique<nxr::operators::DECOperators>(g.d0, g.d1, g.hodge0, g.hodge1, g.hodge2, g.hodge1Inverse);
     }
     return *decEmbeddedCache_;
 }
 
-ops::CholeskyCache& Manifold::choleskyCache() {
+nxr::operators::CholeskyCache& Manifold::choleskyCache() {
     if (!choleskyCachePtr_)
-        choleskyCachePtr_ = std::make_unique<ops::CholeskyCache>();
+        choleskyCachePtr_ = std::make_unique<nxr::operators::CholeskyCache>();
     return *choleskyCachePtr_;
 }
 
@@ -147,7 +147,7 @@ bool Manifold::isOperatorCached(OperatorId id) const {
         case OperatorId::GradFace:            return (bool)cacheGradFace_;
         case OperatorId::LapFace:             return (bool)cacheLapFace_;
         case OperatorId::ConnectionGradient:  return (bool)cacheConnectionGradient_;
-        // Not held by the Manifold: assembled per request by eigenOperator / hodgedirac::assemble / ops::spin (nothing to cache).
+        // Not held by the Manifold: assembled per request by eigenOperator / hodgedirac::assemble / nxr::operators::spin (nothing to cache).
         case OperatorId::HodgeDirac:          return false;
         case OperatorId::SpinDirac:           return false;
     }
@@ -195,7 +195,7 @@ const Eigen::SparseMatrix<double>& Manifold::cotanLaplacianCached_() {
 const Eigen::SparseMatrix<double>& Manifold::graphLaplacianCached_() {
     if (!cacheLaplacianGraph_)
         cacheLaplacianGraph_ =
-            std::make_unique<Eigen::SparseMatrix<double>>(ops::graphLaplacian(*this));
+            std::make_unique<Eigen::SparseMatrix<double>>(nxr::operators::graphLaplacian(*this));
     return *cacheLaplacianGraph_;
 }
 
@@ -205,19 +205,19 @@ const Eigen::SparseMatrix<double>& Manifold::graphLaplacianCached_() {
 
 const Eigen::SparseMatrix<double>& Manifold::massMixedVoronoiCached_() {
     if (!cacheMassMixedVoronoi_)
-        cacheMassMixedVoronoi_ = std::make_unique<Eigen::SparseMatrix<double>>(ops::vertexMass(*this, ops::MassMatrixVariant::MixedVoronoi));
+        cacheMassMixedVoronoi_ = std::make_unique<Eigen::SparseMatrix<double>>(nxr::operators::vertexMass(*this, nxr::operators::MassMatrixVariant::MixedVoronoi));
     return *cacheMassMixedVoronoi_;
 }
 
 const Eigen::SparseMatrix<double>& Manifold::massBarycentricCached_() {
     if (!cacheMassBarycentric_)
-        cacheMassBarycentric_ = std::make_unique<Eigen::SparseMatrix<double>>(ops::vertexMass(*this, ops::MassMatrixVariant::Barycentric));
+        cacheMassBarycentric_ = std::make_unique<Eigen::SparseMatrix<double>>(nxr::operators::vertexMass(*this, nxr::operators::MassMatrixVariant::Barycentric));
     return *cacheMassBarycentric_;
 }
 
 const Eigen::SparseMatrix<double>& Manifold::massGalerkinCached_() {
     if (!cacheMassGalerkin_)
-        cacheMassGalerkin_ = std::make_unique<Eigen::SparseMatrix<double>>(ops::vertexMass(*this, ops::MassMatrixVariant::Galerkin));
+        cacheMassGalerkin_ = std::make_unique<Eigen::SparseMatrix<double>>(nxr::operators::vertexMass(*this, nxr::operators::MassMatrixVariant::Galerkin));
     return *cacheMassGalerkin_;
 }
 
@@ -238,7 +238,7 @@ const Eigen::SparseMatrix<double>& Manifold::extrinsicWeitzenbockCached_() {
 const Eigen::SparseMatrix<double>& Manifold::diracExtrinsicBlockCached_() {
     if (!cacheDirac_)
         cacheDirac_ = std::make_unique<Eigen::SparseMatrix<double>>(
-            ops::dirac::extrinsicBlock(*this));
+            nxr::operators::dirac::extrinsicBlock(*this));
     return *cacheDirac_;
 }
 
@@ -248,7 +248,7 @@ const Eigen::SparseMatrix<double>& Manifold::diracExtrinsicBlockCached_() {
 const Eigen::SparseMatrix<double>& Manifold::diracMatrixCached_() {
     if (!cacheDiracD_)
         cacheDiracD_ = std::make_unique<Eigen::SparseMatrix<double>>(
-            ops::dirac::matrix(*this));
+            nxr::operators::dirac::matrix(*this));
     return *cacheDiracD_;
 }
 
@@ -257,7 +257,7 @@ const Eigen::SparseMatrix<double>& Manifold::diracMatrixCached_() {
 const Eigen::SparseMatrix<double>& Manifold::diracIntrinsicMatrixCached_() {
     if (!cacheDiracIntrinsicD_)
         cacheDiracIntrinsicD_ = std::make_unique<Eigen::SparseMatrix<double>>(
-            ops::dirac::matrixIntrinsic(*this));
+            nxr::operators::dirac::matrixIntrinsic(*this));
     return *cacheDiracIntrinsicD_;
 }
 
@@ -298,7 +298,7 @@ Eigen::SparseMatrix<double> Manifold::diracFamily_(double tau) {
 const Eigen::SparseMatrix<double>& Manifold::diracFaceExtrinsicBlockCached_() {
     if (!cacheDiracFace_)
         cacheDiracFace_ = std::make_unique<Eigen::SparseMatrix<double>>(
-            ops::dirac::extrinsicBlockFace(*this));
+            nxr::operators::dirac::extrinsicBlockFace(*this));
     return *cacheDiracFace_;
 }
 
@@ -307,7 +307,7 @@ const Eigen::SparseMatrix<double>& Manifold::diracFaceExtrinsicBlockCached_() {
 const Eigen::SparseMatrix<double>& Manifold::diracFaceMatrixCached_() {
     if (!cacheDiracFaceD_)
         cacheDiracFaceD_ = std::make_unique<Eigen::SparseMatrix<double>>(
-            ops::dirac::matrixFace(*this));
+            nxr::operators::dirac::matrixFace(*this));
     return *cacheDiracFaceD_;
 }
 
@@ -316,7 +316,7 @@ const Eigen::SparseMatrix<double>& Manifold::diracFaceMatrixCached_() {
 const Eigen::SparseMatrix<double>& Manifold::diracFaceIntrinsicMatrixCached_() {
     if (!cacheDiracFaceIntrinsicD_)
         cacheDiracFaceIntrinsicD_ = std::make_unique<Eigen::SparseMatrix<double>>(
-            ops::dirac::matrixFaceIntrinsic(*this));
+            nxr::operators::dirac::matrixFaceIntrinsic(*this));
     return *cacheDiracFaceIntrinsicD_;
 }
 
@@ -324,7 +324,7 @@ const Eigen::SparseMatrix<double>& Manifold::diracFaceIntrinsicMatrixCached_() {
 const Eigen::SparseMatrix<double>& Manifold::gradFaceCached_() {
     if (!cacheGradFace_)
         cacheGradFace_ = std::make_unique<Eigen::SparseMatrix<double>>(
-            ops::facegrad::gradient(*this));
+            nxr::operators::facegrad::gradient(*this));
     return *cacheGradFace_;
 }
 
@@ -332,7 +332,7 @@ const Eigen::SparseMatrix<double>& Manifold::gradFaceCached_() {
 const Eigen::SparseMatrix<double>& Manifold::lapFaceCached_() {
     if (!cacheLapFace_)
         cacheLapFace_ = std::make_unique<Eigen::SparseMatrix<double>>(
-            ops::facegrad::laplacian(*this));
+            nxr::operators::facegrad::laplacian(*this));
     return *cacheLapFace_;
 }
 
@@ -342,7 +342,7 @@ const Eigen::SparseMatrix<double>& Manifold::lapFaceCached_() {
 // (different object from dec.d1) so the d1·⋆₁⁻¹·d1ᵀ chain has no Eigen aliasing.
 const Eigen::SparseMatrix<double>& Manifold::twoFormLaplacianCached_() {
     if (!cacheTwoFormLaplacian_) {
-        const ops::DECOperators& dec = decEmbedded();   // K̃ lives on the INPUT's faces (the face Dirac Ẽ is embedded)
+        const nxr::operators::DECOperators& dec = decEmbedded();   // K̃ lives on the INPUT's faces (the face Dirac Ẽ is embedded)
         Eigen::SparseMatrix<double> d1t = dec.d1.transpose();
         cacheTwoFormLaplacian_ = std::make_unique<Eigen::SparseMatrix<double>>(
             dec.d1 * dec.hodge1Inverse * d1t);
@@ -388,7 +388,7 @@ Eigen::SparseMatrix<double> Manifold::diracFaceFamily_(double tau) {
 
 const Eigen::SparseMatrix<std::complex<double>>& Manifold::connectionLaplacianCached_() {
     if (!cacheLaplacianConnection_) {
-        namespace cl = ops::laplacian::connection;
+        namespace cl = nxr::operators::laplacian::connection;
         cl::ConnectionLaplacianOptions o;
         o.domain = cl::ConnectionDomain::Vertex;
         o.nSym   = 1;
@@ -405,13 +405,13 @@ const Eigen::SparseMatrix<std::complex<double>>& Manifold::connectionLaplacianCa
 }
 
 const Eigen::SparseMatrix<double>& Manifold::covariantLaplacianCached_(
-        ops::laplacian::connection::CovariantCoupling coupling) {
+        nxr::operators::laplacian::connection::CovariantCoupling coupling) {
     // Rebuild when the slot is empty OR the cached coupling differs — the two
     // couplings (Product / Ambient) produce different matrices, so the cache
     // must key on the coupling, not just on presence.
     if (!cacheLaplacianCovariant_ ||
         cachedCovariantCoupling_ != static_cast<int>(coupling)) {
-        namespace cl = ops::laplacian::connection;
+        namespace cl = nxr::operators::laplacian::connection;
         Eigen::MatrixXcd g  = connection().grid();                     // realized active-gauge frame
         const auto& cotanL = cotanLaplacianCached_();             // real cotan Laplacian
         // The Ambient covariant (the default 3D-frame view) is built purely from
@@ -512,14 +512,14 @@ OperatorsFacet::LaplacianView::connection() const {
 
 const Eigen::SparseMatrix<double>&
 OperatorsFacet::LaplacianView::covariant(
-        ops::laplacian::connection::CovariantCoupling coupling) const {
+        nxr::operators::laplacian::connection::CovariantCoupling coupling) const {
     return m.covariantLaplacianCached_(coupling);
 }
 
 // ── C2: dec / mass / hodge bodies ────────────────────────────────────────────
 
-// dec(): returns the lazily-cached DECOperators bundle via Manifold::decOperators().
-const ops::DECOperators& OperatorsFacet::dec() const { return m_.decOperators(); }
+// dec(): returns the lazily-cached operators::DECOperators bundle via Manifold::decOperators().
+const nxr::operators::DECOperators& OperatorsFacet::dec() const { return m_.decOperators(); }
 const Eigen::SparseMatrix<double>& OperatorsFacet::gradient3D() const { return m_.gradient3DCached_(); }
 const Eigen::SparseMatrix<double>& OperatorsFacet::extrinsicWeitzenbock() const { return m_.extrinsicWeitzenbockCached_(); }
 
@@ -527,7 +527,7 @@ const Eigen::SparseMatrix<std::complex<double>>&
 OperatorsFacet::connectionGradient(int nSym) const {
     if (!m_.cacheConnectionGradient_ || m_.cachedConnectionGradientNSym_ != nSym) {
         m_.cacheConnectionGradient_ = std::make_unique<Eigen::SparseMatrix<std::complex<double>>>(
-            ops::laplacian::connection::assembleConnectionGradient(m_, nSym));
+            nxr::operators::laplacian::connection::assembleConnectionGradient(m_, nSym));
         m_.cachedConnectionGradientNSym_ = nSym;
     }
     return *m_.cacheConnectionGradient_;

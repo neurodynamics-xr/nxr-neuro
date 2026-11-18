@@ -38,7 +38,7 @@ static Eigen::Matrix4d leftMulImag(const Eigen::Vector3d& v) {
     return L;
 }
 
-Eigen::SparseMatrix<double> matrix(Manifold& m) {
+Eigen::SparseMatrix<double> matrix(geometry::Manifold& m) {
     using namespace geometrycentral::surface;
 
     // Gauss map: per-vertex unit normals from the embedded geometry. The Dirac
@@ -90,7 +90,7 @@ Eigen::SparseMatrix<double> matrix(Manifold& m) {
     return D;
 }
 
-Eigen::SparseMatrix<double> matrixIntrinsic(Manifold& m) {
+Eigen::SparseMatrix<double> matrixIntrinsic(geometry::Manifold& m) {
     using namespace geometrycentral;
     using namespace geometrycentral::surface;
 
@@ -144,7 +144,7 @@ Eigen::SparseMatrix<double> matrixIntrinsic(Manifold& m) {
     return D;
 }
 
-Eigen::SparseMatrix<double> extrinsicBlock(Manifold& m) {
+Eigen::SparseMatrix<double> extrinsicBlock(geometry::Manifold& m) {
     using namespace geometrycentral::surface;
 
     // First-order Dirac D : 4F × 4V — the single source of truth (also exposed
@@ -176,7 +176,7 @@ Eigen::SparseMatrix<double> extrinsicBlock(Manifold& m) {
     return E;
 }
 
-Eigen::SparseMatrix<double> matrixFace(Manifold& m) {
+Eigen::SparseMatrix<double> matrixFace(geometry::Manifold& m) {
     using namespace geometrycentral;
     using namespace geometrycentral::surface;
 
@@ -239,7 +239,7 @@ Eigen::SparseMatrix<double> matrixFace(Manifold& m) {
     return D;
 }
 
-Eigen::SparseMatrix<double> matrixFaceIntrinsic(Manifold& m) {
+Eigen::SparseMatrix<double> matrixFaceIntrinsic(geometry::Manifold& m) {
     using namespace geometrycentral;
     using namespace geometrycentral::surface;
 
@@ -296,7 +296,7 @@ Eigen::SparseMatrix<double> matrixFaceIntrinsic(Manifold& m) {
     return D;
 }
 
-Eigen::SparseMatrix<double> extrinsicBlockFace(Manifold& m) {
+Eigen::SparseMatrix<double> extrinsicBlockFace(geometry::Manifold& m) {
     using namespace geometrycentral::surface;
 
     // First-order face-domain Dirac D̃ : 4V × 4F — the single source of truth (also

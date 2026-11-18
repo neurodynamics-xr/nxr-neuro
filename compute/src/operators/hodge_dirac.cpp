@@ -24,12 +24,12 @@
 namespace nxr::operators::hodgedirac {
 
 // The Hodge–Dirac's triangulation is THE one intrinsic construction (nxr/intrinsic_surface.h, on geometry-central): the input's edge lengths, mollified
-// (`mollify`), the mixed-Voronoi mass of the mollified input (⋆0), flipped to Delaunay (`flipEps`). The Manifold's intrinsic surface is used when it is
-// the intrinsic one built with these very options; otherwise the same construction is run on the Manifold's input. d0, d1, ⋆1 and ⋆2 are
+// (`mollify`), the mixed-Voronoi mass of the mollified input (⋆0), flipped to Delaunay (`flipEps`). The geometry::Manifold's intrinsic surface is used when it is
+// the intrinsic one built with these very options; otherwise the same construction is run on the geometry::Manifold's input. d0, d1, ⋆1 and ⋆2 are
 // geometry-central's DEC operators of that triangulation.
-HodgeDirac assemble(Manifold& m, double star1Floor, double mollify, double flipEps) {
-    std::unique_ptr<IntrinsicSurface> own;
-    IntrinsicSurface* sp = &m.intrinsicSurface();
+HodgeDirac assemble(geometry::Manifold& m, double star1Floor, double mollify, double flipEps) {
+    std::unique_ptr<geometry::IntrinsicSurface> own;
+    geometry::IntrinsicSurface* sp = &m.intrinsicSurface();
     if (!(m.isIntrinsicDelaunay() && m.options().delaunay.mollify == mollify && m.options().delaunay.flipEps == flipEps)) {
         const Eigen::MatrixXd& Pm = m.vertexPositions();
         const Eigen::MatrixXi& Fm = m.faces();
@@ -37,12 +37,12 @@ HodgeDirac assemble(Manifold& m, double star1Floor, double mollify, double flipE
         std::vector<int32_t> F(static_cast<size_t>(3 * Fm.rows()));
         for (int i = 0; i < m.nV(); ++i) for (int k = 0; k < 3; ++k) P[static_cast<size_t>(3 * i + k)] = Pm(i, k);
         for (int f = 0; f < Fm.rows(); ++f) for (int k = 0; k < 3; ++k) F[static_cast<size_t>(3 * f + k)] = Fm(f, k);
-        IntrinsicOptions o;
+        geometry::IntrinsicOptions o;
         o.intrinsic = true; o.mollify = mollify; o.flipEps = flipEps;
-        own = std::make_unique<IntrinsicSurface>(P.data(), m.nV(), F.data(), static_cast<int>(Fm.rows()), o);
+        own = std::make_unique<geometry::IntrinsicSurface>(P.data(), m.nV(), F.data(), static_cast<int>(Fm.rows()), o);
         sp = own.get();
     }
-    IntrinsicSurface& surf = *sp;
+    geometry::IntrinsicSurface& surf = *sp;
     HodgeDirac h;
     h.record = surf.record();
     h.mollifyEps = h.record.epsilon;
@@ -105,7 +105,7 @@ Eigen::SparseMatrix<double> massMatrix(const HodgeDirac& h) {
 
 namespace nxr::operators {
 
-using ops::hodgedirac::HodgeDirac;
+using nxr::operators::hodgedirac::HodgeDirac;
 
 Eigen::VectorXi classifyHodgeModes(const HodgeDirac& h, const Eigen::MatrixXd& X, const Eigen::VectorXd& mu, double tol) {
     const int k = static_cast<int>(X.cols());

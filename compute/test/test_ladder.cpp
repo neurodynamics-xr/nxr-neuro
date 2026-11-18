@@ -161,7 +161,7 @@ static void meshParity(Golden& g) {
     const VectorXd alpha = g.mat("alpha").row(0).transpose();
     const MatrixXd E1 = g.mat("e1"), E2 = g.mat("e2"), NN = g.mat("nrm"), VV = g.mat("v");
     nxr::select::Mat3 e1 = E1, e2 = E2, nrm = NN, v = VV;
-    nxr::chart::ChartKit kit(mesh.positions.data(), n, mesh.faces.data(), nF);
+    nxr::geometry::ChartKit kit(mesh.positions.data(), n, mesh.faces.data(), nF);
     const VectorXd gauge = nxr::geometry::gaugeAngle(kit, e1);
     // the golden's e1 is the Studio's basis turned by alpha (the Studio's gauge); the gauge is geometry-central's now, so `gauge` (the angle of e1 in it) is NOT alpha. rho and Omega are the
     // transported frame angle seen from each vertex's own e1: gauge-free, so they are still compared with the Studio's (the transport is the same maths)
@@ -284,7 +284,7 @@ static void foldedSheet() {
     Mesh mesh; mesh.n = n; mesh.positions = P; mesh.faces = F;
     const SurfaceLadder L = surfaceLadder(mesh);
     const nxr::geometry::Mat3 nrm = nxr::geometry::vertexNormals(P.data(), n, F.data(), nF);
-    nxr::chart::ChartKit kit(P.data(), n, F.data(), nF);
+    nxr::geometry::ChartKit kit(P.data(), n, F.data(), nF);
     // the uniform flow: the unit tangent along the sheet's x direction (parallel along the whole sheet: the sheet is a cylinder, flat)
     nxr::select::Mat3 v(n, 3), e1(n, 3), e2(n, 3);
     for (int j = 0; j < ny; ++j) for (int i = 0; i < nx; ++i) {
@@ -329,7 +329,7 @@ static void sphereTransport() {
     std::vector<double> P; std::vector<int32_t> F;
     icosphere(4, P, F, 1.0);
     const int n = static_cast<int>(P.size() / 3), nF = static_cast<int>(F.size() / 3);
-    nxr::chart::ChartKit kit(P.data(), n, F.data(), nF);
+    nxr::geometry::ChartKit kit(P.data(), n, F.data(), nF);
     nxr::select::Mat3 e1(n, 3), e2(n, 3);
     const Eigen::Vector3d z(0, 0, 1);
     for (int i = 0; i < n; ++i) {

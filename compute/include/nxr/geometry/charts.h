@@ -1,5 +1,5 @@
 #pragma once
-// nxr::chart: CHARTS on the intrinsic surface. The heat method's distance, the vector heat method's transport, the LOG MAP (geodesic polar coordinates), a vertex's tangent vector as an
+// nxr::geometry: CHARTS on the intrinsic surface. The heat method's distance, the vector heat method's transport, the LOG MAP (geodesic polar coordinates), a vertex's tangent vector as an
 // angle in THE gauge, and the DISC of a chart. Step 1 of the cortical coordinate system (docs/audits/2026-11-11-cortical-coordinates.md).
 //
 // A thin wrapper of geometry-central (docs/specs/2026-11-17-geometry-central-switch.md, G4). Per connected piece (a hemisphere) one `geometry::IntrinsicSurface` (the signpost
@@ -26,8 +26,7 @@
 
 #include "nxr/geometry/intrinsic_surface.h"
 
-namespace nxr::chart {
-using DelaunayOptions = nxr::geometry::DelaunayOptions;
+namespace nxr::geometry {
 
 /** At each vertex the unit normal (corner-angle weighted, geometry-central's `vertexNormals`), e1 (the gauge's angle 0) and e2 = n x e1. [3 n] each, double. */
 struct Basis { std::vector<double> e1, e2, n; };
@@ -73,7 +72,5 @@ private:
     std::unique_ptr<Impl> p_;
 };
 
-}  // namespace nxr::chart
+}  // namespace nxr::geometry
 
-// P1: ChartKit stays in nxr::chart (selection/selection.h, owned by B3, forward-declares it there); B5 moves it to nxr::geometry with the callers.
-namespace nxr::geometry { using nxr::chart::ChartKit; using nxr::chart::Basis; using nxr::chart::LogMap; }

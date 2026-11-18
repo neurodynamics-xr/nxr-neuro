@@ -12,16 +12,13 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/facets.h"
-#include "nxr/synthesis/fields.h"          // OperatorId, Manifold
+#include "nxr/synthesis/fields.h"          // geometry::OperatorId, geometry::Manifold
 #include <string>
 #include <string_view>
 #include <vector>
 #include <functional>
 
 namespace nxr::operators::registry {
-using nxr::geometry::Manifold;
-using nxr::geometry::OperatorId;
-using nxr::geometry::ConnectionType;
 
 
 // ── Controlled vocabularies (machine-checkable enums) ────────────────
@@ -79,7 +76,7 @@ struct OperatorVariant {
     bool        graded     = false;    // τ-family
     std::string tau_presets;           // e.g. "intrinsic=0;extrinsic=1;squared=0.5x2"
     Status      status     = Status::built;
-    OperatorId  op_id;                 // the (possibly shared) enum slot
+    geometry::OperatorId  op_id;                 // the (possibly shared) enum slot
     std::string notes;
     std::string input_field;    // Field-variant id consumed (populated post-init)
     std::string output_field;   // Field-variant id produced
@@ -94,8 +91,8 @@ std::vector<const OperatorVariant*>
 // LJC-trap guard: throw Error(InvalidInput) if `id`'s bundle != required.
 void requireBundle(std::string_view id, Bundle required);
 
-// Completeness: the curated id(s) catalogued for an OperatorId. No `default`
-// case — adding an OperatorId without a branch fails to compile (-Wswitch).
-std::vector<std::string> variantIdsFor(OperatorId op);
+// Completeness: the curated id(s) catalogued for an geometry::OperatorId. No `default`
+// case — adding an geometry::OperatorId without a branch fails to compile (-Wswitch).
+std::vector<std::string> variantIdsFor(geometry::OperatorId op);
 
 } // namespace nxr::operators::registry
