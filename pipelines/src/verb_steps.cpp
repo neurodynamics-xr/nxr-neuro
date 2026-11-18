@@ -254,7 +254,11 @@ StepSpec lagfree_pairs_step() {
     if (p.value("draws", 1000) < 20) refuse("synthesis.lagfree_pairs: draws is at least 20");
     const std::string sh = p.value("shape", std::string("morlet"));
     if (sh != "morlet" && sh != "meyer") refuse("synthesis.lagfree_pairs: shape is morlet or meyer");
-    return Values{{"per_burst", statistic_value()}, {"run", statistic_value()}};
+    Value pb;                                                              // per burst: a measurement of the recording over the bursts' members
+    pb.cls = "measurement";
+    pb.manifolds = ins.at("bursts").manifolds;
+    pb.facts = Json{{"measure", "lagged_share"}, {"over", Json{{"selection", ins.at("bursts").row ? text(*ins.at("bursts").row, "name") : std::string("the bursts")}}}};
+    return Values{{"per_burst", pb}, {"run", statistic_value()}};
   };
   s.prepare = [](const Values& ins, const Json& p, ExecContext&) { return std::any(PairsState{ins.at("recording"), ins.at("bursts"), ins.at("psd"), p}); };
   s.run = [](const std::any& state, const Arrays&, ExecContext& ctx) {
@@ -332,10 +336,10 @@ StepSpec lagfree_pairs_step() {
       double* r = &pb.data[static_cast<std::size_t>(5 * k)];
       r[0] = share[k]; r[1] = std::isfinite(share[k]) ? nullmean[k] : nan; r[2] = pv[k]; r[3] = q[k]; r[4] = dof[static_cast<std::size_t>(k)];
     }
-    pb.meta["describe"] = Json{{"measure", "null_p"}, {"method", "lagfree_pairs"}, {"precision", "float64"}, {"n_members", used}, {"options", opts}, {"producer", Json{{"warnings", warnings}}},
-                               {"axes", Json::array({Json{{"name", "burst"}, {"selection_id", text(*st.bursts.row, "id")}, {"values", names}, {"size", B}},
-                                                     Json{{"name", "test"}, {"size", 5}, {"values", Json::array({Json{{"name", "lagged_share"}}, Json{{"name", "null_mean"}}, Json{{"name", "p"}}, Json{{"name", "q"}}, Json{{"name", "dof"}}})}}})},
-                               {"description", "per burst: the share of the second moment in quadrature between the sensors, its mean under lag-free Wishart draws (" + std::to_string(draws) + " draws), the p, the BH q and the dof"}};
+    // per burst, a MEASUREMENT over the bursts' members (spec 6.1: a value over a selection's members is never a statistic): five measures [burst] of the recording
+    pb.meta["describe"] = Json{{"measures", Json::array({Json{{"measure", "lagged_share"}}, Json{{"measure", "lagfree_null_mean"}}, Json{{"measure", "lagfree_p"}}, Json{{"measure", "lagfree_q"}}, Json{{"measure", "lagfree_dof"}}})},
+                               {"method", "lagfree_pairs"}, {"precision", "float64"}, {"n_members", used}, {"options", opts}, {"producer", Json{{"warnings", warnings}}},
+                               {"attributes", Json{{"bursts", names}, {"options", opts}, {"warnings", warnings}, {"note", "per burst: the share of the second moment in quadrature between the sensors, its mean under lag-free Wishart draws (" + std::to_string(draws) + " draws), the p, the BH q and the dof"}}}};
     Array pr;
     pr.rows = 4; pr.cols = 1;
     pr.data = {run.mean, run.nullMean, run.nullSd, run.p};

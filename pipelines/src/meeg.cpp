@@ -579,8 +579,71 @@ std::optional<CrossSpectrumNode> find_cross_spectrum_series(SubjectWriter& sub, 
 }
 }  // namespace
 
+namespace {
+// THE BAND'S ANALYTIC CROSS-SPECTRUM AS A MEASUREMENT (`run measure --set analytic_cross_spectrum_tiles`): the measure `sum` of the band's z z^H over the members of a time grid, stored complex
+// ([channels^2 rows x tiles x 2], value_type complex, parts re, im; row a * M + b = z_a conj z_b). `name` is the time grid's own name (its rule `band`: "<recording> time grid band <band>"). A tile not whole
+// in the run, or cut by a bad segment, is NaN and is not a window.
+std::optional<CrossSpectrumWindows> windows_of_measurement(SubjectWriter& sub, const std::string& name, const std::optional<std::vector<std::int32_t>>& channels) {
+  // the grid's own row: a name can be shared by a grid's rows of several types (the band set, the grid); the one the measurement is over is the one holding `sum`
+  std::optional<Row> sel;
+  std::map<std::string, std::string> arrays;
+  for (const char* type : {"ladder", "set", "spans", "indices"}) {
+    const auto r = nxr::io::selection::named_row(sub.db(), sub.id(), name, std::string(type));
+    if (!r) continue;
+    auto a = nxr::io::selection::measurement_arrays(sub.db(), text(*r, "id"));
+    if (a.count("sum")) { sel = r; arrays = std::move(a); break; }
+  }
+  if (!sel) return std::nullopt;
+  const auto at_sum = arrays.find("sum");
+  std::vector<std::int64_t> shape;
+  const std::vector<double> c = read_all<double>(sub.store(), at_sum->second, &shape);
+  if (shape.size() != 3 || shape[2] != 2) return std::nullopt;                                     // not a complex measurement
+  const std::int64_t M = static_cast<std::int64_t>(std::llround(std::sqrt(static_cast<double>(shape[0]))));
+  if (M * M != shape[0]) invalid(name + ": its `sum` has " + std::to_string(shape[0]) + " rows, not channels x channels");
+  const Json pj = Json::parse(opt_text(*sel, "params_json").value_or("{}"), nullptr, false);
+  const Json grid = pj.is_object() && pj.contains("grid") ? pj["grid"] : Json::object();
+  const std::int64_t width = grid.value("width", std::int64_t(0)), hop = grid.value("hop", width), T = shape[1];
+  if (!(width > 0) || hop != width) invalid(name + ": a time grid of tiles (width = hop) is what a window series is; this selection records " + grid.dump());
+  int level = -1;
+  for (int k = 0; k < 40; ++k) if ((std::int64_t(1) << k) == width) level = k;
+  if (level < 0) invalid(name + ": its tiles are " + std::to_string(width) + " samples: not a level of the dyadic grid (a power of two)");
+  CrossSpectrumWindows out;
+  std::vector<std::int64_t> at;
+  if (channels) {
+    for (std::int32_t ch : *channels) {
+      if (ch < 0 || ch >= M) invalid(name + " does not cover channel " + std::to_string(ch) + " (it has " + std::to_string(M) + ")");
+      at.push_back(ch);
+    }
+    out.channels = *channels;
+  } else {
+    for (std::int64_t i = 0; i < M; ++i) { at.push_back(i); out.channels.push_back(static_cast<std::int32_t>(i)); }
+  }
+  const std::int64_t m = static_cast<std::int64_t>(at.size());
+  for (std::int64_t k = 0; k < T; ++k) {
+    bool whole = true;
+    Eigen::MatrixXcd S(m, m);
+    for (std::int64_t i = 0; i < m && whole; ++i)
+      for (std::int64_t j = 0; j < m; ++j) {
+        const std::size_t q = static_cast<std::size_t>(2 * (((at[static_cast<std::size_t>(i)] * M + at[static_cast<std::size_t>(j)]) * T) + k));
+        if (!std::isfinite(c[q]) || !std::isfinite(c[q + 1])) { whole = false; break; }
+        S(i, j) = {c[q], c[q + 1]};
+      }
+    if (!whole) continue;
+    out.sum.push_back(std::move(S));
+    out.count.push_back(width);
+    out.index.push_back(k);
+  }
+  out.level = level;
+  out.producer = Json{{"window_samples", width}, {"window_level", level}, {"measurement", "sum"}, {"selection", name}, {"band", pj.value("band", Json())}};
+  out.unit = "channel unit\xc2\xb2 (summed over a window's samples)";
+  return out;
+}
+}  // namespace
+
 CrossSpectrumWindows crossspectrum_windows_read(SubjectWriter& sub, const std::string& name, const std::optional<std::vector<std::int32_t>>& channels, const std::string& scaling,
                                                 std::optional<int> level) {
+  if (!level && scaling == "stored")
+    if (auto w = windows_of_measurement(sub, name, channels)) return std::move(*w);
   const auto node = find_cross_spectrum_series(sub, name);
   if (!node) missing(sub.name() + ": no cross-spectrum series named '" + name + "' (crossspectrum compute --estimator analytic)");
   const std::vector<std::int32_t>& have = node->channels;

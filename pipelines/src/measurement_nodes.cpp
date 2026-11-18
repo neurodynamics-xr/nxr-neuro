@@ -344,6 +344,7 @@ Array pack_ingredients(const nm::Ingredients& g_in, std::int64_t rows, std::int6
   return a;
 }
 nm::Ingredients unpack_ingredients(const Array& a) {
+  need(!a.meta.contains("imag_offset"), "the ingredients are of a complex field (real and imaginary parts folded alike): rolling up or summarizing a complex measurement is not built; reduce a real quantity of it (a form) for that");
   nm::Ingredients g;
   g.rows = a.rows; g.members = a.cols;
   g.components = a.meta.value("ingredient_components", std::int64_t(1));
@@ -398,6 +399,7 @@ struct ReduceState {
   std::vector<Form> factors;                         // one (a grid) or several (a product, the FIRST fastest)
   std::vector<std::int64_t> radices;
   bool product = false;
+  bool complex = false;                              // x is complex: the imaginary part is folded beside the real one (measures linear in the value only)
   bool static_map = false;                           // the field has no time axis: reduced once over the members of a space selection (Q2)
   ns::ProductForm product_form;
   std::vector<double> weights;
@@ -405,7 +407,7 @@ struct ReduceState {
   std::int64_t members = 0;
   Json over;
 };
-struct ReduceAcc { nm::Ingredients ing; std::int64_t rows = 0; };
+struct ReduceAcc { nm::Ingredients ing, ing_im; std::int64_t rows = 0; };
 
 
 StepSpec reduce_node() {
@@ -429,9 +431,14 @@ StepSpec reduce_node() {
     need(x.cls == "field" && x.chunked, "reduce: x must be a field (a streamed one, or a map with no time axis), inside the chunk loop (a measurement over a grid's members is `reduce.members`)");
     // Q2: a field with NO time axis (a map on a surface, a value per channel) is reduced over the members of a selection of its space, once: nothing streams, the map is the one block
     need(x.time || ins.count("over"), "reduce: a field with no time axis is reduced over a selection of its space (`over`); with none there is no member to reduce to");
-    need(!x.complex, "reduce: x is complex; reduce a real quantity of it (give it a form first: field.form magnitude | power | phase_current)");
     need(p["measures"].is_array() && !p["measures"].empty(), "reduce: measures is a list (no default: the caller's or the preset's), e.g. [mean, max]");
     for (const auto& m : p["measures"]) need(m.is_string(), "reduce: a measure is a name");
+    // A COMPLEX field is reduced as it is by the measures that are LINEAR in the value (sum, mean): its real and imaginary parts are folded alike and the result stays complex (value_type complex, parts re, im).
+    // A measure that needs an order or a magnitude (max, min, abs_max, mean_square, median, amplitude, ...) has no complex value: it refuses with its reason (give the field a form first).
+    if (x.complex)
+      for (const auto& m : p["measures"])
+        need(m == "sum" || m == "mean", "reduce: x is complex and " + m.get<std::string>() + " needs a real quantity (an order or a magnitude); a complex field is reduced by the measures linear in its value (sum, mean), "
+                                         "or give it a form first (field.form magnitude | power | phase_current)");
     need(p["bad_segments"] == "exclude" || p["bad_segments"] == "ignore", "reduce: bad_segments " + p["bad_segments"].dump() + ": exclude or ignore");
     need(p["weight"] == "none" || p["weight"] == "barycentric" || p["weight"] == "voronoi", "reduce: weight " + p["weight"].dump() + ": none, barycentric or voronoi");
     for (const auto& m : p["measures"]) need(p["weight"] == "none" || (m != "median" && m != "mad"), "reduce: " + m.get<std::string>() + " is the member's own value and has no weighted form (weight none only)");
@@ -477,6 +484,7 @@ StepSpec reduce_node() {
     st.req.measures = st.measures;
     st.req.weighting = p["weight"] == "none" ? nm::Weighting::none : nm::Weighting::given;
     st.rate = x.rate; st.origin = x.origin;
+    st.complex = x.complex;
     std::int64_t samples = 0;                                              // a map has no time line: nothing streams
     if (x.time) {
       const auto line = c.bound.manifold(*x.time);
@@ -551,6 +559,7 @@ StepSpec reduce_node() {
       bool hold = false;                                                       // a median keeps the values (exact, unweighted, never rolled up)
       for (const auto& m : st.measures) hold = hold || m == "median" || m == "mad";
       acc.ing = nm::Ingredients(acc.rows, st.members, ncomp, hold);
+      if (st.complex) acc.ing_im = nm::Ingredients(acc.rows, st.members, ncomp, hold);
     }
     nm::Request req = st.req;
     req.per_row = !pooled_rows;
@@ -560,10 +569,14 @@ StepSpec reduce_node() {
       ns::MemberOfElement m;
       m.member_of = st.factors[0].member_of; m.members = st.factors[0].members;
       need(static_cast<std::int64_t>(m.member_of.size()) == elements, "reduce: the selection has " + std::to_string(m.member_of.size()) + " elements, the map " + std::to_string(elements));
-      for (int comp = 0; comp < ncomp; ++comp) {
-        req.component = comp;
-        for (std::int64_t r = 0; r < elements; ++r) run[static_cast<std::size_t>(r)] = b.re[static_cast<std::size_t>((r * ncomp + comp) * b.width + b.left)];
-        nm::reduce(acc.ing, run.data(), 1, elements, m, st.weights.empty() ? nullptr : st.weights.data(), req);
+      for (int part = 0; part < (st.complex ? 2 : 1); ++part) {
+        const std::vector<float>& src = part == 0 ? b.re : b.im;
+        nm::Ingredients& into = part == 0 ? acc.ing : acc.ing_im;
+        for (int comp = 0; comp < ncomp; ++comp) {
+          req.component = comp;
+          for (std::int64_t r = 0; r < elements; ++r) run[static_cast<std::size_t>(r)] = src[static_cast<std::size_t>((r * ncomp + comp) * b.width + b.left)];
+          nm::reduce(into, run.data(), 1, elements, m, st.weights.empty() ? nullptr : st.weights.data(), req);
+        }
       }
       return;
     }
@@ -575,11 +588,15 @@ StepSpec reduce_node() {
       while (e < n && good(e)) ++e;
       const std::int64_t len = e - a;
       run.resize(static_cast<std::size_t>(elements * len));
-      for (int comp = 0; comp < ncomp; ++comp) {
-        req.component = comp;
-        for (std::int64_t r = 0; r < elements; ++r) std::copy_n(b.re.begin() + (r * ncomp + comp) * b.width + b.left + a, len, run.begin() + r * len);
-        if (st.product) nm::reduce(acc.ing, run.data(), elements, len, place.first + a, st.product_form, st.weights.empty() ? nullptr : st.weights.data(), req);
-        else nm::reduce(acc.ing, run.data(), elements, len, place.first + a, st.factors[0].rule, req);
+      for (int part = 0; part < (st.complex ? 2 : 1); ++part) {
+        const std::vector<float>& src = part == 0 ? b.re : b.im;
+        nm::Ingredients& into = part == 0 ? acc.ing : acc.ing_im;
+        for (int comp = 0; comp < ncomp; ++comp) {
+          req.component = comp;
+          for (std::int64_t r = 0; r < elements; ++r) std::copy_n(src.begin() + (r * ncomp + comp) * b.width + b.left + a, len, run.begin() + r * len);
+          if (st.product) nm::reduce(into, run.data(), elements, len, place.first + a, st.product_form, st.weights.empty() ? nullptr : st.weights.data(), req);
+          else nm::reduce(into, run.data(), elements, len, place.first + a, st.factors[0].rule, req);
+        }
       }
       a = e;
     }
@@ -591,6 +608,8 @@ StepSpec reduce_node() {
     const std::int64_t R = acc.rows, T = st.members;
     std::int64_t C = 0;
     for (const int k : st.components) C += k;
+    const std::int64_t C1 = C;                                              // the columns of the REAL part; a complex value has them twice (re, im per measure)
+    if (st.complex) C = 2 * C1;
     Array y{R, T, std::vector<double>(static_cast<std::size_t>(R * T * C), kNaN)};
     y.comps = C;
     // a member WHOLE in the span and free of bad samples has its full count of samples; any other is NaN (a short mean is never a tile's mean)
@@ -606,6 +625,12 @@ StepSpec reduce_node() {
         ++whole;
         std::int64_t off = 0;
         for (std::size_t k = 0; k < st.measures.size(); ++k) {
+          if (st.complex) {                                                 // one measure, two columns: re then im
+            y.data[static_cast<std::size_t>((r * T + m) * C + 2 * off)] = read_value(acc.ing, r, m, st.measures[k], 0);
+            y.data[static_cast<std::size_t>((r * T + m) * C + 2 * off + 1)] = read_value(acc.ing_im, r, m, st.measures[k], 0);
+            off += 1;
+            continue;
+          }
           for (int c = 0; c < st.components[k]; ++c) y.data[static_cast<std::size_t>((r * T + m) * C + off + c)] = read_value(acc.ing, r, m, st.measures[k], c);
           off += st.components[k];
         }
@@ -614,7 +639,13 @@ StepSpec reduce_node() {
     Json comps = Json::array();
     for (std::size_t k = 0; k < st.measures.size(); ++k) comps.push_back(Json{{"measure", st.measures[k]}, {"components", st.components[k]}});
     y.meta = Json{{"measures", comps}, {"members", T}, {"whole_members", whole}, {"over", st.over}, {"radices", st.radices}, {"rate", st.rate}, {"origin", st.origin}};
-    y.meta["describe"] = describe_measures(comps, R, T, C);
+    y.meta["describe"] = describe_measures(comps, R, T, C1);
+    if (st.complex) {                                                       // the stored array is [rows x members x 2] a measure: value_type complex, parts re, im (declared_outputs.cpp)
+      y.meta["describe"]["complex"] = true;
+      y.meta["describe"]["shape"] = Json::array({R, T, C});
+      y.meta["describe"]["value_type"] = "complex";
+      y.meta["describe"]["components"] = Json::array({"re", "im"});
+    }
     if (st.over.is_object() && st.over.value("kind", std::string()) == "time" && st.over.value("width", std::int64_t(0)) > 0 && st.rate > 0) {   // a time grid's tile, as the detection after it reads it
       y.meta["window_samples"] = st.over["width"];
       y.meta["width_s"] = st.over["width"].get<double>() / st.rate;
@@ -623,6 +654,11 @@ StepSpec reduce_node() {
     }
     // the ingredients, packed [rows x members x K] by the measurement module (what is stored, and what rolls up)
     Array g = pack_ingredients(acc.ing, R, T);
+    if (st.complex) {                                                       // the imaginary part's ingredients follow the real part's, same layout (`imag_offset`: where they begin)
+      const Array gi = pack_ingredients(acc.ing_im, R, T);
+      g.meta["imag_offset"] = static_cast<std::int64_t>(g.data.size());
+      g.data.insert(g.data.end(), gi.data.begin(), gi.data.end());
+    }
     for (const auto& [k, v] : y.meta.items()) g.meta[k] = v;               // the values' record beside the ingredients' own layout (ingredient_lengths, ...)
     return Arrays{{"values", std::move(y)}, {"ingredients", std::move(g)}};
   };

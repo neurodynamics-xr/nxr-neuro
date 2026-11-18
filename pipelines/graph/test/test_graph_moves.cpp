@@ -178,7 +178,14 @@ void test_measure() {
   CHECK(refused([&] { use("measurement.reduce", {{"x", field_t({sensors, time}, VT::real, "amplitude")}, {"over", cells}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}); }, {"not factors of x"}));
   // the measure must fit the quantity; a complex x is refused
   CHECK(refused([&] { use("measurement.reduce", {{"x", mag("power")}, {"over", cells}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}); }, {"the measure amplitude is a measure of amplitude or envelope"}));
-  CHECK(refused([&] { use("measurement.reduce", {{"x", field_t({cortex, time}, VT::complex)}, {"over", cells}}, Json{{"measures", Json::array({"mean"})}}, false, {"out"}); }, {"is complex", "this node reads real or vector3"}));
+  // a complex x is reduced by the measures linear in its value (the measurement stays complex); the others need a real quantity
+  {
+    g::PortType envc = field_t({sensors, time}, VT::complex, "", true);
+    envc.res.band = std::array<double, 2>{8.0, 16.0};
+    const auto ladderc = selection_t({time}, "ladder", false, "ladder");
+    CHECK(refused([&] { use("measurement.reduce", {{"x", envc}, {"over", ladderc}}, Json{{"measures", Json::array({"max"})}}, false, {"out"}); }, {"is complex", "needs a real quantity"}));
+    CHECK(use("measurement.reduce", {{"x", envc}, {"over", ladderc}}, Json{{"measures", Json::array({"sum", "mean"})}}, false, {"out"}).at("values").value == VT::complex);
+  }
   // any selection on factors of x is measured (no property needed): a selection of one member is one region or time range
   CHECK(g::print(use("measurement.reduce", {{"x", mag()}, {"over", selection_t({cortex, time}, "set", false, "loose")}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}).at("values").domain).find("members(loose)") != std::string::npos);
   // a time ladder: the level is chosen by the band; a field without a band is refused; the output's member set is named after the level

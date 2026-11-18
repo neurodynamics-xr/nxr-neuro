@@ -656,7 +656,10 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     // a node may also give [rows x members x measures] (`describe.shape`): each measure's values are [rows x members]
     const bool cube = d.contains("shape") && d["shape"].is_array() && d["shape"].size() == 3;
     const std::int64_t crow = cube ? d["shape"][0].get<std::int64_t>() * d["shape"][1].get<std::int64_t>() : a.rows, ccol = cube ? d["shape"][2].get<std::int64_t>() : a.cols;
-    if (!measures.is_array() || static_cast<std::int64_t>(measures.size()) != ccol) bad(o, "its node names " + std::to_string(measures.size()) + " measures for " + std::to_string(ccol) + " columns");
+    // A COMPLEX measurement (the node says `complex`): its columns are re, im of each measure; each measure is stored as ONE array [rows x members x 2] (value_type complex, parts re, im)
+    const bool complex_values = d.value("complex", false);
+    if (complex_values && ccol % 2 != 0) bad(o, "its node says complex but gives " + std::to_string(ccol) + " columns (re, im of each measure)");
+    if (!measures.is_array() || static_cast<std::int64_t>(measures.size()) != (complex_values ? ccol / 2 : ccol)) bad(o, "its node names " + std::to_string(measures.size()) + " measures for " + std::to_string(ccol) + " columns");
     if (static_cast<std::int64_t>(a.data.size()) != crow * ccol) bad(o, "its node gives " + std::to_string(a.data.size()) + " values for " + std::to_string(crow) + " rows x " + std::to_string(ccol) + " measures");
     std::vector<std::int64_t> vshape = cube ? std::vector<std::int64_t>{d["shape"][0].get<std::int64_t>(), d["shape"][1].get<std::int64_t>()} : std::vector<std::int64_t>{a.rows};
     if (d.contains("values_shape")) {
@@ -665,6 +668,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       for (const auto x : vshape) n *= x;
       if (n != crow) bad(o, "its node's values_shape holds " + std::to_string(n) + " values a measure, its array " + std::to_string(crow) + " rows");
     }
+    if (complex_values) vshape.push_back(2);
     const bool f32 = d.value("values_f32", false);
     if (own) {                                                              // another job's rows of the same measures: refused, or replaced with --replace (a member's own sizes depend on the weights alone: rewritten)
       const task::Subject ts = task::Subject::of(sub);
@@ -682,10 +686,11 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       x.measure = measures[c]["measure"].get<std::string>();
       x.unit = measures[c].value("unit", std::string());
       x.values.shape = vshape;
-      for (std::int64_t r = 0; r < crow; ++r) {
-        const double v = a.data[static_cast<std::size_t>(r * ccol) + c];
-        if (f32) x.values.f32.push_back(static_cast<float>(v)); else x.values.f64.push_back(v);
-      }
+      for (std::int64_t r = 0; r < crow; ++r)
+        for (std::int64_t part = 0; part < (complex_values ? 2 : 1); ++part) {
+          const double v = a.data[static_cast<std::size_t>(r * ccol) + (complex_values ? 2 * c + part : c)];
+          if (f32) x.values.f32.push_back(static_cast<float>(v)); else x.values.f64.push_back(v);
+        }
       m.measures.push_back(std::move(x));
     }
     if (d.contains("band")) m.band = d["band"];                             // ONE band: the band's own, or the member of a band set (`within`)
@@ -858,7 +863,9 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (spec.value("get_or_create", false) && !replace)
       if (const auto row = sub.find("selection", path)) {
         const Json pj = Json::parse(nxr::io::opt_text(*row, "params_json").value_or("{}"), nullptr, false);
-        if (pj.is_object() && pj.value("maker_key", std::string()) == mkey) {
+        // a time grid IS its closed form (origin, width, hop, count, size and the band it is named for): the same grid made by another job (`select_time_grid`, a preset's maker) is the one found, not another
+        const bool same_grid = pj.is_object() && pj.contains("grid") && s.params.contains("grid") && pj["grid"] == s.params["grid"] && pj.value("band", Json()) == s.params.value("band", Json());
+        if (pj.is_object() && (pj.value("maker_key", std::string()) == mkey || same_grid)) {
           report["id"] = text(*row, "id"); report["path"] = path; report["reused"] = true;
           made[o] = report["id"].get<std::string>();
           return report;
