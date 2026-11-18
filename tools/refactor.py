@@ -82,7 +82,7 @@ def cmd_check_map(a):
 def rewrite_namespaces(text, pairs, sub):
     for old, new in pairs:
         new_full = new + ("::" + sub if sub else "")
-        text = re.sub(r"(namespace\s+)(?:nxr::)?%s(\s*\{)" % re.escape(old), lambda m: m.group(1) + new_full + m.group(2), text)
+        text = re.sub(r"(namespace\s+)(?:nxr::)?%s(\s*\{)" % re.escape(old), lambda m: m.group(1) + (new_full if new_full.startswith("nxr::") else "nxr::" + new_full) + m.group(2), text)
         # nested form `namespace nxr { namespace old {`: the same rule applies (the inner block matched above)
     return text
 
