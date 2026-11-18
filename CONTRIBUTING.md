@@ -117,15 +117,30 @@ an entry in `THIRD_PARTY_NOTICES.md` and the maintainers' OK.
 
 CMake 3.20+, Ninja, C++17. Clone with `--recurse-submodules` (geometry-central). Large build trees may live on another disk: make `build/` a link to it before the first configure. The SQLite engine is always the pinned amalgamation (fetched at configure time, compiled with the same options on every platform), never the system library, so a platform SQLite older than the SQL the code uses cannot break a build; zstd and zlib come from the system unless `NXR_NEURO_PORTABLE` is set.
 
-    cmake -S . -B build -G Ninja && cmake --build build 2>&1 | tail -20
-    tools/tests.py status [REGEX]       # what is green, stale (what it runs has changed since it passed), failed or new; runs nothing
-    tools/tests.py run REGEX            # run the stale, failed and new tests among those matching, and record them
+    cmake -S . -B build -G Ninja                         # configure once
+    cmake --build build --target <the targets you changed> 2>&1 | tail -20
+    tools/tests.py status REGEX         # builds ONLY the matching tests' targets; lists green, stale, failed or new; runs nothing
+    tools/tests.py run REGEX            # builds ONLY the matching tests' targets; runs the stale, failed and new ones among them; records them
     tools/tests.py show TEST            # a test's last result and what it printed
+    tools/tests.py run --suite          # the full build and suite: once, at the end of a round, never during development
+
+**No waste: this is a hard rule, not a preference.** Building and testing cost real time and compute; a brute-force loop is a defect in how
+the work was done, whatever the change.
+- **Never build everything to test something.** Build the targets you changed (`--target`), never `all`. `tools/tests.py` requires a REGEX
+  and builds only the executables of the tests it names (and the `nxr-neuro` command, for a test that calls it).
+- **Never rerun a green test.** The record knows what each test ran; an unchanged test is not run again. Do not bypass the record with bare
+  `ctest` to dodge a build: the record would no longer be true and the next run repeats your work.
+- **Edit, then build once, then test once.** Batch the edits of one item, then one targeted build and one scoped run. Do not iterate
+  compile → run → compile over a whole library for each small edit; read the error, fix every instance, then build again.
+- **Slow tests are labelled `slow`** (`set_tests_properties(<test> PROPERTIES LABELS slow)`) and run only when the change reaches them.
+- **Header-wide renames go first and alone.** A change to a header included everywhere invalidates every build that includes it; land it
+  before parallel work starts, never alongside it.
+- **The full suite and the full build run once, at the end of a round** (`tools/tests.py run --suite`), when the maintainers say so.
 
 - **The test record.** Results are kept in `test-results/` (in the repo, never in git): `status.json` holds every test's latest result
   and the FINGERPRINT of what it ran (its binary, the `nxr-neuro` command it calls, its library's goldens and data); `runs/` holds each run. A test
   whose fingerprint is unchanged since it passed is still green and is not run again. Run tests through `tools/tests.py`, not bare `ctest`, so the
-  record stays true.
+  record stays true and no green test runs twice.
 - **The full suite runs at the end of a development round, when the maintainers say so,** not during it. During development: `status`,
   then `run` on what the change reaches.
 - **Continuous integration** (`.github/workflows/ci.yml`): a pull request builds on Linux (compiled objects cached with ccache) and runs **only the

@@ -9,10 +9,15 @@ A test's FINGERPRINT is what it ran: its executable (the build relinks exactly t
 calls it, the goldens and data of its library, and, for a script test (the layering guard), the tracked sources it reads. A test whose fingerprint is the
 one it last passed with is still GREEN: it does not need to run again. Only STALE (passed, but what it runs has changed), FAILED and NEW tests need a run.
 
-    tools/tests.py status [REGEX]       build, then list what is green, stale, failed or new (nothing is run)
-    tools/tests.py run [REGEX]          build, then run the stale, failed and new tests (matching REGEX), and record them
-    tools/tests.py run --all [REGEX]    run every matching test, green or not (say why: a change to a shared core)
+    tools/tests.py status REGEX         build ONLY the matching tests' targets, then list what is green, stale, failed or new (nothing is run)
+    tools/tests.py run REGEX            build ONLY the matching tests' targets, then run the stale, failed and new ones among them, and record them
+    tools/tests.py run --all REGEX      run every matching test, green or not (say why: a change to a shared core)
+    tools/tests.py run --suite          the FULL suite: build every target, run every stale, failed and new test (end of a round only)
     tools/tests.py show TEST            the last result of one test and what it printed
+
+NO WASTE. A REGEX is required: it names the tests the change reaches, and only their executables (and the `nxr-neuro` command, for a test
+that calls it) are built. Nothing else is compiled or linked. The full build and the full suite run only with `--suite`, once, at the end of a
+round. Never loop build -> run over the whole tree; never rerun a test that is green.
 
 Only the C++ suite (ctest). The parity pytests are not recorded here yet.
 """
@@ -41,10 +46,44 @@ def sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
-def build() -> None:
-    if os.environ.get("NXR_TESTS_NO_BUILD"):   # the caller built the targets it needs (a lane builds only its own)
+def calls_cli(t: dict) -> bool:
+    cmd = t.get("command") or []
+    if not cmd or "-P" in cmd:
+        return False
+    exe = Path(cmd[0])
+    try:
+        lib = exe.relative_to(BUILD).parts[0]
+    except ValueError:
+        return False
+    src = ROOT / lib / "test" / f"{exe.name}.cpp"
+    return src.exists() and "std::system(" in src.read_text(errors="ignore")
+
+
+def targets_of(regex: str) -> list[str]:
+    """the build targets the matching tests need: each test's executable, and the command line for a test that calls it"""
+    out: set[str] = set()
+    for t in tests():
+        if not re.search(regex, t["name"]):
+            continue
+        cmd = t.get("command") or []
+        if cmd and "-P" not in cmd:
+            out.add(Path(cmd[0]).name)
+        if calls_cli(t):
+            out.add("nxr-neuro")
+    return sorted(out)
+
+
+def build(regex: str | None, suite: bool) -> None:
+    if os.environ.get("NXR_TESTS_NO_BUILD"):   # the caller built the targets it needs
         return
-    r = sh(["cmake", "--build", str(BUILD)])
+    if suite:
+        cmd = ["cmake", "--build", str(BUILD)]
+    else:
+        tg = targets_of(regex or "")
+        if not tg:
+            return                              # script tests only: nothing to build
+        cmd = ["cmake", "--build", str(BUILD), "--target", *tg]
+    r = sh(cmd)
     if r.returncode != 0:
         sys.exit("the build failed:\n" + "\n".join(r.stdout.splitlines()[-20:] + r.stderr.splitlines()[-20:]))
 
@@ -180,15 +219,19 @@ def run(names: list[str], fps: dict[str, str]) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("status"); s.add_argument("regex", nargs="?")
-    r = sub.add_parser("run"); r.add_argument("regex", nargs="?"); r.add_argument("--all", action="store_true")
+    s = sub.add_parser("status"); s.add_argument("regex", nargs="?"); s.add_argument("--suite", action="store_true")
+    r = sub.add_parser("run"); r.add_argument("regex", nargs="?"); r.add_argument("--all", action="store_true"); r.add_argument("--suite", action="store_true")
     w = sub.add_parser("show"); w.add_argument("test")
     a = ap.parse_args()
     if a.cmd == "show":
         t = load_status().get(a.test)
         print(json.dumps(t, indent=1) if t else f"{a.test}: never run through tools/tests.py")
         return
-    build()
+    if not a.regex and not a.suite:
+        sys.exit("name the tests your change reaches: tools/tests.py " + a.cmd + " REGEX  (the full suite is --suite, once, at the end of a round)")
+    if a.regex and a.suite:
+        sys.exit("--suite is the whole suite; give either a REGEX or --suite")
+    build(a.regex, a.suite)
     cls = classify(a.regex)
     if a.cmd == "status":
         by = {k: [n for n, s, _ in cls if s == k] for k in ("green", "stale", "failed", "new")}
