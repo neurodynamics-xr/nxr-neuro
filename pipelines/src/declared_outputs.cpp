@@ -636,7 +636,12 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       m.selection_id = back;
     }
     bool own = false;                                                       // the rows are not of a field stored in this run: a found field's, or the members' own
-    if (spec.contains("of")) {
+    if (spec.contains("of_statistic") && !spec.contains("of")) {            // OF A STORED STATISTIC (schema 54): its array is beside the statistic's, under the selection's name; no field
+      const std::string sref = spec["of_statistic"].get<std::string>();
+      if (!P.found.count(sref) || !P.found.at(sref).row || P.found.at(sref).cls != "statistic") bad(o, "of_statistic: '" + sref + "' is not a statistic found as an input");
+      own = true;
+      m.path = text(*P.found.at(sref).row, "path") + "_" + nxr::io::safe_name(over_name);
+    } else if (spec.contains("of")) {
       const std::string of = spec["of"].get<std::string>();
       if (made.count(of)) {
         m.of_field_id = made.at(of);
@@ -670,15 +675,18 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     }
     if (complex_values) vshape.push_back(2);
     const bool f32 = d.value("values_f32", false);
+    // (the statistic a measurement is of, when it is: set below from `of_statistic`; named here so the check of rows already there is of the same key)
+    std::optional<std::string> statid;
+    if (spec.contains("of_statistic") && !spec.contains("of")) statid = text(*P.found.at(spec["of_statistic"].get<std::string>()).row, "id");
     if (own) {                                                              // another job's rows of the same measures: refused, or replaced with --replace (a member's own sizes depend on the weights alone: rewritten)
       const task::Subject ts = task::Subject::of(sub);
       const std::optional<std::string> ofid = m.of_field_id.empty() ? std::nullopt : std::optional<std::string>(m.of_field_id);
       for (const auto& mj : measures) {
         const std::string nm = mj["measure"].get<std::string>();
-        if (!ts.has_measure(m.selection_id, nm, ofid)) continue;
-        if (!replace && ofid) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + P.definition.name + " output " + o + ": the measure '" + nm + "' of this field over " + over_name + " already exists; pass --replace");
-        unit.remove_measurements(m.selection_id, ofid, nm);
-        if (ofid) replaced = true;
+        if (!ts.has_measure(m.selection_id, nm, ofid, statid)) continue;
+        if (!replace && (ofid || statid)) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + P.definition.name + " output " + o + ": the measure '" + nm + "' of this " + (statid ? "statistic" : "field") + " over " + over_name + " already exists; pass --replace");
+        unit.remove_measurements(m.selection_id, ofid, nm, statid);
+        if (ofid || statid) replaced = true;
       }
     }
     for (std::size_t c = 0; c < measures.size(); ++c) {
@@ -703,7 +711,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       const Json comps = spec.contains("components") ? spec["components"] : d.value("components", Json());
       if (comps.is_array()) for (const auto& c : comps) m.components.push_back(c.get<std::string>());
     }
-    if (spec.contains("of_statistic")) m.of_statistic_id = link_of(P, spec, "of_statistic", &made, o);
+    if (spec.contains("of_statistic")) { m.of_statistic_id = link_of(P, spec, "of_statistic", &made, o); if (!m.of_index) m.of_index = 0; }
     if (spec.contains("level") && spec["level"].is_number_integer()) m.level = spec["level"].get<std::int64_t>();
     else if (d.contains("level") && d["level"].is_number_integer()) m.level = d["level"].get<std::int64_t>();
     if (d.contains("snapped")) {                                            // what the stated quantity snapped to (the level's real size): in the array's attributes, as provenance

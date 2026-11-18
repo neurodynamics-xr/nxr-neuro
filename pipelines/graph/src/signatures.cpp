@@ -201,6 +201,21 @@ Signature s_reduce() {
       });
 }
 
+// `reduce.statistic`: a stored statistic over the members of a selection of its first axis (a PSD over a channel set); the measurement is OF the statistic
+Signature s_reduce_statistic() {
+  return sig(Move::measure)
+      .in("x", statistic_any().because("`measure` of a stored statistic reduces its first axis (the channels of a PSD) over a selection's members."))
+      .in("over", selection_any().over())
+      .out("values", make_of(PortClass::measurement))
+      .refine([](Unified& u, const Json& p) {
+        if (!p.contains("measures") || !p["measures"].is_array() || p["measures"].empty()) u.fail("x", "`measures` names what is measured (no default): the caller's, or the preset's");
+        const std::string m = p["measures"][0].get<std::string>();
+        PortType& y = u.out.at("values");
+        if (is_quantity(m)) y.quantity = m;
+        y.value = VT::real;
+      });
+}
+
 // `reduce.members`: a measurement over a grid's members, over the members of an irregular selection given on them (events over a grid); the events keep their own members (no level, no roll-up)
 Signature s_reduce_members() {
   return sig(Move::measure)
@@ -736,6 +751,7 @@ const std::map<std::string, Signature>& table() {
     m["meeg.apply_kernel"] = s_apply_kernel();
     m["measurement.reduce"] = s_reduce();
     m["measurement.reduce_members"] = s_reduce_members();
+    m["measurement.reduce_statistic"] = s_reduce_statistic();
     m["measurement.roll_up"] = s_roll_up();
     m["measurement.estimate"] = s_estimate();
     m["signal.field_form"] = s_field_form();

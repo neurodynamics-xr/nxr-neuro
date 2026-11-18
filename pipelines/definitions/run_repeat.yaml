@@ -33,10 +33,11 @@ steps:
 
 outputs:
   tiles:
-    kind: measurement
+    kind: statistic
     name: "$name.tiles"
     of: recording_a
     over: over
+    axes: [{name: tile}]
   whole:
     kind: statistic
     name: "$name.whole"

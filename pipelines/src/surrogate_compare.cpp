@@ -37,7 +37,9 @@ constexpr std::int64_t kSeedStride = 100000;   // run k's draw i is seed i + k *
 Json generator_of(const graph::Definition& d) { return Json{{"pipeline", d.name}, {"version", d.version}, {"sha256", nxr::io::sha256_hex(d.text)}}; }
 void same_generator(const nxr::io::StoredStatistic& D, const graph::Definition& d, const std::string& what) {
   const Json pl = D.producer.value("pipeline", Json::object());
-  const std::string name = pl.value("name", std::string()), sha = pl.value("sha256", std::string());
+  std::string name = pl.value("name", std::string());
+  const std::string sha = pl.value("sha256", std::string());
+  if (const auto at = name.find(".draw"); at != std::string::npos) name.resize(at);   // a draw's run is recorded under `<pipeline>.draw<seed>` (the definition's `draw:`): the pipeline is what precedes it
   if (name != d.name || sha != nxr::io::sha256_hex(d.text))
     invalid(what + " was made by " + (name.empty() ? std::string("no recorded pipeline") : name + " (" + sha.substr(0, std::min<std::size_t>(12, sha.size())) + ")") + ", not by " + d.name + " as it is now: rerun the draws (--replace)");
 }
@@ -141,7 +143,8 @@ SurrogateCompareResult surrogate_lagfree_vortex_compare(nxr::io::DatasetWriter& 
     const auto x = get("crossing_sum_x"), y = get("crossing_sum_y"), z = get("crossing_sum_z"), n = get("crossings");
     r.members = n.members; r.computed_by = n.computed_by;
     if (n.members != tiles + 1) invalid(who + ": " + r.name + "'s stored crossings have " + std::to_string(n.members) + " members; the selection " + sel.name + " has " + std::to_string(tiles) + " tiles (and the bridge)");
-    r.stage = opt.stage_name ? crossing_stage_index(r.name, crossing_stage_names(r.computed_by), *opt.stage_name) : opt.stage;
+    try { r.stage = opt.stage_name ? crossing_stage_index(r.name, crossing_stage_names(r.computed_by), *opt.stage_name) : opt.stage; }
+    catch (const std::invalid_argument& e) { invalid(e.what()); }                  // a stage the run does not have: refused as every other argument of the comparison
     if (n.rows < 2 * static_cast<std::int64_t>(r.stage) + 2) invalid(who + ": " + r.name + "'s crossings have " + std::to_string(n.rows) + " rows; stage " + std::to_string(r.stage) + " needs rows " + std::to_string(2 * r.stage) + " and " + std::to_string(2 * r.stage + 1));
     r.data.resize(static_cast<std::size_t>(n.rows * n.members * 4));
     for (std::size_t i = 0; i < n.values.size(); ++i) { r.data[4 * i] = x.values[i]; r.data[4 * i + 1] = y.values[i]; r.data[4 * i + 2] = z.values[i]; r.data[4 * i + 3] = n.values[i]; }

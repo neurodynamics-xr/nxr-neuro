@@ -737,12 +737,15 @@ StepSpec elements_step() {
   StepSpec s;
   s.name = "select.elements";
   s.kind = "setup";
-  s.inputs = {"space"};
+  s.inputs = {"space", "channels_of"};
+  s.optional = {"channels_of"};
+  s.reads_arrays = true;                                                   // `channels_of`: a stored statistic's channel pick, read as its channels
   s.outputs = {"elements"};
   s.parameters = Json{{"as", "members"}};
   s.matches = "the Studio's set selection over a manifold's elements (a channel set, a cortex)";
   s.description = "The elements of a space (the channels of a recording, the vertices of a surface) as a set: `as: members` (each element its own member, the layout of a measurement per channel) or `as: one_member` "
-                  "(all elements in one member: a mean over the channels). It reads no data; `space` is the manifold, or a field on it (its first factor that is not a time line).";
+                  "(all elements in one member: a mean over the channels). It reads no data; `space` is the manifold, or a field on it (its first factor that is not a time line). `channels_of` (optional): "
+                  "a stored statistic whose channel axis is a pick (a cross-spectrum): only the picked channels are members (the others belong to none, member -1).";
   s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "no time axis: labels only");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
     need(ins.count("space") != 0, "select.elements: the input `space` (a manifold, or a field on it) is missing");
@@ -751,6 +754,7 @@ StepSpec elements_step() {
     std::string id;
     for (const auto& m : sv.manifolds) if (!sv.time || m != *sv.time) { id = m; break; }
     need(!id.empty(), "select.elements: `space` has no factor other than a time line");
+    if (ins.count("channels_of")) need(ins.at("channels_of").cls == "statistic", "select.elements: channels_of is a stored statistic (its channel axis is a pick of the space's channels)");
     Value v;
     v.cls = "selection";
     v.manifolds = {id};
@@ -765,10 +769,21 @@ StepSpec elements_step() {
     need(m.has_value(), "select.elements: the manifold is not among the subject's rows");
     return std::any(std::make_pair(nxr::io::integer(*m, "n_vertices"), p["as"].get<std::string>()));
   };
-  s.run = [](const std::any& st, const Arrays&, ExecContext&) {
+  s.run = [](const std::any& st, const Arrays& ins, ExecContext&) {
     const auto& [n, as] = std::any_cast<const std::pair<std::int64_t, std::string>&>(st);
     Array out;
     out.rows = n; out.cols = 1;
+    if (ins.count("channels_of") && ins.at("channels_of").meta.contains("channels")) {   // a PICK of the elements (a cross-spectrum's channels): the others belong to no member
+      const std::vector<std::int32_t> pick = ins.at("channels_of").meta["channels"].get<std::vector<std::int32_t>>();
+      out.data.assign(static_cast<std::size_t>(n), -1.0);
+      std::int64_t k = 0;
+      for (const std::int32_t c : pick) { need(c >= 0 && c < n, "select.elements: the picked channel " + std::to_string(c) + " is not among the space's " + std::to_string(n) + " elements"); out.data[static_cast<std::size_t>(c)] = as == "members" ? static_cast<double>(k) : 0.0; ++k; }
+      const std::int64_t members = as == "members" ? k : 1;
+      Json desc = Json{{"n_members", members}, {"family", "grid"}, {"params", Json{{"grid", Json{{"kind", "set"}, {"size", n}}}}},
+                       {"description", (as == "members" ? "each of the " + std::to_string(k) + " picked elements its own member" : "the " + std::to_string(k) + " picked elements as one member") + " (of " + std::to_string(n) + ", the pick of a stored statistic)"}};
+      out.meta = Json{{"describe", desc}, {"n_members", members}};
+      return Arrays{{"elements", std::move(out)}};
+    }
     for (std::int64_t i = 0; i < n; ++i) out.data.push_back(as == "members" ? static_cast<double>(i) : 0.0);
     const std::int64_t members = as == "members" ? n : 1;
     Json desc = Json{{"n_members", members}, {"family", "grid"}, {"params", Json{{"grid", Json{{"kind", as == "members" ? "elements" : "whole"}, {"size", n}}}}},

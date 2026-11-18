@@ -290,6 +290,11 @@ Json expand_doc(const Json& doc, const Json& params, const std::string& where, J
   if (d.contains("outputs")) d["outputs"] = expand_entries(d["outputs"], params, where + ": outputs");
   if (d.contains("steps") && d["steps"].is_object()) {
     for (const char* sec : {"before", "after"}) if (d["steps"].contains(sec)) d["steps"][sec] = expand_steps(d["steps"][sec], params, {}, where + ": steps." + sec);
+    if (d["steps"].contains("chunks") && d["steps"]["chunks"].is_object() && d["steps"]["chunks"].contains("when")) {   // the whole loop is part of the run only when its condition holds (a statistic is not streamed)
+      const bool on = holds(d["steps"]["chunks"]["when"], params, where + ": steps.chunks");
+      d["steps"]["chunks"].erase("when");
+      if (!on) d["steps"].erase("chunks");
+    }
     if (d["steps"].contains("chunks") && d["steps"]["chunks"].is_object() && d["steps"]["chunks"].contains("do"))
       d["steps"]["chunks"]["do"] = expand_steps(d["steps"]["chunks"]["do"], params, {}, where + ": steps.chunks.do");
   }

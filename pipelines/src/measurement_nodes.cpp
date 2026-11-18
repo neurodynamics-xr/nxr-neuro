@@ -751,6 +751,70 @@ StepSpec reduce_members_node() {
   return s;
 }
 
+// ── reduce.statistic ─────────────────────────────────────────────────────────────────────────────────────────────
+// A STORED STATISTIC reduced over the members of a selection of its first axis (a PSD [channels x frequencies] over a channel set): `measure` of a statistic (schema 54, consolidation spec 6.1). The
+// reduction is the same function as a field's (`nxr::measurement::reduce`, members of elements): the rows of the measurement are the statistic's OTHER axes (the frequencies, in order), the
+// members the selection's. The statistic is read as it is stored; nothing is computed from the recording. Elements the selection leaves out (member -1) do not count. The values are the measures
+// as the registry derives them from the ingredients (a mean is sum / count), stored as [rows x members x components] OF THE STATISTIC (`of_statistic_id`, no field).
+StepSpec reduce_statistic_node() {
+  StepSpec s;
+  s.name = "measurement.reduce_statistic";
+  s.kind = "after";
+  s.inputs = {"x", "over"};
+  s.outputs = {"values"};
+  s.parameters = Json{{"measures", nullptr}};
+  s.reads_arrays = true;
+  s.matches = "the Studio's measureOverPartition over a stored statistic's first axis; compute nxr::measurement::reduce (members of elements)";
+  s.description = "A stored statistic (a PSD [channels x frequencies]) reduced over the members of a selection of its first axis, by registry measures: one value per (row, member), the rows the statistic's other axes "
+                  "in order. The same reduction as a field's over a set of elements, so a channel set's mean spectrum is a measurement read by name, never a loop inside a node. Elements the selection does not hold "
+                  "(member -1) are left out. The measurement is OF the statistic.";
+  s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the stored statistic's values: double");
+  s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
+    const Value &x = ins.at("x"), &ov = ins.at("over");
+    need(x.cls == "statistic", "reduce.statistic: x must be a stored statistic (a field is `reduce`)");
+    need(ov.cls == "selection", "reduce.statistic: over must be a selection of the statistic's first axis (a set of its elements, e.g. a channel set as one member)");
+    need(p["measures"].is_array() && !p["measures"].empty(), "reduce.statistic: measures is a list (no default), e.g. [mean]");
+    for (const auto& m : p["measures"]) need(m.is_string(), "reduce.statistic: a measure is a name");
+    Value y;
+    y.cls = "measurement";
+    y.manifolds = ov.manifolds;
+    y.facts["measures"] = p["measures"];
+    y.facts["measure"] = p["measures"][0];
+    y.facts["of_statistic"] = ins.at("x").row ? Json(nxr::io::text(*ins.at("x").row, "name")) : Json("a statistic");
+    y.facts["over"] = Json{{"selection", ov.row ? Json(nxr::io::text(*ov.row, "name")) : Json("the selection made in the run")}};
+    return Values{{"values", y}};
+  };
+  s.prepare = [](const Values&, const Json& p, ExecContext&) { return std::any(p); };
+  s.run = [](const std::any& st, const Arrays& ins, ExecContext&) {
+    const Json& p = std::any_cast<const Json&>(st);
+    const Array &x = ins.at("x"), &ov = ins.at("over");
+    const std::int64_t E = x.rows, R = x.cols;                                  // [elements x rows]: the first axis is the members' elements, the rest are the rows
+    need(ov.rows == E, "reduce.statistic: the selection has " + std::to_string(ov.rows) + " elements, the statistic's first axis " + std::to_string(E));
+    need(!x.meta.contains("value_type") || x.meta["value_type"] == "scalar", "reduce.statistic: the statistic's values are " + x.meta.value("value_type", std::string()) + "; a scalar statistic is reduced");
+    ns::MemberOfElement set;
+    set.member_of.resize(static_cast<std::size_t>(E));
+    std::int64_t members = ov.meta.value("n_members", std::int64_t(0));
+    if (ov.meta.contains("describe") && ov.meta["describe"].contains("n_members")) members = std::max(members, ov.meta["describe"]["n_members"].get<std::int64_t>());
+    for (std::int64_t e = 0; e < E; ++e) { set.member_of[static_cast<std::size_t>(e)] = static_cast<std::int32_t>(ov.data[static_cast<std::size_t>(e)]); members = std::max<std::int64_t>(members, set.member_of[static_cast<std::size_t>(e)] + 1); }
+    set.members = members;
+    nm::Request req;
+    for (const auto& m : p["measures"]) req.measures.push_back(m.get<std::string>());
+    std::vector<double> rows_by_elements(static_cast<std::size_t>(R * E));          // the reduction reads [rows x elements]
+    for (std::int64_t e = 0; e < E; ++e) for (std::int64_t r = 0; r < R; ++r) rows_by_elements[static_cast<std::size_t>(r * E + e)] = x.data[static_cast<std::size_t>(e * R + r)];
+    nm::Ingredients acc(R, members, 1);
+    nm::reduce(acc, rows_by_elements.data(), R, E, set, nullptr, req);
+    Array y = values_of(acc, req, R, members);
+    const Json comps = y.meta["measures"];
+    std::int64_t C = 0;
+    for (const auto& m : comps) C += m.value("components", 1);
+    y.meta = Json{{"members", members}, {"measures", comps}, {"statistic", x.meta.value("name", std::string())}, {"describe", describe_measures(comps, R, members, C)}};
+    if (x.meta.contains("unit")) for (auto& c : y.meta["describe"]["measures"]) c["unit"] = x.meta["unit"];
+    y.meta["describe"]["attributes"] = Json{{"rows", "the statistic's axes after the first, in order"}, {"of_statistic", x.meta.value("name", std::string())}};
+    return Arrays{{"values", std::move(y)}};
+  };
+  return s;
+}
+
 // ── roll_up ──────────────────────────────────────────────────────────────────────────────────────────────────────
 // The ingredients through a GRID's closed-form hierarchy: the coarser level as a QUANTITY (a duration, a tile size, `whole`), resolved in closed form (spec 3.3); or across subjects
 // (the same members in several subjects, summed code for code: `across`). The checker refuses an irregular selection (rule 18: the family mark and the move, never a parameter name).
@@ -1018,6 +1082,7 @@ void add_measurement_nodes(std::vector<StepSpec>& r) {
   r.push_back(std::move(sc));
   r.push_back(reduce_node());
   r.push_back(reduce_members_node());
+  r.push_back(reduce_statistic_node());
   r.push_back(roll_up_node());
   // estimate: ONE node, the statistic of a partition of the stream (spec 2.5; core_histogram, relative_histogram and baseline are folded in). `method`: `sample` (the mean over the good columns: a band's
   // power per vertex and level is the BASELINE, any other real field the generic mean) or `histogram` (counts: fixed bins when `edges` are given, else the log bins of nxr's threshold over a
