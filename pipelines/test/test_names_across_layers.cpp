@@ -161,7 +161,11 @@ int main(int argc, char** argv) {
     if (r.kind != "retired") continue;
     ++retired;
     const std::string kind_of = r.function;   // node | graphnode | mex
-    if (kind_of == "node") CHECK(refused([&] { g::step(r.entry); }, r.status));
+    if (kind_of == "node") {
+      const bool refused_ok = refused([&] { g::step(r.entry); }, r.status);
+      if (!refused_ok) std::printf("  not refused with the new name: %s -> %s\n", r.entry.c_str(), r.status.c_str());
+      CHECK(refused_ok);
+    }
     else if (kind_of == "graphnode") CHECK(refused([&] { nxr::graph::registry().at(r.entry); }, r.status));
     else if (kind_of == "mex") {
       const std::regex line("\\{\"" + r.entry + "\", \"" + r.status + "\"\\}");
