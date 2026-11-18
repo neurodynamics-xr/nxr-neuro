@@ -179,7 +179,7 @@ struct PsdState {
   std::int64_t first = -1, samples = 0, bad = 0;
 };
 
-ng::NodeSpec welch_psd() {
+static ng::NodeSpec real_psd() {
   ng::NodeSpec n;
   n.name = "signal.psd";
   n.kind = ng::Kind::accumulate;
@@ -192,7 +192,7 @@ ng::NodeSpec welch_psd() {
   n.description = "the Welch power spectral density of every channel, streaming: segments (a tile of 2^k samples, or Brainstorm's or scipy's rule) are detrended, windowed, transformed and averaged; a segment touching a bad sample is left out";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = streamed_real(in, "x", "signal.psd");
-    if (x.value != ng::ValueType::real) ng::refuse("signal.psd: x is real (a complex series is signal.complex_psd's)");
+    if (x.value != ng::ValueType::real) ng::refuse("signal.psd: x is a real recording or one complex series");
     const Resolved r = resolve(p, *x.sfreq);
     ng::Planned out;
     out.out["psd"] = statistic_port();
@@ -332,11 +332,11 @@ struct CState {
   std::int64_t first = -1, samples = 0, bad = 0;
 };
 
-ng::NodeSpec welch_complex_psd() {
+static ng::NodeSpec complex_psd() {
   ng::NodeSpec n;
-  n.name = "signal.complex_psd";
+  n.name = "signal.psd";
   n.kind = ng::Kind::accumulate;
-  n.inputs = {{"z", "a complex series (one row): a rotary pair, streamed", false}, {"exclude", "the recording's bad segments (spans)", true}};
+  n.inputs = {{"x", "a complex series (one row): a rotary pair, streamed", false}, {"exclude", "the recording's bad segments (spans)", true}};
   n.outputs = {{"psd", "the two-sided Welch power spectral density of z on the signed frequency line, [1 x n], a statistic over the segment partition", false}};
   n.parameters = welch_parameters();
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
@@ -344,8 +344,8 @@ ng::NodeSpec welch_complex_psd() {
   n.matches = "scipy.signal.welch(z, return_onesided=False), the frequencies ascending (nxr.timefreq.psd of a complex series); compute nxr::signal::spectral::ComplexWelch";
   n.description = "the two-sided Welch power spectral density of a complex series, streaming: no bin is doubled; +f is the pair turning from x towards y";
   n.plan = [](const ng::Types& in, const Json& p) {
-    const ng::PortType& z = streamed_real(in, "z", "signal.complex_psd");
-    if (z.value != ng::ValueType::complex || z.rows != 1) ng::refuse("signal.complex_psd: z is one complex series");
+    const ng::PortType& z = streamed_real(in, "x", "signal.psd");
+    if (z.value != ng::ValueType::complex || z.rows != 1) ng::refuse("signal.psd: a complex x is one series (one row)");
     const Resolved r = resolve(p, *z.sfreq);
     ng::Planned out;
     out.out["psd"] = statistic_port();
@@ -354,7 +354,7 @@ ng::NodeSpec welch_complex_psd() {
     return out;
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays&, const Json& p, ng::Shared&) {
-    const ng::PortType& z = in.at("z");
+    const ng::PortType& z = in.at("x");
     CPrepared pr;
     pr.r = resolve(p, *z.sfreq);
     pr.pair = z.facts.value("pair", Json());
@@ -365,7 +365,7 @@ ng::NodeSpec welch_complex_psd() {
   n.step = [](const std::any& prepared, std::any state, const ng::Blocks& in, std::int64_t, const ng::Place& at) {
     const CPrepared& pr = std::any_cast<const CPrepared&>(prepared);
     CState& s = std::any_cast<CState&>(state);
-    const ng::Block& b = in.at("z");
+    const ng::Block& b = in.at("x");
     const Eigen::MatrixXcd z = own_complex(b);
     if (s.first < 0) s.first = at.first;
     if (!pr.r.exclude || all_good(at)) s.w.add(z);
@@ -413,6 +413,35 @@ ng::NodeSpec welch_complex_psd() {
         {"bad_samples", s.bad}};
     return ng::Arrays{{"psd", std::move(a)}};
   };
+  return n;
+}
+
+// ── signal.psd: the Welch PSD of a real recording (one-sided, per channel) or of one complex series (two-sided, on the signed line) — ONE node, the C++ function `psd` of either input ──────────────────────────
+ng::NodeSpec welch_psd() {
+  ng::NodeSpec n = real_psd();
+  const ng::NodeSpec c = complex_psd();
+  n.inputs = {{"x", "the series, streamed one chunk at a time: a recording (channels x samples, real: the one-sided PSD of every channel) or ONE complex series (a rotary pair: the two-sided PSD on the signed line)", false},
+              {"exclude", "the recording's bad segments (spans): a segment touching one is left out when bad_segments is exclude", true}};
+  n.outputs = {{"psd", "the Welch power spectral density, a statistic over the segment partition: one-sided channels x bins for a real x, two-sided [1 x n] on the signed frequency line for a complex x", false}};
+  n.matches += "; for a complex x: " + c.matches;
+  n.description += "; a complex series (one row) gives the two-sided PSD, no bin doubled, +f the pair turning from x towards y";
+  const auto plan_r = n.plan, plan_c = c.plan;
+  n.plan = [plan_r, plan_c](const ng::Types& in, const Json& p) {
+    const auto x = in.find("x");
+    return x != in.end() && x->second.value == ng::ValueType::complex ? plan_c(in, p) : plan_r(in, p);
+  };
+  const auto prep_r = n.prepare, prep_c = c.prepare;
+  n.prepare = [prep_r, prep_c](const ng::Types& in, const ng::Arrays& k, const Json& p, ng::Shared& sh) {
+    return in.at("x").value == ng::ValueType::complex ? prep_c(in, k, p, sh) : prep_r(in, k, p, sh);
+  };
+  const auto start_r = n.start, start_c = c.start;
+  n.start = [start_r, start_c](const std::any& prepared) { return prepared.type() == typeid(CPrepared) ? start_c(prepared) : start_r(prepared); };
+  const auto step_r = n.step, step_c = c.step;
+  n.step = [step_r, step_c](const std::any& prepared, std::any state, const ng::Blocks& in, std::int64_t keep, const ng::Place& at) {
+    return prepared.type() == typeid(CPrepared) ? step_c(prepared, std::move(state), in, keep, at) : step_r(prepared, std::move(state), in, keep, at);
+  };
+  const auto fin_r = n.finish, fin_c = c.finish;
+  n.finish = [fin_r, fin_c](const std::any& prepared, std::any state) { return prepared.type() == typeid(CPrepared) ? fin_c(prepared, std::move(state)) : fin_r(prepared, std::move(state)); };
   return n;
 }
 
@@ -1145,7 +1174,7 @@ ng::NodeSpec fft_spectrum() {
 
 void register_welch_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {welch_psd(), linear_map(), welch_complex_psd(), welch_source_band_power(), welch_source_bins(), welch_source_tensor(), welch_cross_spectrum(), welch_mode_cross_spectra(), fft_spectrum()})
+  for (ng::NodeSpec n : {welch_psd(), linear_map(), welch_source_band_power(), welch_source_bins(), welch_source_tensor(), welch_cross_spectrum(), welch_mode_cross_spectra(), fft_spectrum()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 

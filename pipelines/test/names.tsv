@@ -160,7 +160,6 @@ node	select.events.tracks	-	composite
 node	select.product	-	composite
 node	select.time_grid	-	composite
 node	signal.analytic_bands	-	composite
-node	signal.complex_psd	-	pending B6a: the node takes a complex series: it merges into signal.psd with the streaming accumulators (the C++ function is psd(complex))
 node	signal.filter	nxr::signal::filter	ok
 node	signal.flow_activation	-	composite
 node	signal.flow_hodge_modes	-	composite
@@ -256,7 +255,7 @@ retired	surrogate.lagfree_mixing	node	synthesis.lagfree_mixing
 retired	surrogate.lagfree_pairs	node	synthesis.lagfree_pairs
 retired	timebank.analytic_bands	node	signal.analytic_bands
 retired	timebank.member_analytic	node	signal.member_analytic
-retired	welch.complex_psd	node	signal.complex_psd
+retired	welch.complex_psd	node	signal.psd
 retired	welch.cross_spectrum	node	signal.xpsd
 retired	welch.mode_cross_spectra	node	signal.mode_cross_spectra
 retired	welch.psd	node	signal.psd
