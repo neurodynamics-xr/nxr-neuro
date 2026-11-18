@@ -15,6 +15,7 @@ one it last passed with is still GREEN: it does not need to run again. Only STAL
     tools/tests.py run --kind unit --fast REGEX             --fast leaves out the tests labelled `slow`
     tools/tests.py run --all REGEX      run every matching test, green or not (say why: a change to a shared core)
     tools/tests.py run --suite          the FULL suite: build every target, run every stale, failed and new test (end of a round only)
+    tools/tests.py targets [--regex R] [--label-regex L] [--exclude-label slow]   print the build targets of a ctest selection (CI)
     tools/tests.py show TEST            the last result of one test and what it printed
 
 NO WASTE. A REGEX is required: it names the tests the change reaches, and only their executables (and the `nxr-neuro` command, for a test
@@ -82,18 +83,21 @@ KINDS = ("unit", "golden", "integration", "guard")
 SEL: dict = {"kinds": None, "fast": False}   # set from the command line (--kind, --fast)
 
 
-def targets_of(regex: str) -> list[str]:
-    """the build targets the matching tests need: each test's executable, and the command line for a test that calls it"""
+def targets_for(ts: list[dict]) -> list[str]:
+    """the build targets of the given ctest tests: each test's executable, and the command line for a test that calls it"""
     out: set[str] = set()
-    for t in tests():
-        if not selected(t, regex, SEL["kinds"], SEL["fast"]):
-            continue
+    for t in ts:
         cmd = t.get("command") or []
         if cmd and "-P" not in cmd:
             out.add(Path(cmd[0]).name)
         if calls_cli(t):
             out.add("nxr-neuro")
     return sorted(out)
+
+
+def targets_of(regex: str) -> list[str]:
+    """the build targets the matching tests need"""
+    return targets_for([t for t in tests() if selected(t, regex, SEL["kinds"], SEL["fast"])])
 
 
 def build(regex: str | None, suite: bool) -> None:
@@ -248,7 +252,17 @@ def main() -> None:
         x.add_argument("--kind", action="append", choices=KINDS, help="only tests of this kind (repeatable)")
         x.add_argument("--fast", action="store_true", help="leave out the tests labelled slow")
     w = sub.add_parser("show"); w.add_argument("test")
+    g = sub.add_parser("targets", help="print the build targets of a ctest selection (for CI: build only what is tested)")
+    g.add_argument("--regex", help="test names (ctest -R)")
+    g.add_argument("--label-regex", help="labels (ctest -L)")
+    g.add_argument("--exclude-label", action="append", default=[], help="drop tests with this label (ctest -LE; repeatable)")
     a = ap.parse_args()
+    if a.cmd == "targets":
+        ts = [t for t in tests() if re.search(a.regex or "", t["name"])
+              and (not a.label_regex or any(re.search(a.label_regex, l) for l in labels_of(t)))
+              and not (labels_of(t) & set(a.exclude_label))]
+        print(" ".join(targets_for(ts)))
+        return
     if a.cmd == "show":
         t = load_status().get(a.test)
         print(json.dumps(t, indent=1) if t else f"{a.test}: never run through tools/tests.py")
