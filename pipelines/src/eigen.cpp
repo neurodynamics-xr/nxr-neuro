@@ -173,7 +173,7 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
 }
 
 // THE VERB IS A DEFINITION NOW (pipelines/definitions/eigenmodes.yaml, the step `hodge_dirac` in eigen_steps.cpp): this is the library's thin caller of it (the spatial bands make missing
-// eigenmodes, `dataset create --modes` makes the default subject's): a cortex of two pieces is glued first by the definition `glue` (the glued surface is a manifold of its own, named as the input; rule 28), then runs the definition as `nxr-neuro run eigenmodes` does (the same plan, run,
+// eigenmodes, `dataset create --modes` makes the default subject's): a cortex of two pieces is glued first by the definition `glue` (the glued surface is a manifold of its own, named as the input), then runs the definition as `nxr-neuro run eigenmodes` does (the same plan, run,
 // store, cache and --replace) and reads the stored package back for its caller.
 EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenSolveOptions& opt, const std::function<void(const Json&)>& progress) {
   if (opt.modes < 2) throw Error(code::invalid_argument, "eigen_solve: modes must be at least 2");

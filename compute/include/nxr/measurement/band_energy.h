@@ -4,7 +4,7 @@
 // PURE MATHS on arrays: `Coefficients` are what a transform returned, one array per member (a time bank's [samples x signals], a graph bank's [vertices x columns], a joint bank's [vertices or modes x time]).
 // The reductions here sum |W|^2 over an axis; they were the filterbank headers' `scalogram`, `energies`, `scaleEnergy`, `memberEnergy`, `bandMoments`, `bandPower`.
 //
-// `scalogram` is the PRESET of the measure of a coefficient block (PI, 2026-11-17: "scalogram = a preset of measure"): the power |w|^2 of each coefficient, per member, unreduced.
+// `scalogram` is the PRESET of the measure of a coefficient block (the scalogram is a preset of measure, not its own function): the power |w|^2 of each coefficient, per member, unreduced.
 #include <Eigen/Dense>
 #include <complex>
 #include <vector>

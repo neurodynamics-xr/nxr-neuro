@@ -73,8 +73,8 @@ struct Stored {
   Json meta;                               // class, name, id, and what the node records about itself (unit, kind, axes, options, producer, ...)
   std::vector<StoredArray> arrays;         // a field, operator or selection: its array (a sparse operator: data, indices, indptr); a statistic: values; a measurement table: code, value, weight, members
 };
-/** THE MEASUREMENT QUERY (consolidation spec 2.3; rule 35): a stored measurement over a selection, read at the level of a QUANTITY (a tile size, a duration, `whole`) and, for a group analysis, across subjects.
- *  Roll-ups live in two places by the PI's decision, with ONE definition: each measure's merge rule (sum, max, min, mean via sum and count, ratios derived at read) is DATA in the measures registry, applied by io in SQL
+/** THE MEASUREMENT QUERY (consolidation spec 2.3): a stored measurement over a selection, read at the level of a QUANTITY (a tile size, a duration, `whole`) and, for a group analysis, across subjects.
+ *  Roll-ups live in two places, with ONE definition: each measure's merge rule (sum, max, min, mean via sum and count, ratios derived at read) is DATA in the measures registry, applied by io in SQL
  *  (`where: "io"`, for filters and group queries over many subjects) and by compute in memory (`where: "compute"`, from the finest ingredients and the grid's closed form); a parity test holds the two equal. */
 struct MeasurementQuery {
   std::string selection;                   // the selection (a grid, a product or an event set) the measurement is over, by name or id

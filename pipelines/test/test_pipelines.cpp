@@ -132,7 +132,7 @@ int main() {
   // two identical spheres make exactly cocircular quads: flipped to Delaunay their cotan weights are 0 up to rounding (about -1e-17), which the 2-form ladder inverts: the named *1 floor keeps it defined, and the
   // stored *1 is the floored one (the Gram check below reads it)
   opt.method.star1_floor = 1e-9;
-  opt.surface = "cortex";                                     // the glued surface is another surface of the subject now: the caller names the one to solve (rule 19)
+  opt.surface = "cortex";                                     // the glued surface is another surface of the subject now: the caller names the one to solve
   const EigenSolveResult g = eigen_solve(ds, s3, opt);
   // the glue the solve used is nxr-compute's glueMesh on the positions as the Studio receives them (float32)
   std::vector<double> W32(W.size());

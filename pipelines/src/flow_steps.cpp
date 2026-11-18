@@ -2,7 +2,7 @@
 //
 //   recording --timebank.member_analytic--> z [channels x frames, complex]      RETIMING: one filter-bank member at its OWN rate, the halo declared (its margin)
 //             --flow.activation----------> a [N x frames]                       pointwise: J = K z (the linear map before the non-linear step, D106), then |J|
-//             --flow.max_amplitude-------> the window's maximum |a|              accumulate: stored by its own definition (`flow_amplitude`), read BY NAME by the flow run (rule 13)
+//             --flow.max_amplitude-------> the window's maximum |a|              accumulate: stored by its own definition (`flow_amplitude`), read BY NAME by the flow run
 //             --flow.velocity------------> v [3N x frames]                       stateful: Horn-Schunck between consecutive frames; the previous map is its state; the unit amplitude is the stored maximum
 //             --flow.hodge_modes---------> b [K x frames]                        pointwise: the velocity carried to the glued surface, read in the package's modes (exact / coexact)
 //             --flow.series--------------> the flow weights as an array [K x steps] and the line they lie on

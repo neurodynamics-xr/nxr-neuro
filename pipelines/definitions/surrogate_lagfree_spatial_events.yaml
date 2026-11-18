@@ -28,7 +28,7 @@ inputs:
   psd:            {statistic: welch, where: {name: $psd_statistic}}
   cross_spectrum: {statistic: welch, where: {name: $cross_spectrum}}
   power_series:   {measurement: power, of: recording, where: {name: $power_series_over}, hint: "the data's band power per tile: `nxr-neuro run measure --set surrogate_lagfree_envelope` first"}
-  psd_channel_mean: {measurement: mean, of: psd, where: {name: $psd_channel_mean_over}, hint: "the PSD's mean over channels, a stored measurement (`nxr-neuro run measure --set psd_channel_mean` first), read by name (rule 32)"}
+  psd_channel_mean: {measurement: mean, of: psd, where: {name: $psd_channel_mean_over}, hint: "the PSD's mean over channels, a stored measurement (`nxr-neuro run measure --set psd_channel_mean` first), read by name"}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}

@@ -664,7 +664,7 @@ FactorKind factor_kind_of(const std::string& node, const std::string& w) {
   if (node == "select.time_grid") return {"tiling", "line", ".manifold.0"};
   err(w, "make.factors: '" + node + "' is not a factor maker (select.run_span, select.elements, select.time_grid), or give {input: NAME} for a selection the definition finds");
 }
-// A PRODUCT made in the run (PI, 2026-11-18: a product's factors are ALWAYS Selections, made by makers and named as factors, never virtual): `make: {node: select.product, factors: [...]}`. A factor is
+// A PRODUCT made in the run (a product's factors are always Selections, made by makers and named as factors, never virtual): `make: {node: select.product, factors: [...]}`. A factor is
 // a maker, `{node: select.run_span | select.elements | select.time_grid, in: {line | space: THING}, with: {...}, name: "<template>"}`, stored get-or-create under `name`, or `{input: NAME}`, a selection the
 // definition finds. The product's manifold and the product selection are outputs of the definition: factors, manifold, product.
 void compose_product(Definition& e, const std::string& input, const Json& make, const std::string& w) {

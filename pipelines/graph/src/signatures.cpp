@@ -118,7 +118,7 @@ Signature s_apply_kernel() {
         const PortType& k = u.type("kernel");
         PortType& y = u.out.at("y");
         const std::string form = p.value("form", std::string("none"));
-        if (u.has("glued") || form != "none") y.domain.factors[0] = derived("glued", y.domain.factors[0]);   // the glued surface is an input (rule 33); a form is taken on it
+        if (u.has("glued") || form != "none") y.domain.factors[0] = derived("glued", y.domain.factors[0]);   // the glued surface is an input; a form is taken on it
         y.res.ladder.clear(); y.res.levels.clear(); y.res.spatial_shape.clear();
         if (u.has("tiles")) {
           const PortType& t = u.in.at("tiles");

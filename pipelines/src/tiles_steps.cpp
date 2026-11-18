@@ -12,7 +12,7 @@
 //
 // These two steps are the RULES of the maker `select.dyadic_surface` (select_nodes.cpp: rule subject / group / transfer), no longer registered under their own names. The finest tile is a
 // QUANTITY (`finest`: a tile diameter, area, wavelength or parts per hemisphere), resolved to the depth through the grid's MEASURED level diameters (spec 3.3), never a bare depth. The
-// Levi-Civita connection between neighbouring tiles is not part of the grid: it is a measurement over the product of a level with itself (`reduce`, measure levi_civita; rule 26).
+// Levi-Civita connection between neighbouring tiles is not part of the grid: it is a measurement over the product of a level with itself (`reduce`, measure levi_civita).
 //   group_tile_grid  setup   surface          -> tiles    nxr::select::groupTreeFor: each vertex takes the code of the nearest vertex of the default subject's cortex, piece by piece
 //
 // The Studio's design is kept with its names (backend/src/db/surface-ladder.ts, studio/src/engine/ladder.ts: `surfaceLadder`, the levels, `tileAreas`, `tileCentres`, Weyl's law).
@@ -68,7 +68,7 @@ struct TileGridState {
   Json finest;                                  // the finest tile as a quantity (null: the finest every piece reaches; the group grid names it)
   std::string resolution = "fsaverage5";        // rule group: recorded in the atlas definitions
   Json atlas_finest;                            // rule group: the finest tile of the dataset's atlases as a quantity (null: the grid's finest)
-  double frames_per_cycle = 0;                  // rule group: the default frame density recorded in the atlas definitions (PI rule 34: an option, written by the definition)
+  double frames_per_cycle = 0;                  // rule group: the default frame density recorded in the atlas definitions (an option, written by the definition)
 };
 // THE ATLAS DEFINITIONS of the group tree (D131): what the dataset's atlases and group analyses default to. Every scale is a quantity resolved in closed form (the atlas's leaf level is `atlas_depth`, the SNAPPED level of
 // `atlas_finest`); the frame density is frames per cycle of a band's centre (36: the 10 degree step of phase work), no tower and no day-anchored frame level.

@@ -57,7 +57,7 @@ struct TimeGridState {
   std::string rule_name;                       // the grid NAMED BY ITS RULE ("band 8-16 Hz", "frames 8-12 Hz 36 per cycle"): several grids coexist on a line, each found by this name
   double rate = 0, line_origin = 0;
   std::int64_t size = 0, origin = 0, width = 0, hop = 0, count = 0;
-  double hop_exact = 0, width_exact = 0;       // in samples: equal to hop and width on a dyadic grid; a frame grid of frames per cycle is NOT whole samples (PI rule 34/36: exactly, never snapped)
+  double hop_exact = 0, width_exact = 0;       // in samples: equal to hop and width on a dyadic grid; a frame grid of frames per cycle is NOT whole samples (exactly, never snapped)
   int level = -1;
   Json stated = Json::object(), snapped = Json::object(), band = nullptr, levels = nullptr, design = nullptr;
 };
@@ -120,7 +120,7 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
       s.stated = Json{{"band", p["band"]}};
       s.snapped = Json{{"tile_s", static_cast<double>(s.width) / s.rate}, {"cycles_of_centre", static_cast<double>(s.width) / s.rate * centre}};
     } else {
-      // FRAME DENSITY is an option of the node (PI, 2026-11-17: frames per tile or per cycle, the pipeline's default written in its YAML): never a constant here
+      // FRAME DENSITY is an option of the node (frames per tile or per cycle; the pipeline's default is written in its YAML): never a constant here
       const bool per_tile = p["frames_per_tile"].is_number(), per_cycle = p["frames_per_cycle"].is_number();
       need(per_tile || per_cycle, who + ": give frames_per_tile (a power of two; it wins when both are given) or frames_per_cycle (no default here: the definition's)");
       s.stated = Json{{"band", p["band"]}, {"frames_per_tile", p["frames_per_tile"]}, {"frames_per_cycle", p["frames_per_cycle"]}};
@@ -132,8 +132,8 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
         level_grid(k);
         s.snapped = Json{{"frame_s", static_cast<double>(s.width) / s.rate}, {"frames_per_tile", static_cast<double>(fpt)}, {"frames_per_cycle", 1.0 / (centre * (static_cast<double>(s.width) / s.rate))}};
       } else {
-        // FRAMES PER CYCLE, EXACTLY (PI rule 34/36: 36 to a cycle, the 10 degree step of phase work, is not a power of two and is never snapped to one): the frame is 1 / (centre x frames_per_cycle) seconds,
-        // by compute's time rule; the hop is generally not whole samples, a frame's start is origin + j hop (the frames node interpolates there, rule 36)
+        // FRAMES PER CYCLE, EXACTLY (36 to a cycle, the 10 degree step of phase work, is not a power of two and is never snapped to one): the frame is 1 / (centre x frames_per_cycle) seconds,
+        // by compute's time rule; the hop is generally not whole samples, a frame's start is origin + j hop (the frames node interpolates there)
         const double fpc = p["frames_per_cycle"].get<double>();
         need(fpc >= 1, who + ": frames_per_cycle is at least 1");
         nxr::select::TimeRule tr;
@@ -143,7 +143,7 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
         const ns::Line ln{"s", room, s.line_origin + static_cast<double>(s.origin) / s.rate, 1.0 / s.rate};
         nxr::select::TimeGrid made;
         try { made = nxr::select::time_rule_resolved(ln, tr); } catch (const std::invalid_argument& e) { refuse(who + ": " + e.what()); }
-        // a frame finer than the sampling (36 to a cycle at a high frequency) is allowed (PI rule 36): its sample is made by band-limited interpolation (`frames`), so hop and width in whole samples are only the nearest (at least 1)
+        // a frame finer than the sampling (36 to a cycle at a high frequency) is allowed: its sample is made by band-limited interpolation (`frames`), so hop and width in whole samples are only the nearest (at least 1)
         s.hop_exact = s.width_exact = made.hop_s * s.rate;
         s.width = made.width_samples > 0 ? made.width_samples : std::max<std::int64_t>(1, static_cast<std::int64_t>(std::llround(s.width_exact)));
         s.hop = made.hop_samples > 0 ? made.hop_samples : std::max<std::int64_t>(1, static_cast<std::int64_t>(std::llround(s.hop_exact)));
@@ -692,7 +692,7 @@ int level_among(const Json& dictionary, const std::string& unit, const Json& qua
 
 
 // ── select.run_span and select.elements: the factors of a product that are not grids ─────────────────────────────────────────────────
-// A product's factors are ALWAYS Selections (PI, 2026-11-18): the run's span, a channel set and a grid level are made by makers and named as factors; none is virtual. These two makers read
+// A product's factors are always Selections: the run's span, a channel set and a grid level are made by makers and named as factors; none is virtual. These two makers read
 // no data. `select.run_span` is ONE span covering the whole line (the run's span as one member); `select.elements` is the elements of a space (the channels of a recording, the vertices of a
 // surface) as `members` (each element its own member) or `one_member` (all elements in one member). Both describe the grid kind `reduce` folds (params.grid: span, elements, whole).
 StepSpec run_span_step() {
@@ -827,7 +827,7 @@ void add_select_nodes(std::vector<StepSpec>& r) {
   }
   {
     StepSpec s = take_step(r, "patches");
-    s.name = "select.events.patches";                                       // accumulate (a pass over the frames); `select.events.regions` is the after-kind of the same family (decision for the PI in cons-2.md)
+    s.name = "select.events.patches";                                       // accumulate (a pass over the frames); `select.events.regions` is the after-kind of the same family
     r.push_back(std::move(s));
   }
   {

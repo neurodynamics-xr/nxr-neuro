@@ -9,7 +9,7 @@
 //   summarize      after       a measurement's members to a statistic (mean, sd, median, mad, percentile, ...): nxr::measurement::summarize
 //   estimate       accumulate  a statistic from a partition of the stream (a segment mean, a histogram): nxr::measurement::SegmentMean, Histogram
 //
-// Roll-ups exist in io's query AND here (PI, 2026-11-17): each measure's merge rule is DATA in the measures registry, applied by io in SQL and by compute in memory.
+// Roll-ups exist in io's query AND here: each measure's merge rule is DATA in the measures registry, applied by io in SQL and by compute in memory.
 // A retired step name (measure, tile_max, reduce_cells, measure_events, magnitude, power, phase_current, summarize_measurements) is refused with the name of what replaces it
 // (`retired_step_message`, registry.cpp).
 #pragma once

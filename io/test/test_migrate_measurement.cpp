@@ -118,7 +118,7 @@ int main() {
     const Json r = migrate_measurement_storage(root / "demo");
     CHECK(r["statistics_converted"] == 0 && r["tower_tilings_marked"] == 0);
   }
-  // THE EXPLICIT SECOND STEP removes the migrated statistics (the PI's word); their measurements stay
+  // THE EXPLICIT SECOND STEP removes the migrated statistics (only when the option is set); their measurements stay
   {
     MeasurementStorageOptions o; o.remove_statistics = true;
     const Json r = migrate_measurement_storage(root / "demo", o);

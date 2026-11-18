@@ -89,7 +89,7 @@ The minimum-norm current is smooth: its resolution is the kernel's point spread,
 band narrow against its centre. The filter is circular over the block read, so the first and last `halo_seconds` of a recording carry its edge effect. A
 Morlet band overlaps its neighbours (power_partition's add to broadband). A free kernel's principal axis is partly the kernel's own prior.
 
-## 6. Decisions for the PI and open needs
+## 6. Open design questions
 
 1. **Storage location of the arrays.** nxr's atlas node `source-time/<recording>__<kernel>_atlas/<tree>/{power,env,envmax}` ([band, leaf, frame], one array for all bands) is not
    written: the declared measurement output stores `<estimate path>/<measure>`, one array [leaf, frame] a band and measure, found through the rows' `array_path`. nxr's reader

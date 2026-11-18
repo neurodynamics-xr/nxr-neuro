@@ -59,7 +59,7 @@ struct Transfer {
   const double* sphere = nullptr;          // this surface's registered sphere, [vertices x 3]
 };
 
-/** THE TIME RULE (spec 1.2; the PI's answers 2026-11-17, rules 34-35: frame density and frame origin are OPTIONS of the compute function, the pipeline's default is its YAML's, no method
+/** THE TIME RULE (frame density and frame origin are OPTIONS of the compute function, the pipeline's default is its YAML's, no method
  *  constant is hard-wired here). Every member is [origin + i hop, origin + i hop + width) on the line's samples; the kinds differ only in how width and hop are resolved from the stated
  *  quantity:
  *    tiles      duration_s            2^k samples, k = `level_of_duration` (Rheome's natural_level); hop = width

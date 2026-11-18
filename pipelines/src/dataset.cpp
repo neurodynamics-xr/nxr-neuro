@@ -34,7 +34,7 @@ Json create_dataset_with_template(const std::filesystem::path& datastore, const 
                                     false, progress);
       out["default_subject"]["group_tree"] = runs.empty() ? Json() : runs.front();
     }
-    // the Levi-Civita connection between neighbouring tiles is a measurement (`reduce`, measure levi_civita) over the product of a level with itself (rule 26), one per stated scale, of the pial's canonical
+    // the Levi-Civita connection between neighbouring tiles is a measurement (`reduce`, measure levi_civita) over the product of a level with itself, one per stated scale, of the pial's canonical
     // frames. The maker that makes that product from a grid's level (a `make` with factors resolved to a level of the stored grid) is not built: the maker takes stored selections by input, and a level
     // is no selection of its own (consolidation spec 6.2). Until it is, each scale is reported as not measured, never dropped silently.
     {

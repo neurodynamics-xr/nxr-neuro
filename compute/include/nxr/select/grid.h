@@ -2,7 +2,7 @@
 // it (spec docs/specs/2026-11-17-selection-module.md, section 9). Pure functions of numbers (and of a grid already made); std::invalid_argument for an argument
 // outside its domain.
 //
-// COUPLED LEVELS (replicating the Studio; PI/coordinator 2026-11-17). A single band SELECTS (it is not a frequency axis); it sets the level of the other factors' grids:
+// COUPLED LEVELS (replicating the Studio). A single band SELECTS (it is not a frequency axis); it sets the level of the other factors' grids:
 //   time      the Studio's `fitLevelOf` (engine/toolbox/wavelets/jointTime.ts): the band's support is `cycles` (4) cycles at the band's CENTRE (sqrt(lo hi)), in
 //             samples need = ceil(cycles fs / centre); the level is the first dyadic level whose tile (2^k samples) is at least that (Rheome's `natural_level`),
 //             held inside the line (a tile no longer than the line). The Studio counts a level by the tiles of the line (log2n - k); here a level is k, the tile's
@@ -53,7 +53,7 @@ struct LevelOf {
 /** a time line's dyadic level from a duration (s): the first k with 2^k samples at least the duration (`natural_level`), held at most `max_level`; snapped = 2^k / sfreq s */
 LevelOf level_of_duration(double seconds, double sfreq, std::optional<int> max_level = std::nullopt);
 /** a surface's dyadic level from a tile diameter: the COARSEST level whose measured mean tile diameter (`tile_diameters[l]`, levels 0 .. depth, in the surface's length unit: the
- *  level dictionary's `diameter`) is at most `diameter` (rule 16, Rheome's `tileMM`); snapped = that level's diameter, in `unit`. A diameter no level is fine enough for is refused
+ *  level dictionary's `diameter`) is at most `diameter` (Rheome's `tileMM`); snapped = that level's diameter, in `unit`. A diameter no level is fine enough for is refused
  *  with the finest diameter (as `cortical_level_of_extent`). */
 LevelOf level_of_diameter(const std::vector<double>& tile_diameters, double diameter, const std::string& unit);
 /** the same from a tile area: the coarsest level whose mean tile area (`tile_areas[l]`, levels 0 .. depth, in unit^2) is at most `area`; snapped = that area, in unit^2 */

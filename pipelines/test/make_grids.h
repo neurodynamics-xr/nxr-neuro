@@ -25,7 +25,7 @@ namespace nxrtest {
 inline std::vector<nxr::io::Json> make_tiles(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const std::string& finest = "", std::optional<std::string> surface = std::nullopt, bool replace = false) {
   std::string name;
   if (surface) name = *surface;
-  else { try { name = nxr::pipelines::read_surface(sub, std::string("cortex")).name; } catch (const std::exception&) { name = nxr::pipelines::read_surface(sub, std::nullopt).name; } }   // no primary default (rule 19): a fixture's surface is `cortex`
+  else { try { name = nxr::pipelines::read_surface(sub, std::string("cortex")).name; } catch (const std::exception&) { name = nxr::pipelines::read_surface(sub, std::nullopt).name; } }   // no primary default: a fixture's surface is `cortex`
   nxr::io::Json set = nxr::io::Json{{"surface", name}, {"rule", "subject"}};
   if (!finest.empty()) set["finest"] = finest;
   return nxr::pipelines::run_shipped(ds, sub, "select_dyadic_surface", set, replace);

@@ -778,7 +778,7 @@ ng::NodeSpec phase_gradient() {
   n.outputs = {{"field", "the field the leaves' measurements are of (no array: its values are the measurements)", false},
                {"measurements", "per leaf: phase_power, phase_gradient_power, phase_current_1, phase_current_2, phase_current_magnitude", false}};
   n.parameters = {{"band", Json(), "the band of the cross-spectrum (its name); null: its one band", "-", {}, true},
-                  {"signal", Json(), "normal = the current along the surface's normal | ambient = each of its x y z components. NO DEFAULT (PI: an orientation prior is never a default): the caller states it", "-", {"normal", "ambient"}, false},
+                  {"signal", Json(), "normal = the current along the surface's normal | ambient = each of its x y z components. NO DEFAULT (an orientation prior is never a default): the caller states it", "-", {"normal", "ambient"}, false},
                   {"finest", Json(), "the leaves measured, as a quantity (a tile diameter, an area, parts per hemisphere), resolved on the grid's measured level diameters; null: the grid's own depth", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "in double from a stored cross-spectrum (no time axis)");
   n.matches = "nxr.detect.core_phase PhaseReader.read_out (grad phi = Im(conj z grad z) / |z|^2), power-weighted; meeg nxr::signal::phaseSums";

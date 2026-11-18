@@ -19,8 +19,8 @@
 #
 # EIGENMODE FIRST (the maintainers' rule): the spatial bands read these modes; when a band needs eigenmodes that are not stored, the runner makes them first, as this run, with a message.
 # A surface of TWO pieces (a cortex's hemispheres) is solved on its GLUED surface, a manifold made by its own definition (`run glue`: each medial wall, the Desikan-Killiany `unassigned`, cut and a
-# bridge grown; rule 28) and NAMED here as the input: a flag that only chooses the input (`--glued`) is gone. A two-piece surface given as it is, and three or more pieces, are refused.
-# EIGENVALUES (rule 31): the eigenvalues are also stored as a field of the operator (`of_operator_id` = the eigenvectors), besides the mode axis's coordinates.
+# bridge grown) and NAMED here as the input: a flag that only chooses the input (`--glued`) is gone. A two-piece surface given as it is, and three or more pieces, are refused.
+# EIGENVALUES: the eigenvalues are also stored as a field of the operator (`of_operator_id` = the eigenvectors), besides the mode axis's coordinates.
 #
 # What it cannot resolve: the modes are the discrete operator's on the mollified, Delaunay-flipped intrinsic triangulation; a mode above the mesh's resolution is not a property of the cortex, and
 # the bridge of a glued surface is not cortex.

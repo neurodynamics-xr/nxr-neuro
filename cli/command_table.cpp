@@ -446,7 +446,7 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --sidecar@export participants	FILE	Also write the participants.json sidecar to this file.	none	-
 --registered-by@split dataset	WHO	Who runs the split: recorded with each catalogue entry.	required	-
 --dry-run@migrate measurements		Report, per subject, the statistics that would become measurements, the products and tilings that would be rewritten, and the conflicts, without changing anything.	off	-
---remove-statistics@migrate measurements		The explicit second step, taken only on the PI's word: remove each migrated statistic whose measurement is verified (and its array). Never the default: the old statistics are kept.	off	-
+--remove-statistics@migrate measurements		The explicit second step, taken only when asked for explicitly: remove each migrated statistic whose measurement is verified (and its array). Never the default: the old statistics are kept.	off	-
 --dry-run@split dataset		Report the subjects and the format without changing anything (not even bringing the dataset to format 52).	off	-
 --package@verify package	PATH	The folder of the subject package to verify.	required	-
 --package@show package	PATH	The folder of the subject package to show.	required	-

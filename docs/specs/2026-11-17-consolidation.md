@@ -37,9 +37,9 @@ Types below are in the printed form of `2026-11-17-type-system.md` §3.3; `S` is
   was `group_tile_grid`).
 - Parameter `finest`: the finest tile as a QUANTITY (a tile diameter in mm, a tile area in mm², a wavelength in mm, or parts per hemisphere); the
   depth D is resolved from it (section 3.3). The Levi-Civita connection between neighbouring tiles is not part of the grid: it is a measurement over
-  the product of a level with itself (rule 26, section 8), made by `reduce` with measure `levi_civita`.
+  the product of a level with itself (section 8), made by `reduce` with measure `levi_civita`.
 - Compute: `nxr::selection::dyadic(surface arrays, finest_depth)`, `nxr::selection::transfer(template, match)` (exist), and the level attributes
-  (measured mean tile diameter per level, rule 16; area; the level's Weyl band).
+  (measured mean tile diameter per level; area; the level's Weyl band).
 
 ### 1.2 `select.time_grid`
 
@@ -56,7 +56,7 @@ hop are resolved from the stated quantity:
 | `tiles` | a duration (s) | `2^k` samples, k = the level whose tile is the first at least the duration (`natural_level`); hop = width | `time_grid(line, k)`; lagfree_envelope `level` |
 | `band` | a band (Hz, section 3) | k = `time_level_of_band(lo, hi, sfreq)` (the Studio's `fitLevelOf`: the first `2^k` holding 4 cycles of the band's centre √(lo·hi)) | band_amplitude's per-band grid, joint `time_level` |
 | `frames` | a band (Hz) and frames per tile as a power of two (`2^s`) | k_f = `time_level_of_band(band) − s`; hop = width | `frametiling`, `tower::frameLevelFor`, `frame_level` |
-| `constant_q` | a frequency range (Hz) and voices | the list of `band` levels of the ladder's bands, each level carrying the Studio's `ConstantQLevelInfo` attributes (rule 24) | `constantq compute` |
+| `constant_q` | a frequency range (Hz) and voices | the list of `band` levels of the ladder's bands, each level carrying the Studio's `ConstantQLevelInfo` attributes | `constantq compute` |
 | `segments` | a segment duration (s) and an overlap (fraction) | width as Welch's presets resolve it (`tile`, `round`, `even`); hop = width − ⌊width·overlap⌋ (members overlap: a family, not a partition) | Welch's `segmentFor`, declared_outputs "partition:" segments |
 | `windows` | a window duration and a step (s) | width and hop snapped to `2^k` samples | cyclepattern's window series |
 | `chunks` | none | k = 15 (the chunk grid, `<recording>_chunks`) | the chunk grid |
@@ -85,8 +85,8 @@ hop are resolved from the stated quantity:
 | `levels` | a dyadic grid's levels (each level's Weyl band) | grid | `pyramid.spatial_bands`, `spatial_bands` |
 
 - A single band SELECTS (it is no frequency axis): a field or measurement of one band carries the band as its resolution. Several bands are a band SET:
-  one selection, and the measurement's members include the bands (rule 14), never a run or a Field per band.
-- A consumer takes the set through its `bands` edge and picks a member by code or name (rule 17); it never re-makes the set from parameters.
+  one selection, and the measurement's members include the bands, never a run or a Field per band.
+- A consumer takes the set through its `bands` edge and picks a member by code or name; it never re-makes the set from parameters.
 - Compute: one header `compute/include/nxr/selection/bands.h` (the five rules), replacing `constant_q_bands` and `eigenvalue_bands`
   (`selection/partition.h`) and `scales_by_*` (`selection/scales.h`, whose named scales stay as the data of rule `wavelength` and `parts`).
 
@@ -99,7 +99,7 @@ hop are resolved from the stated quantity:
 | out `product` | `selection<set on M0 × M1 × …; product; family grid|irregular; radices>` |
 
 - Code mixed radix, FIRST factor fastest (`product_code`, `product_codes`); the joint partition (D129) is `layout: joint`: frames first, radix rounded
-  to `2^bits`, code `(tile << bits) | frame`, arrays `[band × tile × frame]` (rule 22).
+  to `2^bits`, code `(tile << bits) | frame`, arrays `[band × tile × frame]`.
 - COUPLING. A factor may be stated as a grid with a coupled level: `{grid: <surface grid>, level_of: band}` (the Weyl level of the band's centre,
   `space_level_of_band`) or `{grid: <time line>, level_of: band}` (`time_level_of_band`). With a band SET, the product is made per band member (each band
   its own levels), and the output is a list of products indexed by the band's code. Coupled levels are computed in closed form at plan time and are
@@ -201,7 +201,7 @@ Ingredients roll_up(const Ingredients& fine, const selection::Elements& groups, 
 
 | node `roll_up` | type |
 |---|---|
-| in `x` | `measurement<members(G at level a) × R>` (G a GRID; refused over an irregular selection: `rolling_up()`, rule 18) |
+| in `x` | `measurement<members(G at level a) × R>` (G a GRID; refused over an irregular selection: `rolling_up()`) |
 | out `y` | `measurement<members(G at level b) × R>`, b coarser than a, or b = whole |
 | (group scope) in `x` per subject | the same measurement in each subject, over the group tree's codes (`select.dyadic_surface` rule transfer) |
 
@@ -297,7 +297,7 @@ Spaces lacking a chart get it from the definition that makes the space (e.g. `ei
 | the same, from a band | a band (Hz, any frequency chart) | k = `time_level_of_band` (4 cycles of the centre) | the tile's seconds and the band |
 | frames | a band and `2^s` frames per tile | k − s | the frame's seconds |
 | a constant-Q ladder level | a band (Hz) | the ladder level whose band holds the band's centre | the level's `resolves_hz` |
-| a surface's dyadic grid | a tile diameter (mm) | the coarsest level whose MEASURED mean tile diameter is at most it (rule 16, Rheome `tileMM`, rule 27) | the level's diameter |
+| a surface's dyadic grid | a tile diameter (mm) | the coarsest level whose MEASURED mean tile diameter is at most it (Rheome `tileMM`) | the level's diameter |
 | the same | a tile area (mm²) | the level whose mean tile area is nearest below | the level's area |
 | the same | a wavelength (mm) or eigenvalue (1/m²) | the Weyl level holding it (`weyl_level`) | the level's Weyl band |
 | the same | parts per hemisphere | l = log2(parts) (exact powers only, else refused) | the parts |
@@ -345,7 +345,7 @@ definition language's `chain:` input (section 4.2); the chain's provenance (its 
 
 | chain | inputs | parameters (quantities) | output |
 |---|---|---|---|
-| `band_analytic` | a recording | `bands` (a band set, made by `select.bands`), shape | `field<sensors × members(bands) × T; complex>`: one transform a block shared by all bands, then the bands selected (rule 23) |
+| `band_analytic` | a recording | `bands` (a band set, made by `select.bands`), shape | `field<sensors × members(bands) × T; complex>`: one transform a block shared by all bands, then the bands selected |
 | `cortical_band` | a recording, an inverse kernel, (optional) a surface grid, (optional) a frame grid, (optional) canonical frames | `bands`, shape, `spatial_scale` (folded into the kernel once: M = (F ⊗ I)K, D106), transform route (`auto` eigenmodes first, `chebyshev` announced, `exact`), envelope (`temporal` / `spatiotemporal`) | `field<cortex × members(bands) × T (or frames); complex vector3 | scalar>` |
 | `member_activation` | a recording, a kernel, a filter bank | the bank member (Hz) | `field<cortex × frames(member rate)>` (optical flow's input) |
 | `band_outer` | composes `band_analytic`, then the pointwise outer product z zᴴ (the general A M Aᴴ algebra) | as `band_analytic`, channels | `field<channels × channels × T; complex>` |
@@ -379,7 +379,7 @@ outputs:
 - Exactly one of `field` / `chain`, and one of `over` / `make`, is given; both are refused with the reason.
 - A maker composed in (`make:`) stores its selection get-or-create (a product row, nothing per member); coupled levels are resolved at plan time and
   recorded in the product's factors (section 6.2), never as selection rows.
-- With a band set and a coupled product, the run makes one product and one measurement per band member (rule 11), in one pass.
+- With a band set and a coupled product, the run makes one product and one measurement per band member, in one pass.
 - A preset is ONLY a named parameter set (the existing `presets:` mechanism). Provenance records the preset's name; the CACHE KEY holds only the
   resolved parameters (today runner.cpp adds the preset to the key: removed), so equal parameter sets are one cached result.
 - Several pairs (bands × spatial scales) are several plans of one run (the runner's `each` over a parameter list), each cached on its own.
@@ -390,13 +390,13 @@ outputs:
 |---|---|---|---|---|
 | `cortical_band_cells` | `cortical_band` (band, spatial_scale) | `select.product` {surface grid at the spatial scale's level, time grid `band`} | amplitude, envelope_max | `cortical_cells`, `cortical_cell_pairs` (a list of bands × scales) |
 | `cortical_band_cells_current` | `cortical_band` | as above | phase_current, power | `cell_phase_current` (its per-burst values: `reduce` over the bursts, in a second `measure` run over the stored events) |
-| `cortical_band_pyramid` | `cortical_band` (band set, frame grid, canonical frames) | `select.product` layout joint {band set, surface grid at `finest`, time grid `frames`} | count, power, phase_current, tensor_* | `pyramid` (array `[band × leaf × frame]` at nxr's atlas node path, rule 22) |
+| `cortical_band_pyramid` | `cortical_band` (band set, frame grid, canonical frames) | `select.product` layout joint {band set, surface grid at `finest`, time grid `frames`} | count, power, phase_current, tensor_* | `pyramid` (array `[band × leaf × frame]` at nxr's atlas node path) |
 | `sensor_band_amplitude` | `band_analytic` (band set) | `select.product` {time grid `band` coupled per band, channels elements grid} | amplitude, envelope_max | `band_amplitude`, `measure.band_amplitude` |
 | `analytic_cross_spectrum_tiles` | `band_outer` | time grid `band` | sum | `crossspectrum_analytic`, `analytic.tile_cross_spectrum` |
 | `channel_span_mean` | none (the stored recording) | `select.product` {the run's span as one member, channels} | mean | `channel_mean`, `filter.channel_mean` |
 | `surrogate_lagfree_envelope` | `band_analytic` restricted to the cross-spectrum's channels, form power | `select.product` {time grid `tiles` (duration), the channel set as one member} | power | `lagfree_envelope`, `power_series` |
 | `flow_max_amplitude` | `member_activation` | the run's span | envelope_max | `flow_amplitude`, `signal.flow_max_amplitude` (rule 13: stored, then read by name) |
-| `psd_channel_mean` | none (a stored PSD statistic) | the channel set as one member | mean | the PSD's channel mean inside the surrogate node (rule 32) |
+| `psd_channel_mean` | none (a stored PSD statistic) | the channel set as one member | mean | the PSD's channel mean inside the surrogate node |
 
 A plain `measure` with a stored field and a stored grid level by name replaces `measure_over_time`; with a stored map and a parcellation, today's
 `measure`.
@@ -436,7 +436,7 @@ was computed from (Welch's segments, the selection summarized), never an axis.
 - `selection_factor` gains `level INTEGER` (null: the factor as a whole): a product's factor may be a LEVEL of a stored grid (the line's time grid,
   the surface's dyadic grid), so coupled levels need no rows of their own. `params_json.product` entries gain `level` and the snapped quantity.
 - A line's time grid: one `ladder` row `<line> time grid` with `params_json.grid {kind: time, origin, rate}` (closed form, all levels); the chunk grid
-  and the constant-Q ladder keep their rows (the constant-Q ladder with the Studio's level attributes, rule 24).
+  and the constant-Q ladder keep their rows (the constant-Q ladder with the Studio's level attributes).
 - `selection_measurement`: no column change; the `statistic` rows with a member axis move into it (6.3).
 - `user_version` 53; `Database::open` chains `migrate_52_to_53` (DDL only); the data step is the written migration below.
 
@@ -466,7 +466,7 @@ was computed from (Welch's segments, the selection summarized), never an axis.
   (`signal.rfft`: bin k at k·rate/n), a factor of the field's type, stored only as a statistic's axis.
 - EIGENVALUE: the dataset's `Eigenvalue` line in the default subject (`io/spatial_bands.h`): 1/m², charts `eigenvalue` (reference) and
   `wavelength` (mm, power map 2π/√λ). Spatial band sets are spans on it, owned by the surface's subject. An operator's eigenvalues are a FIELD of the
-  operator (`of_operator_id`, rule 31) on its mode axis, read against this line when a band resolves modes.
+  operator (`of_operator_id`) on its mode axis, read against this line when a band resolves modes.
 
 ---
 
@@ -524,7 +524,7 @@ was computed from (Welch's segments, the selection summarized), never an axis.
 | `psd`, `crossspectrum`, `rotary_psd`, `sourcepsd`, `sourcepsd_bins`, `sourcetensor`, `hodgepower`, `speedspectrum`, `quadrature`, `noisecov` | kept: their segment means through `estimate` (one `SegmentMean`); segments by `select.time_grid` rule `segments` |
 | `phasegradient` | kept: its leaves' sums by `reduce` over the surface grid level stated as `finest` |
 | `pointspread` | kept: `levels`/`reference_level` as spatial scales |
-| `eigenmodes` | kept: takes the glued surface by name (rule 28); eigenvalues stored as the operator's field (rule 31) |
+| `eigenmodes` | kept: takes the glued surface by name; eigenvalues stored as the operator's field |
 | `flow_modes`, `pca`, `positions_transition`, `connectome`, `connectome_vertices`, filters (`bandpass`, `bandstop`, `highpass`, `lowpass`, `notch`), `headmodel`, `inverse` | kept unchanged (no reduction or selection of their own beyond the quantity rule) |
 | `surrogate_lagfree_vortex`, `surrogate_lagfree_spatial_events`, `surrogate_lagfree_pairs` | kept: rule 32 items |
 | new | `select_dyadic_surface`, `select_time_grid`, `select_bands`, `select_product` (the makers run alone and stored), `glue`, `roll_up` (group), field chains `band_analytic`, `cortical_band`, `member_activation`, `band_outer` |
@@ -596,7 +596,7 @@ was computed from (Welch's segments, the selection summarized), never an axis.
 | `MeasurementOut` (task.h; it declares `band` twice) | one `band`; gains `value_type`, `components`, `of_statistic_id`, `level` |
 | `nxr/bst/frequency.h`, `io/spatial_bands.h` | kept: the one Frequency and Eigenvalue lines; `spatial_bands.h`'s joint band key → a product of the two band sets |
 | `io/constant_q.h` | kept (the format's own tile arithmetic), joined to the line's time grid row |
-| the static operator cache (registry.cpp `operator_cache`) | an operator stored through io with its provenance key (rule 32) |
+| the static operator cache (registry.cpp `operator_cache`) | an operator stored through io with its provenance key |
 
 ---
 

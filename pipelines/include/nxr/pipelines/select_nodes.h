@@ -2,7 +2,7 @@
 //
 //   select.dyadic_surface   setup   a surface -> its dyadic grid (rule subject | group | transfer); the finest tile is a QUANTITY (a diameter, an area, a wavelength, parts)
 //   select.time_grid        setup   a time line -> one rule family of members [origin + i hop, origin + i hop + width): tiles | band | frames | constant_q | segments | windows | chunks;
-//                                   frames per tile or per cycle and the frame ORIGIN (the line's start, a clock time, or an EVENT) are options of the node (PI, 2026-11-17)
+//                                   frames per tile or per cycle and the frame ORIGIN (the line's start, a clock time, or an EVENT) are options of the node
 //   select.bands            array   a band set (spans on the Frequency or Eigenvalue line, with names): frequency | eigenvalue | wavelength | parts | levels
 //   select.product          array   the product of grids (Studio D100; D129 joint layout), levels per axis or COUPLED to a band (the Studio's fitLevelOf, Weyl's law)
 //   select.events.*         detection: spans (rules detect | keep_where | stages), regions, cores, tracks: irregular selections that record the grid they were found over

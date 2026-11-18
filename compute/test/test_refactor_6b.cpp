@@ -1,4 +1,4 @@
-// The gate of the toolbox refactor's geometry / operators / flow rows that merged duplicates (REFACTOR-PLAN 1.4 rows 19, 20, 24). Each REFERENCE below is the old
+// The gate of the toolbox refactor's geometry / operators / flow rows that merged duplicates. Each REFERENCE below is the old
 // function, copied verbatim from the code before the merge (the generator of the golden); the surviving function must give the same result on the same synthetic
 // input: bitwise where the row says so, otherwise the difference is measured and bounded.
 //   row 20  flow's float32 face gradient (std::hypot, no FMA flag) vs the forms port it now calls (jsHypot, -ffp-contract=off): the float32 values

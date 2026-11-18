@@ -2,7 +2,7 @@
 // implementation of a roll-up: partition-style merges, the tower's rollTime, io's rollup::space and rollup::time, pyramid reduce, an event's tiles merged into the event.
 // Roll-ups exist only on GRIDS (a closed-form hierarchy: a dyadic shift); an irregular selection's members never roll up (the checker's `rolling_up()`, `rollup_refusal`).
 //
-// WHERE IT RUNS (PI, 2026-11-17, rule 35): roll-ups live in io's QUERY (in SQL) AND here (in memory). To keep ONE definition each measure's merge rule (sum, max, min, mean as the
+// WHERE IT RUNS: roll-ups live in io's QUERY (in SQL) AND here (in memory). To keep ONE definition each measure's merge rule (sum, max, min, mean as the
 // sum of weighted values over the sum of weights, none: never rolled up) is DATA in the measures registry (measures.h), applied by io in SQL and by `roll_values` below in memory,
 // with a parity test between the two. A roll-up of INGREDIENTS (`merge`) adds, takes max and min: every measure is then read from the merged ingredients, ratios derived at read.
 #pragma once

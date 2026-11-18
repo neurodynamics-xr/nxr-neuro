@@ -21,7 +21,7 @@ namespace ng = nxr::graph;
 
 [[noreturn]] void bad(const std::string& output, const std::string& what) { refuse("outputs." + output + ": " + what); }
 
-// THE GLUED CORTEX (PI rule 33): the glued surface is the computational manifold, the imported two-hemisphere mesh the manifold of record. A SELECTION made on the glued surface, and a MEASUREMENT over one, are
+// THE GLUED CORTEX: the glued surface is the computational manifold, the imported two-hemisphere mesh the manifold of record. A SELECTION made on the glued surface, and a MEASUREMENT over one, are
 // restricted back to the original like a Field: the member of each original vertex is its glued counterpart's, the bridge's elements are dropped (the member of an original vertex the glue left out stays -1).
 std::vector<std::int32_t> restrict_members(const std::vector<std::int32_t>& on_glued, const GlueMap& g, std::int64_t n_original) {
   std::vector<std::int32_t> out(static_cast<std::size_t>(n_original), -1);
@@ -118,7 +118,7 @@ std::string link_first(const Plan& P, const std::string& ref, const MadeIds* mad
   if (made) bad(where, "none of the alternatives '" + ref + "' is made or found");
   return "";
 }
-// a manifold of the dataset's DEFAULT subject by name (`default.Frequency`, `default.Eigenvalue`): the shared lines (rule 25, as nxr). A band set lies on the dataset's line, in the subject that owns it.
+// a manifold of the dataset's DEFAULT subject by name (`default.Frequency`, `default.Eigenvalue`): the shared lines (as nxr). A band set lies on the dataset's line, in the subject that owns it.
 bool is_default_link(const std::string& ref) { return ref.rfind("default.", 0) == 0; }
 // the output's `on` as written, with the names its node's plan fixed (`default.{line}`: the line its rule lies on)
 std::string on_named(const Plan& P, const std::string& o, std::string t) {
@@ -563,7 +563,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     } else if (!d.value("no_array", false)) {                                // no_array: a field whose values are its measurements
       ng::Array stored = a;
       std::vector<std::int64_t> shape = shape_of(a, d);
-      // THE GLUED CORTEX (PI rule 33): a result on the derived glued surface is RESTRICTED BACK to the original for storage (the glued -> original transfer, exact; the bridge dropped like the medial wall)
+      // THE GLUED CORTEX: a result on the derived glued surface is RESTRICTED BACK to the original for storage (the glued -> original transfer, exact; the bridge dropped like the medial wall)
       if (const auto g = d.value("glue_map", false) ? std::optional<GlueMap>() : Bound(sub, nullptr).glue_of(f.manifold_id); g && !shape.empty() && shape[0] == g->n_glued()) {   // the glue map itself lies on the glued surface and stays there
         const auto orig = task::Subject::of(sub).by_id(task::Cls::manifold, g->original_id);
         if (!orig || !orig->n_vertices) bad(o, "the original surface of the glued one it lies on (" + g->original_id + ") has no vertex count");
@@ -602,7 +602,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (made.count(over)) { m.selection_id = made.at(over); over_name = declared_name(P, over); }
     else if (P.found.count(over) && P.found.at(over).row) { m.selection_id = text(*P.found.at(over).row, "id"); over_name = text(*P.found.at(over).row, "name"); }
     else bad(o, "over: '" + over + "' is neither a selection stored before it nor an input found");
-    m.selection_id = selection_on_original(sub, m.selection_id, o);          // the glued cortex (PI rule 33): a selection on it is read on the original
+    m.selection_id = selection_on_original(sub, m.selection_id, o);          // the glued cortex: a selection on it is read on the original
     const task::Subject ts = task::Subject::of(sub);
     m.pair_measure = name;
     m.pair_unit = spec.value("unit", std::string());
@@ -629,7 +629,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (made.count(over)) { m.selection_id = made.at(over); over_name = declared_name(P, over); }
     else if (P.found.count(over) && P.found.at(over).row) { m.selection_id = text(*P.found.at(over).row, "id"); over_name = text(*P.found.at(over).row, "name"); }
     else bad(o, "over: '" + over + "' is neither a selection stored before it nor an input found");
-    // THE GLUED CORTEX (PI rule 33): a measurement over a selection that lies on the glued surface is over its twin on the original (the selection restricted back), its provenance saying so
+    // THE GLUED CORTEX: a measurement over a selection that lies on the glued surface is over its twin on the original (the selection restricted back), its provenance saying so
     if (const std::string back = selection_on_original(sub, m.selection_id, o); back != m.selection_id) {
       if (!m.attributes.is_object()) m.attributes = Json::object();
       m.attributes["restricted_from"] = Json{{"selection", m.selection_id}};
@@ -827,7 +827,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     else if (t == "spans") for (const auto& x : d.value("spans", Json::array())) { task::Span sp; sp.start = x["start"].get<double>(); sp.stop = x["stop"].get<double>(); if (x.contains("code")) sp.code = x["code"].get<std::int64_t>(); sp.ordinal = static_cast<std::int64_t>(s.spans.size()); s.spans.push_back(sp); }
     else if (!d.contains("tiling")) bad(o, "its node gives no tiling (describe.tiling)");
     else s.tiling = tiling_of(P, d["tiling"], spec["on"].get<std::string>(), o);
-    // THE GLUED CORTEX (PI rule 33): a selection made on the derived glued surface is stored on the ORIGINAL (the manifold of record), its elements restricted back through the glue map (the bridge dropped)
+    // THE GLUED CORTEX: a selection made on the derived glued surface is stored on the ORIGINAL (the manifold of record), its elements restricted back through the glue map (the bridge dropped)
     if (const auto g = d.value("glue_map", false) ? std::optional<GlueMap>() : Bound(sub, nullptr).glue_of(s.manifold_id)) {   // the bridge itself lies on the glued surface and stays there
       const std::int64_t n_original = original_vertices(sub, *g, o);
       bool restricted = false;

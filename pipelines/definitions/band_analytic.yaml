@@ -1,5 +1,5 @@
 # A FIELD CHAIN (`kind: chain`): the recording's analytic signal in a band SET at its sensors, ONE kind of pointwise field with no reduction and no detection. ONE transform a block shared by all the bands (the block's
-# spectrum), then each band selected (its Morlet or Meyer gain, zero phase), never one FFT per band (rule 23). The bands are a band SET made by `select_bands`, taken through its `bands` edge (rule 17).
+# spectrum), then each band selected (its Morlet or Meyer gain, zero phase), never one FFT per band. The bands are a band SET made by `select_bands`, taken through its `bands` edge.
 #
 # Run alone it stores the field (materialised); COMPOSED into `measure` (input `chain: band_analytic`) its steps are inlined before the consumer's and nothing is stored; the chain's name and resolved parameters are
 # part of the consumer's cache key.
