@@ -569,6 +569,11 @@ void compose_chain(Definition& e, const std::string& input, const Json& chain_na
   const bool each = e.inputs[input].value("each", false);
   std::map<std::string, std::string> to;                                   // the chain's names → the consumer's
   for (const auto& [k, v] : CE.inputs.items()) { (void)v; to[k] = prefix + k; }
+  // the chain's own recording (its `each` input) IS the recording the consumer runs over, when the consumer has one (an `each` input of its own): one input, not two
+  std::string consumer_each;
+  for (const auto& [k, v] : e.inputs.items()) if (k != input && v.value("each", false)) consumer_each = k;
+  std::string chain_each_input;
+  if (!each && !consumer_each.empty()) for (const auto& [k, v] : CE.inputs.items()) if (v.value("each", false)) { chain_each_input = k; to[k] = consumer_each; }
   for (const StepUse& u : CE.uses()) for (const auto& o : u.outs) to[o] = o == out_name ? input : prefix + o;
   Json inputs = e.inputs;
   inputs.erase(input);
@@ -576,10 +581,21 @@ void compose_chain(Definition& e, const std::string& input, const Json& chain_na
   std::string chain_anchor;                                                  // the chain's own recording (its `each` input): what a measurement of the chain's field is OF
   for (const auto& [k, spec] : CE.inputs.items()) {
     Json sp = spec;
+    if (k == chain_each_input) { chain_anchor = consumer_each; chain_each = true; continue; }
     if (sp.value("each", false)) chain_anchor = prefix + k;
     for (const char* rel : {"from", "to", "is"}) if (sp.contains(rel) && sp[rel].is_string()) sp[rel] = renamed(sp[rel].get<std::string>(), to);
     if (sp.contains("manifold") && !manifold_class_of(sp) && sp["manifold"].is_string()) sp["manifold"] = renamed(sp["manifold"].get<std::string>(), to);
-    if (sp.contains("where")) sp["where"] = with_params(sp["where"], cp);
+    if (sp.contains("where")) {                                              // a `$name` filter whose parameter is null or `none` filters nothing (the finder's rule for a parameter), here before the name is substituted
+      Json w = Json::object();
+      for (const auto& [wk, wv] : sp["where"].items()) {
+        if (wv.is_string() && wv.get<std::string>().size() > 1 && wv.get<std::string>()[0] == '$' && cp.contains(wv.get<std::string>().substr(1))) {
+          const Json& pv = cp[wv.get<std::string>().substr(1)];
+          if (pv.is_null() || (pv.is_string() && pv.get<std::string>() == "none")) { if (!sp.value("required", true)) w[wk] = nullptr; continue; }   // an optional input named by it is absent (the finder: a null filter of an optional input)
+        }
+        w[wk] = with_params(wv, cp);
+      }
+      sp["where"] = w;
+    }
     if (sp.value("each", false)) { chain_each = true; if (!each) sp.erase("each"); }
     if (inputs.contains(prefix + k)) err(w, "the chain's input " + prefix + k + " collides with an input of this definition");
     inputs[prefix + k] = sp;

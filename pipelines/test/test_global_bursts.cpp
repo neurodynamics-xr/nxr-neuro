@@ -24,6 +24,7 @@
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "make_grids.h"
+#include "run_definition.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -95,20 +96,11 @@ int main() {
     /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  nxrtest::make_time_grids(ds, sub);
   nxrtest::make_tiles(ds, sub);
   const SurfaceInput S = read_surface(sub, std::string("cortex"), true);
   const SurfaceLevel SL = read_surface_level(sub, S, L);
   SpatialBandOptions sbo; sbo.transform = "exact";
   const SpatialBand sband = make_spatial_band(S, SL, sbo);
-  int timeLevel = -1;
-  for (const tk::Node& m : tk::Subject::of(sub).find_all({.cls = tk::Cls::selection, .params_present = {"resolves_hz"}, .any_status = true})) {
-    if (!m.member_of_id) continue;
-    const Json& pj = m.params;
-    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) timeLevel = static_cast<int>(m.member_ordinal.value_or(0));
-  }
-  CHECK(timeLevel >= 0);
-  if (timeLevel < 0) return 1;
 
   // THE PLANTED EPISODES: the level's own pattern of one tile in each hemisphere (left: tile 2; right: tile 16 + 5), 12 Hz under a double sigmoid a = S((t - on)/tr) S(-(t - off)/tf)
   const std::vector<std::int32_t> centres = [&] {
@@ -146,9 +138,11 @@ int main() {
   }
   // (the joint cells are no longer made by a verb: the definitions make their product themselves, `select.product` with the joint layout)
 
+  nxrtest::make_time_grids(ds, sub, "band", Json{{"band", "8-16 Hz"}, {"recording", "rest"}});                              // the band's own time grid, found by its rule's name
+  nxrtest::run_definition(ds, sub, "select_product", Json{{"recording", "rest"}, {"surface", "cortex"}, {"time_grid", "rest time grid band 8-16 Hz"}, {"couple", Json::array({Json{{"factor", 0}, {"scale", "parts 16"}}})}});   // the cells: level 4 (16 tiles a piece) x the band's tiles
   const g::Definition d = g::load("global_bursts");
   g::RunOptions all; all.chunks = "all";
-  Json set1 = Json{{"space_level", L}, {"transform", "exact"}, {"spatial_shape", "meyer"}};   // whole brain, combine mean: global events (no row)
+  Json set1 = Json{{"recording", "rest"}, {"spatial_scale", "parts 16"}, {"product", "rest cortex product"}, {"transform", "exact"}, {"spatial_shape", "meyer"}};   // whole brain, combine mean: global events (no row)
   auto spans_of = [&](const Json& r) {
     const Json bj = out_of(r, "bursts");
     std::vector<std::tuple<double, double, int>> s;
@@ -319,7 +313,7 @@ int main() {
 
   // ── PER HEMISPHERE: two traces, one burst on each row, the row recorded ──
   {
-    Json set2 = set1; set2["groups"] = "per_hemisphere"; set2["combine"] = "each";
+    Json set2 = set1; set2["groups"] = "pieces"; set2["combine"] = "each";
     g::RunOptions rep = all; rep.replace = true;
     const auto r = g::run(ds, sub, d, set2, rep);
     const auto [s2, pj2] = spans_of(r[0]);
@@ -342,10 +336,10 @@ int main() {
     Json bad = set1; bad["model"] = "posterior";
     try { g::plan_runs(d, sub.db(), sub.id(), bad); } catch (const Error& e) { why = e.what(); }
     CHECK(why.find("not built") != std::string::npos);
-    bad = set1; bad["groups"] = "per_hemisphere";                           // the mean over the hemispheres is not a per-hemisphere detection
+    bad = set1; bad["groups"] = "pieces";                           // the mean over the hemispheres is not a per-hemisphere detection
     why.clear();
     try { g::plan_runs(d, sub.db(), sub.id(), bad); } catch (const Error& e) { why = e.what(); }
-    CHECK(why.find("per_hemisphere") != std::string::npos && why.find("each") != std::string::npos);
+    CHECK(why.find("pieces") != std::string::npos && why.find("each") != std::string::npos);
     bad = set1; bad["groups"] = "per_lobe";
     CHECK(code_of([&] { g::plan_runs(d, sub.db(), sub.id(), bad); }) == std::string(code::invalid_argument));
   }
