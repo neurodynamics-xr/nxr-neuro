@@ -1,5 +1,5 @@
 #pragma once
-// nxr::pca — principal components of a table of observations x features (the members of a partition by the features measured on each), by the thin singular value decomposition.
+// nxr::stats — principal components of a table of observations x features (the members of a partition by the features measured on each), by the thin singular value decomposition.
 //
 // PURE MATHS (matrices in, matrices out; no file I/O). Called with any matrix: where the table came from (the cohort's members, a parcellation's tiles, a synthetic array) is the caller's business.
 //

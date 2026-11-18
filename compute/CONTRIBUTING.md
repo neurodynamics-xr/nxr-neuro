@@ -15,7 +15,7 @@ contract.
 > byte-identical to the pin recorded in `deps/pocketfft/README.md`. Nothing else. pocketfft is the FFT inside NumPy and SciPy, so `nxr::fft` equals
 > `numpy.fft` to rounding (`test_fft`), and the time transforms of nxr, Rheome and the Studio have one maths.
 >
-> **FFT and filterbanks (2026-11-10):** `include/nxr/fft.h` (`nxr::fft`: c2c/r2c/c2r along an axis, numpy's norms, `fftfreq`/`rfftfreq`, `nextFastLen`) and
+> **FFT and filterbanks (2026-11-10):** `include/nxr/fft.h` (`nxr::fft`: c2c/r2c/c2r along an axis, numpy's norms, `fftfreq`/`rfftfreq`, `next_fast_len`) and
 > `include/nxr/filterbank.h` (`nxr::filterbank`: the graph filterbank, exact-eigenbasis and Chebyshev transforms, frame bounds; Meyer's dyadic frame).
 > Design and the Rheome/nxr/Studio comparison: `../docs/specs/2026-11-10-filterbanks.md`. Parity goldens: `test/golden/` (each has its generator).
 

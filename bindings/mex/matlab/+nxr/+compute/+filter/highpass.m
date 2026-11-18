@@ -1,5 +1,5 @@
 function y = highpass(x, lower, sfreq, opts)
-%NXR.OPS.FILTER.HIGHPASS  High-pass filter (nxr::filter::highpass).
+%NXR.OPS.FILTER.HIGHPASS  High-pass filter (nxr::signal::filters::highpass).
 %   y = nxr.compute.filter.highpass(x, 1, 1000)
 %   Zero-phase filters of a whole in-memory record [channels x samples]: Brainstorm's FIR (Kaiser window) and IIR (Butterworth notch and band-stop)
 %   filters as documented in nxr/filter.h. The result has the same shape and precision.

@@ -225,7 +225,7 @@ int main() {
     comp = static_cast<int>(integer(*row, "component"));
     return read_vec<double>((sub.folder() / (text(*row, "array_path"))), &shape);
   };
-  // the planted episodes' time windows in samples, and each pair's events' facts, independent of nxr::scale (from the stored labellings and cells)
+  // the planted episodes' time windows in samples, and each pair's events' facts, independent of nxr::select::scale_selection (from the stored labellings and cells)
   const std::array<std::pair<double, double>, 2> episode = {std::pair<double, double>{8.0 * sfreq, 17.0 * sfreq}, std::pair<double, double>{30.0 * sfreq, 35.0 * sfreq}};
   struct Fact { double peak = -1e300, mean = 0; int cells = 0; std::int64_t first = 1 << 30, stop = -1; int episode = -1; };
   std::vector<std::vector<Fact>> facts(static_cast<std::size_t>(P));

@@ -1,5 +1,5 @@
 #pragma once
-// nxr::extent — THE SPACE × TIME EXTENT OF AN EVENT on the joint cells (spec docs/specs/2026-11-13-cortical-events.md, phase 2b). PURE MATHS on matrices: a cell is (a spatial tile) × (a time tile);
+// nxr::select — THE SPACE × TIME EXTENT OF AN EVENT on the joint cells (spec docs/specs/2026-11-13-cortical-events.md, phase 2b). PURE MATHS on matrices: a cell is (a spatial tile) × (a time tile);
 // the functions never know where the matrices came from (a measurement of a source estimate, a synthetic array), never read a file, and never pick their inputs. Layout of every [S × T] matrix: row = spatial
 // tile, column = time tile (Eigen's column-major storage makes a cell's node number frame × S + tile).
 //
@@ -9,7 +9,7 @@
 //   windowRegions                  detectRegions on the window's cells, then the cell-count limit: the events of one burst, numbered by their lowest cell (earliest time tile, then lowest tile)
 //   (an event's measures from its cells (count, union of tiles, area- and sample-weighted mean, largest peak, area by time tile) are MEASURES: `nxr::measurement::reduce` over the event's cells, `merge` over
 //    its tiles: a reduction across cells is never a function here)
-//   centres / pathLength           per event and time tile the vertex nearest the area-weighted centroid of its tiles' vertices (nxr::ladder::tileCentres), and the chord length of the centres' path (the
+//   centres / pathLength           per event and time tile the vertex nearest the area-weighted centroid of its tiles' vertices (nxr::select::tileCentres), and the chord length of the centres' path (the
 //                                  member's own measure `path_length`: a path, not a sum, so it is read from the centres here)
 // A REDUCTION across cells is a measurement over the labelling's members (the labelling is the partition), never a loop inside a chain's node.
 #include <Eigen/Dense>

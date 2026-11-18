@@ -1,5 +1,5 @@
 #pragma once
-// nxr::scale — SCALE SELECTION for events seen at several (spatial level, time level) pairs (spec docs/specs/2026-11-13-cortical-events.md, phase 2e). PURE MATHS on matrices: a pair's cells are a standardized
+// nxr::select::scale_selection — SCALE SELECTION for events seen at several (spatial level, time level) pairs (spec docs/specs/2026-11-13-cortical-events.md, phase 2e). PURE MATHS on matrices: a pair's cells are a standardized
 // amplitude [S × T] (z, NaN: no value) and a labelling [S × T] (an event's ordinal, −1 none); the functions never know where they came from (a stored measurement, a synthetic array), never read a file, never loop
 // over samples or chunks, and never pick their inputs. The reference is Rheome's `detect.blobscale` (the scale of the largest normalised response, read AT the blob; a selection on the ladder's edge is unresolved).
 //
@@ -62,7 +62,7 @@ Selection selectScale(const std::vector<Pair>& pairs, Response response = Respon
 }  // namespace nxr::select::scale_selection
 
 #pragma once
-// nxr::scalespace — SCALE SELECTION at a point: the hat level whose scale-normalised response is the largest (Lindeberg 1998, "Feature detection with automatic scale selection"; spec
+// nxr::select::scale_selection — SCALE SELECTION at a point: the hat level whose scale-normalised response is the largest (Lindeberg 1998, "Feature detection with automatic scale selection"; spec
 // docs/specs/2026-11-14-spatial-events.md, decision 4). PURE MATHS on matrices: the power of a field's hat response at several levels, the squared L2 norm of each level's atom, numbers in, the chosen level out. The
 // function never knows where the matrices came from (a recording's band power through a kernel, a planted blob), which vertices or frames they hold, or what a level is in centimetres.
 //

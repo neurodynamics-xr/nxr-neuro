@@ -1,4 +1,4 @@
-// nxr::extent on synthetic cells only: the cell code round-trips for every (tile, time tile) of several layouts (a power of two and not), refuses a frame beyond the layout and a gap code; the joint graph's
+// nxr::select on synthetic cells only: the cell code round-trips for every (tile, time tile) of several layouts (a power of two and not), refuses a frame beyond the layout and a gap code; the joint graph's
 // edge count; standardize against a per-tile baseline (a tile with no spread left out); windowRegions on a path of tiles: an episode that moves one tile per time tile is ONE event (connected through the
 // time links), a static one elsewhere another, min cells and min area drop them, a NaN cell breaks one; the event measures (nxr::measurement::reduce over an event's cells: cells, the union area, the weighted mean, the peak),
 // the area per time tile, the centres per time tile and the path length against direct.

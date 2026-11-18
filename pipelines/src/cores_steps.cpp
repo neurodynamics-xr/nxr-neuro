@@ -5,7 +5,7 @@
 //   cores            accumulate   the connected above-threshold patches of the curl per frame and sense on the (glued) mesh (nxr `_core_patches`), the threshold read BY NAME from the stored histogram;
 //                                 stored as POINT EVENTS (point_events.h): a spans Selection, one member per core on its frame, and the attributes as measurements over it
 //
-// Both read a field on the FRAME TILING (the `frames` step, with `within` the bursts): the good frames are the burst frames. The maths is `nxr::histogram` and `nxr::select::corePatches` (compute/): pure functions of
+// Both read a field on the FRAME TILING (the `frames` step, with `within` the bursts): the good frames are the burst frames. The maths is `nxr::stats::histogram` and `nxr::select::corePatches` (compute/): pure functions of
 // matrices; this file prepares their inputs (the mesh's edges, areas and positions, the stored threshold), folds the frames block by block and hands the result to the runner, which stores it.
 // The step never reduces across time or space on its own beyond what a statistic over a partition is: the histogram's counts are additive over frames (a measurement over the frame partition).
 #include <algorithm>
@@ -111,7 +111,7 @@ void add_cores_steps(std::vector<StepSpec>& r) {
     s.traits = node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "buffers the first range_frames good frames until the histogram's range is fixed, so what a block adds depends on the blocks before it", {});
     s.inputs = {"x", "exclude"}; s.optional = {"exclude"}; s.outputs = {"y"};
     s.parameters = Json{{"bins", 4096}, {"range_frames", 3000}, {"block_frames", 256}, {"bad_segments", "exclude"}};
-    s.matches = "nxr vortex._core_threshold (4096 log bins, hi = 4 × the first chunk's maximum, lo = hi·1e-6; the first 3000 frames); compute nxr::histogram (logBinsFor, histogramTiles)";
+    s.matches = "nxr vortex._core_threshold (4096 log bins, hi = 4 × the first chunk's maximum, lo = hi·1e-6; the first 3000 frames); compute nxr::stats::histogram (logBinsFor, histogramTiles)";
     s.description = "the DISTRIBUTION of |x| over the good frames of a field on the frame tiling (the curl of the current at the burst frames), pooled over its vertices: counts in `bins` log bins (4096), a STATISTIC "
                     "(measure count, method histogram). The bins' range is fixed once from the run's first `range_frames` (3000, nxr's) good frames, counted from the run's first good frame: hi = 4 × their largest "
                     "|x|, lo = hi·1e-6, so the result does not depend on the chunk size; those frames are held until the range is known (MEMORY: range_frames × vertices float32). Counts are additive over frames "
@@ -192,7 +192,7 @@ void add_cores_steps(std::vector<StepSpec>& r) {
     StepSpec t = s;
     t.name = "relative_histogram";
     t.inputs = {"x", "exclude", "outside"}; t.optional = {"exclude"};
-    t.matches = "the time burst detector's threshold from the envelope's own distribution; compute nxr::histogram (logBinsFor, histogramTiles), as core_histogram";
+    t.matches = "the time burst detector's threshold from the envelope's own distribution; compute nxr::stats::histogram (logBinsFor, histogramTiles), as core_histogram";
     t.description = "the DISTRIBUTION of the relative power (`relative`, then `at_level`) of a band over the good frames of the frame tiling OUTSIDE the named bursts (`outside`) and the bad segments (`exclude`), pooled over the "
                     "glued vertices: counts in `bins` log bins (4096), a STATISTIC (measure count, method histogram), the false-alarm distribution of the spatial events' threshold (a percentile of it, 99 by default, is "
                     "DERIVED at read by `patches`). The bins' range is fixed once from the run's first `range_frames` (3000) good frames, counted from the run's first good frame: hi = 4 × their largest value, lo = hi·1e-6, "
@@ -232,7 +232,7 @@ void add_cores_steps(std::vector<StepSpec>& r) {
       HistState st;
       st.bins = p["bins"].get<int>(); st.range = p["range_frames"].get<std::int64_t>(); st.block = p["block_frames"].get<std::int64_t>();
       st.chain = relative_chain(x); st.chain["outside"] = nxr::io::text(*ins.at("outside").row, "name"); st.fps = x.rate; st.origin = x.origin;
-      st.reference = "the time burst detector's threshold from the envelope's own distribution; nxr::histogram";
+      st.reference = "the time burst detector's threshold from the envelope's own distribution; nxr::stats::histogram";
       return std::any(std::make_shared<HistState>(std::move(st)));
     };
     r.push_back(std::move(s));

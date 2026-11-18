@@ -19,10 +19,10 @@ NelderMeadOptions fminsearchOptions(int n) {
   return o;
 }
 
-MinimiseResult nelderMead(const std::function<double(const VectorXd&)>& f, const VectorXd& x0, const NelderMeadOptions& o) {
+MinimiseResult fminsearch(const std::function<double(const VectorXd&)>& f, const VectorXd& x0, const NelderMeadOptions& o) {
   const int n = static_cast<int>(x0.size());
-  if (n < 1) throw std::invalid_argument("nelderMead: an empty start");
-  if (o.maxEvaluations < 1) throw std::invalid_argument("nelderMead: maxEvaluations must be positive");
+  if (n < 1) throw std::invalid_argument("fminsearch: an empty start");
+  if (o.maxEvaluations < 1) throw std::invalid_argument("fminsearch: maxEvaluations must be positive");
   int evals = 0;
   auto eval = [&](const VectorXd& x) { ++evals; return f(x); };
   std::vector<VectorXd> v(static_cast<std::size_t>(n) + 1, x0);

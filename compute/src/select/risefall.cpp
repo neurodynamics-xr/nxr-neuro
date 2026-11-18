@@ -1,4 +1,4 @@
-// nxr::risefall — the double-sigmoid fit of Rheome's detect.risefall (risefall.h).
+// nxr::select — the double-sigmoid fit of Rheome's detect.risefall (risefall.h).
 #include "nxr/select/risefall.h"
 
 #include <algorithm>

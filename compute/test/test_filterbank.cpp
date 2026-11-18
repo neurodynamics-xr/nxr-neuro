@@ -76,17 +76,17 @@ int main() {
     std::string t;
     double worstGain = 0, worstW = 0, worstCheb = 0;
     int banks = 0, chebBanks = 0;
-    std::map<std::string, Bank> built;
+    std::map<std::string, GraphFilterbank> built;
     std::cout << "=== parity with Rheome @graphfilterbank + +graphtransform ===\n";
     while (f >> t && t == "bank") {
         const Case c = parseCase(f);
         const Range range = c.range == "lmax" ? Range::fromLmax(lam.maxCoeff()) : Range::fromSpectrum(lam);
-        const Bank bank = design(familyOf(c.wavelet), range, c.o);
+        const GraphFilterbank bank = design(familyOf(c.wavelet), range, c.o);
         built[c.name] = bank;
         const MatrixXd Hg = readMat(f, "H"), tg = readMat(f, "t"), bg = readMat(f, "bounds"), cg = readMat(f, "cwn"), mg = readMat(f, "massLost");
         const VectorXd grid = c.range == "lmax" ? VectorXd::LinSpaced(512, 0.0, lam.maxCoeff()) : lam;
         const double eH = rel(gains(bank, grid), Hg);
-        const Bounds b = c.range == "lmax" ? bounds(bank) : bounds(bank, lam);
+        const Bounds b = c.range == "lmax" ? framebounds(bank) : framebounds(bank, lam);
         MatrixXd bm(1, 4); bm << b.A, b.B, b.tightness, b.uncovered;
         const double eB = rel(bm, bg), eT = rel(scales(bank).transpose(), tg), eC = rel(centerWavenumbers(bank).transpose(), cg),
                      eM = rel(massLost(bank).transpose(), mg);
@@ -100,7 +100,7 @@ int main() {
             double e = 0;
             for (int m = 0; m < bank.size(); ++m) e = std::max(e, rel(stack(W, m), readMat(f, "W" + std::to_string(m + 1))));
             const MatrixXd Xd = readMat(f, "Xdual"), Xt = readMat(f, "Xtight"), Se = readMat(f, "scaleEnergy"), Me = readMat(f, "memberEnergy");
-            const double eD = rel(synthesis(bank, T, W, Synthesis::Dual), Xd), eTi = rel(synthesis(bank, T, W, Synthesis::Tight), Xt),
+            const double eD = rel(igwt(bank, T, W, Synthesis::Dual), Xd), eTi = rel(igwt(bank, T, W, Synthesis::Tight), Xt),
                          eS = rel(scaleEnergy(W), Se), eMe = rel(memberEnergy(W), Me);
             worstW = std::max({worstW, e, eD, eTi, eS, eMe});
             EXPECT(std::max({e, eD, eTi, eS, eMe}) < 1e-9, c.name + ": eigenbasis analysis " + sci(e) + ", dual " + sci(eD) + ", tight " + sci(eTi) + ", energies " + sci(std::max(eS, eMe)) + " (rel to Rheome)");
@@ -130,23 +130,23 @@ int main() {
 
     std::cout << "=== the frame's own laws ===\n";
     for (const char* k : {"itersine", "logitersine"}) {
-        const Bank& b = built[k];
-        const Bounds bd = bounds(b, lam);
-        EXPECT(std::abs(bd.A - 1) < 1e-12 && std::abs(bd.B - 1) < 1e-12 && isTight(b), std::string(k) + ": tight, A = B = 1 (A " + sci(bd.A - 1) + ", B " + sci(bd.B - 1) + ")");
+        const GraphFilterbank& b = built[k];
+        const Bounds bd = framebounds(b, lam);
+        EXPECT(std::abs(bd.A - 1) < 1e-12 && std::abs(bd.B - 1) < 1e-12 && isframetight(b), std::string(k) + ": tight, A = B = 1 (A " + sci(bd.A - 1) + ", B " + sci(bd.B - 1) + ")");
         Coefficients W = analysis(b, T, X);
-        EXPECT(rel(synthesis(b, T, W, Synthesis::Tight), X) < 1e-12, std::string(k) + ": tight synthesis o analysis = identity");
-        EXPECT(rel(synthesis(b, T, W, Synthesis::Dual), X) < 1e-12, std::string(k) + ": dual synthesis o analysis = identity");
+        EXPECT(rel(igwt(b, T, W, Synthesis::Tight), X) < 1e-12, std::string(k) + ": tight synthesis o analysis = identity");
+        EXPECT(rel(igwt(b, T, W, Synthesis::Dual), X) < 1e-12, std::string(k) + ": dual synthesis o analysis = identity");
         double en = 0; for (int m = 0; m < b.size(); ++m) en += (T.phi.transpose() * (M * W[(size_t)m])).squaredNorm();
         EXPECT(std::abs(en - (T.phi.transpose() * (M * X)).squaredNorm()) < 1e-9 * en, std::string(k) + ": Parseval (member energies add to the field's)");
     }
     for (const char* k : {"mexhat", "heat"}) {
-        const Bank& b = built[k];
-        EXPECT(!isTight(b) && bounds(b, lam).A > 0, std::string(k) + ": not tight, but covers the spectrum (A > 0)");
-        EXPECT(rel(synthesis(b, T, analysis(b, T, X), Synthesis::Dual), X) < 1e-11, std::string(k) + ": the canonical dual reconstructs exactly");
-        EXPECT(rel(synthesis(b, T, analysis(b, T, X), Synthesis::Tight), X) > 1e-2, std::string(k) + ": tight synthesis does NOT reconstruct (A != B)");
+        const GraphFilterbank& b = built[k];
+        EXPECT(!isframetight(b) && framebounds(b, lam).A > 0, std::string(k) + ": not tight, but covers the spectrum (A > 0)");
+        EXPECT(rel(igwt(b, T, analysis(b, T, X), Synthesis::Dual), X) < 1e-11, std::string(k) + ": the canonical dual reconstructs exactly");
+        EXPECT(rel(igwt(b, T, analysis(b, T, X), Synthesis::Tight), X) > 1e-2, std::string(k) + ": tight synthesis does NOT reconstruct (A != B)");
     }
     {   // eigenbasis vs Chebyshev: heat is smooth, so the series converges fast; error falls with the order
-        const Bank& b = built["heat"];
+        const GraphFilterbank& b = built["heat"];
         const auto W = analysis(b, T, X);
         double prev = 1e9; bool mono = true; double last = 0;
         for (int order : {10, 20, 40, 80}) {
@@ -159,21 +159,21 @@ int main() {
         ChebyshevOperator C(L, M, 0, 80);   // lmax estimated
         EXPECT(C.lmax() > lam.maxCoeff() && C.lmax() < 1.05 * lam.maxCoeff(), "ChebyshevOperator: lmax estimated (Lanczos x 1.01) bounds the spectrum");
         const auto Wc = analysis(b, C, X);
-        EXPECT(rel(synthesis(b, C, Wc, Synthesis::Dual), X) < 1e-6, "heat: Chebyshev dual synthesis o analysis ~ identity, rel " + sci(rel(synthesis(b, C, Wc, Synthesis::Dual), X)));
-        const Bank& li = built["logitersine"];
+        EXPECT(rel(igwt(b, C, Wc, Synthesis::Dual), X) < 1e-6, "heat: Chebyshev dual synthesis o analysis ~ identity, rel " + sci(rel(igwt(b, C, Wc, Synthesis::Dual), X)));
+        const GraphFilterbank& li = built["logitersine"];
         ChebyshevOperator C2(L, M, 1.01 * lam.maxCoeff(), 200);
-        EXPECT(rel(synthesis(li, C2, analysis(li, C2, X), Synthesis::Tight), X) < 1e-2, "logitersine: Chebyshev tight reconstruction (order 200), rel " + sci(rel(synthesis(li, C2, analysis(li, C2, X), Synthesis::Tight), X)));
+        EXPECT(rel(igwt(li, C2, analysis(li, C2, X), Synthesis::Tight), X) < 1e-2, "logitersine: Chebyshev tight reconstruction (order 200), rel " + sci(rel(igwt(li, C2, analysis(li, C2, X), Synthesis::Tight), X)));
         // the identity mass: a graph pencil
         ChebyshevOperator C3(L, {}, 0, 80);
         EXPECT(C3.rows() == n && C3.lmax() > 0, "ChebyshevOperator without a mass (identity)");
     }
     {   // complex fields: the operator is real, so real and imaginary parts are independent
-        const Bank& b = built["logitersine"];
+        const GraphFilterbank& b = built["logitersine"];
         Eigen::MatrixXcd Z(n, 2); Z.real() = X; Z.imag() = X.rowwise().reverse() * 0.5;
         auto Wz = analysis(b, T, Z);
         auto Wr = analysis(b, T, X);
         EXPECT((Wz[1].real() - Wr[1]).cwiseAbs().maxCoeff() < 1e-12 && Wz[1].imag().cwiseAbs().maxCoeff() > 1e-3, "complex field: real part == real analysis, imaginary part carried");
-        EXPECT((synthesis(b, T, Wz, Synthesis::Dual) - Z).cwiseAbs().maxCoeff() < 1e-11, "complex field: reconstruction");
+        EXPECT((igwt(b, T, Wz, Synthesis::Dual) - Z).cwiseAbs().maxCoeff() < 1e-11, "complex field: reconstruction");
         ChebyshevOperator C(L, M, 1.01 * lam.maxCoeff(), 40);
         auto Wzc = analysis(b, C, Z);
         EXPECT((Wzc[2].real() - analysis(b, C, X)[2]).cwiseAbs().maxCoeff() < 1e-12, "complex field through Chebyshev: real part independent");
@@ -199,9 +199,9 @@ int main() {
                 tok(g); std::vector<double> edges(ne); for (auto& e : edges) e = num(g);
                 tok(g); VectorXd xs(nx); for (int i = 0; i < nx; ++i) xs(i) = num(g);
                 MatrixXd want(nx, nm); for (int m = 0; m < nm; ++m) { tok(g); for (int i = 0; i < nx; ++i) want(i, m) = num(g); }
-                Bank b = name == "weyl" ? weyl(1.8, 6) : name == "rank" ? rank(4) : dyadic(edges, hw);
+                GraphFilterbank b = name == "weyl" ? weyl(1.8, 6) : name == "rank" ? rank(4) : dyadic(edges, hw);
                 const double e = rel(gains(b, xs), want); worst = std::max(worst, e); ++frames;
-                const Bounds bd = bounds(b, xs.cwiseMax(0.0));
+                const Bounds bd = framebounds(b, xs.cwiseMax(0.0));
                 EXPECT(e < 1e-13 && b.size() == nm && std::abs(bd.A - 1) < 1e-12 && std::abs(bd.B - 1) < 1e-12,
                        "meyer '" + name + "': " + std::to_string(nm) + " members, gains == Studio rel " + sci(e) + ", tight (A = B = 1)");
                 if (name == "weyl") EXPECT(b.members.front().level == 0 && b.members[3].level == 3 && b.members.back().level == 6, "weyl levels: scaling 0, wavelet j, top = levels");
@@ -219,7 +219,7 @@ int main() {
         EXPECT(frames == 3 && worst < 1e-13, "3 Meyer frames, worst rel " + sci(worst));
     }
     {   // ONE member's band (the spatial band of a level): the same matrix as that member of the full analysis, by modes and by the series; the series' error is measurable
-        const Bank wb = weyl(4 * M_PI * 3, 4);      // an area of 12 pi: edges 1, 2, 4, 8
+        const GraphFilterbank wb = weyl(4 * M_PI * 3, 4);      // an area of 12 pi: edges 1, 2, 4, 8
         const VectorXd lmx = VectorXd::LinSpaced(5, 0.0, 12.0);
         Eigen::SparseMatrix<double> Is(n, n); Is.setIdentity();
         EigenTransform Tw = T;

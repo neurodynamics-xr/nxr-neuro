@@ -1,4 +1,4 @@
-// nxr::transport (levi_civita, frames, compare), nxr::core::blockCongruence and nxr::operators::transportLaplacian, synthetic only:
+// nxr::geometry (levi_civita, frames, compare), nxr::core::blockCongruence and nxr::operators::transportLaplacian, synthetic only:
 //   the rotations: R n_v = n_u, orthogonal with det 1 (an antiparallel pair too); frames' R e1_v = e1_u; the blocks equal A M Aᴴ's;
 //   A FOLDED SURFACE (z = A sin(2π x / Λ), walls up to 72° steep) carrying a current NORMAL to it with a travelling lag φ(x): the world-frame comparison
 //   tr ⟨J_u J_vᴴ⟩ is off by π for pairs across a fold (normals pointing apart), the transported one tr(T R ᵀ) recovers every lag exactly (strength 1);

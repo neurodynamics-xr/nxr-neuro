@@ -1,5 +1,5 @@
 // nxr::pyramid against nxr's band power (golden: test/golden/pyramid_golden.txt, gen_pyramid_golden.py; synthetic two-hemisphere mesh, kernel and sensor data):
-//   - the subject tree's leaf codes and areas (nxr::ladder against nxr geom.trees), the power-partition gains, one band's analytic signal, and the band power per (band, leaf, frame)
+//   - the subject tree's leaf codes and areas (nxr::select against nxr geom.trees), the power-partition gains, one band's analytic signal, and the band power per (band, leaf, frame)
 //     (power, env, envmax, the good samples a frame): `nxr::measurement::reduce` over the PRODUCT of the frame of each sample and the leaf of each vertex (the joint partition), with the
 //     power-partition bank on the whole record in one block (parity up to nxr's float32); the frame of a sample is the golden's (the frame grid is a selection, its tiles one of the inputs);
 //   - the result does not depend on the block size or on how the record is cut into blocks (sums add, maxima merge);

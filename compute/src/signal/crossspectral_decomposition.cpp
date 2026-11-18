@@ -1,4 +1,4 @@
-// nxr::patterns — the leading patterns of a Hermitian matrix (patterns.h).
+// nxr::signal — the leading patterns of a Hermitian matrix (patterns.h).
 #include "nxr/signal/crossspectral_decomposition.h"
 
 #include <cmath>

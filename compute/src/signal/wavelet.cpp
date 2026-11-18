@@ -14,7 +14,7 @@ static constexpr double kPi = 3.14159265358979323846;
 static i64 roundUp(i64 n, i64 m) { return (n + m - 1) / m * m; }
 
 // the member gains at frequencies f, zero outside the member's support on the bank's grid
-static MatrixXd maskedGains(const signal::timefilterbank::TimeBank& b, const VectorXd& f) {
+static MatrixXd maskedGains(const signal::timefilterbank::TimeFilterbank& b, const VectorXd& f) {
     MatrixXd g = signal::timefilterbank::gains(b, f);
     for (int m = 0; m < b.size(); ++m) {
         const double lo = static_cast<double>(b.support[m].first) * b.fs / static_cast<double>(b.nfft) - 1e-9 * b.fs / b.nfft;
@@ -24,7 +24,7 @@ static MatrixXd maskedGains(const signal::timefilterbank::TimeBank& b, const Vec
     return g;
 }
 
-Plan::Plan(const signal::timefilterbank::TimeBank& bk, const Options& opt) : bank(bk), options(opt) {
+Plan::Plan(const signal::timefilterbank::TimeFilterbank& bk, const Options& opt) : bank(bk), options(opt) {
     if (bank.sides != signal::timefilterbank::Sides::Analytic) throw std::invalid_argument("wt: an analytic bank (a real recording); a two-sided bank has no own-rate sub-bands");
     const int M = bank.size();
     auto [r, nm] = signal::timefilterbank::rates(bank, opt.oversample);
@@ -36,7 +36,7 @@ Plan::Plan(const signal::timefilterbank::TimeBank& bk, const Options& opt) : ban
     }
     // the impulse responses on a fine grid, the grid doubled while a member's tail has not decayed to the tolerance (up to maxMargin)
     std::int64_t L = 0; achieved = 0; tail.assign(M, 0.0); l1.assign(M, 0.0);
-    std::size_t N0 = nextFastLen(std::max<std::size_t>(4 * bank.nfft, 4096), true);
+    std::size_t N0 = next_fast_len(std::max<std::size_t>(4 * bank.nfft, 4096), true);
     for (int m = 0; m < M; ++m) {
         std::size_t g = N0; double tl = 0, total = 0; i64 Lm = 0;
         for (;;) {
@@ -55,7 +55,7 @@ Plan::Plan(const signal::timefilterbank::TimeBank& bk, const Options& opt) : ban
             }
             if (Lm >= static_cast<i64>(g / 2) - 1) tl += a(static_cast<Eigen::Index>(Lm));     // did not decay within the grid: report what is seen (a lower bound)
             if (Lm < static_cast<i64>(g / 2) - 1 || static_cast<i64>(g) >= 2 * static_cast<i64>(opt.maxMargin)) break;
-            g = nextFastLen(2 * g, true);
+            g = next_fast_len(2 * g, true);
         }
         Lm = std::min<i64>(Lm, static_cast<i64>(opt.maxMargin));
         tail[m] = tl / total; l1[m] = total / static_cast<double>(g); L = std::max(L, Lm); achieved = std::max(achieved, tail[m]);
@@ -93,7 +93,7 @@ static double phaseCycles(const Plan& pl, int m, i64 sw, i64 j) {
 
 // ── Wt ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-Wt::Wt(const signal::timefilterbank::TimeBank& bank, int channels, const Options& options) : plan_(bank, options), channels_(channels), buf_(MatrixXd::Zero(channels, 0)) { next_ = -plan_.margin; }
+Wt::Wt(const signal::timefilterbank::TimeFilterbank& bank, int channels, const Options& options) : plan_(bank, options), channels_(channels), buf_(MatrixXd::Zero(channels, 0)) { next_ = -plan_.margin; }
 
 std::vector<Block> Wt::add(const MatrixXd& chunk) {
     if (finished_) throw std::logic_error("wt: add after finish");
@@ -158,7 +158,7 @@ std::vector<Block> Wt::drain(bool final) {
 
 // ── Iwt ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-Iwt::Iwt(const signal::timefilterbank::TimeBank& bank, int channels, const Options& options, signal::graphfilterbank::Synthesis mode) : plan_(bank, options), channels_(channels), mode_(mode) {
+Iwt::Iwt(const signal::timefilterbank::TimeFilterbank& bank, int channels, const Options& options, signal::graphfilterbank::Synthesis mode) : plan_(bank, options), channels_(channels), mode_(mode) {
     const int M = bank.size();
     have_.assign(M, std::vector<VectorXcd>(channels));
     start_.assign(M, 0); end_.assign(M, 0);

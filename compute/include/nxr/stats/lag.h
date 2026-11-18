@@ -1,5 +1,5 @@
 #pragma once
-// nxr::lag — DIAGNOSING LAGS: how big a lag is against its own noise, where the lags of a graph fail to close, at which distance they are measured, and
+// nxr::stats — DIAGNOSING LAGS: how big a lag is against its own noise, where the lags of a graph fail to close, at which distance they are measured, and
 // a surrogate that destroys them. PURE MATHS (arrays in, arrays out). The lags themselves come from a cross-spectrum at pairs (S_uv = ⟨z_u z̄_v⟩: from
 // `measurement::reduce` of the outer form in sensor space and `algebra::congruence` K C Kᵀ at the pairs, or in mode space through `filterbank::bandMoments`).
 //

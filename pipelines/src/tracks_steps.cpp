@@ -32,7 +32,7 @@ void add_tracks_steps(std::vector<StepSpec>& r) {
   s.inputs = {"events", "frame", "sense", "centre"};
   s.outputs = {"spans", "first_frame", "last_frame", "n_frames", "path_length", "displacement", "sense", "track"};
   s.parameters = Json{{"link_mm", 15.0}, {"min_frames", 2}};
-  s.matches = "nxr vortex._track_stats (the linking: greedy nearest neighbour, same sense, ≤ CORE_LINK = 15 mm, consecutive frames only); compute nxr::tracks (Linker, trackStats)";
+  s.matches = "nxr vortex._track_stats (the linking: greedy nearest neighbour, same sense, ≤ CORE_LINK = 15 mm, consecutive frames only); compute nxr::select (Linker, trackStats)";
   s.description = "the TRACKS of the run's cores (`cores`): each core of a frame joins, in the order the cores are given (sense +1 first), the nearest still-free track of the PREVIOUS frame of the same sense within `link_mm` "
                   "(15, nxr's) of its last centre, else starts a track; only consecutive frames link (a frame with no core, or a bad segment, closes every track). Stored as POINT EVENTS (kind `tracks`): a spans Selection, "
                   "one member per track of at least `min_frames` frames (2 by default: a lone core is no track; nxr's lifetime statistics use 3 or more, a filter at read), its span the track's first core's frame to its last core's, "

@@ -1,5 +1,5 @@
 #pragma once
-// nxr::welch — Welch's power spectral density of sensor recordings, STREAMING: a state fed chunk after chunk.
+// nxr::signal::spectral — Welch's power spectral density of sensor recordings, STREAMING: a state fed chunk after chunk.
 //
 // PURE MATHS (arrays in, arrays out; the transform is nxr::r2c). No file I/O.
 //

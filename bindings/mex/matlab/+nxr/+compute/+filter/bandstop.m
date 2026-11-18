@@ -1,5 +1,5 @@
 function y = bandstop(x, lower, upper, sfreq, opts)
-%NXR.OPS.FILTER.BANDSTOP  Band-stop filter (nxr::filter::bandstop).
+%NXR.OPS.FILTER.BANDSTOP  Band-stop filter (nxr::signal::filters::bandstop).
 %   y = nxr.compute.filter.bandstop(x, 40, 50, 1000)
 %   Zero-phase filters of a whole in-memory record [channels x samples]: Brainstorm's FIR (Kaiser window) and IIR (Butterworth notch and band-stop)
 %   filters as documented in nxr/filter.h. The result has the same shape and precision.

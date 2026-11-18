@@ -1,5 +1,5 @@
 function y = lowpass(x, upper, sfreq, opts)
-%NXR.OPS.FILTER.LOWPASS  Low-pass filter (nxr::filter::lowpass).
+%NXR.OPS.FILTER.LOWPASS  Low-pass filter (nxr::signal::filters::lowpass).
 %   y = nxr.compute.filter.lowpass(x, 30, 1000)
 %   Zero-phase filters of a whole in-memory record [channels x samples]: Brainstorm's FIR (Kaiser window) and IIR (Butterworth notch and band-stop)
 %   filters as documented in nxr/filter.h. The result has the same shape and precision.

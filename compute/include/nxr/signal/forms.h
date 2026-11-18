@@ -1,5 +1,5 @@
 #pragma once
-// nxr::forms — a field's TYPE and its FORMS: the step between a source estimate and any measure (the `form` step of a pipeline; the paramount architecture:
+// nxr::signal — a field's TYPE and its FORMS: the step between a source estimate and any measure (the `form` step of a pipeline; the paramount architecture:
 // a pure node, arrays in, arrays out). A line port of the Cortical Flow Studio's `fieldForms.ts` (`FORMS`, `formInfo`, `widthOf`, `formValues`) and of the
 // parts of `faceGradient.ts` the forms read (`assembleFaceGradient`, `flowFaceScalarsCpu`, `faceToVertexCpu`, `flowFieldCpu`, `normalPartCpu`,
 // `flowFieldPartCpu`, `meanCurvatureCpu`, `divCurv2HCpu`), the reference. JavaScript's

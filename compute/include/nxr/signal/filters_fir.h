@@ -1,5 +1,5 @@
 #pragma once
-// nxr::taps — ZERO-PHASE TAPS AND THE ROW CONVOLUTION: the maths of a pipeline's `band_filter` step and of its analytic signal. A line port of nxr's
+// nxr::signal — ZERO-PHASE TAPS AND THE ROW CONVOLUTION: the maths of a pipeline's `band_filter` step and of its analytic signal. A line port of nxr's
 // `nxr/filters/taps.py` (`gain_taps`, `convolve_rows`), which is the Studio's `gainTaps` and `convolveRows` (studio/src/studio/engine/gpu/deviceChain.ts),
 // the reference: a real gain G(f) taken to the time domain ONCE (the inverse FFT of G sampled on a fine grid; the even taps, truncated where the tail holds
 // under kTailEnergy of the response's energy, at most kMaxTaps a side; the DC restored so that Σ h = G(0)), then every row convolved with them, an index
@@ -12,7 +12,7 @@
 // THE HALO: the taps are finite (K a side), so a block read with K samples of context on each side gives, on its own columns, exactly what the whole
 // recording gives there; at a recording's end the block's own edge is reflected, as the Studio's convolveRows does. What makes a filter a per-chunk step.
 //
-// PURE MATHS: arrays in, arrays out (the FFT is nxr::fft, numpy's pocketfft). Rows are row-major [C x Wr], float32 as the Studio's and nxr's.
+// PURE MATHS: arrays in, arrays out (the FFT is nxr::signal, numpy's pocketfft). Rows are row-major [C x Wr], float32 as the Studio's and nxr's.
 #include <cstddef>
 #include <functional>
 #include <vector>

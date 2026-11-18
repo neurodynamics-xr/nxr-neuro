@@ -1,4 +1,4 @@
-// nxr::frametiling and the frame option of the time rule: the band-limited interpolation that samples a block at the frames of a time rule (selection/partition.h `TimeRule`, kind frames:
+// nxr::signal and the frame option of the time rule: the band-limited interpolation that samples a block at the frames of a time rule (selection/partition.h `TimeRule`, kind frames:
 // the frame density, frames per cycle or per tile, and the origin are OPTIONS of the function; no tower, no clock anchor).
 //   - the frames of a 250 Hz recording at 36 frames per cycle of 10 Hz: every frame once, from the origin to the end of the line; an origin (a point of the line) starts the first frame there
 //   - frames per tile nest in the band's dyadic level; the two densities are exclusive; refusals

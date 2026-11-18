@@ -181,7 +181,7 @@ void requireBundle(std::string_view id, Bundle required) {
     if (!v)
         throw Error(ErrorCode::InvalidInput,
                     "unknown operator id: " + std::string(id),
-                    "check nxr::manifold::registry::operatorRegistry()");
+                    "check nxr::operators::registry::operatorRegistry()");
     if (v->bundle != required)
         throw Error(ErrorCode::InvalidInput,
                     std::string("operator '") + std::string(id) + "' has bundle " +
@@ -218,4 +218,4 @@ std::vector<std::string> variantIdsFor(geometry::OperatorId op) {
     return {};   // unreachable; silences control-reaches-end warning
 }
 
-} // namespace nxr::manifold::registry
+} // namespace nxr::geometry::registry

@@ -3,7 +3,7 @@
   g(lam) = lam s2 exp(-lam s2 / 2) of `vortex_cores.hat_operator` applied through the glued mesh's Laplace-Beltrami modes (`Cortex.coords`, the gain, `P.T`), read at EVERY glued vertex.
 On a SYNTHETIC glued pair of spheres (two icospheres of radius 0.08 m, 0.2 m apart, a medial-wall cap on each cut and bridged by nxr's `glue_mesh`: the Studio's glue) with planted currents (a rigid
 rotation about the hemisphere's own axis plus a normal part, and two smooth fields). The modes are the dense generalised eigenproblem of nxr's intrinsic-Delaunay cotan Laplacian and mixed-Voronoi mass of
-the glued mesh (the package's pencil). The gain is scaled by its ANALYTIC peak (2/e), as nxr::filterbank::mexicanHat: nxr scales by the sample maximum of its dense spectrum. Levels 2 and 3. Run:
+the glued mesh (the package's pencil). The gain is scaled by its ANALYTIC peak (2/e), as nxr::signal::graphfilterbank::mexicanHat: nxr scales by the sample maximum of its dense spectrum. Levels 2 and 3. Run:
   uv run --project <nxr checkout> python compute/test/golden/gen_glued_hat_golden.py compute/test/golden/glued_hat_golden.txt"""
 import sys
 

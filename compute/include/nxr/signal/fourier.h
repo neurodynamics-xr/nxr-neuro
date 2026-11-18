@@ -1,5 +1,5 @@
 #pragma once
-// nxr::fft — the Fourier transform of nxr_compute (pocketfft, the FFT inside NumPy and SciPy, BSD-3; vendored in deps/pocketfft).
+// nxr::signal — the Fourier transform of nxr_compute (pocketfft, the FFT inside NumPy and SciPy, BSD-3; vendored in deps/pocketfft).
 //
 // Conventions are NumPy's (numpy.fft), so a result here equals numpy's to rounding:
 //   forward   X[k] = sum_j x[j] exp(-2 pi i j k / n)        inverse   x[j] = sum_k X[k] exp(+2 pi i j k / n)
@@ -45,7 +45,7 @@ Eigen::VectorXd rfftfreq(std::size_t n, double d = 1.0);
 
 /** The smallest length >= n whose prime factors are all small, so the transform is fast (scipy.fft.next_fast_len):
  *  real = true allows {2,3,5}, false allows {2,3,5,7,11}. */
-std::size_t nextFastLen(std::size_t n, bool real = true);
+std::size_t next_fast_len(std::size_t n, bool real = true);
 
 // ── Eigen helpers: one signal per column of a column-major matrix, transformed down the columns ────────────────────────
 

@@ -272,4 +272,4 @@ template Csr<double> resample_operator<double>(const std::vector<double>&, const
 template std::vector<float> carry<float>(const Csr<float>&, const std::vector<float>&);
 template std::vector<double> carry<double>(const Csr<double>&, const std::vector<double>&);
 
-}  // namespace nxr::registration
+}  // namespace nxr::operators::registration

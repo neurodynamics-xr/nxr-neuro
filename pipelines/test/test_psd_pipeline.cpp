@@ -1,5 +1,5 @@
 // the `psd` and `rotary_psd` definitions, run by the runner on a small synthetic dataset built in a temp directory (no real data): 3 channels (one bad), a recording of known signals stored in 700-sample chunks with
-// projectors recorded in its provenance, and a bad span as the importer stores it (`<recording>_bad_segments`). Checks: the stored PSD equals nxr::welch on the same
+// projectors recorded in its provenance, and a bad span as the importer stores it (`<recording>_bad_segments`). Checks: the stored PSD equals nxr::signal::spectral on the same
 // samples with the same mask (float32), the segments across the bad span are left out, the result is identical for another chunk size, a cache hit, the refusal of a name
 // already stored and --replace, the PSD as a STATISTIC (power_density by welch, from the segment partition, axes channel x the frequency line), its provenance, and the command.
 #include <unistd.h>
@@ -134,7 +134,7 @@ int main() {
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
 
-  // the expected PSD: nxr::welch on the stored samples, the mask from the span
+  // the expected PSD: nxr::signal::spectral on the stored samples, the mask from the span
   std::vector<std::uint8_t> good(T, 1);
   for (int i = 0; i < T; ++i) { const double t = i / sfreq; if (t >= bad_start && t < bad_stop) good[static_cast<std::size_t>(i)] = 0; }
   auto expect = nxr::signal::spectral::brainstormPsdOptions(sfreq, 2.0);
@@ -145,7 +145,7 @@ int main() {
   const double tol = 1e-6;                                                                      // float32 storage
   const Json two_s = Json{{"segment_seconds", 2.0}};
 
-  // THE PRESET `brainstorm` (2 s = round(2 fs) samples from the span's start, a symmetric Hamming window): nxr::welch on the stored samples with the bad span's mask, to float32
+  // THE PRESET `brainstorm` (2 s = round(2 fs) samples from the span's start, a symmetric Hamming window): nxr::signal::spectral on the stored samples with the bad span's mask, to float32
   const nxrtest::PsdRun a = nxrtest::run_psd(ds, sub, "rest", two_s, "brainstorm");              // every chunk (stored 700 wide): the whole recording, read chunk by chunk
   CHECK(!a.hit);
   CHECK(want.segments < unmasked.segments && want.segmentsSkipped > 0);
@@ -272,7 +272,7 @@ int main() {
     CHECK(has(refusal([&] { nxrtest::run_definition("rotary_psd", ds, sub, "rest", Json{{"segment_seconds", 2.0}, {"operator", "not_a_pair"}, {"name", "x"}}, "brainstorm"); }), "two rows"));
   }
   // THE PRESET `tiles` (the default since 2026-11-13, the time-tile amendment): a segment of 2^k samples, k = round(log2(2 s x 100 Hz)) = 8 (256 samples), half overlapping, Brainstorm's taper,
-  // detrend and density: nxr::welch on 256-sample segments of the same samples and mask; a span in seconds snaps to level 8 ([3, 33) s = samples [300, 3300) -> [256, 3328)); the segment is stated in seconds or samples; an overlap that leaves the hop no tile is refused, as is segment_samples that is no power of two
+  // detrend and density: nxr::signal::spectral on 256-sample segments of the same samples and mask; a span in seconds snaps to level 8 ([3, 33) s = samples [300, 3300) -> [256, 3328)); the segment is stated in seconds or samples; an overlap that leaves the hop no tile is refused, as is segment_samples that is no power of two
   {
     const Json t = Json{{"segment_seconds", 2.0}, {"name", "tiles"}};
     const nxrtest::PsdRun r = nxrtest::run_psd(ds, sub, "rest", t);

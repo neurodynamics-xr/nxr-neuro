@@ -1,5 +1,5 @@
 #pragma once
-// nxr::flow — the apparent motion of an activation pattern on the cortex, and its Hodge–Dirac reading. A line port of Rheome's
+// nxr::signal — the apparent motion of an activation pattern on the cortex, and its Hodge–Dirac reading. A line port of Rheome's
 // +dynamics/opticalflow_scalar, tangent_basis, flow_readout and +flow/apparent, activation (same maths, same names; Rheome is MIT-licensed MATLAB code).
 //
 //   tangentBasis(normals)                  -> e1, e2 [V x 3]: an orthonormal frame of each vertex's tangent plane (Brainstorm's optical-flow basis); e2 = n x e1.

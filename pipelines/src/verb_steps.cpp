@@ -235,7 +235,7 @@ StepSpec pointspread_step() {
 // ── surrogate.lagfree_pairs ─────────────────────────────────────────────────────────────────────────────────────
 // THE LAG-FREE PAIRS SURROGATE OF THE BURSTS' LAGGED SHARE (spec docs/specs/2026-11-17-surrogates.md; was `wishart_null`): per burst, the analytic windows wholly inside it summed (Q, the burst's
 // second moment between the sensors), its lagged share |Im Q|^2 / |Q|^2, and the same share under lag-free Wishart draws of the burst's own Re Q with dof = its duration x the band's effective bandwidth
-// (the PSD's, through the band's analytic gain): the p, the BH q; and the run's mean share over the bursts against the draws'. The maths are nxr::synthesis and nxr::nulltest; this step arranges arrays.
+// (the PSD's, through the band's analytic gain): the p, the BH q; and the run's mean share over the bursts against the draws'. The maths are nxr::synthesis and nxr::stats; this step arranges arrays.
 struct PairsState { Value recording, bursts, psd; Json p; };
 StepSpec lagfree_pairs_step() {
   StepSpec s;
@@ -304,7 +304,7 @@ StepSpec lagfree_pairs_step() {
     const int draws = p.value("draws", 1000);
     const std::uint64_t seed = p.value("seed", std::uint64_t(0));
     const double nan = std::numeric_limits<double>::quiet_NaN();
-    // THE DRAWS: draw j of burst k is seed + 7919 k, index j (a draw line per burst); the data's share and the draws' as arrays, then the comparison (nxr::nulltest)
+    // THE DRAWS: draw j of burst k is seed + 7919 k, index j (a draw line per burst); the data's share and the draws' as arrays, then the comparison (nxr::stats)
     Eigen::VectorXd share(B);
     for (std::int64_t k = 0; k < B; ++k) share[k] = Q[static_cast<std::size_t>(k)].size() ? nxr::synthesis::laggedShare(Q[static_cast<std::size_t>(k)]) : nan;
     Eigen::MatrixXd null_shares = Eigen::MatrixXd::Constant(draws, B, nan);                    // MEMORY: draws x bursts doubles

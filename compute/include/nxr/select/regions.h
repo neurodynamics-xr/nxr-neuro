@@ -1,9 +1,9 @@
 #pragma once
-// nxr::regions — REGIONS ON A GRAPH: the building block that finds connected sets of nodes of interest, the spatial equivalent of the time spans
-// (nxr::intervals::crossings, keepSpans) with only the neighbourhood changed (spec docs/specs/2026-11-13-cortical-events.md, phase 1). PURE MATHS: values
+// nxr::select — REGIONS ON A GRAPH: the building block that finds connected sets of nodes of interest, the spatial equivalent of the time spans
+// (nxr::select::crossings, keepSpans) with only the neighbourhood changed (spec docs/specs/2026-11-13-cortical-events.md, phase 1). PURE MATHS: values
 // per node (a tile of a level, a vertex, a cell: the function never knows which), the pairs of nodes that are neighbours, the nodes' weights (their areas),
 // numbers in; a label per node out. In time a node's neighbours are the previous and the next (a line graph); on the cortex two tiles are neighbours
-// when a mesh edge joins them (nxr::ladder::tileAdjacency); a space × time graph adds each node's own copy in the next time tile. The function is the same.
+// when a mesh edge joins them (nxr::select::tileAdjacency); a space × time graph adds each node's own copy in the next time tile. The function is the same.
 //
 //   detectRegions   the RULE (hysteresis, as `crossings`): the nodes with a value ≥ `exit` form CONNECTED COMPONENTS over the pairs whose two ends both are;
 //                   a component is KEPT when it holds a node ≥ `enter` and minWeight ≤ Σ weight ≤ maxWeight. enter = exit: plain connected regions above

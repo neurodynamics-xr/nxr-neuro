@@ -14,7 +14,7 @@
 //   histogram[G x nb]   per spatial-scale member g: the energy g_g(lambda_k)^2 P[k, f] binned on  c = 2 pi f / mu_k  over ALL (k, f) (log-spaced
 //                       bins; `below` / `above` hold what lies outside; modes with mu <= 0 have no speed and are not binned).
 //   quadrature[G x T]   the travelling-vs-standing indicator: ||Im C||_F / ||C||_F of the tile's mode cross-spectrum
-//                       C = sum_f h_t(f)^2 D_g (Re S(f) + i Im S(f)) D_g, D_g = diag(g_g(lambda_k)) on the kind's modes (nxr::quadrature's im_fraction).
+//                       C = sum_f h_t(f)^2 D_g (Re S(f) + i Im S(f)) D_g, D_g = diag(g_g(lambda_k)) on the kind's modes (nxr::signal's im_fraction).
 //                       A standing oscillation puts energy at (lambda, f) too, but its modes are in phase: Im C = 0. Only a wave that moves has
 //                       modes in quadrature. (Two modes in exact quadrature give 1/sqrt(2).)
 // Frequencies are the one-sided bins of the cross-spectrum (f > 0); the time bank is evaluated there (a two-sided bank's negative members are empty).
@@ -56,6 +56,6 @@ struct Result {
 };
 
 /** `mu` [K] and `kind` [K] (0 exact, 2 coexact) of the modes the spectra are on. The bank is the separable product of `graph` and `time`. */
-Result compute(const signal::graphfilterbank::Bank& graph, const signal::timefilterbank::TimeBank& time, const Eigen::VectorXd& mu, const std::vector<int>& kind, const ModeSpectra& spectra, const Options& options = {});
+Result compute(const signal::graphfilterbank::GraphFilterbank& graph, const signal::timefilterbank::TimeFilterbank& time, const Eigen::VectorXd& mu, const std::vector<int>& kind, const ModeSpectra& spectra, const Options& options = {});
 
 }  // namespace nxr::signal::speedspectrum

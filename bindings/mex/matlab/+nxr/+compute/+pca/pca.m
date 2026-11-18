@@ -1,5 +1,5 @@
 function r = pca(x, opts)
-%NXR.OPS.PCA.PCA  Principal components of a table of observations x features (nxr::pca::pca), by the thin singular value decomposition.
+%NXR.OPS.PCA.PCA  Principal components of a table of observations x features (nxr::stats::pca), by the thin singular value decomposition.
 %   r = nxr.compute.pca.pca(x)
 %   r = nxr.compute.pca.pca(x, scale="unit_variance")
 %

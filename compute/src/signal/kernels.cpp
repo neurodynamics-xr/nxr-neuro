@@ -1,4 +1,4 @@
-// nxr::kernels — see include/nxr/spacetime_kernels.h. Ported from rheome/+rheome/+filters.
+// nxr::signal — see include/nxr/spacetime_kernels.h. Ported from rheome/+rheome/+filters.
 #include "nxr/signal/kernels.h"
 #include <algorithm>
 #include <cmath>
@@ -166,8 +166,8 @@ MatrixXd diffgauss(const VectorXd& lambda, const VectorXd& t1, const VectorXd& t
     return G;
 }
 
-VectorXd sphereKernel(const VectorXd& gamma, const VectorXd& gl) {
-    if (gl.size() < 1) throw std::invalid_argument("sphereKernel: needs the gains of degree 0 at least");
+VectorXd sphere_kernel(const VectorXd& gamma, const VectorXd& gl) {
+    if (gl.size() < 1) throw std::invalid_argument("sphere_kernel: needs the gains of degree 0 at least");
     const Eigen::Index L = gl.size() - 1;
     VectorXd K(gamma.size());
     for (Eigen::Index i = 0; i < gamma.size(); ++i) {
@@ -222,7 +222,7 @@ MatrixXd spin(const MatrixXd& V, const MatrixXd& axis, const VectorXd& theta) {
     return out;
 }
 
-std::vector<bool> lowPass(const signal::graphfilterbank::Bank& bank) {
+std::vector<bool> lowPass(const signal::graphfilterbank::GraphFilterbank& bank) {
     std::vector<bool> low(bank.members.size(), false);
     if (bank.kind == "heat") return low;
     for (std::size_t m = 0; m < bank.members.size(); ++m) {
@@ -235,7 +235,7 @@ std::vector<bool> lowPass(const signal::graphfilterbank::Bank& bank) {
     return low;
 }
 
-Scatter scatter(const signal::graphfilterbank::Bank& bank, const signal::graphfilterbank::EigenTransform& t, const MatrixXcd& F, int order, const MatrixXd& poolIn) {
+Scatter scatter(const signal::graphfilterbank::GraphFilterbank& bank, const signal::graphfilterbank::EigenTransform& t, const MatrixXcd& F, int order, const MatrixXd& poolIn) {
     if (order != 1 && order != 2) throw std::invalid_argument("scatter: order is 1 or 2");
     const Eigen::Index nV = t.phi.rows(), nT = F.cols();
     if (F.rows() != nV) throw std::invalid_argument("scatter: F must have one row per vertex of the basis");

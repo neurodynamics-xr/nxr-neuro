@@ -60,7 +60,7 @@ int main() {
     for (Eigen::Index s = 0; s < n; ++s) x(c, s) = std::sin(2 * M_PI * 10.0 * s / fs + c) + 0.5 * nd(rng);
   nxr::signal::timefilterbank::Design meyer(nxr::signal::timefilterbank::Family::Meyer, 2.0, nxr::signal::timefilterbank::Sides::Analytic);
   meyer.bands = {{8.0, 12.0}};                                   // the Signal chain's alpha band (the Studio's meyerBand), one member
-  auto bandOf = [](const nxr::signal::timefilterbank::TimeBank& b) {
+  auto bandOf = [](const nxr::signal::timefilterbank::TimeFilterbank& b) {
     for (int m = 0; m < b.size(); ++m) if (std::abs(b.members[static_cast<std::size_t>(m)].lo - 8.0) < 1e-9 && std::abs(b.members[static_cast<std::size_t>(m)].hi - 12.0) < 1e-9) return m;
     return -1;
   };

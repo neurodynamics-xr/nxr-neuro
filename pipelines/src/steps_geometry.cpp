@@ -44,7 +44,7 @@ StepSpec frames_step() {
   s.inputs = {"surface"};
   s.outputs = {"canonical", "singular", "gauge_angle", "angle", "second", "handed", "reliable"};
   s.parameters = Json{{"template", nullptr}, {"template_surface", nullptr}, {"convention", "scs"}, {"side", "auto"}, {"min_projection", 0.34}, {"max_condition", 50.0}};
-  s.matches = "Rheome sphereframe (canonical frames); nxr coords.py anatomical frame; compute nxr::frames";
+  s.matches = "Rheome sphereframe (canonical frames); nxr coords.py anatomical frame; compute nxr::geometry";
   s.description = "a surface's canonical frames (from its registered sphere) and its anatomical frame";
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "positions in double, as stored");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {

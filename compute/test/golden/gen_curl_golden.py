@@ -1,4 +1,4 @@
-"""Writes curl_golden.txt: the reference of nxr::forms::formOfFreeColumns (apply_kernel's `form: curl_tan | div_tan | normal`), nxr's `Cortex.readings` before its mode coordinates:
+"""Writes curl_golden.txt: the reference of nxr::signal::formOfFreeColumns (apply_kernel's `form: curl_tan | div_tan | normal`), nxr's `Cortex.readings` before its mode coordinates:
     q = K.reshape(nv, 3, -1);  dv, cu = ops.div_curl(ops.tangent(q));  normal = einsum(normals, q)      (nxr/detect/vortex.py; ops = nxr.operators.faces.FaceOperators)
 on a SYNTHETIC jittered icosphere (radius 0.08 m, 642 vertices) with three planted free currents (columns): a rigid rotation about z (ω × r) plus a normal part, a
 sink-source pattern (a gradient of a smooth scalar) plus a normal part, and a smooth mixture. The currents are rounded to float32 first (the Studio's precision; the same input

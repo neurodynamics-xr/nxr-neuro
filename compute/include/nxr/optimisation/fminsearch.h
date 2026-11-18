@@ -29,6 +29,6 @@ struct MinimiseResult {
 NelderMeadOptions fminsearchOptions(int n);
 
 // Minimise f from x0. std::invalid_argument for an empty x0 or a non-positive maxEvaluations.
-MinimiseResult nelderMead(const std::function<double(const Eigen::VectorXd&)>& f, const Eigen::VectorXd& x0, const NelderMeadOptions& opt = {});
+MinimiseResult fminsearch(const std::function<double(const Eigen::VectorXd&)>& f, const Eigen::VectorXd& x0, const NelderMeadOptions& opt = {});
 
 }  // namespace nxr::optimisation

@@ -59,7 +59,7 @@ ng::NodeSpec source_pairs() {
                {"pairs", "per source, the strongest quadrature pairs p -> q of each band (vector3 for a free kernel), with sigma, share and rotary sense (a statistic over the segment partition)", false}};
   n.parameters = {{"pairs", Json(3), "the k strongest quadrature pairs per band", "-", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "from an accumulated cross-spectrum, in double");
-  n.matches = "nxr.spectral.lagged (im_fraction, im_rows, planes); compute nxr::quadrature";
+  n.matches = "nxr.spectral.lagged (im_fraction, im_rows, planes); compute nxr::signal";
   n.description = "the quadrature spectrum of the sources: per band the quadrature fraction, the energy per source and the strongest quadrature pairs, from the sensors' cross-spectrum and a kernel";
   n.plan = [](const ng::Types& in, const Json& p) {
     for (const char* k : {"spectrum", "kernel"}) if (!in.count(k)) ng::refuse(std::string("quadrature.source_pairs: ") + k + " is not given");
@@ -114,12 +114,12 @@ ng::NodeSpec source_pairs() {
       const Eigen::VectorXd rows = nxr::measurement::quadratureEnergy(F, F);
       for (std::int64_t i = 0; i < N; ++i) for (int o = 0; o < orientations; ++o) energy(i, b) += rows[orientations * i + o];
       const nxr::core::QuadratureFactor qf = nxr::core::quadratureFactor(F);
-      pairs[static_cast<std::size_t>(b)] = nxr::signal::quadraturePairs(qf, pr.pairs);
+      pairs[static_cast<std::size_t>(b)] = nxr::signal::planes(qf, pr.pairs);
       for (const auto& q : pairs[static_cast<std::size_t>(b)]) {
-        share[static_cast<std::size_t>(b)].push_back(nxr::signal::quadratureShare(qf, {q}));
+        share[static_cast<std::size_t>(b)].push_back(nxr::signal::lagged_share(qf, {q}));
         rotary[static_cast<std::size_t>(b)].push_back(nxr::signal::rotaryPower(F, q.p, q.q));
       }
-      cumulative[static_cast<std::size_t>(b)] = nxr::signal::quadratureShare(qf, pairs[static_cast<std::size_t>(b)]);
+      cumulative[static_cast<std::size_t>(b)] = nxr::signal::lagged_share(qf, pairs[static_cast<std::size_t>(b)]);
     }
     std::int64_t total_pairs = 0;
     for (const auto& v : pairs) total_pairs += static_cast<std::int64_t>(v.size());

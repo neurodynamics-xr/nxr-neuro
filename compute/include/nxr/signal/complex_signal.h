@@ -1,5 +1,5 @@
 #pragma once
-// nxr::analytic — amplitude and phase of complex coefficients (MATLAB's names: abs, angle, unwrap, instfreq), and the carrier phase of wt's
+// nxr::signal — amplitude and phase of complex coefficients (MATLAB's names: abs, angle, unwrap, instfreq), and the carrier phase of wt's
 // baseband coefficients. PURE MATHS: arrays in, arrays out.
 //
 // LAYOUT: time runs down the ROWS, one series per column (as MATLAB's matrices and wt::Block::coef: rows = instants, columns = channels).

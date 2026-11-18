@@ -1,4 +1,4 @@
-// nxr::montage — the STANDARD EEG ELECTRODE POSITIONS (10-05, with 10-10 and 10-20 as subsets) placed on a closed scalp surface by the published rule. PURE MATHS:
+// nxr::meeg — the STANDARD EEG ELECTRODE POSITIONS (10-05, with 10-10 and 10-20 as subsets) placed on a closed scalp surface by the published rule. PURE MATHS:
 // arrays in, arrays out; no file, no subject, no knowledge of which head it is.
 //
 // The rule is Oostenveld R, Praamstra P (2001) The five percent electrode system for high-resolution EEG and ERP measurements, Clin Neurophysiol 112:713-719 (after Jasper 1958

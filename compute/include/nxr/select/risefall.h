@@ -1,5 +1,5 @@
 #pragma once
-// nxr::risefall — WHERE AN AMPLITUDE EPISODE SWITCHES ON AND OFF: the double-sigmoid fit of Rheome's `+rheome/+detect/risefall.m` (the Rheome code; the maths written from it).
+// nxr::select — WHERE AN AMPLITUDE EPISODE SWITCHES ON AND OFF: the double-sigmoid fit of Rheome's `+rheome/+detect/risefall.m` (the Rheome code; the maths written from it).
 // PURE MATHS: an amplitude series (any: the mean over a region, the max over tiles; the function never knows which), its rate, the candidate episode [t0, t1] s, options → the fit.
 //
 //   a(t) = b + h S((t − tOn)/tauR) S(−(t − tOff)/tauF)                          Model::Linear          S(x) = 1/(1 + e^(−x))

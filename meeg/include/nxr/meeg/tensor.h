@@ -3,7 +3,7 @@
 // normal, whether it swings or turns.
 //
 //   sourceTensor(K, S, Sq)   per source v, the complex 3x3 Hermitian T_v = K_v (S + i Sq) K_v^T, K_v the source's three kernel rows (x y z, ambient,
-//                            the kernel's coordinates), S + i Sq a band's sensor cross-spectral density (nxr::welch::CrossWelch with quadrature:
+//                            the kernel's coordinates), S + i Sq a band's sensor cross-spectral density (nxr::signal::spectral::CrossWelch with quadrature:
 //                            S its real part, Sq its imaginary part Im(X X^H)). Re T is symmetric, Im T antisymmetric; tr T = the source's band power
 //                            summed over its orientations (sourcePower, Orientation::Norm) — exactly. Never a source time series: channels^2 per band.
 //   stokes(T, e1, e2)        the TANGENTIAL Stokes parameters in the frame (e1, e2) (the canonical frames: e1 north, e2 = n x e1): with

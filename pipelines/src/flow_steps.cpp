@@ -100,7 +100,7 @@ ng::Block block_of(const Eigen::MatrixXcd& A) {
 std::int64_t ceil_div(std::int64_t a, std::int64_t b) { return a >= 0 ? (a + b - 1) / b : -((-a) / b); }
 
 // ── the member's filter bank (timebank.member_analytic) ────────────────────────────────────────────────────────────
-struct BankChoice { tb::TimeBank bank; nxr::signal::Options wo; int member = 0; double centre = 0; };
+struct BankChoice { tb::TimeFilterbank bank; nxr::signal::Options wo; int member = 0; double centre = 0; };
 
 tb::Family family_of(const std::string& f, const char* who) {
   if (f == "itersine") return tb::Family::Itersine;
@@ -126,7 +126,7 @@ BankChoice choose_bank(const Json& p, double sfreq, int channels, const char* wh
   if (p.contains("limits") && p["limits"].is_array() && p["limits"].size() == 2) d.limits = std::make_pair(p["limits"][0].get<double>(), p["limits"][1].get<double>());
   d.halfWidth = p["half_width"].get<double>(); d.gamma = p["gamma"].get<double>(); d.timeBandwidth = p["time_bandwidth"].get<double>();
   BankChoice c;
-  const std::size_t nfft = nxr::signal::nextFastLen(static_cast<std::size_t>(std::ceil(sfreq / resolution)), true);
+  const std::size_t nfft = nxr::signal::next_fast_len(static_cast<std::size_t>(std::ceil(sfreq / resolution)), true);
   try { c.bank = tb::design(d, nfft, sfreq); } catch (const std::invalid_argument& e) { ng::refuse(std::string(who) + ": the filter bank: " + e.what()); }
   c.wo.oversample = p["oversample"].get<double>();
   c.wo.tolerance = p.contains("tolerance") && p["tolerance"].is_number() ? p["tolerance"].get<double>() : 1e-7;   // 1e-7: float32 recordings (the blocks are float32); name it for float64
@@ -169,7 +169,7 @@ ng::NodeSpec member_analytic() {
                   {"oversample", Json(2.0), "the member's own rate is oversample x its bins' rate", "-", {}, false},
                   {"tolerance", Json(), "the impulse response's tail the margin may leave out, relative to its norm; null: 1e-7 (float32 blocks)", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::windowed, ng::Precision::float64, ng::OutputPrecision::follows_input,
-                             "each block (own samples and halo) is filtered in double (nxr::wt, overlap-save) and the frames inside the own samples are handed on in float32",
+                             "each block (own samples and halo) is filtered in double (nxr::signal, overlap-save) and the frames inside the own samples are handed on in float32",
                              "the halo is the filter's margin (tolerance-bound) plus the lattice period on each side; the record's ends are zero padded");
   n.matches = "Rheome timebank.analysisOwnRate / @timefilterbank wt (the coefficients at the member's own rate); compute nxr::signal::Wt";
   n.description = "one filter-bank member's analytic coefficients of the recording's channels at the member's own rate (frames on the lattice g p/q samples), a retiming node";

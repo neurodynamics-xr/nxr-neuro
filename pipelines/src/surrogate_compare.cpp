@@ -1,4 +1,4 @@
-// nxr-pipelines — the surrogate comparisons (surrogate_compare.h). Orchestration only: the draws are runs of typed definitions, read through io; the maths are nxr::nulltest and nxr::crossings.
+// nxr-pipelines — the surrogate comparisons (surrogate_compare.h). Orchestration only: the draws are runs of typed definitions, read through io; the maths are nxr::stats and nxr::select::track_crossings.
 #include "nxr/pipelines/surrogate_compare.h"
 
 #include "nxr/pipelines/task.h"
@@ -221,7 +221,7 @@ SurrogateCompareResult surrogate_lagfree_vortex_compare(nxr::io::DatasetWriter& 
     say(Json{{"stage", "draws"}, {"draws", nd}, {"undecided", undecided}, {"decided", decided}});
     if (decided) { stopped = "decided"; break; }
   }
-  // THE P-VALUES, q-values, ratios and the surrogate's means (nxr::nulltest)
+  // THE P-VALUES, q-values, ratios and the surrogate's means (nxr::stats)
   const Eigen::VectorXd all_draws = Eigen::VectorXd::Constant(tiles, static_cast<double>(nd));
   const Json generator = generator_of(ddraw), seeds = seeds_of(nd, opt.batch, two), over_record = Json{{"selection_id", sel_id}, {"selection", sel.name}};
   auto store = [&](const std::string& name, const char* measure, const char* method, const task::Node& of, std::vector<double> values, std::vector<std::int64_t> shape, const Json& axes, const Json& components, const std::string& desc, Json options, const Json& warnings, bool first) {
@@ -357,7 +357,7 @@ SurrogateCompareResult surrogate_lagfree_spatial_events_compare(nxr::io::Dataset
     say(Json{{"stage", "draws"}, {"draws", nd}, {"undecided", undecided}, {"decided", decided}});
     if (decided) { stopped = "decided"; break; }
   }
-  // THE P-VALUES (nxr::nulltest): home one-sided over every draw; the size shares two-sided over the draws that made patches
+  // THE P-VALUES (nxr::stats): home one-sided over every draw; the size shares two-sided over the draws that made patches
   const Eigen::VectorXd p = nt::sequentialPs(data_home, home.upper, Eigen::VectorXd::Constant(V0, static_cast<double>(nd)), opt.h), q = nt::benjaminiHochbergQ(p);
   const Eigen::VectorXd pu = nt::sequentialPs(data_size, size.upper, size.finite, opt.h), pl = nt::sequentialPs(data_size, size.lower, size.finite, opt.h);
   const Eigen::VectorXd qu = nt::benjaminiHochbergQ(pu), ql = nt::benjaminiHochbergQ(pl), home_null = nt::nullMean(home), size_null = nt::nullMean(size);

@@ -1,5 +1,5 @@
 #pragma once
-// nxr::intrinsic — fields on the INTRINSIC complex the Hodge–Dirac modes are solved on, and their reading in the modes' FULL FORMS (spec
+// nxr::signal — fields on the INTRINSIC complex the Hodge–Dirac modes are solved on, and their reading in the modes' FULL FORMS (spec
 // docs/specs/2026-11-12-direction-timing.md;: one triangulation for the modes and everything applied to them). PURE MATHS: arrays in, arrays out.
 //
 //   Complex      the intrinsic complex as stored by `eigen solve`: its edges (tail, tip), lengths, d0 [E x V], d1 [F x E], the stars, the signposts (each edge's

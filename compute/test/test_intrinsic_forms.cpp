@@ -1,4 +1,4 @@
-// nxr::intrinsic on the INTRINSIC complex of a sphere (IntrinsicSurface of an icosphere whose vertices are jittered, so edges flip):
+// nxr::signal on the INTRINSIC complex of a sphere (IntrinsicSurface of an icosphere whose vertices are jittered, so edges flip):
 //   d1·d0 = 0; ⋆1 ≥ 0 (Delaunay); an unflipped edge's direction at each end is the mesh edge's (the signposts embedded through the input's edges);
 //   flat of a GRADIENT field ∇f (f = z, its tangential part) ≈ d0 f, the exact edge differences (the field integrated along each edge);
 //   sharp(flat(J)) ≈ J for smooth tangent fields (a gradient and a rotation n × ẑ), away from nothing (a closed sphere);

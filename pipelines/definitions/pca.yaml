@@ -1,5 +1,5 @@
 # THE PRINCIPAL COMPONENTS ACROSS THE MEMBERS OF A TABLE (spec docs/specs/2026-11-16-meg-fingerprinting.md, 4.4): a stored statistic of real values with two axes, the MEMBERS (the
-# observations: the members of a partition, the people) and the FEATURES, decomposed by the thin SVD of the centred table (`nxr::pca`, scikit-learn's PCA; never the features x features
+# observations: the members of a partition, the people) and the FEATURES, decomposed by the thin SVD of the centred table (`nxr::stats`, scikit-learn's PCA; never the features x features
 # covariance). Every component up to the table's rank is stored, so any k is available; the reconstruction at k is derived at read, never stored.
 # Stored, as statistics of method `pca`, of the input statistic: `<name>` (principal_components, [component x feature], unit-length loadings, each with its largest loading positive),
 # `<name>_scores` (principal_scores, [member x component]), `<name>_variance` (explained_variance, [component x 3]: singular value, explained variance S^2/(n-1), its ratio) and

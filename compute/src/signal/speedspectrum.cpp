@@ -9,7 +9,7 @@ namespace nxr::signal::speedspectrum {
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
-Result compute(const signal::graphfilterbank::Bank& graph, const signal::timefilterbank::TimeBank& time, const VectorXd& mu, const std::vector<int>& kind, const ModeSpectra& sp, const Options& opt) {
+Result compute(const signal::graphfilterbank::GraphFilterbank& graph, const signal::timefilterbank::TimeFilterbank& time, const VectorXd& mu, const std::vector<int>& kind, const ModeSpectra& sp, const Options& opt) {
     constexpr double kTwoPi = 6.283185307179586;
     const Eigen::Index K = mu.size(), B = sp.frequencies.size();
     if (static_cast<Eigen::Index>(kind.size()) != K) throw std::invalid_argument("speedspectrum: kind and mu differ in length");

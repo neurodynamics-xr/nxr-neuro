@@ -1,4 +1,4 @@
-// nxr::ladder — see nxr/ladder.h. A line port of the Cortical Flow Studio's engine/ladder.ts; compiled with -ffp-contract=off (JavaScript has no fused multiply-add).
+// nxr::select — see nxr/ladder.h. A line port of the Cortical Flow Studio's engine/ladder.ts; compiled with -ffp-contract=off (JavaScript has no fused multiply-add).
 #include "nxr/select/dyadic.h"
 
 #include <algorithm>

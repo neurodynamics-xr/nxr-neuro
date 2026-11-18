@@ -636,7 +636,7 @@ Json store_statistic(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, co
   const std::string id = sub.statistic(std::move(st));
   return Json{{"output", o}, {"statistic", name}, {"path", path}, {"id", id}};
 }
-// A HISTOGRAM STATISTIC OUTPUT (`core_histogram`; nxr::histogram): counts in fixed log bins over the burst frames, pooled over the vertices, beside the recording: measure count, method histogram, the bins' range
+// A HISTOGRAM STATISTIC OUTPUT (`core_histogram`; nxr::stats::histogram): counts in fixed log bins over the burst frames, pooled over the vertices, beside the recording: measure count, method histogram, the bins' range
 // (lo, hi, bins) and what the distribution was made from (the chain) in its options, so a reader derives any percentile from the counts (the cores' threshold: the 98th) and the cores' step checks the chain
 Json store_histogram(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan& P, const std::string& o, const Array& a, const Json& producer,
                      const nxr::pipelines::CacheKey& key, bool replace, bool& replaced) {

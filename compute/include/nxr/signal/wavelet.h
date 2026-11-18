@@ -1,9 +1,9 @@
 #pragma once
-// nxr::wt — the chunked filterbank transform `wt` and its inverse `iwt` (names: Rheome's @timefilterbank and MATLAB's cwtfilterbank).
+// nxr::signal — the chunked filterbank transform `wt` and its inverse `iwt` (names: Rheome's @timefilterbank and MATLAB's cwtfilterbank).
 //
-// PURE MATHS (arrays in, arrays out; the transform is nxr::fft). STREAMING: a state fed chunk after chunk, as nxr::filter.
+// PURE MATHS (arrays in, arrays out; the transform is nxr::signal). STREAMING: a state fed chunk after chunk, as nxr::signal::filters.
 //
-// The bank is a nxr::timebank::TimeBank, ANALYTIC (a real recording). Its family, gain and sides are REQUIRED by timebank::Design (no default). The bank is
+// The bank is a nxr::signal::timefilterbank::TimeFilterbank, ANALYTIC (a real recording). Its family, gain and sides are REQUIRED by timebank::Design (no default). The bank is
 // designed ONCE on a reference grid `bank.nfft` (its frequency resolution: the lowest member spans >= minBins bins of fs/nfft); the record's length plays no part.
 //
 // THE COEFFICIENTS (Rheome's wt = timebank::analysisOwnRate, made streaming). Member m is the analytic sub-band a_m(t) = (1/nfft) sum_b X_b g_m(f_b) e^{2 pi i f_b t}
@@ -31,7 +31,7 @@
 namespace nxr::signal {
 
 struct Options {
-    double oversample = 2.0;                  // timebank::rates: the member's rate = nextFastLen(oversample * bins) fs / nfft
+    double oversample = 2.0;                  // timebank::rates: the member's rate = next_fast_len(oversample * bins) fs / nfft
     double tolerance = 1e-12;                 // the impulse response's tail (L1, relative to its L1 norm) that the margin may leave out
     std::size_t maxMargin = std::size_t(1) << 16;
     std::size_t block = 0;                    // core samples per window (rounded up to a multiple of P); 0: max(L + R, min(4 (L + R), maxBlock))
@@ -42,7 +42,7 @@ struct Options {
 struct Block { std::int64_t first = 0; Eigen::MatrixXcd coef; };
 
 struct Plan {                                 // what wt and iwt share (a function of the bank and the options alone)
-    signal::timefilterbank::TimeBank bank;
+    signal::timefilterbank::TimeFilterbank bank;
     Options options;
     std::vector<std::size_t> Nm;              // own-rate lengths
     Eigen::VectorXd rate;                     // Hz
@@ -54,12 +54,12 @@ struct Plan {                                 // what wt and iwt share (a functi
     std::vector<std::int64_t> b1, b2;         // member support on the window grid
     std::vector<Eigen::VectorXd> gain;        // g_m on window bins b1..b2 (masked to the support)
     Eigen::VectorXd frame;                    // S = sum g^2 on window bins 0..N/2
-    Plan(const signal::timefilterbank::TimeBank& bank, const Options& options = Options());
+    Plan(const signal::timefilterbank::TimeFilterbank& bank, const Options& options = Options());
 };
 
 class Wt {
 public:
-    Wt(const signal::timefilterbank::TimeBank& bank, int channels, const Options& options = Options());
+    Wt(const signal::timefilterbank::TimeFilterbank& bank, int channels, const Options& options = Options());
     /** Feed [channels x samples] (any size); returns, per member, the coefficients that are now final (possibly empty blocks). */
     std::vector<Block> add(const Eigen::MatrixXd& chunk);
     /** The end of the record: the rest, including the tails. */
@@ -77,7 +77,7 @@ private:
 
 class Iwt {
 public:
-    Iwt(const signal::timefilterbank::TimeBank& bank, int channels, const Options& options = Options(), signal::graphfilterbank::Synthesis mode = signal::graphfilterbank::Synthesis::Dual);
+    Iwt(const signal::timefilterbank::TimeFilterbank& bank, int channels, const Options& options = Options(), signal::graphfilterbank::Synthesis mode = signal::graphfilterbank::Synthesis::Dual);
     /** Feed the coefficients wt returned (any split in time, in order); returns the signal samples now final, [channels x samples]. */
     Eigen::MatrixXd add(const std::vector<Block>& blocks);
     /** The end: `samples` = the record's length n (wt's samplesIn()); returns the rest of x[0, n). */

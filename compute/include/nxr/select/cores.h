@@ -1,5 +1,5 @@
 #pragma once
-// nxr::cores — VORTEX CORES of a hatted curl map (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 5; family B, a spatial feature per frame). PURE MATHS on matrices: a map of values per vertex and frame,
+// nxr::select — VORTEX CORES of a hatted curl map (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 5; family B, a spatial feature per frame). PURE MATHS on matrices: a map of values per vertex and frame,
 // the vertices' neighbours, areas and positions, a threshold: numbers in, the cores out. The function never knows where the map came from (a recording's hatted curl, a synthetic field), which frames are asked for,
 // or what unit the positions are in. A port of nxr's `_core_patches` (nxr/detect/vortex.py), the reference:
 //

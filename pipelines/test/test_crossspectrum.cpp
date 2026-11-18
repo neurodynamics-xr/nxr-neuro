@@ -271,7 +271,7 @@ int main() {
       const StoredCrossSpectrumBins D = crossspectrum_bins_read(sub, nm);
       Eigen::VectorXd fv = Eigen::Map<const Eigen::VectorXd>(D.frequencies.data(), static_cast<Eigen::Index>(D.frequencies.size()));
       const nxr::meeg::PhaseSlope ps = nxr::meeg::phaseSlope(D.C, fv);
-      const Eigen::MatrixXd psi = nxr::meeg::phaseSlopeIndex(D.C);
+      const Eigen::MatrixXd psi = nxr::meeg::phase_slope_index(D.C);
       std::printf("  %s: delay 0->1 %.3f ms (made with 12), 1->0 %.3f, residual %.3f rad, PSI %.3f\n", nm, ps.delayMs(0, 1), ps.delayMs(1, 0), ps.residual(0, 1), psi(0, 1));
       // the wide band (5-30 Hz, 101 bins) recovers the delay; 8-12 Hz holds only a few independent bins of 6 segments, so its slope is the right sign and no more
       CHECK(std::abs(ps.delayMs(1, 0) + ps.delayMs(0, 1)) < 1e-9 && psi(0, 1) > 0 && psi(1, 0) < 0 && ps.delayMs(0, 1) > 0);

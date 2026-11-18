@@ -1,4 +1,4 @@
-// nxr::flow — see opticalflow.h. A port of Rheome's +dynamics/opticalflow_scalar, tangent_basis, flow_readout and +flow/apparent, activation.
+// nxr::signal — see opticalflow.h. A port of Rheome's +dynamics/opticalflow_scalar, tangent_basis, flow_readout and +flow/apparent, activation.
 #include "nxr/signal/opticalflow.h"
 
 #include <algorithm>

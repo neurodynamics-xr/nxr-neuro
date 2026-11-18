@@ -151,7 +151,7 @@ BergScherg fitBergScherg(const VectorXd& radius, const VectorXd& conductivity, c
       const double u = std::fmod(0.6180339887498949 * (s * J + j + 1), 1.0);
       x0(j) = -0.5 + 1.45 * u;
     }
-    const optimisation::MinimiseResult r = nelderMead(cost, x0, opt.minimiser);
+    const optimisation::MinimiseResult r = fminsearch(cost, x0, opt.minimiser);
     if (r.value < best.value) best = r;
   }
   VectorXd mu = best.x, lambda;

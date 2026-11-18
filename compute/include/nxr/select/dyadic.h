@@ -107,7 +107,7 @@ std::vector<int> pieces(const int32_t* faces, int nF, int nV);
 
 }  // namespace nxr::select::bisection
 
-// nxr::ladder — the dyadic TILE LADDER of a surface and the tile summaries (Step 3 of the cortical coordinate system, docs/audits/2026-11-11-cortical-coordinates.md).
+// nxr::select — the dyadic TILE LADDER of a surface and the tile summaries (Step 3 of the cortical coordinate system, docs/audits/2026-11-11-cortical-coordinates.md).
 //
 // A line port of the Cortical Flow Studio's `engine/ladder.ts` (Weyl pairing, `vertexAreas`, `onePiece`, `surfaceLadder`), which nxr (`nxr.geom.ladder`, `nxr.geom.trees`) and Rheome
 // (`+geom/surfaceladder.m`) reproduce bit for bit: each tile is halved by EQUAL MASS across its geodesic diameter (Dijkstra on the input edge graph, two sweeps, a stable sort by d_a - d_b,

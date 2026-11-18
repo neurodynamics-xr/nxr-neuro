@@ -1,5 +1,5 @@
 #pragma once
-// nxr::flow — ALTERNATIVE METHODS for the optical flow, selectable by name, to be compared on real data. `pcg` is the default; `direct` is the one-solve-per-frame form (opticalflow.h). Every method yields the velocity [3V] per frame pair on the input surface (and the Hodge–Dirac flow weights where it has them).
+// nxr::signal — ALTERNATIVE METHODS for the optical flow, selectable by name, to be compared on real data. `pcg` is the default; `direct` is the one-solve-per-frame form (opticalflow.h). Every method yields the velocity [3V] per frame pair on the input surface (and the Hodge–Dirac flow weights where it has them).
 //
 //   direct    (smoothness `regulariser`, data `datafit`: connection / gauge by default, the Cortical Flow Studio's; ambient / triangle is Lefevre and Baillet 2008) sparse LDLT refactored every frame.
 //   pcg       the SAME equation by preconditioned conjugate gradients, warm-started from the previous frame's [a; b]. Preconditioner built once from the first frame:

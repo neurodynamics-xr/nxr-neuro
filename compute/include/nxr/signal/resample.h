@@ -1,5 +1,5 @@
 #pragma once
-// nxr::frametiling — sampling a band-limited signal at a frame grid's (non-integer) positions: a block of an analytic signal read at the frames of a time rule (`nxr::selection::time_rule`, kind frames).
+// nxr::signal — sampling a band-limited signal at a frame grid's (non-integer) positions: a block of an analytic signal read at the frames of a time rule (`nxr::selection::time_rule`, kind frames).
 // Pure functions of arrays: no file, no chunk, no recording.
 //
 //   sincInterpolate  a block of an ANALYTIC (band-limited) signal sampled at the frames' (non-integer) sample positions: a Kaiser-windowed sinc, `half_width` samples either side (the step's halo).

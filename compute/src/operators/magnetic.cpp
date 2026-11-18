@@ -1,4 +1,4 @@
-// nxr::magnetic — the magnetic Laplacian, its eigenpairs and the winding of a complex vertex field (magnetic.h).
+// nxr::operators — the magnetic Laplacian, its eigenpairs and the winding of a complex vertex field (magnetic.h).
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 
@@ -276,4 +276,4 @@ std::vector<int> winding(const Eigen::VectorXcd& x, const Faces& faces) {
   return out;
 }
 
-}  // namespace nxr::magnetic
+}  // namespace nxr::operators

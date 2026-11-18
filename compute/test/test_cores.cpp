@@ -1,6 +1,6 @@
 // nxr::select::corePatches against nxr's `_core_patches` (golden: test/golden/cores_golden.txt, gen_cores_golden.py; a synthetic icosphere cortex with planted blobs of both senses): the same cores, in the same order
 // (frame, sense, lowest vertex), with the same centres (the |value|·area-weighted centroid) and areas; the centre vertex and the peak (nxr-neuro's own attributes) as the generator derives them.
-// The threshold is read off nxr::histogram (the project's 4096 log bins) folded over the frames: it does not depend on how the frames are cut into blocks, and is within one bin of numpy's exact percentile.
+// The threshold is read off nxr::stats::histogram (the project's 4096 log bins) folded over the frames: it does not depend on how the frames are cut into blocks, and is within one bin of numpy's exact percentile.
 // The cores do not depend on the block of frames either: any cut into blocks, each given its first frame, gives the same list. Hand-made graphs: a patch is the connected above-threshold vertices of ONE sense (two
 // touching patches of opposite senses are two cores; two of the same sense joined by a vertex above threshold are one); refusals.
 #include <algorithm>
@@ -74,7 +74,7 @@ int main() {
     for (int f0 = 0; f0 < frames; f0 += w) nxr::select::append(all, nxr::select::corePatches(X.middleCols(f0, std::min(w, frames - f0)), pairs, A, P, thr, f0));
     EXPECT(same(all, c), "blocks of " + std::to_string(w) + " frames give another list");
   }
-  // the threshold: nxr::histogram's 4096 log bins over the frames, edges fixed once from the first frames (the reference's first chunk): any cut into blocks gives the same counts and threshold, within one bin of numpy's
+  // the threshold: nxr::stats::histogram's 4096 log bins over the frames, edges fixed once from the first frames (the reference's first chunk): any cut into blocks gives the same counts and threshold, within one bin of numpy's
   {
     const int first = 3;
     std::vector<float> a(static_cast<std::size_t>(nv) * frames);

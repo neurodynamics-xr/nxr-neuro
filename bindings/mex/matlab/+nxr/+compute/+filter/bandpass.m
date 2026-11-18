@@ -1,5 +1,5 @@
 function y = bandpass(x, lower, upper, sfreq, opts)
-%NXR.OPS.FILTER.BANDPASS  Band-pass filter (nxr::filter::bandpass).
+%NXR.OPS.FILTER.BANDPASS  Band-pass filter (nxr::signal::filters::bandpass).
 %   y = nxr.compute.filter.bandpass(x, 8, 16, 1000)
 %   Zero-phase filters of a whole in-memory record [channels x samples]: Brainstorm's FIR (Kaiser window) and IIR (Butterworth notch and band-stop)
 %   filters as documented in nxr/filter.h. The result has the same shape and precision.

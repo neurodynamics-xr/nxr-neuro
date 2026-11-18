@@ -11,11 +11,11 @@ using Eigen::VectorXd;
 // ── directions ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** R = |mean e^{i a}| in [0, 1]. */
-double meanResultantLength(const VectorXd& angles);
+double circ_r(const VectorXd& angles);
 /** The mean direction arg mean e^{i a} (rad). */
-double meanDirection(const VectorXd& angles);
+double circ_mean(const VectorXd& angles);
 struct Rayleigh { double R = 0, p = 1, meanDirection = 0; std::int64_t n = 0; };
 /** Rayleigh's test of uniformity: R, and p ~ exp(-n R^2) (the large-sample approximation nxr used), and the mean direction. */
-Rayleigh rayleighTest(const VectorXd& angles);
+Rayleigh circ_rtest(const VectorXd& angles);
 
 }  // namespace nxr::stats

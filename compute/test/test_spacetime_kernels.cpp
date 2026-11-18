@@ -56,13 +56,13 @@ int main() {
     Eigen::VectorXd a(2), b(2); a << 0.05, 0.1; b << 0.2, 0.5;
     eq("diffgauss", diffgauss(lam, a, b), g.mat("diffgauss"));
     const VectorXd gam = g.mat("gamma").col(0), gl = g.mat("gl").col(0);
-    eq("sphereKernel", MatrixXd(sphereKernel(gam, gl)), g.mat("sphere_kernel"));
+    eq("sphere_kernel", MatrixXd(sphere_kernel(gam, gl)), g.mat("sphere_kernel"));
     const VectorXd f1 = g.mat("f1").row(0).transpose();
     eq("raisedCosineBand == filters.psitime", MatrixXd(raisedCosineBand(f1, 8, 14, 1.5).transpose()), g.mat("psitime"));
     eq("raisedCosineBand == jointfilterbank.band(f), f in Hz", MatrixXd(raisedCosineBand(f1, 8, 14, 1.5).transpose()), g.mat("band_hz"));
-    { nxr::signal::jointfilterbank::Kernel K = nxr::signal::jointfilterbank::speedKernel(40, 6); const MatrixXd ref = g.mat("speed"); MatrixXd out(lam.size(), f1.size());
+    { nxr::signal::jointfilterbank::Kernel K = nxr::signal::jointfilterbank::speedkernel(40, 6); const MatrixXd ref = g.mat("speed"); MatrixXd out(lam.size(), f1.size());
       for (int i = 0; i < lam.size(); ++i) for (int j = 0; j < f1.size(); ++j) out(i, j) = K(lam(i), f1(j)).real();
-      eq("speedKernel (f in Hz, omega = 2 pi f inside)", out, ref); }
+      eq("speedkernel (f in Hz, omega = 2 pi f inside)", out, ref); }
     const MatrixXd Wq = g.mat("Wq"), q0 = g.mat("q0");
     eq("steer", steer(Wq, Eigen::Vector4d(q0.col(0))), g.mat("steer"));
     const MatrixXd V = g.mat("V"), ax = g.mat("axis"), th = g.mat("theta");
@@ -85,7 +85,7 @@ int main() {
     while (g.f >> word && word == "scatter") {
         const std::string fam = g.tok(); const int P = (int)g.num();
         const MatrixXd sig = g.mat("Sigma"), S0re = g.mat("S0re"), S0im = g.mat("S0im"), S1 = g.mat("S1"), pairs = g.mat("Pairs"), S2 = g.mat("S2");
-        const fb::Bank bank = fb::design(fam == "mexhat" ? fb::Family::MexHat : fam == "heat" ? fb::Family::Heat : fb::Family::Itersine, fb::Range::fromSpectrum(T.lambda));
+        const fb::GraphFilterbank bank = fb::design(fam == "mexhat" ? fb::Family::MexHat : fam == "heat" ? fb::Family::Heat : fb::Family::Itersine, fb::Range::fromSpectrum(T.lambda));
         const Scatter S = scatter(bank, T, Fc, 2);
         MatrixXd s1(S.S1.size(), 3); for (size_t m = 0; m < S.S1.size(); ++m) s1.row((Eigen::Index)m) = S.S1[m].row(0);
         MatrixXd pr(S.pairs.size(), 2), s2(S.pairs.size(), 3);
@@ -111,8 +111,8 @@ int main() {
         EXPECT(throws([&] { diffgauss(l0, VectorXd::Constant(1, 0.3), VectorXd::Constant(1, 0.1)); }) && throws([&] { heat(l0, VectorXd::Constant(1, -1.0), 0); }), "diffgauss t1 >= t2 and heat t < 0 are refused");
         // sphere_kernel: the heat series integrates to the degree-0 gain over the sphere (the mean): ∫K dΩ = g_0
         const int Ng = 4001; VectorXd gm = VectorXd::LinSpaced(Ng, 0, 3.14159265358979323846), glh(30); for (int l = 0; l < 30; ++l) glh(l) = std::exp(-0.3 * l * (l + 1.0));
-        const VectorXd K = sphereKernel(gm, glh); double I = 0; for (int i = 1; i < Ng; ++i) I += 0.5 * (K(i) * std::sin(gm(i)) + K(i - 1) * std::sin(gm(i - 1))) * (gm(i) - gm(i - 1));
-        EXPECT(std::abs(2 * 3.14159265358979323846 * I - glh(0)) < 1e-6, "sphereKernel: ∫ K dΩ = g_0 (" + sci(std::abs(2 * 3.14159265358979323846 * I - glh(0))) + ")");
+        const VectorXd K = sphere_kernel(gm, glh); double I = 0; for (int i = 1; i < Ng; ++i) I += 0.5 * (K(i) * std::sin(gm(i)) + K(i - 1) * std::sin(gm(i - 1))) * (gm(i) - gm(i - 1));
+        EXPECT(std::abs(2 * 3.14159265358979323846 * I - glh(0)) < 1e-6, "sphere_kernel: ∫ K dΩ = g_0 (" + sci(std::abs(2 * 3.14159265358979323846 * I - glh(0))) + ")");
     }
     std::cout << "=== the ruling's definitions ===\n";
     {   // wave on the sphere: the continuum form IS the exact spectrum omega_l = c sqrt(l(l+1)) / R

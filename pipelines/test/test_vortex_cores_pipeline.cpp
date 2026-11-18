@@ -1,7 +1,7 @@
 // THE VORTEX CORES' TWO PASSES (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 5; docs/specs/2026-11-14-spatial-events.md, decisions 1 and 5), run on a synthetic two-hemisphere source space (never a real dataset):
 // a free kernel of random currents, a recording of a 10 Hz oscillation plus noise, the frame tiling of the 8-12 Hz band (36 frames a cycle), a window of "bursts" with a bad span inside it.
 //   - `run vortex_core_threshold`: the distribution of |hatted curl| over the burst frames (inside the window, outside the bad span) stored as a STATISTIC (measure count, method histogram): its range fixed from the
-//     first 3000 good frames (the window holds more), its counts equal the DIRECT histogram of the direct field (nxr::histogram on M Re(Z) sampled at the frames)
+//     first 3000 good frames (the window holds more), its counts equal the DIRECT histogram of the direct field (nxr::stats::histogram on M Re(Z) sampled at the frames)
 //   - `run vortex_cores`: reads that statistic BY NAME as an input, derives the 98th percentile, and stores the cores: a spans Selection with ONE MEMBER PER CORE on its frame (several members share a frame), and the
 //     attributes (frame, sense, centre_vertex, centre, area, peak) as measurements over it, all equal to nxr::select::corePatches called directly on the direct field with the same threshold
 //   - the result does not depend on the chunk size: the same samples stored in chunks of 4096 and of 1000 give the same distribution and the same cores
@@ -399,7 +399,7 @@ int main() {
       // the span: the first core's frame start to the last core's frame end
       ok = ok && std::abs(T.start[k] - static_cast<double>(S.first_frame[t]) / fps) < 1e-9 && std::abs(T.stop[k] - static_cast<double>(S.last_frame[t] + 1) / fps) < 1e-9;
     }
-    std::printf("  stored tracks vs nxr::tracks on the stored cores: first, last, n, sense, spans %s; path and displacement differ by %.1e (absolute, the unit of the surface)\n", ok ? "identical" : "DIFFER", dp);
+    std::printf("  stored tracks vs nxr::select on the stored cores: first, last, n, sense, spans %s; path and displacement differ by %.1e (absolute, the unit of the surface)\n", ok ? "identical" : "DIFFER", dp);
     CHECK(ok && dp < 1e-5);
     // the labelling: each core's track = the member ordinal among the stored tracks (-1 for a core in a track of one frame)
     const std::vector<float> lab = measure_of(sub, C.id, "track");
@@ -427,7 +427,7 @@ int main() {
     g::run(ds, sub, dcor, base, all);                                            // back to the defaults
   }
 
-  // ── THE CROSSINGS (piece 7): the stored tile_crossings against nxr::crossings on the stored tracks' steps ──
+  // ── THE CROSSINGS (piece 7): the stored tile_crossings against nxr::select::track_crossings on the stored tracks' steps ──
   {
     const Stored C = read_cores(sub, "rest", fps, 0.0);
     const std::vector<float> lab = measure_of(sub, C.id, "track");
@@ -496,7 +496,7 @@ int main() {
       bridge_total += want.bridge_n[sg];
       diff += std::abs(static_cast<long>(nn.values[bat]) - static_cast<long>(want.bridge_n[sg]));
     }
-    std::printf("  %zu steps of the stored tracks make %ld crossings in the tiles (%ld on the bridge); the stored counts differ from nxr::crossings on the stored cores by %ld, the sums by at most %.1e (largest component %.2f)\n",
+    std::printf("  %zu steps of the stored tracks make %ld crossings in the tiles (%ld on the bridge); the stored counts differ from nxr::select::track_crossings on the stored cores by %ld, the sums by at most %.1e (largest component %.2f)\n",
                 st.sense.size(), total, bridge_total, diff, dsum, smax);
     CHECK(total > 50 && diff <= std::max<long>(2, total / 100) && dsum < 0.05);    // the step links and places doubles; the test the stored float32 centres: a step on a tile border may fall in the next
     // R and the unbiased rho2 derived at read from the stored sum and count

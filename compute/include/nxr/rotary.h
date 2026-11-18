@@ -3,7 +3,7 @@
 // nxr `nxr kernel rotationplane`, nxr.pipelines.plane / lagged_flow: z = fx @ X + 1j * (fy @ X)).
 //
 // PURE MATHS: matrices in, a matrix out; a POINTWISE node (every sample of z depends on that sample of X alone, no reduction over time or space). It never knows where the
-// rows or the data came from. A pair turning from x towards y has its power at +f in the two-sided spectrum of z (nxr::welch::ComplexWelch): +f is forward when the
+// rows or the data came from. A pair turning from x towards y has its power at +f in the two-sided spectrum of z (nxr::signal::spectral::ComplexWelch): +f is forward when the
 // operator already carries the sense (nxr negates fy when -f wins).
 #include <Eigen/Dense>
 #include <complex>

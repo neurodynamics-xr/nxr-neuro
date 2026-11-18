@@ -1,4 +1,4 @@
-// nxr::connectome — the structural connectome's pure functions (connectome.h).
+// nxr::meeg — the structural connectome's pure functions (connectome.h).
 #include "nxr/meeg/connectome.h"
 
 #include <algorithm>

@@ -72,8 +72,8 @@ PhaseSlope phaseSlope(const std::vector<Eigen::MatrixXcd>& C, const Eigen::Vecto
   return out;
 }
 
-Eigen::MatrixXd phaseSlopeIndex(const std::vector<Eigen::MatrixXcd>& C) {
-  checkBins(C, "phaseSlopeIndex");
+Eigen::MatrixXd phase_slope_index(const std::vector<Eigen::MatrixXcd>& C) {
+  checkBins(C, "phase_slope_index");
   const std::vector<Eigen::MatrixXcd> H = coherency(C);
   const Eigen::Index n = C[0].rows();
   Eigen::MatrixXd psi = Eigen::MatrixXd::Zero(n, n);

@@ -1,4 +1,4 @@
-// nxr::connectome — the STRUCTURAL CONNECTOME ON THE CORTEX, as pure functions (docs/specs/2026-11-16-structural-connectome.md). Matrices in, matrices out; no file,
+// nxr::meeg — the STRUCTURAL CONNECTOME ON THE CORTEX, as pure functions (docs/specs/2026-11-16-structural-connectome.md). Matrices in, matrices out; no file,
 // no subject, no knowledge of where the fibers came from. Precision follows the input: every function is for float32 and float64 and never casts.
 //
 // The pointwise object is each fiber's pair of END VERTICES on an end surface (fiberEnds, nearestVertices, withinGate; for a template's fibers carried to a subject

@@ -1,5 +1,5 @@
 #pragma once
-// nxr::algebra — CONGRUENCE ON A PATTERN: (A M Aᴴ) at the pairs asked for, never the whole n x n product. General algebra (the architecture policy:
+// nxr::core — CONGRUENCE ON A PATTERN: (A M Aᴴ) at the pairs asked for, never the whole n x n product. General algebra (the architecture policy:
 // general algebra stays its own function): a source cross-spectrum on a mesh's edges is K C Kᴴ on the edge pattern (the magnetic Laplacian's input,
 // docs/specs/2026-11-12-magnetic-laplacian.md), and any other A M Aᴴ restricted to a sparsity pattern is the same call.
 //

@@ -154,4 +154,4 @@ private:
     std::unique_ptr<Impl> p_;
 };
 
-}  // namespace nxr::manifold
+}  // namespace nxr::geometry

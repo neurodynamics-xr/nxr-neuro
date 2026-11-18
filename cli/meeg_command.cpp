@@ -59,7 +59,7 @@
 //     --resolve bins (spec docs/specs/2026-11-15-band-resolved-cross-spectrum.md; Welch only): the same pass also stores, per band, the STATISTIC `<stem>_<band>_bins`, the band's
 //     cross-spectrum bin by bin (axes channel x channel x frequency in Hz, float64 [M x M x F x 2]); the band statistic is the mean of its bins. Default band: as before.
 //   nxr-neuro crossspectrum read --dataset D/N --subject S --name <stem>_<band>_bins (--pair A,B | --seed A) [--reading coherency|imag|phase|delay|psi] [--weights coherence|none]
-//     Derived at read from the stored bins (nxr::meeg::coherency, phaseSlope, phaseSlopeIndex), JSON out. A, B are recording channel indices of the statistic's channels. --pair: one
+//     Derived at read from the stored bins (nxr::meeg::coherency, phaseSlope, phase_slope_index), JSON out. A, B are recording channel indices of the statistic's channels. --pair: one
 //     pair (row A, column B); --seed: A against every channel. coherency (default): the coherency per bin (re, im, abs); imag: its imaginary part; phase: arg C_AB per bin (wrapped and
 //     unwrapped, rad); delay: the phase slope over f as a delay in ms and its residual; psi: Nolte's phase-slope index. Positive delay and psi: the row channel (A) leads.
 //
@@ -212,7 +212,7 @@ int crossspectrum_read_main(const std::vector<std::string>& rest) {   // dispatc
       for (std::size_t i = 0; i < rows.size(); ++i) { vals.push_back(ps.delayMs(rows[i], cols[i])); res.push_back(ps.residual(rows[i], cols[i])); }
       out["delay_ms"] = vals; out["residual_rad"] = res; out["weights"] = weights;
     } else if (reading == "psi") {
-      const Eigen::MatrixXd psi = nxr::meeg::phaseSlopeIndex(S.C);
+      const Eigen::MatrixXd psi = nxr::meeg::phase_slope_index(S.C);
       for (std::size_t i = 0; i < rows.size(); ++i) vals.push_back(psi(rows[i], cols[i]));
       out["psi"] = vals;
     } else {

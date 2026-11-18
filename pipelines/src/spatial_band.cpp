@@ -143,7 +143,7 @@ SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const 
   out.info = Json{{"level", l}, {"member", l}, {"role", member.role == fb::Role::Scaling ? "scaling" : "wavelet"}, {"lambda_min", member.lo}, {"lambda_max", member.hi},
                   {"wavelength_m", L.record.value("wavelength_m", std::nan(""))}, {"half_width_octaves", 1.0 / 3.0}, {"weyl_area_m2", L.piece_area}, {"transform", opt.transform}};
   { const Json si = shape_info(L, opt); for (const auto& [k, v] : si.items()) out.info[k] = v; }
-  const fb::Bank bank = L.bank;
+  const fb::GraphFilterbank bank = L.bank;
   if (opt.transform == "exact") {
     if (nV > 4096) invalid("spatial band: the exact transform is the dense eigen-decomposition: at most 4096 vertices, this surface has " + std::to_string(nV) + "; use chebyshev");
     Eigen::MatrixXd Ld(Lap), Md = Eigen::MatrixXd::Zero(nV, nV);
@@ -164,7 +164,7 @@ SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const 
       const auto gR = nxr::signal::rieszGain(gain);
       auto gv = std::make_shared<Eigen::VectorXd>(T->lambda.size());
       for (Eigen::Index k = 0; k < gv->size(); ++k) (*gv)(k) = gR(T->lambda(k));
-      out.apply_riesz = [T, gv, G](const Eigen::MatrixXd& F) { return nxr::signal::rieszOfScaled(*G, Eigen::MatrixXd(T->phi * (gv->asDiagonal() * (T->phi.transpose() * (T->mass * F)))), 1); };
+      out.apply_riesz = [T, gv, G](const Eigen::MatrixXd& F) { return nxr::signal::rieszTransform(*G, Eigen::MatrixXd(T->phi * (gv->asDiagonal() * (T->phi.transpose() * (T->mass * F)))), 1); };
       out.info["riesz"] = Json{{"gain", "g/sqrt(lambda), 0 at the constant mode"}, {"gradient", "P1 faces averaged on the vertices (nxr::signal::vertexGradient), the input mesh"}};
     }
     return out;
@@ -195,7 +195,7 @@ SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const 
     if (oR > 5120) invalid("spatial band: no Chebyshev series up to degree 5120 follows the Riesz gain g/sqrt(lambda) of level " + std::to_string(l) + " to within " + std::to_string(opt.tolerance) + " of its peak (error " + std::to_string(eR) + "): raise the tolerance, or use eigenmodes (a scaling level's gain is not 0 at lambda = 0)");
     const auto opR = oR == order ? op : std::make_shared<fb::ChebyshevOperator>(Lap, M, lmax, oR);
     const auto G = std::make_shared<nxr::signal::Gradient>(riesz_gradient(S, {}));
-    out.apply_riesz = [gR, opR, G](const Eigen::MatrixXd& F) { return nxr::signal::rieszOfScaled(*G, opR->apply(gR, F), 1); };
+    out.apply_riesz = [gR, opR, G](const Eigen::MatrixXd& F) { return nxr::signal::rieszTransform(*G, opR->apply(gR, F), 1); };
     out.info["riesz"] = Json{{"gain", "g/sqrt(lambda), 0 at the constant mode"}, {"order", oR}, {"series_error", eR}, {"gradient", "P1 faces averaged on the vertices (nxr::signal::vertexGradient), the input mesh"}};
   }
   return out;
@@ -397,7 +397,7 @@ SpatialBand make_spatial_band(DatasetWriter& ds, SubjectWriter& sub, const Surfa
       const Eigen::MatrixXd Y = modes->phi * (gR->asDiagonal() * (modes->phi.transpose() * modes->mass.asDiagonal() * Xg));      // Δ^{-1/2} F_l f on the glued surface
       Eigen::MatrixXd Sx = Eigen::MatrixXd::Zero(nV, n);
       for (std::size_t i = 0; i < modes->support.size(); ++i) Sx.row(modes->support[i]) = Y.row(static_cast<Eigen::Index>(i));
-      return nxr::signal::rieszOfScaled(*G, Sx, 1);
+      return nxr::signal::rieszTransform(*G, Sx, 1);
     };
     out.info["riesz"] = Json{{"gain", "g/sqrt(lambda), 0 at the constant mode"}, {"gradient", "P1 faces averaged on the vertices (nxr::signal::vertexGradient), the input mesh's faces whose three vertices are kept"}, {"faces_used", faces_used}};
   }

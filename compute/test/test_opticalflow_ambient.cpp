@@ -1,4 +1,4 @@
-// nxr::flow, the ambient / triangle functional (Lefevre and Baillet 2008, as Brainstorm's bst_opticalflow):
+// nxr::signal, the ambient / triangle functional (Lefevre and Baillet 2008, as Brainstorm's bst_opticalflow):
 // (1) the comparison with bst_opticalflow (golden made by CALLING it, never reading it, gen_opticalflow_bst_golden.m) on a tiny irregular sphere: REPORTED, and held to the
 //     direction (cos) only. The two are NOT yet equal to 1e-10 (see the PR): same direction, speed about half of ours, so something in Brainstorm's discretisation is not what is
 //     written here and cannot be settled without its source;

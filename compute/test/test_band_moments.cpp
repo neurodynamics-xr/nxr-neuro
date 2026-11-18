@@ -58,10 +58,10 @@ int main() {
     X(v, 2) = std::polar(1.0, 60 * x);
   }
   const Eigen::MatrixXcd c = fb::forward(t, X);
-  const fb::Bank meyer = fb::weyl(total_area, 6);
+  const fb::GraphFilterbank meyer = fb::weyl(total_area, 6);
   fb::Range rg; rg.lmax = t.lambda.maxCoeff(); rg.lmin = t.lambda(1);
   fb::DesignOptions o; o.numFilters = 5;
-  const fb::Bank mexhat = fb::design(fb::Family::MexHat, rg, o);
+  const fb::GraphFilterbank mexhat = fb::design(fb::Family::MexHat, rg, o);
   int failures = 0;
   for (const auto* bank : {&meyer, &mexhat}) {
     const auto W = fb::analysis(*bank, t, X);

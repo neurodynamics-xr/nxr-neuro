@@ -1,4 +1,4 @@
-// nxr::crossings (crossings.h): nxr `Tiles.crossings`.
+// nxr::select::track_crossings (crossings.h): nxr `Tiles.crossings`.
 #include "nxr/select/track_crossings.h"
 
 #include <algorithm>

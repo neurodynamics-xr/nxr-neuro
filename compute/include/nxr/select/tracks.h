@@ -1,5 +1,5 @@
 #pragma once
-// nxr::tracks — the TRACKS of vortex cores (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 6; family C, a feature followed in time). PURE MATHS on arrays: cores in (their frame, sense and centre), track labels out.
+// nxr::select — the TRACKS of vortex cores (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 6; family C, a feature followed in time). PURE MATHS on arrays: cores in (their frame, sense and centre), track labels out.
 // The function never knows where the cores came from (a recording, a stored Selection, a synthetic list) or what unit the centres are in (the link distance is in that unit). A port of nxr's `_track_stats`
 // (nxr/detect/vortex.py), the reference, on the linking only:
 //

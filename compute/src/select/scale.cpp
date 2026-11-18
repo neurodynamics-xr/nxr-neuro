@@ -1,4 +1,4 @@
-// nxr::scale — see scale.h. Pure functions of arrays.
+// nxr::select::scale_selection — see scale.h. Pure functions of arrays.
 #include "nxr/select/scale_selection.h"
 
 #include <algorithm>

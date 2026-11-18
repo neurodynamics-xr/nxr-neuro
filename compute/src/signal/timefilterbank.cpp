@@ -1,4 +1,4 @@
-// nxr::timebank — see include/nxr/timebank.h and docs/specs/2026-11-10-filterbanks.md.
+// nxr::signal::timefilterbank — see include/nxr/timebank.h and docs/specs/2026-11-10-filterbanks.md.
 #include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/filters_fir.h"
 #include <algorithm>
@@ -16,7 +16,7 @@ static constexpr double kPi = 3.14159265358979323846;
 
 std::size_t gridLength(std::size_t n, Padding padding) {
     if (n == 0) throw std::invalid_argument("timebank: an empty record");
-    return padding == Padding::None ? n : nextFastLen(2 * n, true);
+    return padding == Padding::None ? n : next_fast_len(2 * n, true);
 }
 
 MatrixXd extendSymmetric(const MatrixXd& x) {
@@ -77,13 +77,13 @@ double bump(double x) {
 
 }  // namespace
 
-TimeBank design(const Design& d, std::size_t nfft, double fs) {
+TimeFilterbank design(const Design& d, std::size_t nfft, double fs) {
     if (nfft < 2 || !(fs > 0)) throw std::invalid_argument("timebank::design: nfft >= 2 and fs > 0");
     if (!(d.gain > 0) || !std::isfinite(d.gain)) throw std::invalid_argument("timebank::design: the gain is the peak in-band response, a positive number");
     const bool analytic = d.sides == Sides::Analytic;
     const double G = d.gain;                 // the peak in-band response of every member, every family
     const double sc = G;                     // tight families: unit-sum gains times G (so Σ g² = G²)
-    TimeBank b;
+    TimeFilterbank b;
     b.family = d.family; b.gain = d.gain; b.sides = d.sides; b.edgeBins = d.edgeBins; b.nfft = nfft; b.fs = fs;
 
     // a member given on |f|: analytic members live on f > 0; a two-sided bank splits them into one at +f and one at -f
@@ -145,7 +145,7 @@ TimeBank design(const Design& d, std::size_t nfft, double fs) {
             break;
         }
         const std::vector<double> edges = d.edges.empty() ? windowEdges(nfft, fs, d.limits) : d.edges;
-        const fb::Bank dy = fb::dyadic(edges, d.halfWidth);
+        const fb::GraphFilterbank dy = fb::dyadic(edges, d.halfWidth);
         for (const auto& m : dy.members) {
             const fb::Gain g = m.gain;
             auto onAbs = [g, sc](double af) { return sc * g(af); };
@@ -214,11 +214,11 @@ TimeBank design(const Design& d, std::size_t nfft, double fs) {
     return b;
 }
 
-VectorXd frequencies(const TimeBank& b) {
+VectorXd bins(const TimeFilterbank& b) {
     return b.sides == Sides::Analytic ? rfftfreq(b.nfft, 1.0 / b.fs) : fftfreq(b.nfft, 1.0 / b.fs);
 }
 
-MatrixXd gains(const TimeBank& b, const VectorXd& f) {
+MatrixXd gains(const TimeFilterbank& b, const VectorXd& f) {
     MatrixXd G(f.size(), b.size());
     for (int m = 0; m < b.size(); ++m)
         for (Eigen::Index k = 0; k < f.size(); ++k) G(k, m) = b.members[static_cast<std::size_t>(m)].gain(f(k));
@@ -226,20 +226,20 @@ MatrixXd gains(const TimeBank& b, const VectorXd& f) {
 }
 
 // the bins of an analytic grid that are real and unmirrored: DC, and Nyquist for an even length
-static bool isEdgeBin(const TimeBank& b, Eigen::Index k) {
+static bool isEdgeBin(const TimeFilterbank& b, Eigen::Index k) {
     return b.sides == Sides::Analytic && (k == 0 || (b.nfft % 2 == 0 && static_cast<std::size_t>(k) == b.nfft / 2));
 }
 
-MatrixXd gains(const TimeBank& b) {
-    MatrixXd G = gains(b, frequencies(b));
+MatrixXd gains(const TimeFilterbank& b) {
+    MatrixXd G = gains(b, bins(b));
     for (Eigen::Index k = 0; k < G.rows(); ++k)
         if (isEdgeBin(b, k)) G.row(k) *= (b.edgeBins == EdgeBins::Drop ? 0.0 : 1.0 / std::sqrt(2.0));
     return G;
 }
 
-VectorXd frameOperator(const TimeBank& b) { return gains(b).array().square().rowwise().sum(); }
+VectorXd frameOperator(const TimeFilterbank& b) { return gains(b).array().square().rowwise().sum(); }
 
-MatrixXd dualGains(const TimeBank& b) {
+MatrixXd dualGains(const TimeFilterbank& b) {
     const MatrixXd G = gains(b);
     const VectorXd S = G.array().square().rowwise().sum();
     const double tol = 1e-12 * S.maxCoeff();
@@ -250,7 +250,7 @@ MatrixXd dualGains(const TimeBank& b) {
     return D;
 }
 
-fb::Bounds bounds(const TimeBank& b) {
+fb::Bounds framebounds(const TimeFilterbank& b) {
     const VectorXd S = frameOperator(b);
     double A = std::numeric_limits<double>::infinity(), B = 0, unc = 0; Eigen::Index count = 0;
     for (Eigen::Index k = 0; k < S.size(); ++k) {
@@ -262,11 +262,11 @@ fb::Bounds bounds(const TimeBank& b) {
     return r;
 }
 
-bool isTight(const TimeBank& b, double tol) { const fb::Bounds r = bounds(b); return std::abs(r.B / std::max(r.A, 2.220446049250313e-16) - 1) <= tol; }
+bool isframetight(const TimeFilterbank& b, double tol) { const fb::Bounds r = framebounds(b); return std::abs(r.B / std::max(r.A, 2.220446049250313e-16) - 1) <= tol; }
 
-VectorXd centerFrequencies(const TimeBank& b) {
+VectorXd centerFrequencies(const TimeFilterbank& b) {
     VectorXd fc(b.size());
-    const VectorXd f = frequencies(b);
+    const VectorXd f = bins(b);
     const MatrixXd G = gains(b);
     for (int m = 0; m < b.size(); ++m) {
         const Member& mem = b.members[static_cast<std::size_t>(m)];
@@ -282,12 +282,12 @@ VectorXd centerFrequencies(const TimeBank& b) {
     return fc;
 }
 
-std::pair<VectorXd, std::vector<std::size_t>> rates(const TimeBank& b, double oversample) {
+std::pair<VectorXd, std::vector<std::size_t>> rates(const TimeFilterbank& b, double oversample) {
     if (b.sides != Sides::Analytic) throw std::invalid_argument("timebank::rates: own-rate sub-bands are defined for the analytic bank");
     VectorXd r(b.size()); std::vector<std::size_t> Nm;
     for (int m = 0; m < b.size(); ++m) {
         const auto [i1, i2] = b.support[static_cast<std::size_t>(m)];
-        const std::size_t nb = i2 - i1 + 1, n = nextFastLen(static_cast<std::size_t>(std::ceil(oversample * static_cast<double>(nb))), true);
+        const std::size_t nb = i2 - i1 + 1, n = next_fast_len(static_cast<std::size_t>(std::ceil(oversample * static_cast<double>(nb))), true);
         Nm.push_back(n); r(m) = static_cast<double>(n) * b.fs / static_cast<double>(b.nfft);
     }
     return {r, Nm};
@@ -295,11 +295,11 @@ std::pair<VectorXd, std::vector<std::size_t>> rates(const TimeBank& b, double ov
 
 // ── the transform ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-static void requireSides(const TimeBank& b, Sides s, const char* what) {
+static void requireSides(const TimeFilterbank& b, Sides s, const char* what) {
     if (b.sides != s) throw std::invalid_argument(std::string("timebank::") + what + (s == Sides::Analytic ? ": needs an analytic bank" : ": needs a two-sided bank"));
 }
 
-MatrixXcd spectrum(const TimeBank& b, const MatrixXd& x) {
+MatrixXcd spectrum(const TimeFilterbank& b, const MatrixXd& x) {
     if (static_cast<std::size_t>(x.rows()) > b.nfft) throw std::invalid_argument("timebank: the record is longer than the bank's grid");
     MatrixXd xp = MatrixXd::Zero(static_cast<Eigen::Index>(b.nfft), x.cols());
     xp.topRows(x.rows()) = x;
@@ -307,7 +307,7 @@ MatrixXcd spectrum(const TimeBank& b, const MatrixXd& x) {
     return fftColumns(xp.cast<cd>());
 }
 
-MatrixXcd spectrum(const TimeBank& b, const MatrixXcd& x) {
+MatrixXcd spectrum(const TimeFilterbank& b, const MatrixXcd& x) {
     if (b.sides == Sides::Analytic)
         throw std::invalid_argument("timebank: an ANALYTIC bank is one-sided and cannot take a complex signal (it would drop its negative frequencies silently); "
                                     "use a two-sided bank, or pass the real signal");
@@ -317,7 +317,7 @@ MatrixXcd spectrum(const TimeBank& b, const MatrixXcd& x) {
     return fftColumns(xp);
 }
 
-MatrixXcd filterSpectrum(const TimeBank& b, const VectorXd& g, const MatrixXcd& X) {
+MatrixXcd filterSpectrum(const TimeFilterbank& b, const VectorXd& g, const MatrixXcd& X) {
     if (g.size() != X.rows()) throw std::invalid_argument("timebank::filterSpectrum: one gain per bin");
     MatrixXcd Y = MatrixXcd::Zero(static_cast<Eigen::Index>(b.nfft), X.cols());
     for (Eigen::Index j = 0; j < X.cols(); ++j)
@@ -325,33 +325,33 @@ MatrixXcd filterSpectrum(const TimeBank& b, const VectorXd& g, const MatrixXcd& 
     return fftColumns(Y, false);
 }
 
-MatrixXcd coefficientSpectrum(const TimeBank& b, const MatrixXcd& W) {
+MatrixXcd coefficientSpectrum(const TimeFilterbank& b, const MatrixXcd& W) {
     MatrixXcd S = fftColumns(W, true);
     return b.sides == Sides::Analytic ? MatrixXcd(S.topRows(static_cast<Eigen::Index>(rfftBins(b.nfft)))) : S;
 }
 
-MatrixXd inverseReal(const TimeBank& b, const MatrixXcd& S, std::size_t n) {
+MatrixXd inverseReal(const TimeFilterbank& b, const MatrixXcd& S, std::size_t n) {
     requireSides(b, Sides::Analytic, "inverseReal");
     return irfftColumns(S, b.nfft).topRows(static_cast<Eigen::Index>(n));
 }
 
-MatrixXcd inverseComplex(const TimeBank& b, const MatrixXcd& S, std::size_t n) {
+MatrixXcd inverseComplex(const TimeFilterbank& b, const MatrixXcd& S, std::size_t n) {
     requireSides(b, Sides::TwoSided, "inverseComplex");
     return fftColumns(S, false).topRows(static_cast<Eigen::Index>(n));
 }
 
-static Coefficients analyse(const TimeBank& b, const MatrixXcd& X) {
+static Coefficients analyse(const TimeFilterbank& b, const MatrixXcd& X) {
     const MatrixXd G = gains(b);
     Coefficients W;
     for (int m = 0; m < b.size(); ++m) W.push_back(filterSpectrum(b, G.col(m), X));
     return W;
 }
 
-Coefficients analysis(const TimeBank& b, const MatrixXd& x) { return analyse(b, spectrum(b, x)); }
-Coefficients analysis(const TimeBank& b, const MatrixXcd& x) { return analyse(b, spectrum(b, x)); }
+Coefficients analysis(const TimeFilterbank& b, const MatrixXd& x) { return analyse(b, spectrum(b, x)); }
+Coefficients analysis(const TimeFilterbank& b, const MatrixXcd& x) { return analyse(b, spectrum(b, x)); }
 
 // Σ_m w_m ⊙ spec(W_m); w = the dual g/S, or g / S_nominal (G², and G²/2 at an analytic DC / Nyquist under Single) for the tight synthesis
-static MatrixXcd combine(const TimeBank& b, const Coefficients& W, Synthesis mode) {
+static MatrixXcd combine(const TimeFilterbank& b, const Coefficients& W, Synthesis mode) {
     if (static_cast<int>(W.size()) != b.size()) throw std::invalid_argument("timebank: one coefficient block per member");
     MatrixXd w;
     if (mode == Synthesis::Dual) w = dualGains(b);
@@ -370,12 +370,12 @@ static MatrixXcd combine(const TimeBank& b, const Coefficients& W, Synthesis mod
     return Z;
 }
 
-MatrixXd synthesis(const TimeBank& b, const Coefficients& W, std::size_t n, Synthesis mode) {
+MatrixXd synthesis(const TimeFilterbank& b, const Coefficients& W, std::size_t n, Synthesis mode) {
     requireSides(b, Sides::Analytic, "synthesis");
     return inverseReal(b, combine(b, W, mode), n);
 }
 
-MatrixXcd synthesisComplex(const TimeBank& b, const Coefficients& W, std::size_t n, Synthesis mode) {
+MatrixXcd synthesisComplex(const TimeFilterbank& b, const Coefficients& W, std::size_t n, Synthesis mode) {
     requireSides(b, Sides::TwoSided, "synthesisComplex");
     return inverseComplex(b, combine(b, W, mode), n);
 }
@@ -392,7 +392,7 @@ MatrixXd energies(const Coefficients& W) {
     return E;
 }
 
-std::vector<OwnRate> analysisOwnRate(const TimeBank& b, const VectorXd& x, double oversample) {
+std::vector<OwnRate> analysisOwnRate(const TimeFilterbank& b, const VectorXd& x, double oversample) {
     requireSides(b, Sides::Analytic, "analysisOwnRate");
     MatrixXd col = x;
     const MatrixXcd X = spectrum(b, col);
@@ -400,7 +400,7 @@ std::vector<OwnRate> analysisOwnRate(const TimeBank& b, const VectorXd& x, doubl
     std::vector<OwnRate> out;
     for (int m = 0; m < b.size(); ++m) {
         const auto [i1, i2] = b.support[static_cast<std::size_t>(m)];
-        const std::size_t nb = i2 - i1 + 1, Nm = nextFastLen(static_cast<std::size_t>(std::ceil(oversample * static_cast<double>(nb))), true);
+        const std::size_t nb = i2 - i1 + 1, Nm = next_fast_len(static_cast<std::size_t>(std::ceil(oversample * static_cast<double>(nb))), true);
         Eigen::VectorXcd Y = Eigen::VectorXcd::Zero(static_cast<Eigen::Index>(Nm));
         for (std::size_t i = 0; i < nb; ++i) Y(static_cast<Eigen::Index>(i)) = X(static_cast<Eigen::Index>(i1 + i), 0) * G(static_cast<Eigen::Index>(i1 + i), m);
         OwnRate r;
@@ -423,14 +423,14 @@ BlockTransform analysisOfBlock(const Design& design, const Eigen::MatrixXd& bloc
   return r;
 }
 
-std::size_t haloOf(const TimeBank& bank, int member) {
+std::size_t haloOf(const TimeFilterbank& bank, int member) {
   if (member < 0 || member >= bank.size()) throw std::invalid_argument("haloOf: no member " + std::to_string(member));
   const Gain1 g = bank.members[static_cast<std::size_t>(member)].gain;
   const auto onAbs = [g](double f) { return g(std::abs(f)); };
   return std::max(nxr::signal::gainTaps(onAbs, bank.fs, false).size(), nxr::signal::gainTaps(onAbs, bank.fs, true).size()) - 1;
 }
 
-double equivalentBandwidth(const TimeBank& bank, int member, int grid) {
+double equivalentBandwidth(const TimeFilterbank& bank, int member, int grid) {
   if (member < 0 || member >= bank.size()) throw std::invalid_argument("equivalentBandwidth: no member " + std::to_string(member));
   if (grid < 16) throw std::invalid_argument("equivalentBandwidth: grid >= 16");
   const Gain1& g = bank.members[static_cast<std::size_t>(member)].gain;
@@ -446,7 +446,7 @@ double equivalentBandwidth(const TimeBank& bank, int member, int grid) {
   return (s2 * df) * (s2 * df) / (s4 * df);
 }
 
-double noiseBandwidth(const TimeBank& bank, int member, int grid) {
+double noiseBandwidth(const TimeFilterbank& bank, int member, int grid) {
   if (member < 0 || member >= bank.size()) throw std::invalid_argument("noiseBandwidth: no member " + std::to_string(member));
   if (grid < 16) throw std::invalid_argument("noiseBandwidth: grid >= 16");
   const Gain1& g = bank.members[static_cast<std::size_t>(member)].gain;
@@ -456,14 +456,14 @@ double noiseBandwidth(const TimeBank& bank, int member, int grid) {
   return s2 * df;
 }
 
-double independentEstimates(const TimeBank& bank, int member, std::int64_t samples) {
+double independentEstimates(const TimeFilterbank& bank, int member, std::int64_t samples) {
   if (samples <= 0) throw std::invalid_argument("independentEstimates: a window of at least one sample");
   return equivalentBandwidth(bank, member) * static_cast<double>(samples) / bank.fs;
 }
 
-Eigen::MatrixXcd decimate(const Eigen::MatrixXcd& Z, int d, int offset) {
-  if (d < 1) throw std::invalid_argument("decimate: the factor d is at least 1");
-  if (offset < 0 || offset >= d) throw std::invalid_argument("decimate: the offset is in [0, d)");
+Eigen::MatrixXcd downsample(const Eigen::MatrixXcd& Z, int d, int offset) {
+  if (d < 1) throw std::invalid_argument("downsample: the factor d is at least 1");
+  if (offset < 0 || offset >= d) throw std::invalid_argument("downsample: the offset is in [0, d)");
   const Eigen::Index T = Z.cols(), n = T > offset ? (T - offset + d - 1) / d : 0;
   Eigen::MatrixXcd out(Z.rows(), n);
   for (Eigen::Index j = 0; j < n; ++j) out.col(j) = Z.col(offset + j * d);

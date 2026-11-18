@@ -1,4 +1,4 @@
-// nxr::wt / iwt: the chunked transform equals the whole-record aperiodic transform at the members' instants, for any chunk size; iwt(wt(x)) = x; a tone of amplitude A gives |c| = (G/2) A.
+// nxr::signal / iwt: the chunked transform equals the whole-record aperiodic transform at the members' instants, for any chunk size; iwt(wt(x)) = x; a tone of amplitude A gives |c| = (G/2) A.
 // Synthetic data only. The reference is a direct sum over the whole record's FFT bins (no chunks), with the same continuous gains.
 #include "nxr/signal/wavelet.h"
 #include "mesh_helpers.h"
@@ -22,9 +22,9 @@ static MatrixXd bandNoise(int C, int n, double fs, unsigned seed, double fmax) {
 }
 
 // whole-record reference: c_m(t_k) = e^{-2 pi i f_lo t} (1/Nr) sum_b X_b g_m(f_b) e^{2 pi i f_b t}, b over the member's support (masked), X the FFT of the zero-padded record
-static MatrixXcd reference(const TimeBank& bk, const Plan& pl, int m, const MatrixXd& x, std::int64_t k0, std::int64_t k1) {
+static MatrixXcd reference(const TimeFilterbank& bk, const Plan& pl, int m, const MatrixXd& x, std::int64_t k0, std::int64_t k1) {
     const std::int64_t n = x.cols();
-    const std::size_t Nr = nxr::signal::nextFastLen(static_cast<std::size_t>(n + 4 * pl.margin + 16), true);
+    const std::size_t Nr = nxr::signal::next_fast_len(static_cast<std::size_t>(n + 4 * pl.margin + 16), true);
     MatrixXd xp = MatrixXd::Zero(Nr, x.rows()); xp.topRows(n) = x.transpose();
     const MatrixXcd X = fft::rfftColumns(xp);
     const double flo = (double)bk.support[m].first * bk.fs / bk.nfft, fhi = (double)bk.support[m].second * bk.fs / bk.nfft;
@@ -42,7 +42,7 @@ static MatrixXcd reference(const TimeBank& bk, const Plan& pl, int m, const Matr
     return out;
 }
 
-static std::vector<Block> runWt(const TimeBank& bk, const MatrixXd& x, std::int64_t chunk, const Options& o, std::int64_t* margin = nullptr, double* achieved = nullptr) {
+static std::vector<Block> runWt(const TimeFilterbank& bk, const MatrixXd& x, std::int64_t chunk, const Options& o, std::int64_t* margin = nullptr, double* achieved = nullptr) {
     Wt w(bk, (int)x.rows(), o);
     if (margin) *margin = w.margin(); if (achieved) *achieved = w.achievedTolerance();
     std::vector<Block> all(bk.size());
@@ -71,7 +71,7 @@ int main() {
     { Design d(Family::Meyer, 2.0, Sides::Analytic); d.limits = std::make_pair(2.0, 60.0); cases.push_back({"meyer", d}); }
     const std::size_t nfftDesign = 1024;
     for (auto& cs : cases) {
-        const TimeBank bk = design(cs.d, nfftDesign, fs);
+        const TimeFilterbank bk = design(cs.d, nfftDesign, fs);
         Options o; o.tolerance = 1e-9; o.maxMargin = 8192;
         const Plan pl(bk, o);
         std::cout << "=== " << cs.name << ": " << bk.size() << " members, margin " << pl.margin << " samples, P " << pl.P << ", achieved tail " << sci(pl.achieved) << "\n";
@@ -113,7 +113,7 @@ int main() {
     // tone: |c| = (G/2) A
     {
         Design d(Family::Itersine, 3.0, Sides::Analytic); d.voices = 2; d.limits = std::make_pair(2.0, 100.0);
-        const TimeBank bk = design(d, nfftDesign, fs);
+        const TimeFilterbank bk = design(d, nfftDesign, fs);
         const double A = 1.7, f0 = centerFrequencies(bk)(5); MatrixXd t(1, 4000); for (int i = 0; i < 4000; ++i) t(0, i) = A * std::cos(2 * kPi * f0 * i / fs + 0.3);
         const auto W = runWt(bk, t, 500, Options());
         double best = 0; const Plan pl(bk, Options());

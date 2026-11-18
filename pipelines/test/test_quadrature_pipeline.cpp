@@ -147,13 +147,13 @@ static void run() {
       using cd = std::complex<double>;
       const Eigen::MatrixXcd Sb = cr.S[b].cast<cd>() + cd(0, 1) * cr.Sq[b].cast<cd>();
       const Eigen::MatrixXcd C = K.cast<cd>() * Sb * K.transpose().cast<cd>();
-      const Eigen::MatrixXd Im = nxr::signal::quadratureSpectrum(C);
+      const Eigen::MatrixXd Im = nxr::signal::quadspectrum(C);
       Eigen::VectorXd rows = Im.array().square().matrix().rowwise().sum(), per(N);
       for (int s = 0; s < N; ++s) { per[s] = 0; for (int o_ = 0; o_ < o3; ++o_) per[s] += rows[o3 * s + o_]; }
       std::printf("  band %d: quadratureFraction %.4f (direct %.4f); energy vs direct %.2e\n", b, a.fraction[b], nxr::signal::quadratureFraction(C), (a.energy.col(b) - per).cwiseAbs().maxCoeff() / per.cwiseAbs().maxCoeff());
       CHECK(std::abs(a.fraction[b] - nxr::signal::quadratureFraction(C)) < 1e-6);
       CHECK((a.energy.col(b) - per).cwiseAbs().maxCoeff() < 1e-6 * per.cwiseAbs().maxCoeff());
-      const auto ref = nxr::signal::quadraturePairs(nxr::core::quadratureFactor(nxr::core::hermitianFactor(C)), 2);
+      const auto ref = nxr::signal::planes(nxr::core::quadratureFactor(nxr::core::hermitianFactor(C)), 2);
       CHECK(!a.pairs[b].empty() && a.pairs[b].size() == ref.size());
       if (!ref.empty()) {
         CHECK(std::abs(a.pairs[b][0].sigma - ref[0].sigma) < 1e-6 * ref[0].sigma);

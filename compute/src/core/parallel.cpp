@@ -1,4 +1,4 @@
-// nxr::parallel (parallel.h).
+// nxr::core (parallel.h).
 #include "nxr/core/parallel.h"
 
 #include <algorithm>

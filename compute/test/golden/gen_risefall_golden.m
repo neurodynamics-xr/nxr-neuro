@@ -1,5 +1,5 @@
 function gen_risefall_golden(out)
-% Rheome's rheome.detect.risefall on synthetic episodes with known parameters: the golden for nxr::risefall (test_risefall.cpp). Rheome is called as a path only (the Rheome code).
+% Rheome's rheome.detect.risefall on synthetic episodes with known parameters: the golden for nxr::select (test_risefall.cpp). Rheome is called as a path only (the Rheome code).
 % Cases: Model "linear" (episodes a = b + h S S, with noise), Model "quadrature" (a = sqrt(b^2 + (h S S)^2), with noise), a short window (not ok), and a flat series (not ok).
 % File: one line a case: name, then the inputs and Rheome's outputs as `key n v1 .. vn`.
 % Run:  matlab -batch "gen_risefall_golden('<file>')"   

@@ -1,4 +1,4 @@
-// nxr::phase — the phase of a complex field, pointwise (phase.h): nxr's core_phase formulas.
+// nxr::signal — the phase of a complex field, pointwise (phase.h): nxr's core_phase formulas.
 #include "nxr/signal/phase_gradient.h"
 
 #include <cmath>

@@ -1,4 +1,4 @@
-// nxr::taps — zero-phase taps and the row convolution (taps.h): nxr's filters/taps.py, line for line.
+// nxr::signal — zero-phase taps and the row convolution (taps.h): nxr's filters/taps.py, line for line.
 #include "nxr/signal/filters_fir.h"
 
 #include <algorithm>

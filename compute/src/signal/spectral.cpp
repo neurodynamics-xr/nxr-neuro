@@ -1,4 +1,4 @@
-// nxr::welch — see include/nxr/welch.h.
+// nxr::signal::spectral — see include/nxr/welch.h.
 #include "nxr/signal/spectral.h"
 #include "nxr/signal/fourier.h"
 #include <algorithm>

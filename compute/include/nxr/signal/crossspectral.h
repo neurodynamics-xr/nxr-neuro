@@ -19,9 +19,9 @@ using Eigen::VectorXd;
 // ── the two halves of a cross-spectral matrix ───────────────────────────────────────────────────────────────────────
 
 /** Re C. */
-MatrixXd coSpectrum(const MatrixXcd& C);
+MatrixXd cospectrum(const MatrixXcd& C);
 /** Im C = (C - C^H)/(2i) for a Hermitian C: antisymmetric. */
-MatrixXd quadratureSpectrum(const MatrixXcd& C);
+MatrixXd quadspectrum(const MatrixXcd& C);
 
 /** ||Im C||_F / ||C||_F of C = F F^H, from the small Gram matrices: ||C||^2 = ||F^H F||^2, ||Im C||^2 = (||C||^2 - Re tr(G conj(G)))/2 with G = F^T F. nxr's `im_fraction`. */
 double quadratureFractionFromFactor(const MatrixXcd& F);
@@ -29,10 +29,10 @@ double quadratureFractionFromFactor(const MatrixXcd& F);
 double quadratureFraction(const MatrixXcd& C);
 
 /** The share of ||Im C||_F^2 the pairs explain (see the header). */
-double quadratureShare(const core::QuadratureFactor& f, const std::vector<QuadraturePair>& pairs);
+double lagged_share(const core::QuadratureFactor& f, const std::vector<QuadraturePair>& pairs);
 
 /** The rotary power of a pair in the factor's patterns: P+ = ||F^T w||^2 and P- = ||F^H w||^2 with w = p + iq (the power of z = p.x + i q.x at +f and -f, summed over the factor's columns),
- *  and the sense (+1 when P+ >= P-). For a pair of Im(F F^H) as quadraturePairs gives it, P+ - P- = 4 sigma > 0: the sense is always +1; the numbers are the check. */
+ *  and the sense (+1 when P+ >= P-). For a pair of Im(F F^H) as planes gives it, P+ - P- = 4 sigma > 0: the sense is always +1; the numbers are the check. */
 struct RotaryPower { double positive = 0, negative = 0; int sense = 1; };
 RotaryPower rotaryPower(const MatrixXcd& F, const VectorXd& p, const VectorXd& q);
 

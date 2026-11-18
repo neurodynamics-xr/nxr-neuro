@@ -1,4 +1,4 @@
-// nxr::pca — see include/nxr/pca.h.
+// nxr::stats — see include/nxr/pca.h.
 #include "nxr/stats/pca.h"
 
 #include <algorithm>

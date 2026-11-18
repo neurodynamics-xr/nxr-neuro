@@ -20,7 +20,7 @@ MatrixXcd hermitianFactor(const MatrixXcd& S, double tolerance = 1e-12);
 struct QuadratureFactor {
     MatrixXd Q;     // [N x m] orthonormal columns, m = min(N, 2r)
     MatrixXd S;     // [m x m] antisymmetric: Im(F F^H) = Q S Q^T (exactly: not normalised)
-    double reference = 0;   // ||F||_F^2 = tr C, the scale of C: a pair weaker than 1e-10 of it is rounding, not quadrature, and quadraturePairs leaves it out
+    double reference = 0;   // ||F||_F^2 = tr C, the scale of C: a pair weaker than 1e-10 of it is rounding, not quadrature, and planes leaves it out
 };
 /** Im(F F^H) = J R^T - R J^T (F = R + iJ) as Q S Q^T, through the QR of [R J]. nxr's `lagged` (which also scales S to unit norm: S / ||S||_F). */
 QuadratureFactor quadratureFactor(const MatrixXcd& F);

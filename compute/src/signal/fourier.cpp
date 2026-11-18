@@ -1,4 +1,4 @@
-// nxr::fft over pocketfft (deps/pocketfft). Single-threaded: no pthreads, so it is safe in the wasm and N-API builds.
+// nxr::signal over pocketfft (deps/pocketfft). Single-threaded: no pthreads, so it is safe in the wasm and N-API builds.
 #define POCKETFFT_NO_MULTITHREADING
 #include "nxr/signal/fourier.h"
 #include "../deps/pocketfft/pocketfft_hdronly.h"
@@ -73,7 +73,7 @@ Eigen::VectorXd rfftfreq(std::size_t n, double d) {
     return f;
 }
 
-std::size_t nextFastLen(std::size_t n, bool real) {
+std::size_t next_fast_len(std::size_t n, bool real) {
     if (n <= 6) return n == 0 ? 1 : n;
     const std::size_t primes[] = {2, 3, 5, 7, 11};
     const std::size_t np = real ? 3 : 5;

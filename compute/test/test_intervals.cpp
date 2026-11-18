@@ -1,4 +1,4 @@
-// nxr::intervals on synthetic series only: hysteresis crossings (enter high, extend low; a plain threshold), merging by gap, keeping by length,
+// nxr::select on synthetic series only: hysteresis crossings (enter high, extend low; a plain threshold), merging by gap, keeping by length,
 // negative half-waves with their troughs, the median and robust SD; a planted burst found from its envelope; refusals.
 #include <cmath>
 #include <iostream>

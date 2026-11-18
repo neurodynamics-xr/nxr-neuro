@@ -48,7 +48,7 @@ int main() {
     {
         const double fs = 250, f = 8, A = 1.7, phi = 0.6;
         Design d(Family::Morlet, 2.0, Sides::Analytic); d.centres = {4, 8, 16}; d.cycles = 6;
-        const TimeBank bk = design(d, 1024, fs);
+        const TimeFilterbank bk = design(d, 1024, fs);
         const int N = 20 * static_cast<int>(fs);
         Eigen::MatrixXd x(1, N);
         for (int i = 0; i < N; ++i) x(0, i) = A * std::cos(2 * kPi * f * i / fs + phi);

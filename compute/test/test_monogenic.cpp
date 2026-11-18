@@ -58,7 +58,7 @@ int main() {
     for (int k = 0; k < lam.size(); ++k) gv(k) = g(lam(k));
     return Eigen::MatrixXd(Ph * (gv.asDiagonal() * (Ph.transpose() * m.asDiagonal() * f0)));
   };
-  const Eigen::MatrixXd f = bandOf(Phi, band), S = bandOf(Phi, gR), R = rieszOfScaled(G, S, 1);
+  const Eigen::MatrixXd f = bandOf(Phi, band), S = bandOf(Phi, gR), R = rieszTransform(G, S, 1);
   EXPECT(R.rows() == 3 * n, "R is [3V x m]");
 
   // the dense reference: Δ^{-1/2} as the symmetric matrix function of M^{-1/2} L M^{-1/2}, applied to M^{1/2}-scaled f
@@ -81,7 +81,7 @@ int main() {
   {
     Eigen::MatrixXd Pf = Phi;
     for (int k = 0; k < Pf.cols(); k += 3) Pf.col(k) *= -1;
-    const Eigen::MatrixXd R2 = rieszOfScaled(G, bandOf(Pf, gR), 1), f2 = bandOf(Pf, band);
+    const Eigen::MatrixXd R2 = rieszTransform(G, bandOf(Pf, gR), 1), f2 = bandOf(Pf, band);
     const Eigen::MatrixXd A1 = amplitude(f.cast<std::complex<double>>(), 1, R.cast<std::complex<double>>(), 3), A2 = amplitude(f2.cast<std::complex<double>>(), 1, R2.cast<std::complex<double>>(), 3);
     EXPECT((A1 - A2).cwiseAbs().maxCoeff() < 1e-10, "A is unchanged by a flip of a mode's sign");
   }
@@ -143,13 +143,13 @@ int main() {
   {
     Eigen::MatrixXd two(n, 2);
     two.col(0) = f.col(0); two.col(1) = 3 * f.col(0);
-    const Eigen::MatrixXd R2 = rieszOfScaled(G, Eigen::MatrixXd(Eigen::MatrixXd(two.cols() == 2 ? S.replicate(1, 2) : S)), 1);
+    const Eigen::MatrixXd R2 = rieszTransform(G, Eigen::MatrixXd(Eigen::MatrixXd(two.cols() == 2 ? S.replicate(1, 2) : S)), 1);
     EXPECT((R2.col(0) - R.col(0)).cwiseAbs().maxCoeff() < 1e-14, "R of a frame does not depend on the other frames");
   }
   // refusals
   {
     bool threw = false;
-    try { rieszOfScaled(G, Eigen::MatrixXd(Eigen::MatrixXd::Zero(n + 1, 1)), 1); } catch (const std::invalid_argument&) { threw = true; }
+    try { rieszTransform(G, Eigen::MatrixXd(Eigen::MatrixXd::Zero(n + 1, 1)), 1); } catch (const std::invalid_argument&) { threw = true; }
     EXPECT(threw, "a field of the wrong size is refused");
     threw = false;
     try { amplitude(Eigen::MatrixXcd::Zero(n, 1), 1, Eigen::MatrixXcd::Zero(n, 1), 3); } catch (const std::invalid_argument&) { threw = true; }

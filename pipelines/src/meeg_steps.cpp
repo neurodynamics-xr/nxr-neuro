@@ -645,7 +645,7 @@ struct AnalyticBands {
 std::int64_t analytic_halo(const Json& p, double sfreq) {
   nxr::signal::timefilterbank::Design d(nxr::signal::timefilterbank::Family::Meyer, 2.0, nxr::signal::timefilterbank::Sides::Analytic);
   for (const auto& b : p.value("bands", Json::array())) d.bands.push_back({b.value("lo", b.value("lo_hz", 0.0)), b.value("hi", b.value("hi_hz", 0.0))});
-  const nxr::signal::timefilterbank::TimeBank bank = nxr::signal::timefilterbank::design(d, std::size_t(1) << 15, sfreq);
+  const nxr::signal::timefilterbank::TimeFilterbank bank = nxr::signal::timefilterbank::design(d, std::size_t(1) << 15, sfreq);
   std::size_t H = 0;
   for (int m = 0; m < static_cast<int>(d.bands.size()); ++m) H = std::max(H, nxr::signal::timefilterbank::haloOf(bank, m));
   return static_cast<std::int64_t>(H);
@@ -1002,7 +1002,7 @@ ng::NodeSpec filter_apply() {
   n.parameters = filter_parameters();
   n.traits = ng::node_traits(ng::TimeBehaviour::windowed, ng::Precision::float64, ng::OutputPrecision::follows_input, "each block filtered in double; the output follows the input (float32 stored for float32 input)",
                              "the halo is the design's look-behind and look-ahead (the FIR's half length; the IIR's decayed response at `tolerance`), samples on each side");
-  n.matches = "Brainstorm's process_bandpass / process_notch (bst_bandpass_hfilter, kaiserord+fir1; filtfilt IIR); compute nxr::filter";
+  n.matches = "Brainstorm's process_bandpass / process_notch (bst_bandpass_hfilter, kaiserord+fir1; filtfilt IIR); compute nxr::signal::filters";
   n.description = "a zero-phase filter (lowpass, highpass, bandpass, bandstop, notch) on each block, with the halo its design needs";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = streamed(in, "x", "filter.apply");
@@ -1210,8 +1210,8 @@ ng::NodeSpec speed_spectrum() {
     const double fs = prod.value("sfreq", 0.0);
     if (nfft < 2 || !(fs > 0)) ng::refuse("hodge.speed_spectrum: the spectra do not record their segment and rate");
     fb::DesignOptions dop; dop.voices = p.value("graph_voices", 3); dop.numFilters = p.value("graph_filters", 0);
-    const fb::Bank graph = fb::design(gfam, fb::Range::fromSpectrum(mu.array().square().matrix()), dop);
-    tb::TimeBank time;
+    const fb::GraphFilterbank graph = fb::design(gfam, fb::Range::fromSpectrum(mu.array().square().matrix()), dop);
+    tb::TimeFilterbank time;
     try { time = tb::design(d, nfft, fs); } catch (const std::invalid_argument& e) { ng::refuse(std::string("hodge.speed_spectrum: the time bank: ") + e.what()); }
     nxr::signal::speedspectrum::Options so; so.speedBins = p.value("speed_bins", 40); so.speedMin = p.value("speed_min", 0.0); so.speedMax = p.value("speed_max", 0.0);
     const nxr::signal::speedspectrum::Result R = nxr::signal::speedspectrum::compute(graph, time, mu, std::vector<int>(kind.begin(), kind.begin() + K), ms, so);

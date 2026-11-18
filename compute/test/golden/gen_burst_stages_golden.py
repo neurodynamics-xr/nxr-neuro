@@ -1,4 +1,4 @@
-"""Writes burst_stages_golden.txt: the reference of nxr::risefall::stagesOf and passesGate (global_bursts' `fit_gate` and `stages`), nxr's `vortex.burst_stages` rule on SYNTHETIC amplitude series:
+"""Writes burst_stages_golden.txt: the reference of nxr::select::stagesOf and passesGate (global_bursts' `fit_gate` and `stages`), nxr's `vortex.burst_stages` rule on SYNTHETIC amplitude series:
 the Model "quadrature" fit of `vortex.risefall` (margin 10 cycles, smoothing 1 cycle, tau <= 10 cycles; `burst_stages`' own calls) of each episode, its build-up / plateau / decay windows
 (onset tOn ± 2 tauR, within, offset tOff ± 2 tauF) and the gate (ok, not at its bound, r2 >= 0.7). Episodes: a clean one, one with a long fall (tau at its bound), one in noise (low r2).
 Run:  uv run --project <nxr checkout> python compute/test/golden/gen_burst_stages_golden.py compute/test/golden/burst_stages_golden.txt"""

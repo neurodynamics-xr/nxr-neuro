@@ -1,7 +1,7 @@
 // nxr-pipelines — the registered step of the CROSSINGS of tracks through tiles (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 7):
 //
 //   tile_crossings   after   a crossing is ONE TRACK'S STEPS inside ONE TILE of the surface ladder at `level` (one sense): the steps' unit directions carried to the tile's centre (the vector heat method's transport: the
-//                            Levi-Civita form, nxr `Tiles.crossings`, compute nxr::crossings), added, and made a unit vector. The crossings of a tile are added and counted, per sense and per STAGE (the burst frames, and the onset /
+//                            Levi-Civita form, nxr `Tiles.crossings`, compute nxr::select::track_crossings), added, and made a unit vector. The crossings of a tile are added and counted, per sense and per STAGE (the burst frames, and the onset /
 //                            within / offset stages when given). Stored as ONE MEASUREMENT over the level's tiles, `tile_crossings`: [rows = stage × sense × members = the tiles + a `bridge` member × 4 = the vector (x y z)
 //                            then the count]; rows 2i and 2i+1 are stage i's senses +1 and −1. A crossing inside the callosal bridge (no tile, no centre to carry to) is in the `bridge` member (the last), its unit
 //                            vectors added in 3-D.
@@ -60,7 +60,7 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
   s.optional = {"onset", "within", "offset"};
   s.outputs = {"crossings"};
   s.parameters = Json{{"spatial_scale", nullptr}, {"stages", Json::array({"burst"})}, {"as", "measurement"}};
-  s.matches = "nxr vortex_cores.Tiles.crossings (a track's steps in one tile, carried to the tile centre by the vector heat method, added, made a unit vector; per tile and sense); compute nxr::crossings, nxr::select::leviCivita";
+  s.matches = "nxr vortex_cores.Tiles.crossings (a track's steps in one tile, carried to the tile centre by the vector heat method, added, made a unit vector; per tile and sense); compute nxr::select::track_crossings, nxr::select::leviCivita";
   s.description = "the CROSSINGS of the run's tracks through the tiles of the surface ladder at `level`: each core after the first of a stored track is a STEP from the previous core's centre; a crossing is one track's steps in "
                   "one tile and one sense, their unit directions (projected on the tangent plane at the nearest vertex) carried to the tile's centre along the surface (the Levi-Civita form, the vector heat method), added and made a "
                   "unit vector. Per tile, sense and STAGE (`burst`: every step; `onset`, `within`, `offset`: the steps whose frame starts inside that stage's spans, the inputs of those names): the crossings' unit vectors added "

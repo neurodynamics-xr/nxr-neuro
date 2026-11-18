@@ -1,4 +1,4 @@
-// nxr::algebra — congruence on a pattern (congruence.h).
+// nxr::core — congruence on a pattern (congruence.h).
 #include "nxr/core/congruence.h"
 
 #include <algorithm>

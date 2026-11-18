@@ -1,4 +1,4 @@
-// nxr::filter — see include/nxr/filter.h.
+// nxr::signal::filters — see include/nxr/filter.h.
 #include "nxr/signal/filters.h"
 #include "nxr/signal/fourier.h"
 #include <algorithm>
@@ -39,7 +39,7 @@ static double besselI0(double x) {   // the power series sum ((x/2)^k / k!)^2
     return sum;
 }
 
-VectorXd kaiserWindow(std::size_t n, double beta) {
+VectorXd kaiser(std::size_t n, double beta) {
     VectorXd w(static_cast<Eigen::Index>(n));
     if (n == 1) { w[0] = 1; return w; }
     const double den = besselI0(beta), N = static_cast<double>(n - 1);
@@ -52,7 +52,7 @@ VectorXd kaiserWindow(std::size_t n, double beta) {
 
 static double sinc(double x) { return x == 0 ? 1.0 : std::sin(kPi * x) / (kPi * x); }
 
-std::pair<std::size_t, double> kaiserOrder(double transitionHz, double sfreq, double ripple) {
+std::pair<std::size_t, double> kaiserord(double transitionHz, double sfreq, double ripple) {
     const double A = -20 * std::log10(ripple);
     const double dw = 2 * kPi * transitionHz / sfreq;
     double beta = 0;
@@ -101,9 +101,9 @@ static Design designKaiser(const FilterOptions& o) {
     else if (o.kind == Kind::Highpass) pass = {{(2 * lower - std::min(tb, lower)) / o.sfreq, 1}};
     else if (o.kind == Kind::Bandpass) pass = {{(2 * lower - std::min(tb, lower)) / o.sfreq, (2 * upper + tb) / o.sfreq}};
     else bad("the Kaiser FIR design makes low-pass, high-pass and band-pass filters");
-    auto [n, beta] = kaiserOrder(width, o.sfreq, o.ripple);
+    auto [n, beta] = kaiserord(width, o.sfreq, o.ripple);
     std::size_t order = n + (n % 2);
-    d.b = fir1(order, pass, kaiserWindow(order + 1, beta));
+    d.b = fir1(order, pass, kaiser(order + 1, beta));
     return d;
 }
 
@@ -380,7 +380,7 @@ MatrixXd Filter::firWindow(const MatrixXd& w, bool atStart, bool atEnd) const {
     MatrixXd out(C, W);
     out.setZero();
     if (P < N) return out;
-    const std::size_t nfft = nextFastLen(static_cast<std::size_t>(P), true);
+    const std::size_t nfft = next_fast_len(static_cast<std::size_t>(P), true);
     const std::size_t nb = rfftBins(nfft);
     // the filter's spectrum
     std::vector<cd> H(nb);

@@ -1,4 +1,4 @@
-// nxr::analytic — amplitude, phase, unwrapping, instantaneous frequency, and wt's carrier (see the header).
+// nxr::signal — amplitude, phase, unwrapping, instantaneous frequency, and wt's carrier (see the header).
 #include "nxr/signal/complex_signal.h"
 
 #include <cmath>

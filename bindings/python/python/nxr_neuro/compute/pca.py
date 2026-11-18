@@ -31,7 +31,7 @@ class PcaResult(NamedTuple):
 
 
 def pca(x, scale: str = "none") -> PcaResult:
-    """The components of x [n, p], n >= 2 (`nxr::pca::pca`).
+    """The components of x [n, p], n >= 2 (`nxr::stats::pca`).
 
     Parameters
     ----------
@@ -52,7 +52,7 @@ def pca(x, scale: str = "none") -> PcaResult:
 
 
 def reconstruct(scores, components, mean, scale, k: int):
-    """The rank-k reconstruction scores[:, :k] @ components[:k] * scale + mean, [n, p] (`nxr::pca::reconstruct`).
+    """The rank-k reconstruction scores[:, :k] @ components[:k] * scale + mean, [n, p] (`nxr::stats::reconstruct`).
 
     The best rank-k approximation of the centred table in the least-squares sense (Eckart-Young). k from 0 (the mean) to the components held.
     """

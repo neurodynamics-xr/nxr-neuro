@@ -1,4 +1,4 @@
-// nxr::histogram and nxr::measurement::Histogram against their reference, nxr's `_core_threshold` (golden: test/golden/histogram_golden.txt, gen_histogram_golden.py; synthetic data): the
+// nxr::stats::histogram and nxr::measurement::Histogram against their reference, nxr's `_core_threshold` (golden: test/golden/histogram_golden.txt, gen_histogram_golden.py; synthetic data): the
 // counts bin for bin, the percentiles to rounding; the fold is additive (any split into tiles sums to the same counts); median and MAD within one bin of
 // the exact values; negative and non-finite values counted and left out; refusals.
 #include <algorithm>

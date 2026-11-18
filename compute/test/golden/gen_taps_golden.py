@@ -1,5 +1,5 @@
 """Writes taps_golden.txt: nxr's zero-phase taps and row convolution (nxr/filters/taps.py: gain_taps, convolve_rows; nxr/filters/frames.py: meyer_band),
-the reference of nxr::taps, on synthetic cases. Per case: the even and the odd taps of a Meyer band, and the convolution of random rows (even and odd) over
+the reference of nxr::signal, on synthetic cases. Per case: the even and the odd taps of a Meyer band, and the convolution of random rows (even and odd) over
 a block's middle and against its two ends (the reflection). Numbers written exactly (repr of the double; a float32 reads back to the same bits).
 Run:  uv run --project <nxr checkout> python compute/test/golden/gen_taps_golden.py compute/test/golden/taps_golden.txt"""
 import sys

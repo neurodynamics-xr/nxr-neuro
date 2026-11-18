@@ -1,4 +1,4 @@
-// nxr::nulltest — comparing a measurement with its surrogate draws (nulltest.h).
+// nxr::stats — comparing a measurement with its surrogate draws (nulltest.h).
 #include "nxr/stats/nulltest.h"
 
 #include <algorithm>

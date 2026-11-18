@@ -21,7 +21,7 @@
 //   fit_gate        after       the bursts `risefall` fitted well: r² ≥ min_r2 (0.7) and the rise and fall times not at their bound → a spans Selection of the kept bursts (the unfiltered spans stay)
 //   burst_stages    after       each burst's stages from its stored fit: onset (t_on ± 2 τ_rise), within (the plateau), offset (t_off ± 2 τ_fall) → three spans Selections (nxr::select::stagesOf)
 //   detect_spans    after       a measurement's tiles labelled: per row (or the mean over rows) the median and robust SD over the good tiles, hysteresis
-//                               crossings, spans merged and kept by length (nxr::intervals; Rheome detect.spindle's rule) → a span set (a spans Selection)
+//                               crossings, spans merged and kept by length (nxr::select; Rheome detect.spindle's rule) → a span set (a spans Selection)
 #include <sstream>
 
 #include "nxr/pipelines/registry.h"
@@ -235,7 +235,7 @@ struct BandAnalytic { std::vector<std::int32_t> channels; double sfreq = 0; nxr:
 std::vector<StepSpec> build() {
   std::vector<StepSpec> r;
   r.push_back({"band_filter", "chunk", {"x"}, {}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}},
-               "Studio engine/gpu/deviceChain.ts gainTaps · convolveRows (a wavelet band of the Signal chain: toolbox/wavelets/dyadicFrame.ts meyerBand; `shape` morlet, the default: kernels.ts morlet, nxr vortex.morlet_gain); nxr.filters.taps; compute nxr::taps",
+               "Studio engine/gpu/deviceChain.ts gainTaps · convolveRows (a wavelet band of the Signal chain: toolbox/wavelets/dyadicFrame.ts meyerBand; `shape` morlet, the default: kernels.ts morlet, nxr vortex.morlet_gain); nxr.filters.taps; compute nxr::signal",
                "a field on … × time filtered to a band, zero phase: the band's gain taken to taps once, each chunk convolved with them over its halo",
                [](const Values& ins, const Json& p, const PlanContext&) {
                  const Value& x = ins.at("x");
@@ -247,7 +247,7 @@ std::vector<StepSpec> build() {
                  return Values{{"y", y}};
                }});
   r.push_back({"analytic", "chunk", {"x", "bands", "channels_of"}, {"bands", "channels_of"}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}, {"halo_seconds", 8.0}},
-               "Studio engine/gpu/deviceChain.ts THE ANALYTIC SIGNAL (the band's even taps and its odd taps, hilbertImag, on the same raw rows); compute nxr::taps (gainTaps, convolveRows)",
+               "Studio engine/gpu/deviceChain.ts THE ANALYTIC SIGNAL (the band's even taps and its odd taps, hilbertImag, on the same raw rows); compute nxr::signal (gainTaps, convolveRows)",
                "the analytic signal of a band of a real field on … × time (the Signal chain's filter with the transform 'complex'): the band's even taps give the real part, "
                "its odd (Hilbert) taps the imaginary, on the same raw rows; band null: the plain Hilbert, cut at 1024 taps (its lowest frequencies lose their quadrature)",
                [](const Values& ins, const Json& p, const PlanContext& c) {
@@ -291,7 +291,7 @@ std::vector<StepSpec> build() {
                  return Values{{"y", y}};
                }});
   r.push_back({"frames", "chunk", {"x", "tiling", "within"}, {"within"}, {"y"}, Json{{"half_width", 32}, {"band", nullptr}, {"frames_per_cycle", nullptr}, {"frames_per_tile", nullptr}, {"origin", nullptr}},
-               "nxr vortex.band_at_frames (the band's signal at the frames, by FFT resampling: exact for a band-limited signal); here its local form, a Kaiser-windowed sinc (nxr::frametiling), at the START of each tower frame (nxr::tower)",
+               "nxr vortex.band_at_frames (the band's signal at the frames, by FFT resampling: exact for a band-limited signal); here its local form, a Kaiser-windowed sinc (nxr::signal), at the START of each tower frame (nxr::tower)",
                "a field sampled on the FRAME TILING (a closed-form spans Selection of TOWER frames, `run frametiling`: the cycles of one tower level, D135, each a dyadic tile; a frame's time is its tile's start). A linear step: the band's signal x, real or complex "
                "(the analytic signal), is interpolated at each frame's (non-integer) sample position by a Kaiser-windowed sinc of `half_width` samples either side (the step's halo), exact for a signal band-limited well inside the Nyquist band. "
                "A frame belongs to the chunk holding the sample at or before it, so the result does not depend on the chunk size. The output's columns are FRAMES (axis `frames`): the steps after it are pointwise in time "
@@ -344,7 +344,7 @@ std::vector<StepSpec> build() {
                  return Values{{"y", y}};
                }});
   r.push_back({"apply_kernel", "chunk", {"x", "kernel", "tiles", "pre_operator", "glued"}, {"tiles", "pre_operator", "glued"}, {"y"}, Json{{"spatial_scale", nullptr}, {"spatial_scales", nullptr}, {"transform", "auto"}, {"modes", 0}, {"order", 0}, {"tolerance", 0.01}, {"envelope", "temporal"}, {"spatial_shape", "mexhat"}, {"form", "none"}},
-               "Studio adapters/nxr kernelOf (the kernel padded to every member, its from_selection's columns); nxr.io.adapter.kernel_from_rows; with `tiles`, the level's Weyl band folded into the kernel (nxr::filterbank, pipelines/spatial_band.h)",
+               "Studio adapters/nxr kernelOf (the kernel padded to every member, its from_selection's columns); nxr.io.adapter.kernel_from_rows; with `tiles`, the level's Weyl band folded into the kernel (nxr::signal::graphfilterbank, pipelines/spatial_band.h)",
                "a linear operator from the field's first factor applied to it: x [members × time] → K x [target × time] (an imaging kernel: sensors → sources). `levels` (; instead of `level`) is ONE operator a hat level, all bound in preparation: the output is [vertex × level] (the rows of a vertex's levels consecutive, then a vertex's components: row = (vertex · levels + level) · components + component; `facts.levels` names them), the scale-space the spatial events' scale selection reads. `glued` (default false; a `form` is always glued) evaluates the band on EVERY vertex of the glued surface for a field with no form too (a free current: each component through the band, the bridge filled). `form` folds a LINEAR form of the free current into the same operator, in preparation: kernel (x y z a vertex) → its tangent part → curl_tan (or div_tan; `normal`: n·x) → the spatial band, ONE linear map before any non-linear step (D106); the output is ONE scalar a vertex (complex when x is: the analytic signal's curl; nxr vortex.Cortex.readings: div_curl(tangent(q)), then the hat of vortex_cores.hat_operator). With `tiles` the output is on EVERY vertex of the GLUED surface. With `tiles` (the target surface's "
                "tile ladder) and `level`: M x with M = (F_l ⊗ I) K, F_l the level's Weyl band on each component of the kernel's rows, bound ONCE in preparation (a linear map reads the chain "
                "before any non-linear step, D106; no graph filtering per sample). `envelope` temporal (the default: M x) | spatiotemporal. `spatial_shape` mexhat | meyer (the level IS its Weyl band: compact, the levels add up). `transform` auto, eigen, chebyshev (order 0: chosen from `tolerance`) or exact (dense modes of the mesh, ≤ 4096 vertices). "
@@ -458,7 +458,7 @@ std::vector<StepSpec> build() {
                }});
   r.push_back({"risefall", "after", {"x", "events"}, {}, {"t_on", "t_off", "tau_rise", "tau_fall", "fit_baseline", "fit_height", "fit_r2", "plateau_duration"},
                Json{{"model", "linear"}, {"margin", 1.0}, {"smooth", 0.1}, {"tau_max", 1.0}, {"min_r2", nullptr}, {"durations", "seconds"}, {"margin_cycles", 10.0}, {"smooth_cycles", 1.0}, {"tau_max_cycles", 10.0}},
-               "Rheome +rheome/+detect/risefall.m (the double-sigmoid fit; linear and quadrature models; the posterior model is not built); compute nxr::risefall",
+               "Rheome +rheome/+detect/risefall.m (the double-sigmoid fit; linear and quadrature models; the posterior model is not built); compute nxr::select",
                "each event (the spans `detect_spans` made) fitted on the SAMPLE series (`collect`) over [start − margin, stop + margin]: the half-rise and half-fall times, the rise and fall times, the baseline and height, r², "
                "the plateau's duration; per-event measurements [rows × events] on the row that found the event, NaN elsewhere and for a fit that is not ok; `min_r2` (default none) sets the fit of an event below it NaN. "
                "`durations` seconds (the default: margin, smooth, tau_max) | cycles (nxr `burst_stages`' own: margin_cycles 10, smooth_cycles 1, tau_max_cycles 10 of the band's centre; the seconds parameters are then not used)",
@@ -598,7 +598,7 @@ std::vector<StepSpec> build() {
   r.push_back({"detect_spans", "after", {"x", "baseline"}, {"baseline"}, {"spans"},
                Json{{"combine", "each"}, {"enter_sd", 1.5}, {"exit_sd", 1.0}, {"merge_s", 0.1}, {"min_s", 0.4}, {"max_s", nullptr}, {"durations", "seconds"}, {"merge_cycles", 1.0}, {"min_cycles", 3.0}, {"max_cycles", nullptr}},
                "Rheome +detect/spindle.m (its rule: per channel the median and robust SD 1.4826·MAD over the baseline, enter at median + hiSD·SD, extend while ≥ median + loSD·SD, "
-               "merge gaps ≤ mergeGap, keep minDur ≤ length ≤ maxDur), as +flow/labelalpha.m calls it for alpha episodes (1.5 / 1.0 SD, 0.1 s, 0.4 s, no max); compute nxr::intervals",
+               "merge gaps ≤ mergeGap, keep minDur ≤ length ≤ maxDur), as +flow/labelalpha.m calls it for alpha episodes (1.5 / 1.0 SD, 0.1 s, 0.4 s, no max); compute nxr::select",
                "a measurement's tiles labelled with events: per row (combine each) or on the mean over rows (combine mean), the median and robust SD over the good "
                "tiles of the run's span (statistics computed here, recorded with the result, never stored); spans of tiles ≥ median + enter_sd·SD extended while ≥ "
                "median + exit_sd·SD, joined across gaps ≤ merge_s, kept when min_s ≤ length ≤ max_s (seconds compared in whole tiles). `durations` seconds (the default: merge_s, min_s, max_s) | cycles (the project's nxr "

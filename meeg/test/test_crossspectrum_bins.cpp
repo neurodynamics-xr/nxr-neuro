@@ -1,5 +1,5 @@
 // nxr::meeg crossspectrum readings: coherency (unit diagonal, |.| <= 1 for a rank-one cross-spectrum, = 1), phaseSlope recovers a known delay from C_ab(f) = exp(i 2 pi f tau)
-// (row leads: tau > 0), through a phase that wraps many times, with the weights option; phaseSlopeIndex has the sign of the delay, is antisymmetric, and equals a
+// (row leads: tau > 0), through a phase that wraps many times, with the weights option; phase_slope_index has the sign of the delay, is antisymmetric, and equals a
 // hand-written sum; PSI against a numpy implementation from Nolte et al. 2008 is the golden test (test_crossspectrum_bins_golden).
 #include <cmath>
 #include <fstream>
@@ -38,7 +38,7 @@ int main() {
     CHECK(std::abs(ps.delayMs(0, 1) - 13.0) < 1e-9 && std::abs(ps.delayMs(1, 0) + 13.0) < 1e-9 && std::abs(ps.delayMs(0, 0)) < 1e-9);
     CHECK(std::abs(ps.delayMs(2, 0) - tau2 * 1000) < 1e-9 && ps.residual(0, 1) < 1e-9);
   }
-  const Eigen::MatrixXd psi = phaseSlopeIndex(C);
+  const Eigen::MatrixXd psi = phase_slope_index(C);
   double hand = 0;
   for (int k = 0; k + 1 < F; ++k) hand += (std::conj(H[k](0, 1)) * H[k + 1](0, 1)).imag();
   std::printf("  PSI 0->1 %.6f (hand %.6f)\n", psi(0, 1), hand);
@@ -60,7 +60,7 @@ int main() {
     Eigen::MatrixXd ref(m, m);
     for (int a = 0; a < m; ++a) for (int b = 0; b < m; ++b) in >> ref(a, b);
     CHECK(static_cast<bool>(in));
-    const double err = (phaseSlopeIndex(Cg) - ref).cwiseAbs().maxCoeff();
+    const double err = (phase_slope_index(Cg) - ref).cwiseAbs().maxCoeff();
     std::printf("  PSI vs mne-connectivity _compute_psi: %.2e (of %.3f)\n", err, ref.cwiseAbs().maxCoeff());
     CHECK(err < 1e-12);
     // and the delays the golden's data were made with (12 ms, -6 ms, 20 ms; row leads when its delay is smaller): 0->1 about +12 ms

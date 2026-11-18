@@ -1,5 +1,5 @@
 #pragma once
-// nxr::kernels — the space–time kernels of Rheome's +filters, as PURE kernel functions of (λ, f) or (λ, t) or λ.
+// nxr::signal — the space–time kernels of Rheome's +filters, as PURE kernel functions of (λ, f) or (λ, t) or λ.
 //
 // Every parameter is an argument (no defaults: a kernel's parameters are choices, as a bank's family is). Frequencies are in HERTZ and SIGNED, in EVERY
 // (λ, f) kernel; the grid of an FFT is turned into signed frequencies with `signedFrequencies(grid, Half)` (the half stated, never guessed) or
@@ -70,7 +70,7 @@ MatrixXd mexhat(const VectorXd& lambda, const VectorXd& t);
 /** e^(−λ t1) − e^(−λ t2), t1 < t2 elementwise. */
 MatrixXd diffgauss(const VectorXd& lambda, const VectorXd& t1, const VectorXd& t2);
 /** Analytic response of a rotation-invariant filter on the unit sphere: Σ_l g_l (2l+1)/(4π) P_l(cos γ), g_l the gain on degree l. */
-VectorXd sphereKernel(const VectorXd& gamma, const VectorXd& gl);
+VectorXd sphere_kernel(const VectorXd& gamma, const VectorXd& gl);
 
 // ── quaternion fields ──────────────────────────────────────────────────────────────────────────────────────────────────────
 /** Steer a full-quaternion field [4n × m] (w x y z per vertex) by RIGHT multiplication with a unit quaternion q0 (normalised here). One global rotation. */
@@ -88,9 +88,9 @@ struct Scatter {
     VectorXd sigma;                                // member scale 1/(centre wavenumber), every family; NaN for a low-pass member (it has none and is not paired)
 };
 /** Low-pass members: Role::Scaling, or (not for a heat bank, whose members are a scale-space of low-passes) a member whose gain at λ = 0 is at least half its peak over [0, λmax]. */
-std::vector<bool> lowPass(const signal::graphfilterbank::Bank& bank);
+std::vector<bool> lowPass(const signal::graphfilterbank::GraphFilterbank& bank);
 /** |W| cascaded through the bank in the exact eigenbasis, then pooled. The second member must be coarser (smaller centre wavenumber); the low-pass takes no part. `order` 1 or 2. `pool` [n × nR]: pooling weights (empty: the mass-weighted global mean).
  *  F real or complex ([n × nT]; complex is the strongly preferred input: |·| of a real graph-wavelet coefficient rectifies it). */
-Scatter scatter(const signal::graphfilterbank::Bank& bank, const signal::graphfilterbank::EigenTransform& t, const MatrixXcd& F, int order, const MatrixXd& pool = MatrixXd());
+Scatter scatter(const signal::graphfilterbank::GraphFilterbank& bank, const signal::graphfilterbank::EigenTransform& t, const MatrixXcd& F, int order, const MatrixXd& pool = MatrixXd());
 
 }  // namespace nxr::signal

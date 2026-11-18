@@ -1,5 +1,5 @@
 #pragma once
-// nxr::hodge — THE FUSED INVERSE: an imaging kernel read into the Hodge–Dirac modes. PURE MATHS (arrays in, arrays out; the kernel is just a matrix).
+// nxr::operators — THE FUSED INVERSE: an imaging kernel read into the Hodge–Dirac modes. PURE MATHS (arrays in, arrays out; the kernel is just a matrix).
 // A line port of nxr's `nxr.inverse.fused` (glued_kernel, FaceOperators, fused_weights, synthesis; Rheome's hodge_weights / hodge_synthesis; the Studio's
 // hodgeSynthesisWeights): the same operators, the same names where they exist.
 //
@@ -97,4 +97,4 @@ struct Synthesis {
 Synthesis hodgeSynthesis(const Basis& basis, const Eigen::MatrixXd& weights, const FaceOperators* ops = nullptr);
 
 
-}  // namespace nxr::hodge
+}  // namespace nxr::operators

@@ -1,4 +1,4 @@
-// nxr-pipelines — measure compute: stored Fields measured over a partition's members (measure.h). The arithmetic is nxr::partition (the Studio's
+// nxr-pipelines — measure compute: stored Fields measured over a partition's members (measure.h). The arithmetic is nxr::select (the Studio's
 // measureOverPartition); the rows are the Studio's (`selection_measurement`, written through nxr::io::write_measurements, the port of its repository);
 // the recipe is an entry of the dataset's `recipes` dictionary as the Studio's `recipes.save` writes one (adapters/nxr/recipes.ts, recipe.ts entryOfRecipe).
 #include "nxr/pipelines/measure.h"

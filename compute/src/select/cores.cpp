@@ -1,4 +1,4 @@
-// nxr::cores (cores.h): nxr `_core_patches`, per frame.
+// nxr::select (cores.h): nxr `_core_patches`, per frame.
 #include "nxr/select/cores.h"
 
 #include <cmath>

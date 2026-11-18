@@ -1,4 +1,4 @@
-// nxr::scale on hand-made pairs only: the ladders' nesting (a tile's ancestor by a shift, equal levels, the hemisphere bit, a sibling does not nest), the time overlap of windows of different sizes and origins, the facts of an event
+// nxr::select::scale_selection on hand-made pairs only: the ladders' nesting (a tile's ancestor by a shift, equal levels, the hemisphere bit, a sibling does not nest), the time overlap of windows of different sizes and origins, the facts of an event
 // (cells, peak, mean, first and last sample), the links across pairs (nesting AND overlap needed; sibling tiles, disjoint times, the same pair never link directly; min_link), the components numbered by their earliest sample,
 // the footprint (the largest of an event's members at a pair, NaN where none), the best pair (the largest response; a tie to the first), the mean response, and the refusals.
 #include <cmath>

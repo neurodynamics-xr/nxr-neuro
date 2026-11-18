@@ -1,5 +1,5 @@
 function r = psd(x, sfreq, opts)
-%NXR.OPS.WELCH.PSD  Welch's power spectral density of every channel (nxr::welch::Welch).
+%NXR.OPS.WELCH.PSD  Welch's power spectral density of every channel (nxr::signal::spectral::Welch).
 %   r = nxr.compute.welch.psd(x, sfreq)
 %   r = nxr.compute.welch.psd(x, sfreq, segment_samples=512, window="hamming", ...)
 %

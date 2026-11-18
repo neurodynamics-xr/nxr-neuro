@@ -1,5 +1,5 @@
 #pragma once
-// nxr::flow — the Cortical Flow Studio's optical flow: MANIFOLD HORN–SCHUNCK WITH THE CONNECTION LAPLACIAN (regulariser `connection`, the default;).
+// nxr::signal — the Cortical Flow Studio's optical flow: MANIFOLD HORN–SCHUNCK WITH THE CONNECTION LAPLACIAN (regulariser `connection`, the default;).
 //
 // A line port of the Studio's `flow/opticalFlow.ts` (nxr-cortical-flow studio/src/engine/toolbox/flow/opticalFlow.ts), with `differential/intrinsicGauge.ts` (corners, intrinsicGradient,
 // cornerAt, embedAt), `differential/faceGradient.ts` (assembleFaceGradient) and `differential/connectionLaplacian.ts` (tangentBasis' normals): same maths, same names, same constants.

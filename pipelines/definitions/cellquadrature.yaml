@@ -1,7 +1,7 @@
 # QUADRATURE PER CELL AND PER BURST: travelling or standing? From a band's analytic cross-spectrum on time tiles (`nxr-neuro run measure --set analytic_cross_spectrum_tiles`), the kernel and the joint cells, per spatial tile
 # of a level T = B C B^T (B the tile's rows of the kernel with the level's Weyl band, all components; C a time tile's cross-spectrum on the kernel's channels), stored as the two additive
 # ingredients sum |T|^2 and sum |Im T|^2 (the quadrature fraction is derived at read): per time tile of the joint cells, and per burst (C summed over the burst's tiles first: products add). With
-# tile_pairs also the cross-tile blocks of the level's touching tiles (nxr::ladder::tileAdjacency order): a wave running from one tile into the next is there, not in the within-tile blocks.
+# tile_pairs also the cross-tile blocks of the level's touching tiles (nxr::select::tileAdjacency order): a wave running from one tile into the next is there, not in the within-tile blocks.
 # The tile level of the cross-spectrum must equal the joint cells' time level.
 #
 #   nxr-neuro run cellquadrature --dataset <folder> --subject sub-01 --recording rest --cross-spectrum rest_crossspectrum_alpha_windows --joint "cortex tiles x frames (rest)" --spatial-scale "parts 8" --bursts "rest alpha bursts"

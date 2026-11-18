@@ -1,4 +1,4 @@
-"""Writes morlet_golden.txt: nxr's Morlet band (the project's fixed-band rule), the reference of nxr::filterbank::morletBand and of the pipelines' `shape: morlet`.
+"""Writes morlet_golden.txt: nxr's Morlet band (the project's fixed-band rule), the reference of nxr::signal::graphfilterbank::morletBand and of the pipelines' `shape: morlet`.
 Per case (lo, hi Hz at the rate fs): the gain G(f) = morlet_gain(f, centre, fwhm)/2 on a grid (nxr/detect/vortex.py `morlet_gain`, the Studio's kernels.morlet_hat; the
 centre is the ARITHMETIC mean (lo + hi)/2 and the FWHM is hi − lo: `bands_fixed`), the even and odd taps of that gain (nxr/filters/taps.py gain_taps), and the band's
 analytic signal of a synthetic series by nxr's FFT route (`morlet_gain` on the FFT of a series, ifft), the reference of the taps route.

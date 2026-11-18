@@ -47,7 +47,7 @@ def psd(
     scaling: str = "density",
     good=None,
 ) -> WelchResult:
-    """Welch's power spectral density of every channel (`nxr::welch::Welch`).
+    """Welch's power spectral density of every channel (`nxr::signal::spectral::Welch`).
 
     Parameters
     ----------
@@ -93,7 +93,7 @@ def cross_spectrum(
     quadrature: bool = False,
     good=None,
 ) -> CrossSpectrumResult:
-    """Welch's cross-spectral density between every pair of channels, accumulated per group of bins (`nxr::welch::CrossWelch`).
+    """Welch's cross-spectral density between every pair of channels, accumulated per group of bins (`nxr::signal::spectral::CrossWelch`).
 
     S_g = scale / segments x (mean or sum over the group's bins of w_k Re(X_k X_k^H)), w_k the one-sided doubling. The same segments, detrending,
     window, scaling and bad-segment rule as `psd`, which is its diagonal. Memory: channels^2 per group, never a spectrum per pair.

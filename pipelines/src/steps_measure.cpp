@@ -1,6 +1,6 @@
 // nxr-pipelines — THE MEASUREMENT VERBS AS REGISTERED STEPS: what the hand-wired `measure compute` (over a time tiling, over a partition of a surface) and `scaleselection compute` computed, as steps that read through
-// the run's bound services and hand back described arrays the definitions store (declared outputs: kind measurement, selection, statistic). Their maths is the pure functions of compute/ (nxr::partition,
-// nxr::extent, nxr::scale); the YAML definitions in pipelines/definitions/ (measure_over_time, measure, scaleselection) are the verbs.
+// the run's bound services and hand back described arrays the definitions store (declared outputs: kind measurement, selection, statistic). Their maths is the pure functions of compute/ (nxr::select,
+// nxr::select, nxr::select::scale_selection); the YAML definitions in pipelines/definitions/ (measure_over_time, measure, scaleselection) are the verbs.
 //
 //   (window_measures and partition_measures are retired: the one `reduce` node, measurement_nodes.cpp, over a time grid or a surface grid)
 //   scale_selection    setup       a recording and the stored pairs of cortical_event_pairs  ->  events (a spans Selection), scale (their measurements), links (a statistic)

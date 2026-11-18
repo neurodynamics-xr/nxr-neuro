@@ -1,5 +1,5 @@
 #pragma once
-// nxr::phase — the PHASE of a complex field on a surface, POINTWISE (per vertex, per sample): how the timing of an oscillation changes across the cortex.
+// nxr::signal — the PHASE of a complex field on a surface, POINTWISE (per vertex, per sample): how the timing of an oscillation changes across the cortex.
 // The formulas are nxr's phase reader (nxr/detect/core_phase.py, PhaseReader.read_out: grad phi = Im(conj(z) grad z) / |z|^2, no unwrapping; velocity
 // u = -omega grad phi / |grad phi|^2), the reference; the mesh gradient is its `gradient_and_kernel` GV (the P1 face gradients, area-averaged onto the
 // vertices).

@@ -1,4 +1,4 @@
-// nxr::filterbank — see include/nxr/filterbank.h and docs/specs/2026-11-10-filterbanks.md.
+// nxr::signal::graphfilterbank — see include/nxr/filterbank.h and docs/specs/2026-11-10-filterbanks.md.
 // Ported line for line from Rheome (@graphfilterbank/private/designbank.m, +graphtransform/{eigen,chebyshev}.m,
 // +filters/frame_{gains,bounds,analysis,synthesis}.m) and checked against nxr's filters.frames and the Studio's dyadicFrame.ts.
 #include "nxr/signal/graphfilterbank.h"
@@ -53,7 +53,7 @@ Range Range::fromSpectrum(const Eigen::VectorXd& lambda) {
 
 // ── design (Rheome designbank) ───────────────────────────────────────────────────────────────────────────────────────────
 
-Bank design(Family family, const Range& range, const DesignOptions& o) {
+GraphFilterbank design(Family family, const Range& range, const DesignOptions& o) {
     const double lmax = range.lmax, lmin = range.lmin;
     if (!std::isnan(lmin) && lmin < 0)
         throw std::invalid_argument("filterbank::design: the spectral range is SIGNED; mexhat and heat diverge for lambda < 0 — square the operator (D^2 is PSD)");
@@ -75,7 +75,7 @@ Bank design(Family family, const Range& range, const DesignOptions& o) {
     const double lminEff = 2.0 / tmax;
     const int V = o.voices;
 
-    Bank b;
+    GraphFilterbank b;
     b.lmax = lmax; b.lmin = lmin; b.lpFactor = o.lpFactor; b.lambda = range.lambda;
 
     switch (family) {
@@ -168,7 +168,7 @@ double mexicanHatReach(double centre, double floor) {
     return centre * hi;
 }
 
-Bank dyadic(const std::vector<double>& edges, double h) {
+GraphFilterbank dyadic(const std::vector<double>& edges, double h) {
     if (edges.empty()) throw std::invalid_argument("filterbank::dyadic: no edges");
     for (std::size_t k = 1; k < edges.size(); ++k) {
         if (!(edges[k] > edges[k - 1])) throw std::invalid_argument("filterbank::dyadic: edges must ascend");
@@ -176,7 +176,7 @@ Bank dyadic(const std::vector<double>& edges, double h) {
             throw std::invalid_argument("filterbank::dyadic: edges closer than two half-widths — the transitions would overlap");
     }
     if (!(h > 0)) throw std::invalid_argument("filterbank::dyadic: halfWidth must be positive");
-    Bank b; b.kind = "meyer"; b.total = 1.0; b.halfWidth = h; b.edges = edges;
+    GraphFilterbank b; b.kind = "meyer"; b.total = 1.0; b.halfWidth = h; b.edges = edges;
     const double inf = std::numeric_limits<double>::infinity();
     auto add = [&](Role r, double lo, double hi, double level) {
         Member m; m.role = r; m.lo = lo; m.hi = hi; m.level = level;
@@ -189,14 +189,14 @@ Bank dyadic(const std::vector<double>& edges, double h) {
     return b;
 }
 
-Bank weyl(double area, int levels, double h) {
+GraphFilterbank weyl(double area, int levels, double h) {
     if (!(area > 0) || levels < 1) throw std::invalid_argument("filterbank::weyl: an area and at least one level");
     std::vector<double> e;
     for (int j = 0; j < levels; ++j) e.push_back(4 * kPi * std::pow(2.0, j) / area);
     return dyadic(e, h);
 }
 
-Bank rank(int levels, double h) {
+GraphFilterbank rank(int levels, double h) {
     if (levels < 1) throw std::invalid_argument("filterbank::rank: at least one level");
     std::vector<double> e;
     for (int j = 0; j < levels; ++j) e.push_back(std::pow(2.0, j) + 0.5);
@@ -214,14 +214,14 @@ Eigen::VectorXd rankCoordinates(const Eigen::VectorXd& lam, int mult) {
 
 // ── the frame ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-Eigen::MatrixXd gains(const Bank& bank, const Eigen::VectorXd& lambda) {
+Eigen::MatrixXd gains(const GraphFilterbank& bank, const Eigen::VectorXd& lambda) {
     Eigen::MatrixXd H(lambda.size(), bank.size());
     for (int m = 0; m < bank.size(); ++m)
         for (Eigen::Index i = 0; i < lambda.size(); ++i) H(i, m) = bank.members[static_cast<std::size_t>(m)].gain(lambda(i));
     return H;
 }
 
-Eigen::MatrixXd dualGains(const Bank& bank, const Eigen::VectorXd& lambda) {
+Eigen::MatrixXd dualGains(const GraphFilterbank& bank, const Eigen::VectorXd& lambda) {
     Eigen::MatrixXd H = gains(bank, lambda);
     Eigen::VectorXd S = H.array().square().rowwise().sum();
     const double smax = S.size() ? std::max(S.maxCoeff(), std::numeric_limits<double>::min()) : 0.0;
@@ -232,7 +232,7 @@ Eigen::MatrixXd dualGains(const Bank& bank, const Eigen::VectorXd& lambda) {
     return H;
 }
 
-Bounds bounds(const Bank& bank, const Eigen::VectorXd& lambda) {
+Bounds framebounds(const GraphFilterbank& bank, const Eigen::VectorXd& lambda) {
     const Eigen::MatrixXd H = gains(bank, lambda);
     const Eigen::VectorXd S = H.array().square().rowwise().sum();
     Bounds b;
@@ -243,22 +243,22 @@ Bounds bounds(const Bank& bank, const Eigen::VectorXd& lambda) {
     return b;
 }
 
-Bounds bounds(const Bank& bank) {
-    if (bank.lambda.size()) return bounds(bank, bank.lambda);
+Bounds framebounds(const GraphFilterbank& bank) {
+    if (bank.lambda.size()) return framebounds(bank, bank.lambda);
     if (!(bank.lmax > 0)) throw std::invalid_argument("filterbank::bounds: the bank has no spectral range; pass the spectrum");
-    return bounds(bank, Eigen::VectorXd::LinSpaced(512, 0.0, bank.lmax));
+    return framebounds(bank, Eigen::VectorXd::LinSpaced(512, 0.0, bank.lmax));
 }
 
-bool isTight(const Bank& bank, double tol) { return std::abs(bounds(bank).tightness - 1) <= tol; }
+bool isframetight(const GraphFilterbank& bank, double tol) { return std::abs(framebounds(bank).tightness - 1) <= tol; }
 
-Eigen::VectorXd scales(const Bank& bank) {
+Eigen::VectorXd scales(const GraphFilterbank& bank) {
     Eigen::VectorXd t(bank.size());
     for (int m = 0; m < bank.size(); ++m) t(m) = bank.members[static_cast<std::size_t>(m)].scale;
     return t;
 }
-Eigen::VectorXd widths(const Bank& bank) { return (2 * scales(bank).array()).sqrt(); }
+Eigen::VectorXd widths(const GraphFilterbank& bank) { return (2 * scales(bank).array()).sqrt(); }
 
-Eigen::VectorXd centerWavenumbers(const Bank& bank) {
+Eigen::VectorXd centerWavenumbers(const GraphFilterbank& bank) {
     if (!(bank.lmax > 0)) throw std::invalid_argument("filterbank::centerWavenumbers: the bank has no spectral range");
     const double lo = std::max(std::isnan(bank.lmin) ? bank.lmax / bank.lpFactor : bank.lmin, kEps);
     const Eigen::VectorXd lg = Eigen::VectorXd::LinSpaced(512, lo, bank.lmax);
@@ -271,7 +271,7 @@ Eigen::VectorXd centerWavenumbers(const Bank& bank) {
     return k;
 }
 
-Eigen::VectorXd massLost(const Bank& bank) {
+Eigen::VectorXd massLost(const GraphFilterbank& bank) {
     Eigen::VectorXd v = Eigen::VectorXd::Zero(bank.size());
     if (bank.kind == "mexhat") {
         for (int m = 1; m < bank.size(); ++m) { const double u = bank.members[static_cast<std::size_t>(m)].scale * bank.lmax; v(m) = (1 + u) * std::exp(-u); }
@@ -440,13 +440,13 @@ void split(const CoefficientsC& W, Coefficients& re, Coefficients& im) {
     for (const auto& w : W) { re.emplace_back(w.real()); im.emplace_back(w.imag()); }
 }
 
-void checkMembers(const Bank& bank, std::size_t nW) {
+void checkMembers(const GraphFilterbank& bank, std::size_t nW) {
     if (nW != static_cast<std::size_t>(bank.size())) throw std::invalid_argument("filterbank: one coefficient block per member is required");
 }
 
 }  // namespace
 
-Coefficients analysis(const Bank& bank, const EigenTransform& t, const Eigen::MatrixXd& F) {
+Coefficients analysis(const GraphFilterbank& bank, const EigenTransform& t, const Eigen::MatrixXd& F) {
     if (t.phi.cols() != t.lambda.size()) throw std::invalid_argument("filterbank: phi and lambda disagree");
     const Eigen::MatrixXd C = forward(t, F);
     const Eigen::MatrixXd H = gains(bank, t.lambda);
@@ -454,31 +454,31 @@ Coefficients analysis(const Bank& bank, const EigenTransform& t, const Eigen::Ma
     for (int m = 0; m < bank.size(); ++m) W.emplace_back(t.phi * (H.col(m).asDiagonal() * C));
     return W;
 }
-CoefficientsC analysis(const Bank& bank, const EigenTransform& t, const Eigen::MatrixXcd& F) {
+CoefficientsC analysis(const GraphFilterbank& bank, const EigenTransform& t, const Eigen::MatrixXcd& F) {
     return complexOf(F, [&](const Eigen::MatrixXd& X) { return analysis(bank, t, X); });
 }
 
-Coefficients analysis(const Bank& bank, const ChebyshevOperator& t, const Eigen::MatrixXd& F) {
+Coefficients analysis(const GraphFilterbank& bank, const ChebyshevOperator& t, const Eigen::MatrixXd& F) {
     Coefficients W;
     for (const auto& m : bank.members) W.emplace_back(t.apply(m.gain, F));
     return W;
 }
-CoefficientsC analysis(const Bank& bank, const ChebyshevOperator& t, const Eigen::MatrixXcd& F) {
+CoefficientsC analysis(const GraphFilterbank& bank, const ChebyshevOperator& t, const Eigen::MatrixXcd& F) {
     return complexOf(F, [&](const Eigen::MatrixXd& X) { return analysis(bank, t, X); });
 }
 
-static const Member& memberOf(const Bank& bank, int member) {
+static const Member& memberOf(const GraphFilterbank& bank, int member) {
     if (member < 0 || member >= bank.size()) throw std::invalid_argument("filterbank: member " + std::to_string(member) + " is outside the bank (0 … " + std::to_string(bank.size() - 1) + ")");
     return bank.members[static_cast<std::size_t>(member)];
 }
-Eigen::MatrixXd analysisMember(const Bank& bank, int member, const EigenTransform& t, const Eigen::MatrixXd& F) {
+Eigen::MatrixXd analysisMember(const GraphFilterbank& bank, int member, const EigenTransform& t, const Eigen::MatrixXd& F) {
     const Member& m = memberOf(bank, member);
     if (t.phi.cols() != t.lambda.size()) throw std::invalid_argument("filterbank: phi and lambda disagree");
     Eigen::VectorXd g(t.lambda.size());
     for (Eigen::Index k = 0; k < g.size(); ++k) g(k) = m.gain(t.lambda(k));
     return t.phi * (g.asDiagonal() * forward(t, F));
 }
-Eigen::MatrixXd analysisMember(const Bank& bank, int member, const ChebyshevOperator& t, const Eigen::MatrixXd& F) { return t.apply(memberOf(bank, member).gain, F); }
+Eigen::MatrixXd analysisMember(const GraphFilterbank& bank, int member, const ChebyshevOperator& t, const Eigen::MatrixXd& F) { return t.apply(memberOf(bank, member).gain, F); }
 
 double chebyshevError(const Gain& g, double lmax, int order, int samples) {
     const Eigen::VectorXd c = chebyshevCoefficients(g, lmax, order);
@@ -490,19 +490,19 @@ double chebyshevError(const Gain& g, double lmax, int order, int samples) {
     return worst;
 }
 
-Eigen::MatrixXd synthesis(const Bank& bank, const EigenTransform& t, const Coefficients& W, Synthesis mode) {
+Eigen::MatrixXd igwt(const GraphFilterbank& bank, const EigenTransform& t, const Coefficients& W, Synthesis mode) {
     checkMembers(bank, W.size());
     const Eigen::MatrixXd H = mode == Synthesis::Dual ? dualGains(bank, t.lambda) : gains(bank, t.lambda);
     Eigen::MatrixXd C = Eigen::MatrixXd::Zero(t.phi.cols(), W[0].cols());
     for (int m = 0; m < bank.size(); ++m) C += H.col(m).asDiagonal() * forward(t, W[static_cast<std::size_t>(m)]);
     return t.phi * C;
 }
-Eigen::MatrixXcd synthesis(const Bank& bank, const EigenTransform& t, const CoefficientsC& W, Synthesis mode) {
+Eigen::MatrixXcd igwt(const GraphFilterbank& bank, const EigenTransform& t, const CoefficientsC& W, Synthesis mode) {
     Coefficients re, im; split(W, re, im);
-    return join(synthesis(bank, t, re, mode), synthesis(bank, t, im, mode));
+    return join(igwt(bank, t, re, mode), igwt(bank, t, im, mode));
 }
 
-Eigen::MatrixXd synthesis(const Bank& bank, const ChebyshevOperator& t, const Coefficients& W, Synthesis mode) {
+Eigen::MatrixXd igwt(const GraphFilterbank& bank, const ChebyshevOperator& t, const Coefficients& W, Synthesis mode) {
     checkMembers(bank, W.size());
     // the dual weights g/S as functions of λ; S is covered wherever it exceeds 1e-12 of its largest value on [0, λmax]
     double smax = 0;
@@ -522,9 +522,9 @@ Eigen::MatrixXd synthesis(const Bank& bank, const ChebyshevOperator& t, const Co
     }
     return F;
 }
-Eigen::MatrixXcd synthesis(const Bank& bank, const ChebyshevOperator& t, const CoefficientsC& W, Synthesis mode) {
+Eigen::MatrixXcd igwt(const GraphFilterbank& bank, const ChebyshevOperator& t, const CoefficientsC& W, Synthesis mode) {
     Coefficients re, im; split(W, re, im);
-    return join(synthesis(bank, t, re, mode), synthesis(bank, t, im, mode));
+    return join(igwt(bank, t, re, mode), igwt(bank, t, im, mode));
 }
 
 Eigen::MatrixXd scaleEnergy(const Coefficients& W) {
@@ -562,7 +562,7 @@ Eigen::MatrixXd memberEnergy(const CoefficientsC& W, const Eigen::VectorXd& weig
     return E;
 }
 
-BandMoments bandMoments(const Bank& bank, const Eigen::VectorXd& lambda, const Eigen::MatrixXcd& C, bool withMatrices) {
+BandMoments bandMoments(const GraphFilterbank& bank, const Eigen::VectorXd& lambda, const Eigen::MatrixXcd& C, bool withMatrices) {
     if (C.rows() != C.cols() || C.rows() != lambda.size())
         throw std::invalid_argument("bandMoments: C is " + std::to_string(C.rows()) + " x " + std::to_string(C.cols()) + " for " + std::to_string(lambda.size()) + " modes");
     const Eigen::MatrixXd G = gains(bank, lambda);                         // [K x M]
@@ -578,7 +578,7 @@ BandMoments bandMoments(const Bank& bank, const Eigen::VectorXd& lambda, const E
     return r;
 }
 
-Eigen::VectorXd bandPower(const Bank& bank, const Eigen::VectorXd& lambda, const Eigen::VectorXd& modePower) {
+Eigen::VectorXd bandPower(const GraphFilterbank& bank, const Eigen::VectorXd& lambda, const Eigen::VectorXd& modePower) {
     if (modePower.size() != lambda.size()) throw std::invalid_argument("bandPower: " + std::to_string(modePower.size()) + " mode powers for " + std::to_string(lambda.size()) + " modes");
     return gains(bank, lambda).array().square().matrix().transpose() * modePower;
 }

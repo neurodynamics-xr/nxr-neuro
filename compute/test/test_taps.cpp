@@ -1,4 +1,4 @@
-// nxr::taps against nxr's own functions (golden: test/golden/gen_taps_golden.py, from nxr/filters/taps.py gain_taps and convolve_rows on
+// nxr::signal against nxr's own functions (golden: test/golden/gen_taps_golden.py, from nxr/filters/taps.py gain_taps and convolve_rows on
 // nxr/filters/frames.py meyer_band; nxr's are the Studio's gainTaps and convolveRows): the even and odd taps of two Meyer bands (alpha at 1200 Hz, beta at
 // 250 Hz) and the convolutions of random rows over a block's middle and over the whole block (its two ends reflected). Then what a pipeline relies on:
 // THE HALO (a chunk convolved with K samples of context on each side equals the whole recording's result on its columns, to the bit); THE ANALYTIC SIGNAL

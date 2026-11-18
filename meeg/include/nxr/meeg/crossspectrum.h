@@ -27,6 +27,6 @@ PhaseSlope phaseSlope(const std::vector<Eigen::MatrixXcd>& C, const Eigen::Vecto
 
 /** The phase-slope index of Nolte et al. 2008 (PRL 100, 234101): Psi_ab = Im sum_f conj(coherency_ab(f)) coherency_ab(f + df) over adjacent bins, written from the paper.
  *  [M x M], antisymmetric; > 0 when the row channel leads (sends to) the column channel. Not normalised (Nolte's Psi / std needs the segments' C: a later option). */
-Eigen::MatrixXd phaseSlopeIndex(const std::vector<Eigen::MatrixXcd>& C);
+Eigen::MatrixXd phase_slope_index(const std::vector<Eigen::MatrixXcd>& C);
 
 }  // namespace nxr::meeg

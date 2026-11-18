@@ -415,7 +415,7 @@ StepSpec patches_step() {
   s.outputs = {"band", "tile_measures", "baseline", "patches", "patch_measures", "patch_own", "area", "n_tiles", "mean", "peak"};
   s.parameters = Json{{"spatial_scale", nullptr}, {"sign", "positive"}, {"enter_sd", 1.5}, {"exit_sd", 1.0}, {"min_area", nullptr}, {"max_area", nullptr}, {"transform", "auto"}, {"modes", nullptr}, {"order", nullptr}, {"tolerance", nullptr},
                       {"summaries", Json::array({"count", "sum", "median", "mean", "sd", "percentile:25", "percentile:75", "percentile:90"})}};
-  s.matches = "nxr patches; compute nxr::select::detectRegions, nxr::select::median/mad, nxr::partition";
+  s.matches = "nxr patches; compute nxr::select::detectRegions, nxr::select::median/mad, nxr::select";
   s.description = "the patches of a scalar map: its band at a level of the surface's ladder, the tiles' measurements and baseline, the regions above it, their measurements and summaries";
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {

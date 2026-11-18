@@ -1,4 +1,4 @@
-// nxr::montage — see include/nxr/montage.h for the rule and what it cannot resolve.
+// nxr::meeg — see include/nxr/montage.h for the rule and what it cannot resolve.
 #include "nxr/meeg/montage.h"
 
 #include <Eigen/Dense>

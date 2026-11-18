@@ -1,4 +1,4 @@
-// nxr::flow methods (opticalflow_methods.h), on synthetic icospheres:
+// nxr::signal methods (opticalflow_methods.h), on synthetic icospheres:
 //  * pcg is the default method and equals direct to its tolerance (both preconditioners); iterations per frame; warm start helps
 //  * perscale separates two rotating patterns of different scale (opposite senses of rotation land in different members)
 //  * FlowEngine(direct) == opticalflowScalar bit for bit

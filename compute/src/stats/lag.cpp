@@ -1,4 +1,4 @@
-// nxr::lag — lag diagnostics (lag.h).
+// nxr::stats — lag diagnostics (lag.h).
 #include "nxr/stats/lag.h"
 
 #include <algorithm>

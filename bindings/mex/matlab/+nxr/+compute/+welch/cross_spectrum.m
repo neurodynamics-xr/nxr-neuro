@@ -1,5 +1,5 @@
 function r = cross_spectrum(x, sfreq, bins, opts)
-%NXR.OPS.WELCH.CROSS_SPECTRUM  Welch's cross-spectral density between every pair of channels, per group of bins (nxr::welch::CrossWelch).
+%NXR.OPS.WELCH.CROSS_SPECTRUM  Welch's cross-spectral density between every pair of channels, per group of bins (nxr::signal::spectral::CrossWelch).
 %   r = nxr.compute.welch.cross_spectrum(x, sfreq, bins)
 %   r = nxr.compute.welch.cross_spectrum(x, sfreq, [1 1; 13 13; 31 41], quadrature=true)
 %

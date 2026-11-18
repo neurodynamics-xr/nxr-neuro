@@ -32,8 +32,8 @@ template <class M> M gradientOf(const Gradient& G, const M& S, int c) {
 }
 }  // namespace
 
-Eigen::MatrixXd rieszOfScaled(const Gradient& G, const Eigen::MatrixXd& S, int components) { return gradientOf(G, S, components); }
-Eigen::MatrixXcd rieszOfScaled(const Gradient& G, const Eigen::MatrixXcd& S, int components) { return gradientOf(G, S, components); }
+Eigen::MatrixXd rieszTransform(const Gradient& G, const Eigen::MatrixXd& S, int components) { return gradientOf(G, S, components); }
+Eigen::MatrixXcd rieszTransform(const Gradient& G, const Eigen::MatrixXcd& S, int components) { return gradientOf(G, S, components); }
 
 Eigen::MatrixXd amplitude(const Eigen::MatrixXcd& Z, int zc, const Eigen::MatrixXcd& R, int rc) {
   if (zc < 1 || rc < 0 || Z.rows() % zc != 0) throw std::invalid_argument("monogenic: amplitude: bad component counts");

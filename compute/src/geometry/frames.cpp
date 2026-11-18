@@ -1,4 +1,4 @@
-// nxr::frames — canonical (north / west) and anatomical (anterior / superior-or-medial) frames. See nxr/frames.h.
+// nxr::geometry — canonical (north / west) and anatomical (anterior / superior-or-medial) frames. See nxr/frames.h.
 // Canonical: a line port of Rheome's +rheome/+geom/sphereframe.m (the same names, the same constants: eps floors, condition from the 2x2 Jacobian's singular values).
 #include "nxr/geometry/frames.h"
 
@@ -316,4 +316,4 @@ VectorXd angleFromAnterior(const Anatomical& a, const VectorXd& heading) {
     return out;
 }
 
-}  // namespace nxr::frames
+}  // namespace nxr::geometry

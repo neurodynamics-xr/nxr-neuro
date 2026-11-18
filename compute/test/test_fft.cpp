@@ -1,4 +1,4 @@
-// nxr::fft against numpy.fft (goldens from golden/gen_fft_golden.py: random inputs, numpy's outputs) and its own round trips.
+// nxr::signal against numpy.fft (goldens from golden/gen_fft_golden.py: random inputs, numpy's outputs) and its own round trips.
 #include "nxr/signal/fourier.h"
 #include "mesh_helpers.h"
 #include <fstream>
@@ -22,7 +22,7 @@ static double relErr(const double* a, const double* b, size_t n) {   // max |a-b
 }
 
 int main() {
-    std::cout << "\n=== nxr::fft vs numpy.fft ===\n";
+    std::cout << "\n=== nxr::signal vs numpy.fft ===\n";
     std::ifstream f(std::string(NXR_TEST_GOLDEN_DIR) + "/fft_golden.txt");
     EXPECT(f.good(), "golden file opens");
     std::string tok; int cases = 0; double worst = 0;
@@ -88,8 +88,8 @@ int main() {
         EXPECT((irfftColumns(C, 50) - X).cwiseAbs().maxCoeff() < 1e-13, "irfftColumns(rfftColumns(X), n) == X");
         EXPECT((fftColumns(fftColumns(X.cast<std::complex<double>>()), false) - X.cast<std::complex<double>>()).cwiseAbs().maxCoeff() < 1e-13, "fftColumns round trip");
     }
-    EXPECT(nextFastLen(13, true) == 15 && nextFastLen(17, true) == 18 && nextFastLen(97, true) == 100 && nextFastLen(7, false) == 7 && nextFastLen(1031, false) == 1050,
-           "nextFastLen (scipy: real {2,3,5}, complex {2,3,5,7,11})");
+    EXPECT(next_fast_len(13, true) == 15 && next_fast_len(17, true) == 18 && next_fast_len(97, true) == 100 && next_fast_len(7, false) == 7 && next_fast_len(1031, false) == 1050,
+           "next_fast_len (scipy: real {2,3,5}, complex {2,3,5,7,11})");
     std::cout << (g_failures ? "\nFAILURES\n" : "\nALL PASSED\n");
     return g_failures ? 1 : 0;
 }

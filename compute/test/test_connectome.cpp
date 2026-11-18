@@ -1,4 +1,4 @@
-// nxr::connectome, nxr::nearest and the sparse congruence: one test a function, and the VERTEX-level fiber counts, connection weights, pruning and largest component against an
+// nxr::meeg, nxr::geometry::nearest and the sparse congruence: one test a function, and the VERTEX-level fiber counts, connection weights, pruning and largest component against an
 // independent DENSE implementation of the reference's behaviour (tess_connectome; test/connectome_helpers.h) on synthetic fibers and a synthetic surface, gate none.
 #include <array>
 #include <cmath>

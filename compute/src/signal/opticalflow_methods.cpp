@@ -1,4 +1,4 @@
-// nxr::flow — alternative optical-flow methods; see opticalflow_methods.h.
+// nxr::signal — alternative optical-flow methods; see opticalflow_methods.h.
 #include "nxr/signal/opticalflow_methods.h"
 
 #include <algorithm>
@@ -120,7 +120,7 @@ FlowEngine::FlowEngine(const FlowMethodOptions& options, const RowMat3& position
         else throw std::invalid_argument("opticalflow perscale: the scale family is required (mexhat, itersine or logitersine)");
         fb::DesignOptions d;
         d.voices = options.scaleVoices; d.numFilters = options.scaleFilters;
-        const fb::Bank bank = fb::design(fam, fb::Range::fromLmax(lmax), d);
+        const fb::GraphFilterbank bank = fb::design(fam, fb::Range::fromLmax(lmax), d);
         const VectorXd cw = fb::centerWavenumbers(bank);
         for (int m = 0; m < bank.size(); ++m) {
             const fb::Role r = bank.members[static_cast<std::size_t>(m)].role;

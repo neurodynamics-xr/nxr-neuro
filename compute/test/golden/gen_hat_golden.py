@@ -1,4 +1,4 @@
-"""Writes hat_golden.txt: the Mexican hat gain of a spatial level, the reference of nxr::filterbank::mexicanHat and of apply_kernel's `spatial_shape: mexhat`.
+"""Writes hat_golden.txt: the Mexican hat gain of a spatial level, the reference of nxr::signal::graphfilterbank::mexicanHat and of apply_kernel's `spatial_shape: mexhat`.
 The lines of nxr's `nxr/detect/vortex_cores.py hat_operator` that make the gain (the operator itself needs a cortex), on a SYNTHETIC sphere: hemisphere area A (mm²),
 the Laplacian's spectrum l(l+1)/R² (l = 1 … 40, a sphere has no cortex), for ladder levels 1 … 5:
     lam_peak = 4π · 2^(level − 0.5) / A ;  s2 = 2 / lam_peak ;  g = lam · s2 · exp(−lam · s2 / 2) ;  g /= g.max()

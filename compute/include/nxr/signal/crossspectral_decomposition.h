@@ -1,5 +1,5 @@
 #pragma once
-// nxr::patterns — THE LEADING PATTERNS of a Hermitian second-moment matrix (a cross-spectrum over a window), and how alike two patterns are
+// nxr::signal — THE LEADING PATTERNS of a Hermitian second-moment matrix (a cross-spectrum over a window), and how alike two patterns are
 // (spec docs/specs/2026-11-13-cycle-pattern.md). PURE MATHS: arrays in, arrays out; nothing here knows a window, a band or a cortex.
 //
 //   leading          the q leading eigenvectors of C (unit norm), their eigenvalues and C's trace: a pattern's share of C is λ_i / trace (derived at read)
@@ -39,11 +39,11 @@ struct QuadraturePair {
     double sigma = 0;   // the pair's quadrature amplitude (units of the spectrum Im C; nxr's sigma is this over ||Im C||_F)
 };
 /** The k strongest pairs of Im C = Q S Q^T, strongest first (fewer if Im C has fewer nonzero pairs). From the Hermitian matrix -iS, whose eigenvalues are +-sigma. */
-std::vector<QuadraturePair> quadraturePairs(const core::QuadratureFactor& f, int k);
+std::vector<QuadraturePair> planes(const core::QuadratureFactor& f, int k);
 /** The strongest pair. */
-QuadraturePair quadraturePair(const core::QuadratureFactor& f);
+QuadraturePair top_plane(const core::QuadratureFactor& f);
 /** nxr's `planes(Q, S, k)` and `top_plane(F)` through the same code: the pairs straight from a complex factor. */
-std::vector<QuadraturePair> quadraturePairs(const MatrixXcd& F, int k);
+std::vector<QuadraturePair> planes(const MatrixXcd& F, int k);
 
 // ── a read-out's top pair as sensor filters ────────────────────────────────────────────────────────────────────────
 

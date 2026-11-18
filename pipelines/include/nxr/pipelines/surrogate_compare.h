@@ -1,7 +1,7 @@
 // nxr-pipelines — THE SURROGATE COMPARISONS (spec docs/specs/2026-11-17-surrogates.md, sections 3 and 7): `run surrogate_lagfree_vortex_compare` and `run surrogate_lagfree_spatial_events_compare`.
 // ORCHESTRATION ONLY: for i = 0, 1, … the draw definition is run with `seed: i` through the runner (each draw a typed, cached run of its own), the draw's small statistic is read through io and checked
-// against the data's (the SAME selection, the same generator), and folded into a tally by nxr::nulltest; after each batch the stopping rule is asked (nxr::stats::undecidedMembers): BATCHES with EARLY
-// STOPPING (Besag and Clifford 1991: batches of 20, at least 20, at most 100, h = 10 exceedances). Every number is compute's (nxr::nulltest, nxr::crossings); the loop over draws is the only thing here.
+// against the data's (the SAME selection, the same generator), and folded into a tally by nxr::stats; after each batch the stopping rule is asked (nxr::stats::undecidedMembers): BATCHES with EARLY
+// STOPPING (Besag and Clifford 1991: batches of 20, at least 20, at most 100, h = 10 exceedances). Every number is compute's (nxr::stats, nxr::select::track_crossings); the loop over draws is the only thing here.
 //
 // surrogate_lagfree_vortex_compare (the draws of `surrogate_lagfree_vortex`; the data's crossings of `run vortex_cores`), per tile of the level the crossings were measured over, the two senses pooled, the
 // stage asked for (a tile counts with at least `min_crossings` crossings in the data):

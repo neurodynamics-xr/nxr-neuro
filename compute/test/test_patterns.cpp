@@ -1,4 +1,4 @@
-// nxr::patterns and the dense algebra::congruence, on synthetic matrices only:
+// nxr::signal and the dense algebra::congruence, on synthetic matrices only:
 //   leading      a planted rank-1 pattern plus noise (a cross-spectrum of 4000 samples): recovered (similarity > 0.999), its share as planted; refusals;
 //   rotateToLargest  Re of the result has the largest norm over every phase; a real pattern times e^{iθ} comes back real (‖Im‖ / ‖Re‖ ≈ 0);
 //   similarity   invariant to e^{iθ}; 1 on itself; refuses a shape mismatch;

@@ -1,5 +1,5 @@
 #pragma once
-// nxr::nulltest — COMPARING A MEASUREMENT WITH ITS SURROGATE DRAWS (spec docs/specs/2026-11-17-surrogates.md, sections 2 and 7). PURE MATHS on arrays: the data's values per member of a selection
+// nxr::stats — COMPARING A MEASUREMENT WITH ITS SURROGATE DRAWS (spec docs/specs/2026-11-17-surrogates.md, sections 2 and 7). PURE MATHS on arrays: the data's values per member of a selection
 // and each draw's values per member of the SAME selection in, counts, p and q out. A function never knows what the members are (tiles, vertices, patch-size entries, bursts) nor where a draw came from.
 // References: Besag and Clifford (1991), the sequential Monte Carlo p; Benjamini and Hochberg (1995); Rheome +rheome/+cores bh, tilepq.
 //

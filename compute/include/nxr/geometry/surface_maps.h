@@ -1,4 +1,4 @@
-// nxr::glue — two closed pieces (a cortex's hemispheres) made ONE closed surface by anatomy: each piece's MEDIAL WALL is cut out as one disk and a
+// nxr::geometry::glue — two closed pieces (a cortex's hemispheres) made ONE closed surface by anatomy: each piece's MEDIAL WALL is cut out as one disk and a
 // BRIDGE of new vertices is grown between the two rims. A line port of the Cortical Flow Studio's `glueMesh` and `sourcesOf` (studio/src/studio/glue.ts),
 // the reference (nxr's `geom.glue` is the same algorithm): the iteration orders, the tie rules and JavaScript's rounding are kept, so the faces come out
 // identical (test_glue, golden from the Studio's own function). Compiled without fused multiply-add (JavaScript has none).
@@ -29,7 +29,7 @@ Glued glueMesh(const std::vector<double>& P, const std::vector<std::int32_t>& F,
 struct Sources { int k = 3; std::vector<std::int32_t> idx; std::vector<float> w; };   // [total x k]; idx −1: no source
 Sources sourcesOf(const std::vector<double>& P, const Glued& g);
 
-}  // namespace nxr::glue
+}  // namespace nxr::geometry::glue
 
 namespace nxr::geometry::nearest {
 

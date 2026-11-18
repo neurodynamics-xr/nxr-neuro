@@ -5,7 +5,7 @@
 # (NO form: the free current as the inverse gives it, no orientation assumed; the hat at each of `levels` on the GLUED surface: one cortex, the bridge filled) → power (|z|² summed over the components) → two branches:
 #   relative (÷ the stored baseline of `run spatial_baseline`, read by name) → at_level (the reference level) → patches
 #   scale (the L2-normalised hat power's largest level, at every vertex and frame)                              → patches (read at each patch's centre)
-# `patches` cuts the relative power at the THRESHOLD with `nxr::cores::corePatches`, the vortex cores' finder, and stores. THE THRESHOLD is set by its FALSE-ALARM RATE, measured as the time bursts' threshold is from
+# `patches` cuts the relative power at the THRESHOLD with `nxr::select::corePatches`, the vortex cores' finder, and stores. THE THRESHOLD is set by its FALSE-ALARM RATE, measured as the time bursts' threshold is from
 # the envelope's own distribution: `threshold: percentile` (the default) is the `percentile` (99) of the relative power OUTSIDE the bursts, read BY NAME from the distribution `run spatial_threshold` stored (`threshold_statistic`) and
 # derived here; its value is in the provenance. `threshold: ratio` (the named option) is `ratio` × the vertex's baseline (a single frame's relative power is about exponential: 2 is exceeded by ~13.5 % of vertices on noise alone).
 #   - POINT EVENTS (point_events.h): a spans Selection `spatial_events.events.<recording>` of type `patch`, one member per patch whose span is its frame, and per patch as measurements over it: frame, burst (burst_ordinal), centre_vertex,

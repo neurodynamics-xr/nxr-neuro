@@ -1,5 +1,5 @@
 function r = eigenmodes(vertices, faces, k, opts)
-%NXR.OPS.MANIFOLD.EIGENMODES  The Laplace-Beltrami eigenmodes of a triangle mesh (nxr::manifold).
+%NXR.OPS.MANIFOLD.EIGENMODES  The Laplace-Beltrami eigenmodes of a triangle mesh (nxr::geometry).
 %   r = nxr.compute.manifold.eigenmodes(vertices, faces, k)
 %   r = nxr.compute.manifold.eigenmodes(vertices, faces, k, normalize=true, remove_dc=true)
 %

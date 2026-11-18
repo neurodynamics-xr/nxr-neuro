@@ -1,4 +1,4 @@
-// nxr::flow, the connection-Laplacian regulariser (the Cortical Flow Studio's optical flow, ported line for line; the default since).
+// nxr::signal, the connection-Laplacian regulariser (the Cortical Flow Studio's optical flow, ported line for line; the default since).
 // (1) PARITY with the Studio's own code (golden/gen_opticalflow_connection_golden.mts runs flow/opticalFlow.ts): the pencil's C, M, the gradient in C's gauge, the gauge solution z
 //     (the Studio's system solved densely in float64) and the embedded velocity, on a sphere, a finer sphere, an irregular (stretched, jittered) mesh and an open patch;
 // (2) the Studio test's assertions (opticalFlow.test.ts): the sphere bump oracle (direction at every alpha, the speed at the default alpha), GAUGE-FREEDOM (the faces listed in

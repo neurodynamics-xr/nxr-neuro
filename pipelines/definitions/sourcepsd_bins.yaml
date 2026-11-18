@@ -1,6 +1,6 @@
 # THE POWER OF A RECORDING'S SOURCES, BIN BY BIN WITHIN ONE BAND (a statistic; sourcepsd's `--resolve bins`): the frequency partition's members are the Welch bins from lo to hi Hz
 # inclusive, nothing reduced over frequency, so each source keeps its spectrum within the band. The kernel is applied to each segment's Fourier coefficients and |K X|^2 summed per source
-# per bin (nxr::welch::LinearWelch): the source side holds sources x bins, never the channels^2 x bins of the cross-spectrum route; the same numbers to rounding. `kernel` and the band set are
+# per bin (nxr::signal::spectral::LinearWelch): the source side holds sources x bins, never the channels^2 x bins of the cross-spectrum route; the same numbers to rounding. `kernel` and the band set are
 # the caller's choice (no default); the set is a selection made first (select.bands) and the node reads the band from it through an edge. The band statistic of `run sourcepsd` is the mean of these bins. One run a band; stored: the statistic `<recording>_<kernel>_psd_<band>_bins`
 # (measure power_density or power, by welch, OF the recording; axes vertex (the kernel's target) x frequency, the frequency line the band's bins), and its segment partition `<name>_segments`.
 # It cannot resolve: what the kernel cannot (a minimum-norm kernel spreads each source over its neighbours); a bin is one Welch bin, its width the segment's 1 / length.

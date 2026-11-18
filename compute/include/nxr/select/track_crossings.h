@@ -1,5 +1,5 @@
 #pragma once
-// nxr::crossings — the CROSSINGS of tracks through tiles (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 7). PURE MATHS on arrays: steps in (a core's step from one frame to the next: its sense, where it started, how it moved,
+// nxr::select::track_crossings — the CROSSINGS of tracks through tiles (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 7). PURE MATHS on arrays: steps in (a core's step from one frame to the next: its sense, where it started, how it moved,
 // which track it is of), the surface's per-vertex frames and tiles in, per tile and sense the sum of the crossings' directions and their number out. The function never knows where the steps came from (stored tracks, a synthetic walk) or
 // which frames the caller left in (a stage is the caller's mask). A port of nxr's `Tiles.crossings` (nxr/detect/vortex_cores.py), the reference:
 //

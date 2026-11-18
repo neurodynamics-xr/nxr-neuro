@@ -1,5 +1,5 @@
 // nxr-pipelines — the registered step of the WHERE of a global burst (spec docs/specs/2026-11-13-cortical-events.md, phase 2b): `cell_extent` (the events of each burst on the joint cells), an `after` step on arrays;
-// the events' measures are `reduce.members`, a merge of their cells' ingredients. The maths is nxr::extent (compute/), the runner binds and stores.
+// the events' measures are `reduce.members`, a merge of their cells' ingredients. The maths is nxr::select (compute/), the runner binds and stores.
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -60,7 +60,7 @@ struct ExtentState { Json p; std::shared_ptr<Geometry> g; std::string groups; };
 
 void add_extent_steps(std::vector<StepSpec>& r) {
   r.push_back({"cell_extent", "after", {"x", "baseline", "events"}, {}, {"labels"}, Json{{"enter_sd", 1.5}, {"exit_sd", 1.0}, {"min_cells", 1}, {"min_area", 0.0}},
-               "docs/specs/2026-11-13-cortical-events.md, Phase 2b; compute nxr::extent (windowRegions on nxr::select::detectRegions, unchanged) with the tile graph of nxr::select::tileAdjacency",
+               "docs/specs/2026-11-13-cortical-events.md, Phase 2b; compute nxr::select (windowRegions on nxr::select::detectRegions, unchanged) with the tile graph of nxr::select::tileAdjacency",
                "the SPACE × TIME EXTENT of each event of a time span set (the global bursts): on the joint cells of the burst's own time tiles (and, per hemisphere, of its row's tiles), each cell's amplitude standardized "
                "against its spatial tile's baseline (the median and robust SD of a statistic across the run's time tiles), hysteresis regions on the graph of touching tiles within a time tile and a tile with itself in the next; "
                "all regions are events, numbered by burst and then by their lowest cell. Out: a labelling of the joint cells (code = the event's ordinal, -1 none)",

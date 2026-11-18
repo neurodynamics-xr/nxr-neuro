@@ -1,4 +1,4 @@
-// nxr::transport — carrying a vector along the cortex (transport.h).
+// nxr::geometry — carrying a vector along the cortex (transport.h).
 #include "nxr/geometry/transport.h"
 
 #include <cmath>
@@ -73,4 +73,4 @@ Compared compare(const std::vector<Eigen::MatrixXcd>& T, const std::vector<Eigen
   return c;
 }
 
-}  // namespace nxr::transport
+}  // namespace nxr::geometry

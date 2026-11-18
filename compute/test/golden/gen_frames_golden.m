@@ -1,4 +1,4 @@
-% Golden for nxr::frames::canonicalFrames: Rheome's rheome.geom.sphereframe on a deterministic synthetic "brain" (a bumpy ellipsoid with a warped registered sphere).
+% Golden for nxr::geometry::canonicalFrames: Rheome's rheome.geom.sphereframe on a deterministic synthetic "brain" (a bumpy ellipsoid with a warped registered sphere).
 % Run:  matlab -batch "addpath('<rheome>'); run('gen_frames_golden.m')"   (rheome on the path: +rheome/+geom/sphereframe.m)
 n = 400; k = (0:n-1)' + 0.5; z = 1 - 2*k/n; phi = pi*(1 + sqrt(5))*k; r = sqrt(1 - z.^2);
 u = [r.*cos(phi) r.*sin(phi) z];

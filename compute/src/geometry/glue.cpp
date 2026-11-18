@@ -1,4 +1,4 @@
-// nxr::glue — the Studio's glue.ts (glueMesh, sourcesOf), line for line: Map/Set insertion orders, strict-versus-tie comparisons, Math.round and
+// nxr::geometry::glue — the Studio's glue.ts (glueMesh, sourcesOf), line for line: Map/Set insertion orders, strict-versus-tie comparisons, Math.round and
 // Math.hypot (ladder::jsHypot) as JavaScript evaluates them.
 #include "nxr/geometry/surface_maps.h"
 
@@ -298,4 +298,4 @@ Sources sourcesOf(const std::vector<double>& P, const Glued& g) {
   return s;
 }
 
-}  // namespace nxr::glue
+}  // namespace nxr::geometry::glue

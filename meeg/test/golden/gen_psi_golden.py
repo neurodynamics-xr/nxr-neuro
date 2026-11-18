@@ -1,4 +1,4 @@
-# Golden for nxr::meeg::phaseSlopeIndex (Nolte et al. 2008, PRL 100, 234101): synthetic Hermitian positive-semidefinite cross-spectra C(f) of M = 4 channels on F = 17 bins
+# Golden for nxr::meeg::phase_slope_index (Nolte et al. 2008, PRL 100, 234101): synthetic Hermitian positive-semidefinite cross-spectra C(f) of M = 4 channels on F = 17 bins
 # (8-12 Hz, 0.25 Hz), with per-channel delays and independent noise, and the phase-slope index of every ordered pair from MNE-Connectivity's own `_compute_psi`
 # (mne-connectivity 0.9.0, the function inside `phase_slope_index`), fed the coherency C_ab / sqrt(C_aa C_bb). Run:
 #   uv run --project $NXR --with mne-connectivity python gen_psi_golden.py > psi_golden.txt

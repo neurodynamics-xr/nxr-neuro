@@ -31,13 +31,13 @@ static void rheomeItersine() {
         Design d = D(Family::Itersine, 2.0, Sides::Analytic);
         d.edgeBins = EdgeBins::Drop; d.voices = V; d.anchor = a;
         if (hasLim) d.limits = std::make_pair(lo, hi);
-        const TimeBank b = design(d, (size_t)N, fs);
+        const TimeFilterbank b = design(d, (size_t)N, fs);
         const double eH = relErr(gains(b), H);
         const double eFc = relErr(centerFrequencies(b).transpose(), fcG);
         MatrixXd bins(b.size(), 2);
         for (int m = 0; m < b.size(); ++m) { bins(m, 0) = (double)b.support[(size_t)m].first + 1; bins(m, 1) = (double)b.support[(size_t)m].second + 1; }
         const double eBins = relErr(bins, binsG);
-        const auto bd = bounds(b);
+        const auto bd = framebounds(b);
         MatrixXd bm(1, 4); bm << bd.A / 2, bd.B / 2, bd.tightness, bd.uncovered;     // Rheome reports S/2
         const double eB = relErr(bm, bG);
         const auto [r, Nm] = rates(b);
@@ -81,9 +81,9 @@ static void cwt() {
         MatrixXd cm(1, (int)c.size()); for (size_t i = 0; i < c.size(); ++i) cm(0, (int)i) = c[c.size() - 1 - i];     // MATLAB lists the centres descending
         const double eFc = relErr(cm, fcG);
         d.centres = c;
-        const TimeBank b = design(d, (size_t)(2 * N), fs);
+        const TimeFilterbank b = design(d, (size_t)(2 * N), fs);
         MatrixXd Hd(H.rows(), H.cols()); for (int m = 0; m < b.size(); ++m) Hd.col(m) = H.col(b.size() - 1 - m);       // ascending
-        const MatrixXd Gc = gains(b, frequencies(b));                                  // the continuous design, no DC / Nyquist rule
+        const MatrixXd Gc = gains(b, bins(b));                                  // the continuous design, no DC / Nyquist rule
         const double eH = relErr(Gc, Hd);
         // coefficients exactly as cwtfilterbank forms them: symmetric extension to 2N, first N rows
         const MatrixXcd X = spectrum(b, extendSymmetric(x));
@@ -116,27 +116,27 @@ static void nxrAndStudio() {
     MatrixXd wem(1, (int)we.size()); for (size_t i = 0; i < we.size(); ++i) wem(0, (int)i) = we[i];
     EXPECT(relErr(wem, edges) < 1e-14 && relErr(wem, eedges) < 1e-14, "window edges == nxr window_frame == Studio windowFrame");
     // Meyer, gain One: Σg² = 1 as nxr and the Studio; two-sided shares |f|
-    const TimeBank mey1 = design(D(Family::Meyer, 1.0, Sides::Analytic), n, fs);
-    const MatrixXd f1 = frequencies(mey1);
+    const TimeFilterbank mey1 = design(D(Family::Meyer, 1.0, Sides::Analytic), n, fs);
+    const MatrixXd f1 = bins(mey1);
     EXPECT(relErr(gains(mey1, f1), wg) < 1e-13 && relErr(gains(mey1, f1), ewg) < 1e-13, "Meyer bands (gain 1) == nxr window_frame gains " + sci(relErr(gains(mey1, f1), wg)) + " == Studio windowFrame " + sci(relErr(gains(mey1, f1), ewg)));
-    const TimeBank meyTwo = design(D(Family::Meyer, 1.0, Sides::TwoSided), n, fs);
+    const TimeFilterbank meyTwo = design(D(Family::Meyer, 1.0, Sides::TwoSided), n, fs);
     MatrixXd sym = MatrixXd::Zero(wgf.rows(), mey1.size());            // the two-sided bank's sum of the + and − member at each |f| equals the one-sided gain
     const MatrixXd g2 = gains(meyTwo); const int M1 = mey1.size();
     for (int m = 0; m < M1; ++m) for (int k = 0; k < g2.rows(); ++k) sym(k, m) = (m == 0 ? std::sqrt(g2(k, 0) * g2(k, 0) + g2(k, 1) * g2(k, 1) + g2(k, 2) * g2(k, 2)) : std::hypot(g2(k, 2 * m + 1), g2(k, 2 * m + 2)));   // [DC, scaling+-, band+-, ..., top+-]
     EXPECT(relErr(sym, wgf) < 1e-13, "Meyer two-sided members (+f and −f) reassemble nxr's gains on |f| " + sci(relErr(sym, wgf)));
     // nxr's itersine_time_frame keeps sum g^2 = 2 (peak sqrt 2); Rheome's bank is now peak = gain, so the match is at gain sqrt 2 (nxr's convention differs from the ruling: flagged)
     Design di = D(Family::Itersine, std::sqrt(2.0), Sides::Analytic); di.voices = 4; di.edgeBins = EdgeBins::Drop;     // nxr zeroes DC and Nyquist, and keeps sum g^2 = 2 (peak sqrt 2): the gain that matches it
-    const TimeBank it2 = design(di, n, fs);
+    const TimeFilterbank it2 = design(di, n, fs);
     EXPECT(relErr(gains(it2), itg) < 1e-13, "itersine (gain sqrt 2 = nxr's sum g^2 = 2, edge bins dropped) == nxr itersine_time_frame " + sci(relErr(gains(it2), itg)));
     // Morlet hats (nxr, gain One) and the Studio's 2 × Morlet (gain Two)
     std::vector<double> fc; for (int i = 0; i < mfc.cols(); ++i) fc.push_back(mfc(0, i));
     Design dm = D(Family::Morlet, 1.0, Sides::Analytic); dm.centres = fc; dm.cycles = 6;
-    const TimeBank mo1 = design(dm, n, fs);
+    const TimeFilterbank mo1 = design(dm, n, fs);
     MatrixXd hat = gains(mo1, f1); for (int k = 0; k < hat.rows(); ++k) if (f1(k) == 0) hat.row(k).setZero();     // the hat itself has a Gaussian tail at DC; the bank is on f > 0
     MatrixXd hatRef = mhat; hatRef.row(0).setZero();
     EXPECT(relErr(hat, hatRef) < 1e-13, "Morlet (gain 1) == nxr morlet_hat on f > 0 " + sci(relErr(hat, hatRef)));
     dm.gain = 2.0;
-    const TimeBank mo2 = design(dm, n, fs);
+    const TimeFilterbank mo2 = design(dm, n, fs);
     MatrixXd g2m = gains(mo2, f1), eref = ebm; g2m.row(0).setZero(); eref.row(0).setZero();
     EXPECT(relErr(g2m, eref) < 1e-13 && relErr(logCentres(fs, 2, 40, 4).size() == (size_t)efc.cols() ? MatrixXd::Zero(1, 1) : MatrixXd::Ones(1, 1), MatrixXd::Zero(1, 1)) < 1e-14,
            "Morlet (gain 2: peak 2) == the Studio's bankGain = 2 x Morlet " + sci(relErr(g2m, eref)) + "; logCentres == waveletFreqs");
@@ -148,7 +148,7 @@ static void nxrAndStudio() {
     const MatrixXcd Mref = g.cmat("morlet_re", "morlet_im");
     MatrixXcd z(zz.cols(), 1); z.col(0) = zz.row(0).transpose().cast<std::complex<double>>() + std::complex<double>(0, 1) * zz.row(1).transpose().cast<std::complex<double>>();
     Design dt = D(Family::Morlet, 1.0, Sides::TwoSided); dt.centres = {5.0, 12.5, 9.0}; dt.cycles = 6;
-    const TimeBank mt = design(dt, n, fs);
+    const TimeFilterbank mt = design(dt, n, fs);
     const Coefficients Wt = analysis(mt, z);
     double eM = 0;
     for (int i = 0; i < frq.cols(); ++i) {        // member of centre |f0| and sign of f0
@@ -160,7 +160,7 @@ static void nxrAndStudio() {
     // nxr's rotary amplitudes A+- = |z_+|, |z_-| : the + (resp. -) members' synthesis of z = x + iy
     const MatrixXd xy = g.mat("rot_xy"), Ap = g.mat("rot_Aplus"), Am = g.mat("rot_Aminus");
     MatrixXcd zr(xy.cols(), 1); zr.col(0) = xy.row(0).transpose().cast<std::complex<double>>() + std::complex<double>(0, 1) * xy.row(1).transpose().cast<std::complex<double>>();
-    const TimeBank tm = design(D(Family::Itersine, 1.0, Sides::TwoSided), n, fs);
+    const TimeFilterbank tm = design(D(Family::Itersine, 1.0, Sides::TwoSided), n, fs);
     const Coefficients Wr = analysis(tm, zr);
     const MatrixXd Gt = gains(tm);
     MatrixXcd Zp = MatrixXcd::Zero((long)n, 1), Zm = MatrixXcd::Zero((long)n, 1);
@@ -185,8 +185,8 @@ static void laws() {
             for (double gn : {1.0, 2.0, 3.0}) {
                 for (Padding pad : {Padding::None, Padding::FastLen}) {
                     Design d = D(fam, gn, Sides::Analytic); d.voices = 3;
-                    const TimeBank b = design(d, gridLength(n, pad), fs);
-                    const auto bd = bounds(b);
+                    const TimeFilterbank b = design(d, gridLength(n, pad), fs);
+                    const auto bd = framebounds(b);
                     const double G = gn * gn;        // Σ g² = gain² (the gain is the peak)
                     const Coefficients W = analysis(b, x);
                     const double eT = relErr(synthesis(b, W, n, nxr::signal::graphfilterbank::Synthesis::Tight), x), eD = relErr(synthesis(b, W, n, nxr::signal::graphfilterbank::Synthesis::Dual), x);
@@ -195,7 +195,7 @@ static void laws() {
                     const double eP = std::abs(en - G / 2 * x.squaredNorm()) / x.squaredNorm();
                     const std::string name = std::string(fam == Family::Itersine ? "itersine" : "meyer") + " gain " + std::to_string((int)gn) + " n=" + std::to_string(n) + (pad == Padding::None ? " periodic" : " padded");
                     // Parseval holds exactly for the periodic grid; padded, the sum runs over the padded record (the same identity on nfft)
-                    EXPECT(std::abs(bd.A - G) < 1e-12 && std::abs(bd.B - G) < 1e-12 && isTight(b) && eT < 1e-12 && eD < 1e-12 && eP < 1e-12 && std::abs(S - G) < 1e-12,
+                    EXPECT(std::abs(bd.A - G) < 1e-12 && std::abs(bd.B - G) < 1e-12 && isframetight(b) && eT < 1e-12 && eD < 1e-12 && eP < 1e-12 && std::abs(S - G) < 1e-12,
                            name + ": S = gain^2 = " + std::to_string((int)G) + " (A " + sci(bd.A - G) + ", B " + sci(bd.B - G) + "), tight " + sci(eT) + ", dual " + sci(eD) + " reconstruct DC+Nyquist exactly; Parseval Σ‖w‖² = (gain²/2)Σx² " + sci(eP));
                     // DC and Nyquist: S is G/2 there for both gains — identical relative handling, never doubled
                     const VectorXd Sf = frameOperator(b);
@@ -216,7 +216,7 @@ static void laws() {
     {
         const size_t n = 192; MatrixXd x = noise((int)n, 1, 3); x.array() += 2.0;
         Design d = D(Family::Itersine, 2.0, Sides::Analytic); d.edgeBins = EdgeBins::Drop;
-        const TimeBank b = design(d, n, 100);
+        const TimeFilterbank b = design(d, n, 100);
         const MatrixXd r = synthesis(b, analysis(b, x), n, nxr::signal::graphfilterbank::Synthesis::Tight);
         MatrixXd lost = x; { MatrixXcd X = fft::rfftColumns(x); const std::complex<double> dc = X(0, 0), ny = X(X.rows() - 1, 0); X.setZero(); X(0, 0) = dc; X(X.rows() - 1, 0) = ny; lost = fft::irfftColumns(X, n); }
         EXPECT(relErr(MatrixXd(x - r), lost) < 1e-12, "EdgeBins::Drop (Rheome): reconstruction misses exactly the DC and Nyquist content " + sci(relErr(MatrixXd(x - r), lost)));
@@ -225,8 +225,8 @@ static void laws() {
     for (Family fam : {Family::Itersine, Family::Meyer}) for (double gn : {1.0, 2.0}) {
         Design d = D(fam, gn, Sides::TwoSided); d.voices = 3;
         const size_t n = 200;
-        const TimeBank b = design(d, n, 128);
-        const auto bd = bounds(b);
+        const TimeFilterbank b = design(d, n, 128);
+        const auto bd = framebounds(b);
         const MatrixXcd z = cnoise((int)n, 2, 11);
         const Coefficients W = analysis(b, z);
         const double eT = relErr(synthesisComplex(b, W, n, nxr::signal::graphfilterbank::Synthesis::Tight), z), eD = relErr(synthesisComplex(b, W, n, nxr::signal::graphfilterbank::Synthesis::Dual), z);
@@ -238,7 +238,7 @@ static void laws() {
     {
         const size_t n = 256; const double fs = 128, f0 = 16;
         Design d = D(Family::Itersine, 1.0, Sides::TwoSided); d.voices = 3;
-        const TimeBank b = design(d, n, fs);
+        const TimeFilterbank b = design(d, n, fs);
         MatrixXcd ccw(n, 1), cw(n, 1);
         for (int i = 0; i < (int)n; ++i) { const double ph = 2 * kPi * f0 * i / fs; ccw(i, 0) = std::complex<double>(std::cos(ph), std::sin(ph)); cw(i, 0) = std::conj(ccw(i, 0)); }
         double eP = 0, eM = 0, eTot = 0;
@@ -250,12 +250,12 @@ static void laws() {
                "two-sided: a counter-clockwise tone has all its energy in the +f members (" + sci(eP) + " vs " + sci(eM) + " at -f), a clockwise one in the -f members (" + sci(wM) + " vs " + sci(wP) + ")");
         // the analytic bank on the real part cannot tell them apart
         MatrixXd re = ccw.real(), re2 = cw.real();
-        const TimeBank ba = design(D(Family::Itersine, 2.0, Sides::Analytic), n, fs);
+        const TimeFilterbank ba = design(D(Family::Itersine, 2.0, Sides::Analytic), n, fs);
         EXPECT(relErr(MatrixXd(analysis(ba, re)[3].cwiseAbs()), MatrixXd(analysis(ba, re2)[3].cwiseAbs())) < 1e-12, "analytic bank: the real parts of a ccw and a cw rotation are identical (no sense)");
     }
     // refusals
     {
-        const TimeBank ba = design(D(Family::Itersine, 2.0, Sides::Analytic), 128, 100);
+        const TimeFilterbank ba = design(D(Family::Itersine, 2.0, Sides::Analytic), 128, 100);
         EXPECT(throws([&] { analysis(ba, cnoise(128, 1, 1)); }), "an ANALYTIC bank REFUSES a complex input (std::invalid_argument)");
         EXPECT(throws([&] { design(D(Family::Itersine, 0.0, Sides::Analytic), 128, 100); }) && throws([&] { design(D(Family::Meyer, -1.0, Sides::TwoSided), 128, 100); }), "a gain of zero or below is refused (the gain is the peak in-band response)");
         EXPECT(throws([&] { design(D(Family::Morlet, 1.0, Sides::Analytic), 128, 100); }), "Morlet without centres is refused (nothing is assumed)");
@@ -274,7 +274,7 @@ static void laws() {
                 double f0 = 8.0;                                          // a bin of the 256-point grid, and a member centre (Itersine: 2^(6/2); Morlet / cwt: given)
                 if (fam == Family::Meyer) f0 = 5.5;                       // inside the plateau of the 4 … 8 Hz octave band (edges 0.5·2^k, transitions ±1/3 octave)
                 if (fam == Family::Morlet || fam == Family::Morse || fam == Family::Amor || fam == Family::Bump) d.centres = {8.0};
-                const TimeBank b = design(d, n, fs);
+                const TimeFilterbank b = design(d, n, fs);
                 const Coefficients W = analysis(b, tone(f0));
                 double best = 0; for (const auto& w : W) best = std::max(best, w.cwiseAbs().maxCoeff());
                 worstA = std::max(worstA, std::abs(best - gn / 2 * A) / (gn / 2 * A));
@@ -282,7 +282,7 @@ static void laws() {
             }
             for (Family fam : {Family::Itersine, Family::Meyer}) {
                 Design d = D(fam, gn, Sides::TwoSided); d.voices = 2;
-                const TimeBank b = design(d, n, fs);
+                const TimeFilterbank b = design(d, n, fs);
                 const Coefficients W = analysis(b, ctone(fam == Family::Meyer ? 5.5 : 8.0));
                 double best = 0; for (const auto& w : W) best = std::max(best, w.cwiseAbs().maxCoeff());
                 worstT = std::max(worstT, std::abs(best - gn * A) / (gn * A));
@@ -295,18 +295,18 @@ static void laws() {
     {
         const size_t n = 12000; const double fs = 1200;
         Design d = D(Family::Meyer, 2.0, Sides::Analytic); d.bands = {{8.0, 12.0}};
-        const TimeBank b = design(d, n, fs);
+        const TimeFilterbank b = design(d, n, fs);
         const MatrixXcd Z = analysis(b, noise(n, 3, 9))[0].transpose();          // [3 x n]
-        const MatrixXcd Zd = decimate(Z, 4, 1);
+        const MatrixXcd Zd = downsample(Z, 4, 1);
         bool cols = Zd.cols() == static_cast<Eigen::Index>((n - 1 + 3) / 4) && Zd.col(5) == Z.col(1 + 20);
         const MatrixXcd full = Z * Z.adjoint(), dec = 4.0 * (Zd * Zd.adjoint());
         const double rel = (dec - full).norm() / full.norm();
-        EXPECT(cols && rel < 1e-3, "decimate keeps every d-th column from the offset; Σ z zᴴ × d equals the full-rate sum (alpha at 1200 → 300 Hz: rel " + sci(rel) + ")");
-        EXPECT(throws([&] { decimate(Z, 0, 0); }) && throws([&] { decimate(Z, 4, 4); }), "a factor below 1 or an offset outside [0, d) is refused");
+        EXPECT(cols && rel < 1e-3, "downsample keeps every d-th column from the offset; Σ z zᴴ × d equals the full-rate sum (alpha at 1200 → 300 Hz: rel " + sci(rel) + ")");
+        EXPECT(throws([&] { downsample(Z, 0, 0); }) && throws([&] { downsample(Z, 4, 4); }), "a factor below 1 or an offset outside [0, d) is refused");
     }
     // Chebyshev-free sanity: scalogram / energies shapes and cwt dual
     {
-        const TimeBank b = design(D(Family::Meyer, 2.0, Sides::Analytic), 128, 100);
+        const TimeFilterbank b = design(D(Family::Meyer, 2.0, Sides::Analytic), 128, 100);
         const Coefficients W = analysis(b, noise(128, 2, 4));
         EXPECT(scalogram(W).size() == W.size() && energies(W).rows() == b.size() && energies(W).cols() == 2, "scalogram and energies have the members x channels shape");
     }

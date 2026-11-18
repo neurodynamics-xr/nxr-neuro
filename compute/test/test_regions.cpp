@@ -1,4 +1,4 @@
-// nxr::regions on synthetic graphs only: the line graph reproduces nxr::select::crossings + keepSpans (hysteresis, the time rule), a small planar graph (a
+// nxr::select on synthetic graphs only: the line graph reproduces nxr::select::crossings + keepSpans (hysteresis, the time rule), a small planar graph (a
 // grid) gives connected regions with their weights and peaks, a NaN node breaks a region, the size limits and the entry level drop regions, regions that do not
 // touch are never merged, the sign is the caller's (applySign), refusals.
 #include <cmath>

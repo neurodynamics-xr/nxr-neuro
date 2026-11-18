@@ -1,4 +1,4 @@
-// nxr::hodge — see hodge_weights.h. A port of nxr.inverse.fused.
+// nxr::operators — see hodge_weights.h. A port of nxr.inverse.fused.
 #include "nxr/operators/hodge_synthesis_weights.h"
 #include "nxr/measurement/mode_power.h"
 

@@ -1,4 +1,4 @@
-// nxr::synthesis and nxr::nulltest (synthesis/lagfree.h, nulltest.h; spec docs/specs/2026-11-17-surrogates.md; spec docs/specs/2026-11-14-vortex-cores-port.md, piece 10). SYNTHETIC ONLY. What is shown:
+// nxr::synthesis and nxr::stats (synthesis/lagfree.h, nulltest.h; spec docs/specs/2026-11-17-surrogates.md; spec docs/specs/2026-11-14-vortex-cores-port.md, piece 10). SYNTHETIC ONLY. What is shown:
 //   - the counter-based normals are standard (mean 0, variance 1) and a block does not depend on how the samples are cut: lagfreeBlock over [0, n) equals the blocks of any cut, to the last bit
 //   - the surrogate has the data's SPECTRUM (a peaked spectrum: the periodogram's peak and shape, never flat) and its zero-lag COVARIANCE (the real covariance the mixing was made from)
 //   - the surrogate is LAG-FREE: its cross-spectrum's imaginary part is zero within its sampling error, where the same noise with one channel delayed has a large one (the test has teeth)

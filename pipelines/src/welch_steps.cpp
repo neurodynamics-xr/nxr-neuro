@@ -1,5 +1,5 @@
 // nxr-pipelines — THE WELCH NODES (docs/specs/2026-11-17-definition-outputs.md, section 5): the spectra as pure nodes of nxr::graph::registry(), grouped names, each a thin
-// wrapper of the maths of compute/ (nxr::welch, nxr::rotary): the same function a test calls directly.
+// wrapper of the maths of compute/ (nxr::signal::spectral, nxr::rotary): the same function a test calls directly.
 //
 //   welch.psd          accumulate  x [channels x samples] (+ `exclude`: the recording's bad segments)  ->  psd [channels x bins], one-sided, described as a statistic
 //   rotary.pair        chunk       x + a stored [2 x C] operator (its rows a_x, a_y)  ->  z = a_x.X + i a_y.X, one complex series (pointwise, a linear map)

@@ -51,7 +51,7 @@ static void parity() {
     EXPECT(relErr(f.Q * f.S * f.Q.transpose() / f.S.norm(), A) < 1e-12, "quadratureFactor normalised = nxr lagged(F): " + sci(relErr(f.Q * f.S * f.Q.transpose() / f.S.norm(), A)));
     EXPECT(std::abs(f.S.norm() - nIm) < 1e-10, "||S||_F = ||Im C||_F");
     EXPECT((f.Q.transpose() * f.Q - MatrixXd::Identity(f.Q.cols(), f.Q.cols())).cwiseAbs().maxCoeff() < 1e-12, "Q orthonormal");
-    const auto P = nxr::signal::quadraturePairs(f, 3);
+    const auto P = nxr::signal::planes(f, 3);
     EXPECT(P.size() == 3, "three pairs");
     const MatrixXd sg = g.mat("sigma");
     for (int i = 0; i < 3; ++i) {
@@ -65,11 +65,11 @@ static void parity() {
         Eigen::Index i; (P[0].p.array().square() + P[0].q.array().square()).maxCoeff(&i);
         EXPECT(std::abs(P[0].q[i]) < 1e-12 && P[0].p[i] > 0, "gauge: q = 0 and p > 0 at the pair's strongest row");
     }
-    close("quadratureShare (explained)", quadratureShare(f, P), g.mat("explained")(0, 0), 1e-10);
+    close("lagged_share (explained)", lagged_share(f, P), g.mat("explained")(0, 0), 1e-10);
     double s2 = 0; for (const auto& p : P) s2 += 2 * p.sigma * p.sigma;
-    close("share = sum 2 sigma^2 / ||Im C||^2", quadratureShare(f, P), s2 / (nIm * nIm), 1e-10);
-    close("all pairs explain everything", quadratureShare(f, nxr::signal::quadraturePairs(f, 100)), 1.0, 1e-10);
-    EXPECT(relErr(form(nxr::signal::quadraturePairs(F, 1)[0]), g.mat("top_form")) < 1e-9, "quadraturePairs(F, 1) = nxr top_plane(F)");
+    close("share = sum 2 sigma^2 / ||Im C||^2", lagged_share(f, P), s2 / (nIm * nIm), 1e-10);
+    close("all pairs explain everything", lagged_share(f, nxr::signal::planes(f, 100)), 1.0, 1e-10);
+    EXPECT(relErr(form(nxr::signal::planes(F, 1)[0]), g.mat("top_form")) < 1e-9, "planes(F, 1) = nxr top_plane(F)");
     const nxr::signal::RotaryPower rp = nxr::signal::rotaryPower(F, P[0].p, P[0].q);
     EXPECT(rp.sense == 1 && std::abs((rp.positive - rp.negative) - 4 * P[0].sigma) < 1e-9 * (1 + rp.positive), "rotary power: P+ - P- = 4 sigma, sense +1 (p leads q)");
     // impropriety = 1 - travel index
@@ -107,9 +107,9 @@ static void parity() {
     g.mat("flux_strength_surrogate");
     const MatrixXd an = g.mat("angles");
     VectorXd av(an.cols()); for (int i = 0; i < an.cols(); ++i) av[i] = an(0, i);
-    const nxr::stats::Rayleigh ry = nxr::stats::rayleighTest(av);
-    close("meanResultantLength (R)", nxr::stats::meanResultantLength(av), g.mat("dir_R")(0, 0), 1e-12);
-    close("rayleighTest p", ry.p, g.mat("dir_p")(0, 0), 1e-12);
+    const nxr::stats::Rayleigh ry = nxr::stats::circ_rtest(av);
+    close("circ_r (R)", nxr::stats::circ_r(av), g.mat("dir_R")(0, 0), 1e-12);
+    close("circ_rtest p", ry.p, g.mat("dir_p")(0, 0), 1e-12);
     close("mean direction", ry.meanDirection, g.mat("dir_mean")(0, 0), 1e-12);
 }
 
@@ -127,17 +127,17 @@ static void zeroDelay() {
     EXPECT(nxr::signal::quadratureFractionFromFactor(F0) < 1e-7, "in-phase sensors: quadratureFraction 0 (" + sci(nxr::signal::quadratureFractionFromFactor(F0)) + ")");
     EXPECT(nxr::signal::quadratureFractionFromFactor(F) < 1e-7, "after a real mixing (an inverse): still 0 (" + sci(nxr::signal::quadratureFractionFromFactor(F)) + ")");
     EXPECT(quadratureEnergy(F, F).maxCoeff() < 1e-12 * (1 + (F * F.adjoint()).real().cwiseAbs().maxCoeff()), "quadratureEnergy 0 on every row");
-    EXPECT(nxr::signal::quadraturePairs(F, 3).empty(), "no quadrature pair");
+    EXPECT(nxr::signal::planes(F, 3).empty(), "no quadrature pair");
     // a lagged pair of sensors: mixing keeps Im C = K (Im C0) K^T
     MatrixXcd L0(M, 2);   // two independent patterns, each a real pattern plus i times another: a lag within each
     L0.col(0) = G.col(0).cast<cd>() + cd(0, 1) * G.col(1).cast<cd>();
     L0.col(1) = G.col(2).cast<cd>() + cd(0, 0.5) * G.col(0).cast<cd>();
     const MatrixXcd C0 = L0 * L0.adjoint(), C = K.cast<cd>() * C0 * K.transpose().cast<cd>();
-    EXPECT(relErr(nxr::signal::quadratureSpectrum(C), MatrixXd(K * nxr::signal::quadratureSpectrum(C0) * K.transpose())) < 1e-12, "Im(K C K^T) = K (Im C) K^T");
-    EXPECT(relErr(nxr::signal::coSpectrum(C), MatrixXd(K * nxr::signal::coSpectrum(C0) * K.transpose())) < 1e-12, "Re(K C K^T) = K (Re C) K^T");
+    EXPECT(relErr(nxr::signal::quadspectrum(C), MatrixXd(K * nxr::signal::quadspectrum(C0) * K.transpose())) < 1e-12, "Im(K C K^T) = K (Im C) K^T");
+    EXPECT(relErr(nxr::signal::cospectrum(C), MatrixXd(K * nxr::signal::cospectrum(C0) * K.transpose())) < 1e-12, "Re(K C K^T) = K (Re C) K^T");
     EXPECT(std::abs(nxr::signal::quadratureFractionFromFactor(K.cast<cd>() * L0) - nxr::signal::quadratureFraction(C)) < 1e-10, "quadratureFraction from the factor = from C");
     // per-row energy against the N x N matrix
-    const MatrixXd Im = nxr::signal::quadratureSpectrum(C);
+    const MatrixXd Im = nxr::signal::quadspectrum(C);
     const VectorXd e = quadratureEnergy(K.cast<cd>() * L0, K.cast<cd>() * L0);
     EXPECT((e - Im.array().square().matrix().rowwise().sum()).cwiseAbs().maxCoeff() < 1e-9 * Im.cwiseAbs().maxCoeff() * Im.cwiseAbs().maxCoeff(), "quadratureEnergy_i = sum_j (Im C_ij)^2");
 }
@@ -288,12 +288,12 @@ static void lag() {
     EXPECT(plain.result().Sq.empty() && relErr(plain.result().S[0], r.S[0]) == 0, "without the option CrossWelch is as before");
     const MatrixXcd L = hermitianFactor(S);
     EXPECT(relErr(L * L.adjoint(), S) < 1e-12, "hermitianFactor: S = L L^H");
-    const auto P = quadraturePairs(L, 3);
+    const auto P = planes(L, 3);
     EXPECT(P.size() == 1, "one quadrature pair");
     if (!P.empty()) {
         std::printf("  pair: p = (%.3f, %.3f), q = (%.3f, %.3f), sigma %.4g\n", P[0].p[0], P[0].p[1], P[0].q[0], P[0].q[1], P[0].sigma);
         EXPECT(P[0].p[0] > 0.99 && std::abs(P[0].q[1]) > 0.99 && P[0].q[1] > 0, "p = source 0 (the leader), q = source 1");
-        EXPECT(quadratureShare(quadratureFactor(L), P) > 0.9999, "the pair explains all of Im C");
+        EXPECT(lagged_share(quadratureFactor(L), P) > 0.9999, "the pair explains all of Im C");
         EXPECT(quadratureEnergy(L, L)[0] > 0, "energy in row 0");
     }
     EXPECT(std::abs(timeLag(S(0, 1), f0) - 0.025) < 5e-4, "timeLag(C_01) = a quarter cycle, 25 ms (" + std::to_string(timeLag(S(0, 1), f0)) + ")");
@@ -326,9 +326,9 @@ static void lag() {
 static void stats() {
     std::cout << "=== circular statistics ===\n";
     VectorXd same = VectorXd::Constant(20, 0.7);
-    EXPECT(std::abs(meanResultantLength(same) - 1) < 1e-14 && std::abs(rayleighTest(same).meanDirection - 0.7) < 1e-14 && rayleighTest(same).p < 1e-8, "equal directions: R = 1, small p");
+    EXPECT(std::abs(circ_r(same) - 1) < 1e-14 && std::abs(circ_rtest(same).meanDirection - 0.7) < 1e-14 && circ_rtest(same).p < 1e-8, "equal directions: R = 1, small p");
     VectorXd uni(16); for (int i = 0; i < 16; ++i) uni[i] = 2 * kPi * i / 16;
-    EXPECT(meanResultantLength(uni) < 1e-14 && rayleighTest(uni).p > 0.99, "uniform directions: R = 0, p = 1");
+    EXPECT(circ_r(uni) < 1e-14 && circ_rtest(uni).p > 0.99, "uniform directions: R = 0, p = 1");
     EXPECT(throws([&] { hermitianFactor(MatrixXcd::Zero(2, 3)); }), "a non-square cross-spectrum refused");
     EXPECT(throws([&] { rotarySpectrum(VectorXcd::Zero(10), 0.0, {10.0}); }), "no sampling frequency refused");
 }

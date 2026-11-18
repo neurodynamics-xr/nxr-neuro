@@ -1,4 +1,4 @@
-// nxr::histogram — see include/nxr/histogram.h.
+// nxr::stats::histogram — see include/nxr/histogram.h.
 #include "nxr/stats/histogram.h"
 
 #include <algorithm>

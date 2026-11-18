@@ -1,4 +1,4 @@
-// nxr::registration — the resampling operator between two registered spheres (FreeSurfer's `sphere.reg`, or any sphere on which two surfaces are put in
+// nxr::operators::registration — the resampling operator between two registered spheres (FreeSurfer's `sphere.reg`, or any sphere on which two surfaces are put in
 // correspondence): a pure function of matrices (positions and faces in, a sparse matrix out); no file, no subject, no knowledge of where the spheres come from.
 //
 //   a registered sphere puts a vertex of one surface at a place on a common sphere; the operator W [to x from] carries a field on the `from` surface to the `to`
@@ -67,4 +67,4 @@ Csr<S> resample_operator(const std::vector<S>& from_positions, const std::vector
 template <class S>
 std::vector<S> carry(const Csr<S>& w, const std::vector<S>& x);
 
-}  // namespace nxr::registration
+}  // namespace nxr::operators::registration

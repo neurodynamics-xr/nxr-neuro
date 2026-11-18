@@ -1,6 +1,6 @@
 // nxr::signal::graphfilterbank::morletBand against nxr (golden: test/golden/gen_morlet_golden.py, from nxr/detect/vortex.py morlet_gain, the
 // Studio's morlet_hat, nxr/filters/taps.py gain_taps): the gain, the even and odd taps of two bands, and the band's analytic signal of a synthetic series through the taps
-// route (nxr nxr::taps) against nxr's FFT route, away from the series' ends. Then: unit peak at the arithmetic centre, FWHM = the band's width, a refusal.
+// route (nxr nxr::signal) against nxr's FFT route, away from the series' ends. Then: unit peak at the arithmetic centre, FWHM = the band's width, a refusal.
 #include <cmath>
 #include <complex>
 #include <cstdio>

@@ -1,4 +1,4 @@
-// nxr::flow::connection — the Cortical Flow Studio's optical flow, ported line for line; see opticalflow_connection.h.
+// nxr::signal::connection — the Cortical Flow Studio's optical flow, ported line for line; see opticalflow_connection.h.
 // Studio files: flow/opticalFlow.ts (componentPencil, frameTerms, embed, opticalFlow), differential/intrinsicGauge.ts, differential/faceGradient.ts,
 // differential/connectionLaplacian.ts (tangentBasis' normals, rescaledAngle, coneTarget).
 #include "nxr/signal/opticalflow_connection.h"

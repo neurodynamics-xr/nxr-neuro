@@ -1,5 +1,5 @@
 #pragma once
-// nxr::histogram — THE DISTRIBUTION of a non-negative series as a measurement over a time partition (spec docs/specs/2026-11-13-single-events.md, the
+// nxr::stats::histogram — THE DISTRIBUTION of a non-negative series as a measurement over a time partition (spec docs/specs/2026-11-13-single-events.md, the
 // runner decisions of 2026-11-13: a global statistic is a stored node, its distribution, and percentiles are read off it). A port of nxr's
 // `_core_threshold` (nxr/detect/vortex.py; the Studio's port: `curlCoreThreshold`, studio/src/engine/toolbox/measure/curlCores.ts), the reference:
 //

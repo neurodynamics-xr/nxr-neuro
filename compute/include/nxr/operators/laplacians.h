@@ -215,7 +215,7 @@ Normalise normaliseOf(const std::string& name);
 Hermitian magneticLaplacian(int n, const Edges& edges, const std::vector<Complex>& W, Normalise normalise);
 
 /** THE TRANSPORTED MAGNETIC LAPLACIAN (a connection Laplacian whose transport is the surface's rotation times the measured lag): on n vertices with a
- *  b-vector a vertex (b = 3: a current), W_uv = w_uv e^{iθ_uv} R_uv (R_uv [b x b] orthogonal, carrying v's vector to u: nxr::transport), W_vu = W_uvᴴ,
+ *  b-vector a vertex (b = 3: a current), W_uv = w_uv e^{iθ_uv} R_uv (R_uv [b x b] orthogonal, carrying v's vector to u: nxr::geometry), W_vu = W_uvᴴ,
  *  D_uu = Σ_v w_uv I_b; L = D − W [b·n x b·n], Hermitian, PSD, its quadratic form Σ_edges w_uv |x_u − e^{iθ_uv} R_uv x_v|². Its lowest eigenvector is ONE
  *  vector map x (b complex numbers a vertex) whose transported lags fit the measured ones: no per-vertex sign is chosen; only a global phase remains.
  *  `normalise` symmetric: D^{-1/2} L D^{-1/2}. Throws std::invalid_argument on mismatched sizes, a self-loop, an edge twice, a negative or non-finite
@@ -234,7 +234,7 @@ Hermitian blockMagneticLaplacian(int n, const Edges& edges, const std::vector<Ei
 /** the winding number of arg x round each face (faces CCW): an integer per face */
 std::vector<int> winding(const Eigen::VectorXcd& x, const Faces& faces);
 
-}  // namespace nxr::magnetic
+}  // namespace nxr::operators
 
 namespace nxr::operators::differential {
 // ── Covariant differential operators on 3-vector cortical fields ──────────────

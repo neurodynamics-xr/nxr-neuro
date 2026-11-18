@@ -1,5 +1,5 @@
 #pragma once
-// nxr::transport — THE GEOMETRY TRANSPORT: carrying a vector along the cortex as a current NORMAL to it would be carried (a rotation R_uv per edge, SO(3)).
+// nxr::geometry — THE GEOMETRY TRANSPORT: carrying a vector along the cortex as a current NORMAL to it would be carried (a rotation R_uv per edge, SO(3)).
 // It ENCODES THE PRIOR that currents are normal to the cortex: a named option for that model, NOT the
 // default and NOT the direction route. Direction analysis makes no orientation assumption: the joint data-block magnetic Laplacian
 // (magnetic.h, blockMagneticLaplacian) takes the relation between two currents from the data. With a measured lag θ, e^{iθ} R_uv is the transport of
@@ -48,7 +48,7 @@ struct Compared {
 /** T [E] the edges' 3 x 3 blocks ⟨J_u J_vᴴ⟩, R [E] their rotations, Tuu / Tvv [E] the ends' powers (tr of their own blocks) */
 Compared compare(const std::vector<Eigen::MatrixXcd>& T, const std::vector<Eigen::Matrix3d>& R, const Eigen::VectorXd& Tuu, const Eigen::VectorXd& Tvv);
 
-}  // namespace nxr::transport
+}  // namespace nxr::geometry
 #include "nxr/geometry/mesh.h"
 
 namespace nxr::geometry::transport {

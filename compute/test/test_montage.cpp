@@ -1,4 +1,4 @@
-// nxr::montage (include/nxr/montage.h): the 10-05 rule on synthetic heads, and against MNE-Python's `spherical_1005` (golden/montage_golden.txt, made once by golden/gen_montage_golden.py;
+// nxr::meeg (include/nxr/montage.h): the 10-05 rule on synthetic heads, and against MNE-Python's `spherical_1005` (golden/montage_golden.txt, made once by golden/gen_montage_golden.py;
 // the generator only calls MNE and the golden is its output).
 //   1. the names: 345 labels of the 10-05, the 10-10 and 10-20 subsets inside them, MNE's own lists inside ours, the old names;
 //   2. a SPHERE (a triangulated sphere of radius 0.095 m, moved by an arbitrary rotation, scale and shift): after a similarity alignment (Umeyama 1991) onto MNE's positions the error is

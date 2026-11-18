@@ -1,4 +1,4 @@
-// nxr::lag (lagStatistics, holonomy, pairsAtDistance, circularShift) and timebank::equivalentBandwidth / independentEstimates, synthetic only:
+// nxr::stats (lagStatistics, holonomy, pairsAtDistance, circularShift) and timebank::equivalentBandwidth / independentEstimates, synthetic only:
 //   the equivalent bandwidth of a rectangular band is its width; THE LAG'S STANDARD ERROR against a simulation: two channels sharing a band-limited
 //   signal one sample apart, plus independent noise, 500 trials of 4 s through the Meyer alpha band and crossSpectrum: the spread of the estimated lag
 //   equals se(θ) with n = independentEstimates (B·T), not with 2BT; the coherence's debiasing; holonomy 0 for lags that come from one phase map
@@ -27,7 +27,7 @@ int main() {
 
   // THE EQUIVALENT BANDWIDTH: a rectangular band [8, 12] Hz is 4 Hz wide
   {
-    tb::TimeBank b{tb::Family::Meyer, 1.0, tb::Sides::Analytic, tb::EdgeBins::Single};
+    tb::TimeFilterbank b{tb::Family::Meyer, 1.0, tb::Sides::Analytic, tb::EdgeBins::Single};
     b.fs = 200;
     tb::Member m;
     m.gain = [](double f) { return std::abs(f) >= 8 && std::abs(f) <= 12 ? 1.0 : 0.0; };

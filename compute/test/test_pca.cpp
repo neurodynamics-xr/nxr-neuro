@@ -1,4 +1,4 @@
-// nxr::pca against its reference (golden: test/golden/pca_golden.txt, gen_pca_golden.py: numpy's SVD of the centred table, the sign convention applied; synthetic data only), and its own properties:
+// nxr::stats against its reference (golden: test/golden/pca_golden.txt, gen_pca_golden.py: numpy's SVD of the centred table, the sign convention applied; synthetic data only), and its own properties:
 // the sign convention, orthonormal components, the variance shares, the reconstruction (full rank returns the table, k = 0 the mean, k components the best rank-k fit), agreement with the eigendecomposition
 // of the table's covariance (nxr::signal::leading), a rank-deficient table, and the refusals.
 #include <cmath>

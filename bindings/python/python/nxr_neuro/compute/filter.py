@@ -46,7 +46,7 @@ def _run(kind, x, sfreq, lower, upper, frequencies, method, ripple, transition_b
 
 def lowpass(x, upper: float, sfreq: float, method=None, ripple=1e-3, transition_bandwidth=None, edge="mean_of_transient", transient_energy=0.99,
             transient_samples=None, remove_mean=True, notch_bandwidth=None, bandstop_order=4):
-    """Low-pass filter (`nxr::filter::lowpass`).
+    """Low-pass filter (`nxr::signal::filters::lowpass`).
 
     Parameters
     ----------
@@ -65,7 +65,7 @@ def lowpass(x, upper: float, sfreq: float, method=None, ripple=1e-3, transition_
 
 def highpass(x, lower: float, sfreq: float, method=None, ripple=1e-3, transition_bandwidth=None, edge="mean_of_transient", transient_energy=0.99,
              transient_samples=None, remove_mean=True, notch_bandwidth=None, bandstop_order=4):
-    """High-pass filter (`nxr::filter::highpass`).
+    """High-pass filter (`nxr::signal::filters::highpass`).
 
     Parameters
     ----------
@@ -84,7 +84,7 @@ def highpass(x, lower: float, sfreq: float, method=None, ripple=1e-3, transition
 
 def bandpass(x, lower: float, upper: float, sfreq: float, method=None, ripple=1e-3, transition_bandwidth=None, edge="mean_of_transient",
              transient_energy=0.99, transient_samples=None, remove_mean=True, notch_bandwidth=None, bandstop_order=4):
-    """Band-pass filter (`nxr::filter::bandpass`).
+    """Band-pass filter (`nxr::signal::filters::bandpass`).
 
     Parameters
     ----------
@@ -103,7 +103,7 @@ def bandpass(x, lower: float, upper: float, sfreq: float, method=None, ripple=1e
 
 def bandstop(x, lower: float, upper: float, sfreq: float, method=None, ripple=1e-3, transition_bandwidth=None, edge="mean_of_transient",
              transient_energy=0.99, transient_samples=None, remove_mean=True, notch_bandwidth=None, bandstop_order=4):
-    """Band-stop filter (`nxr::filter::bandstop`).
+    """Band-stop filter (`nxr::signal::filters::bandstop`).
 
     Parameters
     ----------
@@ -122,7 +122,7 @@ def bandstop(x, lower: float, upper: float, sfreq: float, method=None, ripple=1e
 
 def notch(x, frequencies: Sequence[float], sfreq: float, method=None, ripple=1e-3, transition_bandwidth=None, edge="mean_of_transient",
           transient_energy=0.99, transient_samples=None, remove_mean=True, notch_bandwidth=None, bandstop_order=4):
-    """Notch filter at the line frequency and its harmonics (`nxr::filter::notch`).
+    """Notch filter at the line frequency and its harmonics (`nxr::signal::filters::notch`).
 
     Parameters
     ----------

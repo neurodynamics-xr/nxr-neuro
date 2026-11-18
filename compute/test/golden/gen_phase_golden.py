@@ -1,6 +1,6 @@
 """Writes phase_golden.txt: nxr's phase reader (nxr/detect/core_phase.py: `gradient_and_kernel`'s GV, the P1 gradient onto the vertices, and `read_out`'s
 formulas: grad phi = Im(conj(c) grad c) / max(|c|^2, 1e-30), projected on the vertex normals; u = -om grad phi / max(|grad phi|^2, 1e-12)), the reference of
-nxr::phase, on a synthetic closed surface: an icosphere (level 3, radius 50 mm, bumped), area-weighted vertex normals, and a random complex scalar field
+nxr::signal, on a synthetic closed surface: an icosphere (level 3, radius 50 mm, bumped), area-weighted vertex normals, and a random complex scalar field
 (3 frames). Synthetic data only.
 Run:  uv run --project <nxr checkout> python compute/test/golden/gen_phase_golden.py compute/test/golden/phase_golden.txt"""
 import sys

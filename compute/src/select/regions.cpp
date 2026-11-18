@@ -1,4 +1,4 @@
-// nxr::regions — regions on a graph (regions.h).
+// nxr::select — regions on a graph (regions.h).
 #include "nxr/select/regions.h"
 
 #include <algorithm>

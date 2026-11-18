@@ -1,4 +1,4 @@
-// nxr::forms against the Studio's own functions (golden: test/golden/gen_forms_golden.mts, from fieldForms.ts `formValues` on faceGradient.ts
+// nxr::signal against the Studio's own functions (golden: test/golden/gen_forms_golden.mts, from fieldForms.ts `formValues` on faceGradient.ts
 // `assembleFaceGradient`): on a bumpy icosphere with random ℝ, ℂ and ℍ fields (two frames each), the vertex normals, the mean curvature, the signed volume
 // and EVERY form of every type equal the Studio's, value by value (float32, to the bit). Then the complex extension: a linear form of re + i·im is
 // form(re) + i·form(im); abs / absq give the envelope over every real and imaginary component; a type without the form, or a length that is not whole

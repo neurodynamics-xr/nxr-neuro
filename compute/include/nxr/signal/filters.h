@@ -1,7 +1,7 @@
 #pragma once
-// nxr::filter — standard temporal filters of sensor recordings, STREAMING: a state fed chunk after chunk.
+// nxr::signal::filters — standard temporal filters of sensor recordings, STREAMING: a state fed chunk after chunk.
 //
-// PURE MATHS (arrays in, arrays out; the transform is nxr::fft). No file I/O.
+// PURE MATHS (arrays in, arrays out; the transform is nxr::signal). No file I/O.
 //
 // THE VERBS (MATLAB Signal Processing Toolbox names; `notch` for line noise):
 //     lowpass   remove everything above an edge            highpass  remove everything below an edge
@@ -138,8 +138,8 @@ Eigen::MatrixXd bandstop(const Eigen::MatrixXd& x, double lowerEdge, double uppe
 Eigen::MatrixXd notch(const Eigen::MatrixXd& x, const std::vector<double>& frequencies, FilterOptions options);
 
 /** The Kaiser window of n samples (symmetric, scipy / MATLAB kaiser(n, beta)). */
-Eigen::VectorXd kaiserWindow(std::size_t n, double beta);
+Eigen::VectorXd kaiser(std::size_t n, double beta);
 /** MATLAB kaiserord for a transition of width `transition` Hz at sfreq and a deviation `ripple`: the (not yet even) order and beta. */
-std::pair<std::size_t, double> kaiserOrder(double transitionHz, double sfreq, double ripple);
+std::pair<std::size_t, double> kaiserord(double transitionHz, double sfreq, double ripple);
 
 }  // namespace nxr::signal::filters

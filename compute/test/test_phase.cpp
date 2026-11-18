@@ -1,4 +1,4 @@
-// nxr::phase against nxr's phase reader (golden: test/golden/gen_phase_golden.py, from nxr/detect/core_phase.py's `gradient_and_kernel` GV and `read_out`'s
+// nxr::signal against nxr's phase reader (golden: test/golden/gen_phase_golden.py, from nxr/detect/core_phase.py's `gradient_and_kernel` GV and `read_out`'s
 // formulas): the phase gradient and the velocity of a random complex field on a bumped icosphere (642 vertices, mm), three frames. Then what the maths
 // promises, on a sphere (radius 50 mm):
 //   TRAVELLING  z = e^{-i m λ} (m = 2, λ the longitude): ∇φ along e_λ with |∇φ| = m/ρ, the speed ω ρ/m, the travelling index 1;

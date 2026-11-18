@@ -1,4 +1,4 @@
-// nxr::extent — the space × time extent of an event on the joint cells (extent.h).
+// nxr::select — the space × time extent of an event on the joint cells (extent.h).
 #include "nxr/select/extent.h"
 
 #include <algorithm>

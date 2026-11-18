@@ -1,4 +1,4 @@
-// nxr::nearest — see nxr/geometry/surface_maps.h.
+// nxr::geometry::nearest — see nxr/geometry/surface_maps.h.
 #include "nxr/geometry/surface_maps.h"
 
 #include <algorithm>

@@ -140,4 +140,4 @@ const std::vector<ConversionEdge>& conversionGraph() {
     return edges;
 }
 
-} // namespace nxr::manifold::registry
+} // namespace nxr::geometry::registry

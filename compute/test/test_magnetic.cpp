@@ -1,4 +1,4 @@
-// nxr::core::congruence and nxr::magnetic (the magnetic Laplacian, its eigenpairs, the winding of a complex field), on synthetic data only:
+// nxr::core::congruence and nxr::operators (the magnetic Laplacian, its eigenpairs, the winding of a complex field), on synthetic data only:
 //   congruence           against the dense A M Aᴴ;
 //   hermitianEigs        a ring with flux α (exact λ_k = 2 − 2cos(2π(k + α)/n)), with α = 0 too (doubly degenerate pairs); a random graph with random
 //                        lags against scipy's eigsh (golden: gen_magnetic_golden.py) and against the dense oracle;

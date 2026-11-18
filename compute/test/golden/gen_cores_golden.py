@@ -1,4 +1,4 @@
-"""Writes cores_golden.txt: the reference of nxr::cores::corePatches, nxr's `_core_patches` (nxr/detect/vortex.py), on a SYNTHETIC unit-icosphere cortex (radius 80 mm, 2562 vertices) with PLANTED BLOBS: in each of
+"""Writes cores_golden.txt: the reference of nxr::select::corePatches, nxr's `_core_patches` (nxr/detect/vortex.py), on a SYNTHETIC unit-icosphere cortex (radius 80 mm, 2562 vertices) with PLANTED BLOBS: in each of
 8 frames a few Gaussian bumps (both signs, different widths, some touching, some across the frame's other blobs) plus a little noise, as a hatted curl would show. The map is rounded to float32 first (nxr's
 float32 maps; the same input reaches both). The threshold is the 98th percentile of |map| over all frames (the exact one: nothing sits within rounding of it). Run:
   uv run --project <nxr checkout> python compute/test/golden/gen_cores_golden.py compute/test/golden/cores_golden.txt

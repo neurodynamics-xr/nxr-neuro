@@ -1,4 +1,4 @@
-// nxr::risefall against Rheome's rheome.detect.risefall (golden: test/golden/risefall_golden.txt, gen_risefall_golden.m, MATLAB on synthetic double-sigmoid episodes with known parameters and
+// nxr::select against Rheome's rheome.detect.risefall (golden: test/golden/risefall_golden.txt, gen_risefall_golden.m, MATLAB on synthetic double-sigmoid episodes with known parameters and
 // noise): the fitted tOn, tOff, tauR, tauF, b, h, r² and the plateau, for the linear and the quadrature model, to the optimizer's tolerance; the planted parameters recovered; a window under 11
 // samples and a series of no amplitude not ok; the posterior model refused by name.
 #include <cmath>

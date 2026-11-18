@@ -1,5 +1,5 @@
 #pragma once
-// nxr::filterbank — spectral filterbanks on a self-adjoint operator (the graph filterbank).
+// nxr::signal::graphfilterbank — spectral filterbanks on a self-adjoint operator (the graph filterbank).
 //
 // PURE MATHS: gains are functions of an eigenvalue λ; a field is filtered either through the operator's EIGENBASIS (exact:
 // coefficients g(λ_k)·⟨φ_k, f⟩_M) or by a CHEBYSHEV series in the PENCIL (L, M) (no eigenvectors). Arrays and operators in,
@@ -11,8 +11,8 @@
 // the bank is TIGHT when A = B (then synthesis∘analysis = A·identity). Analysis: W_m = g_m(L) f. Synthesis: f = Σ_m w_m(L) W_m with
 // w_m = g_m / S (the canonical DUAL: exact for any bank that covers the spectrum) or w_m = g_m (TIGHT: exact when S = const).
 //
-// Part 2 (time / continuous-wavelet and joint time–vertex banks) reuses Bank, Member, gains/bounds and the Coefficients layout:
-// a joint bank is a product of a time Bank (gains on FFT bins, nxr::fft) and a graph Bank.
+// Part 2 (time / continuous-wavelet and joint time–vertex banks) reuses GraphFilterbank, Member, gains/bounds and the Coefficients layout:
+// a joint bank is a product of a time GraphFilterbank (gains on FFT bins, nxr::signal) and a graph GraphFilterbank.
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <complex>
@@ -67,7 +67,7 @@ struct Member {
     Gain gain;
 };
 
-struct Bank {
+struct GraphFilterbank {
     std::string kind;                    // "mexhat" · "heat" · "itersine" · "logitersine" · "meyer"
     std::vector<Member> members;
     double total = std::numeric_limits<double>::quiet_NaN();   // Σ g² where the design makes it constant (1), else NaN
@@ -81,7 +81,7 @@ struct Bank {
 };
 
 /** Rheome's `designbank` on a range: Family::MexHat · Heat · Itersine · LogItersine. Throws on a signed or empty range. */
-Bank design(Family family, const Range& range, const DesignOptions& options = {});
+GraphFilterbank design(Family family, const Range& range, const DesignOptions& options = {});
 
 /** Meyer's auxiliary ν: 0 → 1 on [0, 1], ν(x) + ν(1 − x) = 1, four derivatives flat at the ends. */
 double meyerNu(double x);
@@ -97,20 +97,20 @@ double mexicanHat(double lambda, double centre);
 /** The λ above the peak where the hat's gain falls to `floor` (default 1e-3): how far the modes must reach for the eigen route to stand for the hat within `floor`. */
 double mexicanHatReach(double centre, double floor = 1e-3);
 /** The Studio's / nxr's DYADIC (Meyer) frame over ascending edges: scaling [0,e₀], a wavelet per [e_{k−1},e_k], top [e_last,∞); Σ g² = 1. */
-Bank dyadic(const std::vector<double>& edges, double halfWidth = 1.0 / 3.0);
+GraphFilterbank dyadic(const std::vector<double>& edges, double halfWidth = 1.0 / 3.0);
 /** The surface's frame by Weyl's law: edges 4π·2^j / area, j = 0 … levels − 1 (`area` in the units of 1/λ). */
-Bank weyl(double area, int levels, double halfWidth = 1.0 / 3.0);
+GraphFilterbank weyl(double area, int levels, double halfWidth = 1.0 / 3.0);
 /** A basis Weyl does not fit (the relative Dirac): edges 2^j + ½ on the RANK coordinate (`rankCoordinates`), never on λ. */
-Bank rank(int levels, double halfWidth = 1.0 / 3.0);
+GraphFilterbank rank(int levels, double halfWidth = 1.0 / 3.0);
 /** Each mode's pattern index (1-based) among |λ|, counted in groups of `mult` (4: a quaternion quadruplet), in the modes' own order. */
 Eigen::VectorXd rankCoordinates(const Eigen::VectorXd& lambdas, int mult = 1);
 
 // ── the frame ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Every member's gain at each λ → [K × M]. */
-Eigen::MatrixXd gains(const Bank& bank, const Eigen::VectorXd& lambda);
+Eigen::MatrixXd gains(const GraphFilterbank& bank, const Eigen::VectorXd& lambda);
 /** The canonical dual's gains g_m / S → [K × M]; 0 where S ≤ 1e-12·max S (uncovered). */
-Eigen::MatrixXd dualGains(const Bank& bank, const Eigen::VectorXd& lambda);
+Eigen::MatrixXd dualGains(const GraphFilterbank& bank, const Eigen::VectorXd& lambda);
 
 struct Bounds {
     double A = 0, B = 0;       // min and max of S(λ) = Σ g²
@@ -118,18 +118,18 @@ struct Bounds {
     double uncovered = 0;      // fraction of the λ with S ≈ 0
 };
 /** Frame bounds on `lambda` (the spectrum the transform will see). */
-Bounds bounds(const Bank& bank, const Eigen::VectorXd& lambda);
+Bounds framebounds(const GraphFilterbank& bank, const Eigen::VectorXd& lambda);
 /** Frame bounds on the bank's own spectrum if it has one, else on 512 points of [0, λmax] (the continuum's, not the transform's). */
-Bounds bounds(const Bank& bank);
+Bounds framebounds(const GraphFilterbank& bank);
 /** |B/A − 1| ≤ tol (Rheome's isframetight, tol 1e-6). */
-bool isTight(const Bank& bank, double tol = 1e-6);
+bool isframetight(const GraphFilterbank& bank, double tol = 1e-6);
 
 /** Member descriptors (Rheome: scales, widths = √(2t), centerWavenumbers, MassLost, Usable). NaN where a family has none. */
-Eigen::VectorXd scales(const Bank& bank);
-Eigen::VectorXd widths(const Bank& bank);
-Eigen::VectorXd centerWavenumbers(const Bank& bank);   // gain-weighted centroid of √λ over [λmin, λmax], 512 points
+Eigen::VectorXd scales(const GraphFilterbank& bank);
+Eigen::VectorXd widths(const GraphFilterbank& bank);
+Eigen::VectorXd centerWavenumbers(const GraphFilterbank& bank);   // gain-weighted centroid of √λ over [λmin, λmax], 512 points
 /** Fraction of each member's spectral mass beyond λmax (the coi analogue): mexhat (1+u)e^(−u), u = tλmax; heat e^(−u); itersine 0. */
-Eigen::VectorXd massLost(const Bank& bank);
+Eigen::VectorXd massLost(const GraphFilterbank& bank);
 inline bool usable(double massLost) { return massLost <= 0.05; }
 
 // ── the transforms ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -186,25 +186,25 @@ using CoefficientsC = std::vector<Eigen::MatrixXcd>;
 enum class Synthesis { Dual, Tight };
 
 /** W_m = Φ g_m(Λ) Φᵀ B F. */
-Coefficients analysis(const Bank& bank, const EigenTransform& t, const Eigen::MatrixXd& F);
-CoefficientsC analysis(const Bank& bank, const EigenTransform& t, const Eigen::MatrixXcd& F);
+Coefficients analysis(const GraphFilterbank& bank, const EigenTransform& t, const Eigen::MatrixXd& F);
+CoefficientsC analysis(const GraphFilterbank& bank, const EigenTransform& t, const Eigen::MatrixXcd& F);
 /** W_m = g_m(M⁻¹L) F, by the series. */
-Coefficients analysis(const Bank& bank, const ChebyshevOperator& t, const Eigen::MatrixXd& F);
-CoefficientsC analysis(const Bank& bank, const ChebyshevOperator& t, const Eigen::MatrixXcd& F);
+Coefficients analysis(const GraphFilterbank& bank, const ChebyshevOperator& t, const Eigen::MatrixXd& F);
+CoefficientsC analysis(const GraphFilterbank& bank, const ChebyshevOperator& t, const Eigen::MatrixXcd& F);
 
 /** ONE member's band: W_m alone (the spatial band of a level: member l of `weyl` is the level l's band), without the other members' cost. Throws on a member outside the bank. */
-Eigen::MatrixXd analysisMember(const Bank& bank, int member, const EigenTransform& t, const Eigen::MatrixXd& F);
-Eigen::MatrixXd analysisMember(const Bank& bank, int member, const ChebyshevOperator& t, const Eigen::MatrixXd& F);
+Eigen::MatrixXd analysisMember(const GraphFilterbank& bank, int member, const EigenTransform& t, const Eigen::MatrixXd& F);
+Eigen::MatrixXd analysisMember(const GraphFilterbank& bank, int member, const ChebyshevOperator& t, const Eigen::MatrixXd& F);
 /** How well the series of degree `order` stands for the gain g on [0, λmax]: the largest |g(λ) − Σ c_k T_k| over `samples` points. A narrow band at a fine level of a
  *  large mesh needs a high order (the gain is nearly a spike on [0, λmax]): the caller checks this before trusting a polynomial band. */
 double chebyshevError(const Gain& g, double lmax, int order, int samples = 4096);
 
 /** F = Σ_m w_m(L) W_m (exact eigenbasis). */
-Eigen::MatrixXd synthesis(const Bank& bank, const EigenTransform& t, const Coefficients& W, Synthesis mode = Synthesis::Dual);
-Eigen::MatrixXcd synthesis(const Bank& bank, const EigenTransform& t, const CoefficientsC& W, Synthesis mode = Synthesis::Dual);
+Eigen::MatrixXd igwt(const GraphFilterbank& bank, const EigenTransform& t, const Coefficients& W, Synthesis mode = Synthesis::Dual);
+Eigen::MatrixXcd igwt(const GraphFilterbank& bank, const EigenTransform& t, const CoefficientsC& W, Synthesis mode = Synthesis::Dual);
 /** F = Σ_m w_m(M⁻¹L) W_m; the dual weights g/S are themselves expanded in Chebyshev series (S must stay positive on [0, λmax]). */
-Eigen::MatrixXd synthesis(const Bank& bank, const ChebyshevOperator& t, const Coefficients& W, Synthesis mode = Synthesis::Dual);
-Eigen::MatrixXcd synthesis(const Bank& bank, const ChebyshevOperator& t, const CoefficientsC& W, Synthesis mode = Synthesis::Dual);
+Eigen::MatrixXd igwt(const GraphFilterbank& bank, const ChebyshevOperator& t, const Coefficients& W, Synthesis mode = Synthesis::Dual);
+Eigen::MatrixXcd igwt(const GraphFilterbank& bank, const ChebyshevOperator& t, const CoefficientsC& W, Synthesis mode = Synthesis::Dual);
 
 /** Energy per vertex (and time column), summed over members: Σ_m |W_m|² → [n × nT]  (Rheome scaleSpectrum). */
 Eigen::MatrixXd scaleEnergy(const Coefficients& W);
@@ -226,8 +226,8 @@ struct BandMoments {
     Eigen::VectorXd power;                     // [M] P_m (real)
     std::vector<Eigen::MatrixXcd> matrices;    // [M] C_m, each [K × K]: only when asked (`withMatrices`)
 };
-BandMoments bandMoments(const Bank& bank, const Eigen::VectorXd& lambda, const Eigen::MatrixXcd& C, bool withMatrices = false);
+BandMoments bandMoments(const GraphFilterbank& bank, const Eigen::VectorXd& lambda, const Eigen::MatrixXcd& C, bool withMatrices = false);
 /** The power alone, from the diagonal of C (each mode's power, [K]): P_m = Σ_k g_m(λ_k)² p_k. */
-Eigen::VectorXd bandPower(const Bank& bank, const Eigen::VectorXd& lambda, const Eigen::VectorXd& modePower);
+Eigen::VectorXd bandPower(const GraphFilterbank& bank, const Eigen::VectorXd& lambda, const Eigen::VectorXd& modePower);
 
 }  // namespace nxr::signal::graphfilterbank

@@ -1,5 +1,5 @@
 #pragma once
-// nxr::intervals — TEMPORAL EVENTS: the building blocks that find time windows of interest in a time series (spec docs/specs/2026-11-13-single-events.md,
+// nxr::select — TEMPORAL EVENTS: the building blocks that find time windows of interest in a time series (spec docs/specs/2026-11-13-single-events.md,
 // family A). PURE MATHS: a series in (any series: a sensor channel, a source or region signal, an amplitude; the blocks never know which), spans out.
 // A span is [start, stop) in samples of the series given. Span-wide thresholds (a percentile, a median) are the caller's: measurements over a time
 // partition, handed in as numbers.

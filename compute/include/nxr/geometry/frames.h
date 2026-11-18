@@ -1,5 +1,5 @@
 #pragma once
-// nxr::frames — the CANONICAL frames (north / west) and the ANATOMICAL frames (anterior / superior-or-medial) of a cortex: the one tangent frame per vertex that means the same in
+// nxr::geometry — the CANONICAL frames (north / west) and the ANATOMICAL frames (anterior / superior-or-medial) of a cortex: the one tangent frame per vertex that means the same in
 // every subject. Step 2 of the cortical coordinate system (docs/audits/2026-11-11-cortical-coordinates.md; the charts of nxr/chart.h are step 1).
 //
 // CANONICAL FRAMES. A port of Rheome's `+rheome/+geom/sphereframe.m` (MIT) = nxr's `nxr.geom.frames.hemisphere_frames(domain="sphere")` in closed form = the frames the Cortical Flow Studio
@@ -122,7 +122,7 @@ Eigen::VectorXd angleFromAnterior(const Eigen::Matrix<double, Eigen::Dynamic, 2,
 /** The same from a heading measured from north (e.g. angleFromNorth): (heading - angle) wrapped, towards the second axis with the handedness. Gauge-free. */
 Eigen::VectorXd angleFromAnterior(const Anatomical& a, const Eigen::VectorXd& headingFromNorth);
 
-}  // namespace nxr::frames
+}  // namespace nxr::geometry
 
 namespace nxr::geometry {
 // ── Normal Estimators ────────────────────────────────────────

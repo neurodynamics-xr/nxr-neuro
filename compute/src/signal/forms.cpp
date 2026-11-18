@@ -1,4 +1,4 @@
-// nxr::forms — a field's forms (forms.h): a line port of the Studio's fieldForms.ts and the faceGradient.ts functions they read. JavaScript's arithmetic:
+// nxr::signal — a field's forms (forms.h): a line port of the Studio's fieldForms.ts and the faceGradient.ts functions they read. JavaScript's arithmetic:
 // every value a double, stored as float where the Studio writes a Float32Array; Math.hypot as V8 computes it; compiled without fused multiply-add.
 #include "nxr/signal/forms.h"
 

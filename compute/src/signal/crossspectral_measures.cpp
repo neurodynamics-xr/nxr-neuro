@@ -20,9 +20,9 @@ using cd = std::complex<double>;
 namespace nxr::signal {
 using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXcd; using Eigen::VectorXd;
 
-MatrixXd coSpectrum(const MatrixXcd& C) { return C.real(); }
+MatrixXd cospectrum(const MatrixXcd& C) { return C.real(); }
 
-MatrixXd quadratureSpectrum(const MatrixXcd& C) { return C.imag(); }
+MatrixXd quadspectrum(const MatrixXcd& C) { return C.imag(); }
 
 }  // namespace nxr::signal
 
@@ -62,7 +62,7 @@ QuadraturePair gauge(const VectorXd& a, const VectorXd& b, double sigma) {
 }
 }  // namespace
 
-std::vector<QuadraturePair> quadraturePairs(const core::QuadratureFactor& f, int k) {
+std::vector<QuadraturePair> planes(const core::QuadratureFactor& f, int k) {
     std::vector<QuadraturePair> out;
     if (k < 1 || f.S.size() == 0) return out;
     const MatrixXcd H = f.S.cast<cd>() * cd(0, -1);   // H = -iS, Hermitian: S z = i sigma z  <=>  H z = sigma z
@@ -83,14 +83,14 @@ std::vector<QuadraturePair> quadraturePairs(const core::QuadratureFactor& f, int
     return out;
 }
 
-QuadraturePair quadraturePair(const core::QuadratureFactor& f) {
-    const auto p = quadraturePairs(f, 1);
+QuadraturePair top_plane(const core::QuadratureFactor& f) {
+    const auto p = planes(f, 1);
     return p.empty() ? QuadraturePair{} : p[0];
 }
 
-std::vector<QuadraturePair> quadraturePairs(const MatrixXcd& F, int k) { return quadraturePairs(core::quadratureFactor(F), k); }
+std::vector<QuadraturePair> planes(const MatrixXcd& F, int k) { return planes(core::quadratureFactor(F), k); }
 
-double quadratureShare(const core::QuadratureFactor& f, const std::vector<QuadraturePair>& pairs) {
+double lagged_share(const core::QuadratureFactor& f, const std::vector<QuadraturePair>& pairs) {
     const double total = f.S.squaredNorm();
     if (pairs.empty() || total == 0) return 0;
     MatrixXd P(f.Q.rows(), 2 * static_cast<Eigen::Index>(pairs.size()));
@@ -163,7 +163,7 @@ QuadraturePairFilters quadraturePairFilters(const MatrixXd& W, const MatrixXcd& 
     r.fy = VectorXd::Zero(W.cols());
     if (L.cols() == 0) return r;
     const MatrixXcd F = W.cast<cd>() * L;
-    const QuadraturePair pr = quadraturePair(core::quadratureFactor(F));
+    const QuadraturePair pr = top_plane(core::quadratureFactor(F));
     if (pr.p.size() == 0) return r;
     r.sigma = pr.sigma;
     r.fx = W.transpose() * pr.p;

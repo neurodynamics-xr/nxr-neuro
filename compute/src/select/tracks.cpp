@@ -1,4 +1,4 @@
-// nxr::tracks (tracks.h): nxr `_track_stats`'s linking.
+// nxr::select (tracks.h): nxr `_track_stats`'s linking.
 #include "nxr/select/tracks.h"
 
 #include <algorithm>

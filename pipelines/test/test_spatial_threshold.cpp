@@ -1,6 +1,6 @@
 // THE SPATIAL EVENTS' THRESHOLD by its false-alarm rate (spec docs/specs/2026-11-14-spatial-events.md, decision 2, corrected 2026-11-14), on a synthetic sphere (never a real dataset): an identity kernel, WHITE NOISE
 // only (no plant), a window of "bursts". `run spatial_baseline`, `run spatial_threshold` (the relative power's distribution OUTSIDE the window), then `run spatial_events`:
-//   - the stored histogram equals `nxr::histogram` of the DIRECT outside-frame relative power (taps, Kaiser-sinc at the frames, the dense exact hat, ÷ the baseline), counts to 0.1 % of the total
+//   - the stored histogram equals `nxr::stats::histogram` of the DIRECT outside-frame relative power (taps, Kaiser-sinc at the frames, the dense exact hat, ÷ the baseline), counts to 0.1 % of the total
 //   - `threshold: percentile` (the default, 99): on pure noise the share of vertex-frames above the threshold inside the window (the home map's counts) is about 1 % (tolerance 0.5-1.6 %), and the derived threshold is in the provenance
 //   - `threshold: ratio` 2: the same share is about 13.5 % (a single frame's relative power is about exponential; tolerance 9-18 %)
 //   - the distribution and the events do not depend on the storage chunk (4096 against 1000) or the block of frames (100 against 256); a rerun is a hit

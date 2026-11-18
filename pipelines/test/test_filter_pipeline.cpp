@@ -1,5 +1,5 @@
 // filter_compute on a small synthetic dataset (no real data): 3 channels, 10 s at 250 Hz, a recording with
-// projectors recorded in its provenance, and a bad span as the importer stores it (`<recording>_bad_segments`). Checks: the stored PSD equals nxr::welch on the same
+// projectors recorded in its provenance, and a bad span as the importer stores it (`<recording>_bad_segments`). Checks: the stored PSD equals nxr::signal::spectral on the same
 // samples with the same mask (float32), the segments across the bad span are left out, the result is identical for another chunk size, a cache hit, the refusal of a name
 // already stored and --replace, the field as nxr's qc stores a PSD (kind psd, on channels x the frequency line, folder sensor-frequency), its provenance, and the command.
 #include <unistd.h>

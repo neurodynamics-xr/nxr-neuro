@@ -1,4 +1,4 @@
-"""Writes group_tree_golden.txt: the reference of nxr::ladder::groupTreeFor, nxr's `geom.trees.Template.tree_for` (a subject's vertices on the group tree through the registered sphere:
+"""Writes group_tree_golden.txt: the reference of nxr::select::groupTreeFor, nxr's `geom.trees.Template.tree_for` (a subject's vertices on the group tree through the registered sphere:
 each takes the code of the nearest template vertex, hemisphere by hemisphere) on SYNTHETIC random spheres and random template codes.
 Run:  uv run --project <nxr checkout> python compute/test/golden/gen_group_tree_golden.py compute/test/golden/group_tree_golden.txt"""
 import sys

@@ -1,7 +1,7 @@
 #pragma once
-// nxr::timebank — the TIME filterbank: gains on FFT bins (the temporal half of the joint time–vertex bank).
+// nxr::signal::timefilterbank — the TIME filterbank: gains on FFT bins (the temporal half of the joint time–vertex bank).
 //
-// PURE MATHS (arrays in, arrays out; FFT by nxr::fft, with scipy's fast-length padding). Same Bank/Bounds vocabulary as nxr::filterbank (graph).
+// PURE MATHS (arrays in, arrays out; FFT by nxr::signal, with scipy's fast-length padding). Same GraphFilterbank/Bounds vocabulary as nxr::signal::graphfilterbank (graph).
 // Design note and where Rheome, nxr and the Studio differ: docs/specs/2026-11-10-filterbanks.md (part 2).
 //
 // THREE REQUIRED CHOICES — a bank has no default family, no default gain, no default sides (Design's only constructor takes all three, and the
@@ -49,7 +49,7 @@ using Gain1 = std::function<double(double)>;   // g(f), f in Hz (signed)
 enum class Family { Itersine, Meyer, Morlet, Morse, Amor, Bump };
 enum class Sides { Analytic, TwoSided };
 enum class EdgeBins { Drop, Single };
-enum class Padding { None, FastLen };          // None: the record is periodic (Rheome); FastLen: zero-padded to nextFastLen(2n), no wrap (the Studio pads to 2n)
+enum class Padding { None, FastLen };          // None: the record is periodic (Rheome); FastLen: zero-padded to next_fast_len(2n), no wrap (the Studio pads to 2n)
 enum class Role { Lowpass, Band, Highpass, Scaling, Wavelet, Top, Dc };
 
 struct Design {
@@ -77,7 +77,7 @@ struct Member {
     Gain1 gain;                                            // g(f) of signed f; the DC / Nyquist rule is NOT in it (see gains(bank))
 };
 
-struct TimeBank {
+struct TimeFilterbank {
     Family family; double gain; Sides sides; EdgeBins edgeBins;
     std::size_t nfft = 0;                                  // the grid the bank is designed on (the padded record length)
     double fs = 0;
@@ -87,7 +87,7 @@ struct TimeBank {
     int size() const { return static_cast<int>(members.size()); }
 };
 
-/** The record length the bank is designed on: n (None) or nextFastLen(2n) (FastLen). */
+/** The record length the bank is designed on: n (None) or next_fast_len(2n) (FastLen). */
 std::size_t gridLength(std::size_t n, Padding padding);
 /** MATLAB cwtfilterbank's record extension: [x; flipud(x)] (2n rows) — design the bank on 2n and keep the first n coefficient rows. */
 Eigen::MatrixXd extendSymmetric(const Eigen::MatrixXd& x);
@@ -99,26 +99,26 @@ std::vector<double> logCentres(double fs, double f0, double f1, int voices);
 std::vector<double> cwtCentres(double fmin, double fmax, int voices);
 
 /** Build the bank on a grid of `nfft` samples at `fs`. Throws on an unsatisfiable design (no member fits; gain <= 0; missing centres). */
-TimeBank design(const Design& d, std::size_t nfft, double fs);
+TimeFilterbank design(const Design& d, std::size_t nfft, double fs);
 
 /** The grid's frequencies: rfftfreq(nfft, 1/fs) (Analytic) or fftfreq(nfft, 1/fs) (TwoSided). */
-Eigen::VectorXd frequencies(const TimeBank& bank);
+Eigen::VectorXd bins(const TimeFilterbank& bank);
 /** Every member's gain on the bank's grid, [bins × M], with the DC / Nyquist rule (Analytic) applied. */
-Eigen::MatrixXd gains(const TimeBank& bank);
+Eigen::MatrixXd gains(const TimeFilterbank& bank);
 /** Every member's gain at arbitrary signed frequencies, [F × M] — the continuous design, no DC / Nyquist rule. */
-Eigen::MatrixXd gains(const TimeBank& bank, const Eigen::VectorXd& f);
+Eigen::MatrixXd gains(const TimeFilterbank& bank, const Eigen::VectorXd& f);
 /** Canonical dual gains g_m / S on the grid [bins × M]; 0 where S ≤ 1e-12·max S. */
-Eigen::MatrixXd dualGains(const TimeBank& bank);
+Eigen::MatrixXd dualGains(const TimeFilterbank& bank);
 /** Σ_m g_m² on the grid. */
-Eigen::VectorXd frameOperator(const TimeBank& bank);
+Eigen::VectorXd frameOperator(const TimeFilterbank& bank);
 
 /** Frame bounds of S = Σ g² on the interior bins (Analytic: DC and Nyquist excluded, as Rheome; TwoSided: every bin). Raw Σg² — Rheome reports S/2. */
-signal::graphfilterbank::Bounds bounds(const TimeBank& bank);
-bool isTight(const TimeBank& bank, double tol = 1e-6);
+signal::graphfilterbank::Bounds framebounds(const TimeFilterbank& bank);
+bool isframetight(const TimeFilterbank& bank, double tol = 1e-6);
 /** Centre of every member, Hz: the design's, or the g²-weighted centroid of |f| over the support where it has none. */
-Eigen::VectorXd centerFrequencies(const TimeBank& bank);
-/** Rheome's rates(): the sampling rate of each member's own sub-band (own-rate) transform: nextFastLen(oversample·bins)·fs/nfft; and the lengths. */
-std::pair<Eigen::VectorXd, std::vector<std::size_t>> rates(const TimeBank& bank, double oversample = 2.0);
+Eigen::VectorXd centerFrequencies(const TimeFilterbank& bank);
+/** Rheome's rates(): the sampling rate of each member's own sub-band (own-rate) transform: next_fast_len(oversample·bins)·fs/nfft; and the lengths. */
+std::pair<Eigen::VectorXd, std::vector<std::size_t>> rates(const TimeFilterbank& bank, double oversample = 2.0);
 
 // ── the transform ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -127,14 +127,14 @@ using Coefficients = std::vector<Eigen::MatrixXcd>;
 using nxr::signal::graphfilterbank::Synthesis;
 
 /** Analytic: a REAL signal x [n × C] (n ≤ nfft; zero-padded). W_m = ifft(rfft(x) · g_m) on the one-sided bins. */
-Coefficients analysis(const TimeBank& bank, const Eigen::MatrixXd& x);
+Coefficients analysis(const TimeFilterbank& bank, const Eigen::MatrixXd& x);
 /** TwoSided: a complex (or real) signal. W_m = ifft(fft(x) · g_m). Analytic REFUSES this overload (std::invalid_argument). */
-Coefficients analysis(const TimeBank& bank, const Eigen::MatrixXcd& x);
+Coefficients analysis(const TimeFilterbank& bank, const Eigen::MatrixXcd& x);
 /** Analytic synthesis → the real record [n × C]. Dual: Σ (g/S) ⊛ W, exact wherever the bank covers; Tight: Σ g ⊛ W / S_nominal (G², G²/2 at DC and
  *  Nyquist) — exact when the bank is tight, which is x = (2/G²) Re ifft(Σ g W) on the interior bins. */
-Eigen::MatrixXd synthesis(const TimeBank& bank, const Coefficients& W, std::size_t n, Synthesis mode = Synthesis::Dual);
+Eigen::MatrixXd synthesis(const TimeFilterbank& bank, const Coefficients& W, std::size_t n, Synthesis mode = Synthesis::Dual);
 /** TwoSided synthesis → the complex record [n × C]. */
-Eigen::MatrixXcd synthesisComplex(const TimeBank& bank, const Coefficients& W, std::size_t n, Synthesis mode = Synthesis::Dual);
+Eigen::MatrixXcd synthesisComplex(const TimeFilterbank& bank, const Coefficients& W, std::size_t n, Synthesis mode = Synthesis::Dual);
 
 /** |W_m|² per sample: the scalogram [nfft × C] of each member. */
 std::vector<Eigen::MatrixXd> scalogram(const Coefficients& W);
@@ -144,20 +144,20 @@ Eigen::MatrixXd energies(const Coefficients& W);
 /** Rheome's wt: one real signal; per member the coefficients at the member's OWN rate (inverse FFT of its bins alone, oversampled).
  *  Analytic only. coef[t] = ifft(bins · g) · (Nm / nfft) at instants t = k·nfft/(Nm·fs). */
 struct OwnRate { Eigen::VectorXcd coef; Eigen::VectorXd t; double rate = 0, weight = 0; };
-std::vector<OwnRate> analysisOwnRate(const TimeBank& bank, const Eigen::VectorXd& x, double oversample = 2.0);
+std::vector<OwnRate> analysisOwnRate(const TimeFilterbank& bank, const Eigen::VectorXd& x, double oversample = 2.0);
 
 // ── the time-domain primitives the joint bank is built from ─────────────────────────────────────────────────────────────
 
 /** Forward spectrum of a record on the bank's grid: rfft (Analytic, real) or fft (TwoSided) of x zero-padded to nfft → [bins × C]. */
-Eigen::MatrixXcd spectrum(const TimeBank& bank, const Eigen::MatrixXd& x);
-Eigen::MatrixXcd spectrum(const TimeBank& bank, const Eigen::MatrixXcd& x);   // Analytic refuses
+Eigen::MatrixXcd spectrum(const TimeFilterbank& bank, const Eigen::MatrixXd& x);
+Eigen::MatrixXcd spectrum(const TimeFilterbank& bank, const Eigen::MatrixXcd& x);   // Analytic refuses
 /** ifft of (spec ⊙ gain) on the grid → [nfft × C] (Analytic: the negative bins are zero). `gain` has one entry per bin. */
-Eigen::MatrixXcd filterSpectrum(const TimeBank& bank, const Eigen::VectorXd& gain, const Eigen::MatrixXcd& spec);
+Eigen::MatrixXcd filterSpectrum(const TimeFilterbank& bank, const Eigen::VectorXd& gain, const Eigen::MatrixXcd& spec);
 /** Back to the record: irfft (Analytic) or ifft (TwoSided) of a spectrum [bins × C], cropped to n rows. Analytic returns the real part in `real`. */
-Eigen::MatrixXd inverseReal(const TimeBank& bank, const Eigen::MatrixXcd& spec, std::size_t n);
-Eigen::MatrixXcd inverseComplex(const TimeBank& bank, const Eigen::MatrixXcd& spec, std::size_t n);
+Eigen::MatrixXd inverseReal(const TimeFilterbank& bank, const Eigen::MatrixXcd& spec, std::size_t n);
+Eigen::MatrixXcd inverseComplex(const TimeFilterbank& bank, const Eigen::MatrixXcd& spec, std::size_t n);
 /** Spectrum of a member's coefficients [nfft × C] on the bank's grid (fft, first `bins` rows). */
-Eigen::MatrixXcd coefficientSpectrum(const TimeBank& bank, const Eigen::MatrixXcd& coefficients);
+Eigen::MatrixXcd coefficientSpectrum(const TimeFilterbank& bank, const Eigen::MatrixXcd& coefficients);
 
 // ── THE TRANSFORM OF A HALOED BLOCK (a chunk with its context, as io's chunk service hands it) ──
 // A block [channels x width] whose own columns are [left, left + own): the bank is designed on the BLOCK's grid (gridLength(width, FastLen): zero-padded,
@@ -166,32 +166,32 @@ Eigen::MatrixXcd coefficientSpectrum(const TimeBank& bank, const Eigen::MatrixXc
 // context the band's response reaches); where a recording ENDS the block has no context and the transform zero-pads (the taps route reflects there).
 // The band's choice (a Meyer band by its edges, Morlet centres, …) is the caller's Design; the member a run keeps is the caller's too (`members`).
 struct BlockTransform {
-  TimeBank bank;                              // the bank as designed on the block's grid (its members, their nominal bands)
+  TimeFilterbank bank;                              // the bank as designed on the block's grid (its members, their nominal bands)
   Coefficients own;                           // per member: [channels x own] complex, the block's own columns
 };
 BlockTransform analysisOfBlock(const Design& design, const Eigen::MatrixXd& block, double fs, std::size_t left, std::size_t own);
 /** THE HALO a member needs, samples on each side: the length of its response, as the Studio's device chain sizes its HALO by the band's taps (deviceChain.ts:
- *  the gain's even and odd taps, truncated where the tail holds under nxr::taps::kTailEnergy of the energy; the longer of the two). A narrow band rings for
+ *  the gain's even and odd taps, truncated where the tail holds under nxr::signal::kTailEnergy of the energy; the longer of the two). A narrow band rings for
  *  longer than the Studio's CPU rule of thumb (3 periods of its low edge): alpha [8, 12] Hz needs about 6 periods. */
-std::size_t haloOf(const TimeBank& bank, int member);
+std::size_t haloOf(const TimeFilterbank& bank, int member);
 
-// ── THE INDEPENDENT ESTIMATES a band gives over a window (for the statistics of its cross-spectrum: nxr::lag::lagStatistics) ──
+// ── THE INDEPENDENT ESTIMATES a band gives over a window (for the statistics of its cross-spectrum: nxr::stats::lagStatistics) ──
 /** The member's STATISTICAL (equivalent) bandwidth, Hz: B = (∫ g² df)² / ∫ g⁴ df over f ≥ 0 (the bandwidth of white noise passed through it; a
  *  rectangular band of width W gives W). Evaluated on `grid` points of [0, fs/2]. */
-double equivalentBandwidth(const TimeBank& bank, int member, int grid = 1 << 16);
+double equivalentBandwidth(const TimeFilterbank& bank, int member, int grid = 1 << 16);
 /** The number of independent complex estimates n = B·T the member gives over `samples` at the bank's rate (T = samples / fs): the n of the coherence-
  *  phase statistics (Bendat & Piersol). Tested against a simulation (test_lag): the spread of a band's estimated lag. */
-double independentEstimates(const TimeBank& bank, int member, std::int64_t samples);
+double independentEstimates(const TimeFilterbank& bank, int member, std::int64_t samples);
 /** THE NOISE BANDWIDTH of an ANALYTIC member's band-pass, Hz: Re z responds to a tone at f > 0 with g(f) / 2 (a tone of amplitude A in the plateau gives
  *  |c| = (G/2) A), so white noise of one-sided density d gives var(Re z) = d ∫₀^{fs/2} (g/2)² df = d · B_n, and ⟨|z|²⟩ = 2 var(Re z). A density from
  *  the analytic signal is ⟨|z|²⟩ / (2 B_n) (nxr::spectral, Stored::BandPower). Evaluated on `grid` points of [0, fs/2]. */
-double noiseBandwidth(const TimeBank& bank, int member, int grid = 1 << 16);
+double noiseBandwidth(const TimeFilterbank& bank, int member, int grid = 1 << 16);
 
 // ── DECIMATION of a band-limited block (the analytic signal of a band, whose content sits far below the new Nyquist rate: nothing aliases) ──
 /** Every d-th column of Z [channels x T], starting at column `offset` (0 ≤ offset < d): [channels x ⌈(T − offset) / d⌉]. The caller places the grid (a
  *  global one across chunks: offset = (d − (first − s0) mod d) mod d for a block whose first column is sample `first` of a span starting at s0). Not a
  *  filter: a signal that is not already band-limited below fs / (2d) aliases. Σ z zᴴ over the kept columns is the full-rate sum divided by d, up to the
  *  band-limited signal's sampling error. */
-Eigen::MatrixXcd decimate(const Eigen::MatrixXcd& Z, int d, int offset = 0);
+Eigen::MatrixXcd downsample(const Eigen::MatrixXcd& Z, int d, int offset = 0);
 
 }  // namespace nxr::signal::timefilterbank

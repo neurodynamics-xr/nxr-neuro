@@ -1,4 +1,4 @@
-// nxr::intervals — temporal events (intervals.h).
+// nxr::select — temporal events (intervals.h).
 #include "nxr/select/events.h"
 
 #include <algorithm>

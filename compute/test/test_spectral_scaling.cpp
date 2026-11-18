@@ -55,7 +55,7 @@ int main() {
   }
   Scaling ws; ws.stored = Stored::Spectrum; ws.binEnbwHz = enbw;
   nxr::signal::timefilterbank::Design dsg(nxr::signal::timefilterbank::Family::Meyer, 2.0, nxr::signal::timefilterbank::Sides::Analytic); dsg.bands = {{20.0, 30.0}};
-  const nxr::signal::timefilterbank::TimeBank bank = nxr::signal::timefilterbank::design(dsg, static_cast<std::size_t>(n), fs);
+  const nxr::signal::timefilterbank::TimeFilterbank bank = nxr::signal::timefilterbank::design(dsg, static_cast<std::size_t>(n), fs);
   const Eigen::MatrixXcd z = nxr::signal::timefilterbank::analysis(bank, Eigen::MatrixXd(x.transpose()))[0];
   Scaling an; an.stored = Stored::BandPower; an.bandWidthHz = nxr::signal::timefilterbank::noiseBandwidth(bank, 0);
   const double analytic = convert(z.squaredNorm() / n / 2, an, Target::Density);

@@ -1,4 +1,4 @@
-// nxr::registration on synthetic spheres (subdivided icosahedra): the three methods, the weights' rules, the pieces, the precision, the refusals.
+// nxr::operators::registration on synthetic spheres (subdivided icosahedra): the three methods, the weights' rules, the pieces, the precision, the refusals.
 #include "nxr/operators/resample.h"
 
 #include <cmath>

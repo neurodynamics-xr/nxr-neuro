@@ -1,12 +1,12 @@
 // nxr-pipelines — THE PCA NODE: the principal components ACROSS the members of a table (members x features), as a pure node of nxr::graph::registry() (grouped name `statistic.pca`).
-// Spec docs/specs/2026-11-16-meg-fingerprinting.md, 4.4. The maths is `nxr::pca` (compute/include/nxr/pca.h: a thin SVD of the centred table, never the features x features
+// Spec docs/specs/2026-11-16-meg-fingerprinting.md, 4.4. The maths is `nxr::stats` (compute/include/nxr/pca.h: a thin SVD of the centred table, never the features x features
 // covariance); this node reads the stored statistic it is handed as a table (type-checked, refused with its reason), calls it and DESCRIBES the four statistics it made; the
 // definition (`pca.yaml`) says where they are stored.
 //
 //   statistic.pca  array  x (a stored statistic of real values, two axes: the members and the features)  ->  components, scores, variance, centring
 //
 // The four outputs, every component up to the table's rank (so any k is available; reconstruction at k is derived at read, never stored):
-//   components   measure principal_components   [component x feature]   unit-length loadings, the sign convention of nxr::pca (largest loading positive)
+//   components   measure principal_components   [component x feature]   unit-length loadings, the sign convention of nxr::stats (largest loading positive)
 //   scores       measure principal_scores       [member x component]     the table's rows on the components, U S
 //   variance     measure explained_variance     [component x 3]          singular value, explained variance (S^2 / (n - 1)), its ratio over the total
 //   centring     measure pca_centring           [2 x feature]            the mean removed from each feature, and the divisor after it (1 unless unit-variance)
@@ -84,7 +84,7 @@ ng::NodeSpec statistic_pca() {
                   {"scale", Json("none"), "none = the features keep their units (the covariance's components) | unit-variance = each divided by its standard deviation (the correlation's)", "-", {"none", "unit-variance"}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::follows_input,
                              "a decomposition across the members of a table: it needs every member, and is not defined per timestep; computed in double");
-  n.matches = "scikit-learn's PCA (svd_solver full); nxr::pca";
+  n.matches = "scikit-learn's PCA (svd_solver full); nxr::stats";
   n.description = "the principal components across the members of a table of measurements, by the thin SVD of the centred table";
   n.plan = [](const ng::Types& in, const Json& p) {
     const auto x = in.find("x");
