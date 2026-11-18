@@ -894,7 +894,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       const auto places = declared_places(P, o, sub);
       // an output with no place to look up (a selection on a manifold this run makes, a measurement over it) cannot be shown stored: a miss, never a hit
       // (a measurement over another output of this run, the run's own events: it is stored with them and a hit with them)
-      if (places.empty() && ospec["kind"] == "measurement" && ospec.contains("over") && ospec["over"].is_string() && d.outputs.contains(ospec["over"].get<std::string>()) && !P.found.count(ospec["over"].get<std::string>())) {
+      if (places.empty() && ospec["kind"] == "measurement" && ospec.contains("over") && ospec["over"].is_string() && d.outputs.contains(ospec["over"].get<std::string>()) && !P.found.count(ospec["over"].get<std::string>()) && !is_declared(P, ospec["over"].get<std::string>())) {
         stored.push_back(one);
         continue;
       }

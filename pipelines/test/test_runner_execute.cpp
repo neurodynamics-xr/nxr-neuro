@@ -44,7 +44,7 @@ std::vector<float> read_statistic(const fs::path& p, std::vector<std::int64_t>* 
   std::memcpy(d.data(), raw.data(), d.size() * sizeof(double));
   return std::vector<float>(d.begin(), d.end());
 }
-// `field.form power` of a vector keeps its components: a source's band power is the sum of its three components' (the direct computation's `per`)
+// `signal.field_form power` of a vector keeps its components: a source's band power is the sum of its three components' (the direct computation's `per`)
 std::vector<float> per_source(const std::vector<float>& a, std::size_t n_sources) {
   if (a.size() != 3 * n_sources) return a;
   std::vector<float> s(n_sources, 0.0f);
@@ -203,10 +203,10 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: analytic, in: {x: recording}, with: {band: $band}, out: z}
-      - {node: apply_kernel, in: {x: z, kernel: kernel}, out: j}
-      - {node: field.form, in: {x: j}, with: {form: power}, out: p}
-      - {node: estimate, in: {x: p}, with: {method: sample}, out: power}
+      - {node: signal.analytic, in: {x: recording}, with: {band: $band}, out: z}
+      - {node: meeg.apply_kernel, in: {x: z, kernel: kernel}, out: j}
+      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}
+      - {node: measurement.estimate, in: {x: p}, with: {method: sample}, out: power}
 outputs:
   power: {kind: statistic}
 )";
@@ -228,11 +228,11 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}
-      - {node: apply_kernel, in: {x: z, kernel: kernel}, out: j}
-      - {node: form, in: {x: j}, with: {form: nx}, out: n}
-      - {node: field.form, in: {x: n}, with: {form: power}, out: p}
-      - {node: estimate, in: {x: p}, with: {method: sample}, out: power}
+      - {node: signal.analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}
+      - {node: meeg.apply_kernel, in: {x: z, kernel: kernel}, out: j}
+      - {node: signal.form, in: {x: j}, with: {form: nx}, out: n}
+      - {node: signal.field_form, in: {x: n}, with: {form: power}, out: p}
+      - {node: measurement.estimate, in: {x: p}, with: {method: sample}, out: power}
 outputs:
   power: {kind: statistic}
 )";
