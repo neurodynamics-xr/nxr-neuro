@@ -4,7 +4,7 @@
 #include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/wavelet.h"
 #include "nxr/measurement/band_energy.h"
-using nxr::signal::wt; using nxr::signal::iwt; using nxr::signal::iwtComplex; using nxr::signal::wtOwnRate;
+using nxr::signal::wt; using nxr::signal::iwt; using nxr::signal::iwtComplex;
 #include "golden_io.h"
 #include "mesh_helpers.h"
 #include <random>
@@ -48,17 +48,10 @@ static void rheomeItersine() {
         const double eR = std::max(relErr(r.transpose(), rG), relErr(Nmd, NmG));
         const Coefficients W = wt(b, x);
         double eC = 0; for (int m = 0; m < b.size(); ++m) eC = std::max(eC, relErr(MatrixXcd(W[(size_t)m].topRows(N)), MatrixXcd(C.col(m))));
-        const auto own = wtOwnRate(b, x.col(0));
-        double eO = 0;
-        for (int m = 0; m < b.size(); ++m) {
-            const MatrixXd o = g.mat("own" + std::to_string(m + 1));
-            MatrixXcd ref(o.rows(), 1); ref.col(0) = o.col(0).cast<std::complex<double>>() + std::complex<double>(0, 1) * o.col(1).cast<std::complex<double>>();
-            eO = std::max({eO, relErr(MatrixXcd(own[(size_t)m].coef), ref), relErr(MatrixXd(own[(size_t)m].t), MatrixXd(o.col(2)))});
-        }
-        const double e = std::max({eH, eFc, eBins, eB, eR, eC, eO});
+        const double e = std::max({eH, eFc, eBins, eB, eR, eC});
         worst = std::max(worst, e); ++cases;
         EXPECT(e < 1e-11, "N=" + std::to_string(N) + " V=" + std::to_string(V) + " (" + std::to_string(b.size()) + " members): gains " + sci(eH) + ", centres " + sci(eFc) + ", bins " + sci(eBins) +
-                          ", bounds " + sci(eB) + ", rates " + sci(eR) + ", coefficients " + sci(eC) + ", own-rate " + sci(eO));
+                          ", bounds " + sci(eB) + ", rates " + sci(eR) + ", coefficients " + sci(eC));
         if (g.tok() != "end") { std::cout << "  [FAIL] golden structure\n"; ++g_failures; return; }
     }
     EXPECT(cases == 4 && worst < 1e-11, "4 Rheome banks: worst " + sci(worst));

@@ -1,20 +1,22 @@
-# A FIELD CHAIN (`kind: chain`): the activation of ONE filter-bank member on the cortex, the input of optical flow: the recording through one member of a time filter bank (Itersine, Meyer, Morlet, Morse, Amor, Bump) at the
-# member's own rate, then the kernel: field<cortex x frames(member rate)>. Pointwise; no reduction. Composed into `measure` (preset flow_max_amplitude) or run alone; `flow_modes` reads it.
+# A FIELD CHAIN (`kind: chain`): the activation of ONE filter-bank member on the cortex, the input of optical flow: the recording through one member of a time filter bank (Itersine, Meyer, Morlet, Morse, Amor, Bump), its full-rate analytic signal read at the
+# frames of a frame grid, then the kernel: field<cortex x frames(the grid's)>. Pointwise; no reduction. Composed into `measure` (preset flow_max_amplitude) or run alone; `flow_modes` reads it.
 #
-#   nxr-neuro run member_activation --dataset <folder> --subject sub-01 --recording rest --family morlet --gain 2 --freq "10 Hz"
+#   nxr-neuro run member_activation --dataset <folder> --subject sub-01 --recording rest --family morlet --gain 2 --freq "10 Hz" --grid "<the frame grid>"
 pipeline: member_activation
 kind: chain
 version: 1
-description: one filter-bank member's source activation on the cortex, at the member's own rate (the optical flow's input)
+description: one filter-bank member's source activation on the cortex, at the frames of a frame grid (the optical flow's input)
 scope: subject
 
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}}
   kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel}}
+  grid:      {selection: any, manifold: recording.time, where: {name: $grid}, hint: "the frame grid of the member's band (`nxr-neuro run select_time_grid --rule frames --band 8-12Hz` first)"}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
   kernel: {default: none, meaning: "the inverse kernel's name, or none: the subject's one inverse kernel on the recording's channels", unit: "-"}
+  grid: {default: none, meaning: "the frame grid's name (made by `select_time_grid --rule frames`), or none: the one frame grid of the recording's time line", unit: "-"}
   family: {default: null, meaning: "the time filter bank: itersine | meyer | morlet | morse | amor | bump (no default)", unit: "-"}
   gain: {default: null, meaning: "the peak in-band response of each member (no default; 2 makes |c| the physical amplitude of a real recording)", unit: "-"}
   freq: {default: null, meaning: "the frequency whose nearest filter-bank member is analysed", unit: Hz, chart: linear}
@@ -27,15 +29,13 @@ parameters:
   gamma: {default: 3.0, meaning: "Morse: gamma", unit: "-"}
   time_bandwidth: {default: 60.0, meaning: "Morse: the time-bandwidth product", unit: "-"}
   resolution: {default: "0.5 Hz", meaning: "the frequency resolution of the grid the filter bank is designed on", unit: Hz, chart: linear}
-  oversample: {default: 2.0, meaning: "the member's own rate is oversample x the rate its bins need", unit: "-"}
-  tolerance: {default: null, meaning: "the impulse response's tail the margin may leave out, relative to its norm; null: 1e-7 (float32 blocks); name 1e-12 for float64", unit: "-"}
   input: {default: amplitude, meaning: "amplitude = |J| | signed = the real part (fixed-orientation kernels only)", unit: "-", choices: [amplitude, signed]}
 
 steps:
   chunks:
     over: recording
     do:
-      - {node: signal.member_analytic, in: {x: recording, channels_of: kernel}, with: {family: $family, gain: $gain, freq: $freq, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, resolution: $resolution, oversample: $oversample, tolerance: $tolerance}, out: z}
+      - {node: signal.member_analytic, in: {x: recording, channels_of: kernel, tiling: grid}, with: {family: $family, gain: $gain, freq: $freq, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, resolution: $resolution}, out: z}
       - {node: signal.flow_activation, in: {z: z, kernel: kernel}, with: {input: $input}, out: a}
 
 outputs:

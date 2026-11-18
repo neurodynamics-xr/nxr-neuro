@@ -1,4 +1,4 @@
-// nxr::signal — amplitude, phase, unwrapping, instantaneous frequency, and wt's carrier (see the header).
+// nxr::signal — amplitude, phase, unwrapping, instantaneous frequency (see the header).
 #include "nxr/signal/complex_signal.h"
 
 #include <cmath>
@@ -8,11 +8,6 @@
 namespace nxr::signal {
 namespace {
 constexpr double kPi = 3.14159265358979323846;
-using i128 = __int128;
-
-void checkMember(const signal::WtLayout& plan, int m) {
-    if (m < 0 || m >= static_cast<int>(plan.p.size())) throw std::invalid_argument("analytic: no such member");
-}
 }  // namespace
 
 Eigen::MatrixXd abs(const Eigen::MatrixXcd& c) { return c.cwiseAbs(); }
@@ -50,36 +45,6 @@ Eigen::MatrixXd instfreq(const Eigen::MatrixXcd& z, double rate) {
         for (Eigen::Index k = 1; k + 1 < n; ++k) f(k, j) = s * 0.5 * (d(k - 1) + d(k));
     }
     return f;
-}
-
-double carrierFrequency(const signal::WtLayout& plan, int m) {
-    checkMember(plan, m);
-    const auto& b = plan.bank;
-    return static_cast<double>(b.support[static_cast<std::size_t>(m)].first) * b.fs / static_cast<double>(b.nfft);
-}
-
-Eigen::VectorXd instants(const signal::WtLayout& plan, int m, const signal::Block& block) {
-    checkMember(plan, m);
-    const double p = static_cast<double>(plan.p[static_cast<std::size_t>(m)]), q = static_cast<double>(plan.q[static_cast<std::size_t>(m)]);
-    Eigen::VectorXd t(block.coef.rows());
-    for (Eigen::Index r = 0; r < t.size(); ++r) t(r) = static_cast<double>(block.first + r) * p / (q * plan.bank.fs);
-    return t;
-}
-
-Eigen::MatrixXcd carrier(const signal::WtLayout& plan, int m, const signal::Block& block) {
-    checkMember(plan, m);
-    // phase in cycles: f_lo t_k = (i1 fs / nfft) (k p / (q fs)) = i1 k p / (q nfft): reduced exactly mod (q nfft) in integers
-    const i128 i1 = plan.bank.support[static_cast<std::size_t>(m)].first;
-    const i128 p = plan.p[static_cast<std::size_t>(m)], q = plan.q[static_cast<std::size_t>(m)];
-    const i128 den = q * static_cast<i128>(plan.bank.nfft);
-    Eigen::MatrixXcd out = block.coef;
-    for (Eigen::Index r = 0; r < out.rows(); ++r) {
-        i128 num = (i1 * p % den) * ((static_cast<i128>(block.first) + r) % den) % den;
-        if (num < 0) num += den;
-        const double cycles = static_cast<double>(num) / static_cast<double>(den);
-        out.row(r) *= std::polar(1.0, 2 * kPi * cycles);
-    }
-    return out;
 }
 
 }  // namespace nxr::signal

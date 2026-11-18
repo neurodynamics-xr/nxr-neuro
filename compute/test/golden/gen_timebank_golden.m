@@ -28,10 +28,6 @@ for c = 1:size(cases, 1)
         cm = ifft(Y);  Cr(:, m) = real(cm);  Ci(:, m) = imag(cm);
     end
     w('Cre', Cr);  w('Cim', Ci);
-    Cw = wt(tfb, x);
-    for m = 1:M
-        w(sprintf('own%d', m), [real(Cw(m).coef) imag(Cw(m).coef) Cw(m).t]);
-    end
     fprintf(fid, 'end\n');
 end
 

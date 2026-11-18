@@ -290,11 +290,11 @@ std::vector<StepSpec> build() {
                  if (!p["band"].is_null()) y.facts["band"] = p["band"];
                  return Values{{"y", y}};
                }});
-  r.push_back({"signal.analytic_frames", "chunk", {"x", "tiling", "within"}, {"within"}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}, {"frames_per_cycle", nullptr}, {"frames_per_tile", nullptr}, {"origin", nullptr}, {"tolerance", 1e-6}},
+  r.push_back({"signal.analytic_frames", "chunk", {"x", "tiling", "within"}, {"within"}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}, {"frames_per_cycle", nullptr}, {"frames_per_tile", nullptr}, {"origin", nullptr}},
                "nxr vortex.band_at_frames (the band's analytic signal at the frames); here the band's wavelet `wt(bank, member, window, instants)` (nxr::signal, Morlet or Meyer, the Studio's gains) evaluated at the START of each frame, exactly (no interpolation)",
                "the analytic signal of a band of a real field read at the FRAME TILING (a closed-form spans Selection of frames, `select.time_grid` rule frames: a frame's time is its tile's start): ONE step, the band's wavelet transform "
                "of the chunk's block evaluated at each frame's (non-integer) sample position, a sum over the band's bins, never a signal on every sample interpolated. The band is `band` [lo, hi] Hz with its `shape` (morlet | meyer, "
-               "`half_width` octaves for meyer's edges), the analytic signal of gain 2 as `analytic`. The block is the chunk with the halo the band's response needs (its impulse response down to `tolerance` of its L1 norm, default 1e-6 (the agreement of chunked with whole is then the float32 storage, 1e-7 of the peak; the 1e-12 reach is the whole 65536-sample bank, a 1/t tail of the masked band): the margin of the streaming wt), so the result does not depend on the chunk size; a frame "
+               "`half_width` octaves for meyer's edges), the analytic signal of gain 2 as `analytic`. The block is the chunk with the halo the band's taps need (timefilterbank::haloOf), so the result does not depend on the chunk size; a frame "
                "belongs to the chunk holding the sample at or before it. The output's columns are FRAMES (axis `frames`): the steps after it are pointwise in time (a linear map, a form, |x|², a series kept) and fold frames; a step that reads the "
                "samples' own time refuses it. With `within` (a spans Selection of the recording's time line: the bursts, a stage) only the frames inside a span are GOOD (the steps after it leave the others out); without it every frame is. "
                "Beyond the recording the signal reads 0",
@@ -784,7 +784,7 @@ void bind_traits(std::vector<StepSpec>& r) {
   declare("signal.band_filter", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "a zero-phase FIR band filter; float32 taps, each output sample a float64 sum over the window, stored as float32", "the taps' reach: taps.size() - 1 samples each side (set by the band's width; a recording's end is reflected)"));
   declare("signal.analytic", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's even and odd FIR passes (the analytic signal); float64 sums, float32 result", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
   declare("signal.envelope", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the analytic signal's modulus: the same FIR passes, then |z| in double, stored as float32", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
-  declare("signal.analytic_frames", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's analytic signal at the frame tiling by wt at the frames' instants (a sum over the band's bins of the block's spectrum); float64 throughout, float32 result", "the band's impulse response down to 1e-6 of its L1 norm (the margin of nxr::signal::wtLayout), samples each side of the chunk"));
+  declare("signal.analytic_frames", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's analytic signal at the frame tiling by wt at the frames' instants (a sum over the band's bins of the block's spectrum); float64 throughout, float32 result", "the band's taps (timefilterbank::haloOf), samples each side of the chunk"));
   declare("meeg.apply_kernel", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "a linear map of the rows (kernel, spatial band) applied to each column independently; the product is formed in double and stored as float32", {}));
   declare("magnitude", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "the norm over an element's components, per sample; sums in double, float32 result", {}));
   declare("measurement.collect", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "appends each block's own columns in time order: the order of the blocks fixes the result", {}));
@@ -912,12 +912,8 @@ void bind_execution(std::vector<StepSpec>& r) {
       design.halfWidth = p["half_width"].get<double>();
       design.edgeBins = tb::EdgeBins::Drop;
       s.bank = tb::design(design, std::size_t(1) << 16, x.rate);
-      // THE HALO is the old streaming wt's margin: the length after which the member's |impulse response| (the masked gain on a fine grid, the grid doubled while the tail has not decayed) holds under
-      // 1e-6 of its L1 norm (WtOptions::tolerance; the rule of wtLayout), so the frames of a chunk are the whole record's to that tolerance whatever the chunk size. The band's taps (haloOf) are shorter and left 1e-3.
-      nxr::signal::WtOptions wo;
-      wo.block = 1;
-      wo.tolerance = p.value("tolerance", 1e-6);
-      s.H = std::max(static_cast<std::int64_t>(tb::haloOf(s.bank, 0)), nxr::signal::wtLayout(s.bank, wo).margin);
+      // THE HALO is the member's taps (timefilterbank::haloOf: the response's length, as the Studio's device chain sizes its halo): the frames of a chunk are the whole record's to the tail the taps leave out, whatever the chunk size
+      s.H = static_cast<std::int64_t>(tb::haloOf(s.bank, 0));
     }
     if (ins.count("within")) {
       s.has_within = true;

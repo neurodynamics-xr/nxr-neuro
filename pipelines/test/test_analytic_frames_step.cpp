@@ -47,7 +47,6 @@ int main() {
   g::ExecContext ctx{db, [](const Json&) {}, {}, &made};
   Json p = node.parameters;
   p["band"] = Json::array({8.0, 12.0});
-  p["tolerance"] = 1e-6;                                  // the step's default, stated
   g::NodeCall prep = g::NodeCall::prepare(ins, p, ctx);
   g::dispatch(node, prep);
   const std::int64_t H = node.halo(prep.made_state);
@@ -94,7 +93,7 @@ int main() {
   }
   std::printf("  whole run vs wt: %.2e; chunks of 1024 vs whole: %.2e; of 700: %.2e (peak %.3g)\n", e0, e1, e2, peak);
   CHECK(e0 < 1e-5 * peak);
-  CHECK(e1 < 2e-6 * peak && e2 < 2e-6 * peak);          // the declared halo is the impulse response down to 1e-12 of its L1 norm: chunked == whole to the float32 storage
+  CHECK(e1 < 3e-3 * peak && e2 < 3e-3 * peak);          // the declared halo is the band's taps (1e-6 of the response's energy left out): chunked == whole to that tail
   std::filesystem::remove_all(root);
   return nxrtest::finish("analytic_frames_step");
 }

@@ -31,7 +31,7 @@ recording [channels x samples, streamed]
 
 ```
 recording [channels x samples, streamed]
-  --band.analytic member (chunk, windowed; RETIMING to the member's own rate; halo = the wavelet's margin, declared)--> z [channels x frames, complex]
+  --signal.member_analytic (chunk, windowed; RETIMING to the frame grid's frames; halo = the member's taps, declared)--> z [channels x frames, complex]
   --meeg.apply_kernel (chunk, pointwise; linear map BEFORE the non-linear step, D106)--> J [3N x frames, complex]
   --signal.flow_activation (chunk, pointwise: amplitude |J|, the sum of squares over a source's orientations)--> A [N x frames, real >= 0]
   --flow.horn_schunck (chunk, stateful: the previous frame is its carried state; the amplitude scale is a window constant)--> velocity [3N x frames - 1]
@@ -45,7 +45,7 @@ recording [channels x samples, streamed]
   depend on the chunk size beyond the band's own response tail, which the halo bounds, and the planner reads the halo from the node instead of finding it in a chunk edge.
 - (c) Every reduction is a measurement over a selection: the leaf sums are `measure` over the product (leaves, frames), a JOINT grid (the Studio's D129: first factor = frames, radix rounded to
   2^bits, code = (leaf << bits) | frame); the time means are derived at read from the stored sums and counts; there is no per-vertex time mean.
-- (d) The band node's output carries its made line as a domain factor (types.md of this round): z lies on channels x frames, the frames being the member's own-rate line (origin, rate, unit).
+- (d) The band node's output carries its made line as a domain factor (types.md of this round): z lies on channels x frames, the frames being the frame grid's line (origin, rate, unit).
 - The two-pass scale (Rheome scales the activation to unit amplitude over the WHOLE window) is not expressible in one chunk loop. It needs either a declared scale (a window constant the caller
   states) or a runner that runs the loop twice; see the decisions.
 
@@ -65,8 +65,7 @@ analytic cross-spectrum series (a statistic over the time tiles, stored by cross
 ## 4. Optical flow, built (2026-11-17): the nodes and the two definitions
 
 The nodes are in `pipelines/src/flow_steps.cpp`, registered by `register_flow_nodes()`:
-`signal.member_analytic` (retiming, windowed: one filter-bank member at its own rate, the halo declared = the filter's margin plus the lattice period; frame g sits at g p/q samples from sample 0 of the
-recording, so frames do not depend on the chunk), `signal.flow_activation` (J = K z, then |J|), `signal.flow_max_amplitude` (accumulate), `signal.flow_velocity` (stateful: the previous map; the unit amplitude is the stored
+`signal.member_analytic` (retiming, windowed: one filter-bank member's full-rate analytic signal evaluated at the frames of a frame grid, input `tiling` made by `select.time_grid` rule frames; the halo declared = the member's taps; frame j starts at sample origin + j hop, so frames do not depend on the chunk), `signal.flow_activation` (J = K z, then |J|), `signal.flow_max_amplitude` (accumulate), `signal.flow_velocity` (stateful: the previous map; the unit amplitude is the stored
 maximum), `signal.flow_hodge_modes` (pointwise), `signal.flow_series` (accumulate: the weights [K x steps] and their line).
 
 - `run flow_amplitude` stores the window's maximum amplitude as a statistic; `run flow_modes` reads it by name (input `scale`) and stores the flow weights as a field on (eigen axis x the made time line).

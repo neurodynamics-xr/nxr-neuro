@@ -132,7 +132,7 @@ Eigen::VectorXd centerFrequencies(const TimeFilterbank& bank);
 /** Rheome's rates(): the sampling rate of each member's own sub-band (own-rate) transform: next_fast_len(oversample·bins)·fs/nfft; and the lengths. */
 std::pair<Eigen::VectorXd, std::vector<std::size_t>> rates(const TimeFilterbank& bank, double oversample = 2.0);
 
-// THE TRANSFORMS ARE NOT HERE: a bank only designs (nxr/signal/wavelet.h: wt, iwt, iwtComplex, wtOwnRate, wtBlock; the scalogram and energies are measurements, nxr/measurement/band_energy.h).
+// THE TRANSFORMS ARE NOT HERE: a bank only designs (nxr/signal/wavelet.h: wt, iwt, iwtComplex, wtBlock; the scalogram and energies are measurements, nxr/measurement/band_energy.h).
 using nxr::signal::graphfilterbank::Synthesis;
 /** One [nfft x C] complex block per member (C signals, one per column). Rows beyond the record's n are its zero padding. */
 using Coefficients = std::vector<Eigen::MatrixXcd>;
