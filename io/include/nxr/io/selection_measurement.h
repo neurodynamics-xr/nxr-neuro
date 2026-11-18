@@ -61,6 +61,6 @@ std::vector<Row> subject_own_measurement_rows(const Database& db, const std::str
 void update_own_measurements(SubjectWriter& sub, const std::string& selection_id, const std::vector<Cols>& rows);
 /** DELETE rows: of a selection, optionally of one field and one measure; returns how many (measures.h's delete) */
 std::int64_t remove_measurements(Database& db, const std::string& selection_id, const std::optional<std::string>& of_field_id = std::nullopt,
-                                 const std::optional<std::string>& measure = std::nullopt);
+                                 const std::optional<std::string>& measure = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt);
 
 }  // namespace nxr::io::selection

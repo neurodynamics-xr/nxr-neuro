@@ -212,6 +212,17 @@ Value value_of(const Database& db, const std::string& cls, const Row& row) {
     if (v.complex) v.value_type = "scalar";
   } else if (cls == "statistic") {
     v.unit = opt_text(row, "unit");
+    // the manifolds its axes run along, in order (an axis of a manifold's elements, or of a pick of them: the pick's manifold): what `X.manifold.i` of a statistic names (a channel set made on a PSD's channels)
+    Json axis_manifolds = Json::array();
+    const Json axes = Json::parse(opt_text(row, "axes_json").value_or("[]"), nullptr, false);
+    if (axes.is_array())
+      for (const auto& ax : axes) {
+        if (ax.is_object() && ax.contains("manifold_id") && ax["manifold_id"].is_string()) axis_manifolds.push_back(ax["manifold_id"]);
+        else if (ax.is_object() && ax.contains("selection_id") && ax["selection_id"].is_string()) {
+          if (const auto sel = db.one("SELECT manifold_id FROM selection WHERE id = ?", {V(ax["selection_id"].get<std::string>())}); sel && !is_null(*sel, "manifold_id")) axis_manifolds.push_back(text(*sel, "manifold_id"));
+        }
+      }
+    v.facts["axis_manifolds"] = axis_manifolds;
   } else if (cls == "manifold") {
     v.manifolds = {text(row, "id")};
     set_time_line(db, v);                                                  // a time line given as the manifold itself: its rate and origin, as for a field on it
@@ -256,6 +267,11 @@ std::string relation(const std::string& ref, const std::map<std::string, Value>&
     return v.manifolds[what == "from" ? 0 : 1];
   }
   const std::size_t i = std::stoul(m[3].str());
+  if (v.cls == "statistic") {                                              // the manifold the statistic's i-th manifold axis runs along
+    const Json am = v.facts.contains("axis_manifolds") ? v.facts["axis_manifolds"] : Json::array();
+    if (!am.is_array() || i >= am.size()) refuse(where + ": '" + ref + "': " + base + " has " + std::to_string(am.is_array() ? am.size() : 0) + " axis(es) along a manifold");
+    return am[i].get<std::string>();
+  }
   if ((v.cls != "field" && v.cls != "manifold" && v.cls != "selection") || i >= v.manifolds.size()) refuse(where + ": '" + ref + "': " + base + " has " + std::to_string(v.manifolds.size()) + " factor(s)");
   return v.manifolds[i];
 }

@@ -257,6 +257,38 @@ void migrate_52_to_53(Database& d) {
   const auto ok = d.one("PRAGMA quick_check");
   if (!ok || text(*ok, "quick_check") != "ok") throw Error(code::schema_version, "the database failed its check after it was migrated from schema 52 to 53");
 }
+// SCHEMA 53 -> 54, in place: the CHECK of `selection_measurement` that an array-backed measurement is per member of a FIELD becomes "of a field or of a statistic" (`measure` takes a stored statistic
+// as its input; the measurement of a PSD over its channels is [frequencies x members x components] with `of_statistic_id` and no field). SQLite cannot alter a CHECK: its text in
+// sqlite_master is replaced under writable_schema, `schema_version` bumped, the database checked (SQLite's procedure for a change that leaves every stored row valid: the new CHECK admits all the
+// old one did). The two attribute views that name the schema version are made again, `user_version` 54. Idempotent: a database whose CHECK is already the new one is not rewritten.
+// Written and tested on synthetic databases (test_schema54); never run on a real dataset by the agents that wrote it.
+void migrate_53_to_54(Database& d) {
+  const std::string model = model_sql();
+  const auto cut = [&](const std::string& from, const std::string& to) {
+    const auto a = model.find(from);
+    const auto b = a == std::string::npos ? a : model.find(to, a);
+    if (b == std::string::npos) throw Error(code::not_a_database, "model.sql: no `" + from + "` in the schema, so a database at 53 cannot be migrated");
+    return model.substr(a, b - a);
+  };
+  ensure_statistics(d);   // the new CHECK reads of_statistic_id: a database made before the statistics has the column added first (in place, user_version unchanged)
+  static const std::string kBefore = "CHECK (array_path IS NULL OR (code IS NULL AND of_field_id IS NOT NULL))", kAfter = "CHECK (array_path IS NULL OR (code IS NULL AND (of_field_id IS NOT NULL OR of_statistic_id IS NOT NULL)))";
+  const auto tbl = d.one("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'selection_measurement'");
+  if (!tbl || (text(*tbl, "sql").find(kBefore) == std::string::npos && text(*tbl, "sql").find(kAfter) == std::string::npos))
+    throw Error(code::schema_version, "table selection_measurement: its array CHECK is not the schema 53's; the database cannot be migrated to 54 in place");
+  const std::string subject_view = cut("CREATE VIEW subject_attributes AS", ";\n") + ";\n";
+  const std::string dataset_view = cut("CREATE VIEW dataset_attributes AS", ";\n") + ";\n";
+  if (text(*tbl, "sql").find(kAfter) == std::string::npos) {
+    const std::int64_t sv = integer(*d.one("PRAGMA schema_version"), "schema_version");
+    d.with_writable_schema([&] {
+      d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'table' AND name = 'selection_measurement'", {V(kBefore), V(kAfter)});
+      d.execute("PRAGMA schema_version = " + std::to_string(sv + 1));
+    });
+  }
+  d.exec_script("BEGIN;\nDROP VIEW IF EXISTS subject_attributes;\n" + subject_view + "DROP VIEW IF EXISTS dataset_attributes;\n" + dataset_view +
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_migrated:53->54', '" + now_utc() + "');\nPRAGMA user_version = 54;\nCOMMIT;");
+  const auto ok = d.one("PRAGMA quick_check");
+  if (!ok || text(*ok, "quick_check") != "ok") throw Error(code::schema_version, "the database failed its check after it was migrated from schema 53 to 54");
+}
 }  // namespace
 
 Database Database::open(const fs::path& file, bool create, const std::string& built_by, bool read_only) {
@@ -297,17 +329,18 @@ Database Database::open(const fs::path& file, bool create, const std::string& bu
     }
     const std::int64_t v = integer(*d.one("PRAGMA user_version"), "user_version");
     const int want = schema_version();
-    if ((v == 50 || v == 51 || v == 52) && want == 53) {
-      // a database at 50, 51 or 52 is a database at 53 without the additions: opened to write, it is migrated in place (additive, step by step); opened to read, it is read as it is
+    if ((v == 50 || v == 51 || v == 52 || v == 53) && want == 54) {
+      // a database at 50 to 53 is a database at 54 without the additions: opened to write, it is migrated in place (additive, step by step); opened to read, it is read as it is
       // (the query reads the columns it needs by asking the database whether it has them)
       if (!read_only) {
         if (v == 50) migrate_50_to_51(d);
         if (v <= 51) migrate_51_to_52(d);
-        migrate_52_to_53(d);
+        if (v <= 52) migrate_52_to_53(d);
+        migrate_53_to_54(d);
       }
     } else if (v != want) {
       const std::string how =
-          v == 49 ? "run `nxr migrate --dataset <dataset folder>` (49 to 50; this build then migrates 50 to 53 when it opens the dataset to write; it keeps the old database and the arrays; add `--dry-run` to see what it will do first)"
+          v == 49 ? "run `nxr migrate --dataset <dataset folder>` (49 to 50; this build then migrates 50 to 54 when it opens the dataset to write; it keeps the old database and the arrays; add `--dry-run` to see what it will do first)"
                         : "re-convert it from its source (D139/D144)";
       throw Error(code::schema_version, p + ": user_version " + std::to_string(v) + ", this build reads " + std::to_string(want) + " — " + how);
     }
