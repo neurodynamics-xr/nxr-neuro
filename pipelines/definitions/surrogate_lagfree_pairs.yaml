@@ -27,7 +27,7 @@ parameters:
 
 steps:
   before:
-    - {node: surrogate.lagfree_pairs, in: {recording: recording, bursts: bursts, psd: psd}, with: {windows: $windows, band: $band, shape: $shape, draws: $draws, seed: $seed}, out: [per_burst, run]}
+    - {node: synthesis.lagfree_pairs, in: {recording: recording, bursts: bursts, psd: psd}, with: {windows: $windows, band: $band, shape: $shape, draws: $draws, seed: $seed}, out: [per_burst, run]}
 
 outputs:
   per_burst:

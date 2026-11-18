@@ -150,7 +150,7 @@ struct MemberPrepared {
 
 ng::NodeSpec member_analytic() {
   ng::NodeSpec n;
-  n.name = "timebank.member_analytic";
+  n.name = "signal.member_analytic";
   n.kind = ng::Kind::chunk;
   n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"channels_of", "an operator whose channels (its from_selection) are the ones kept, in its order (the inverse kernel)", false}};
   n.outputs = {{"z", "the member's coefficients on the kept channels at the member's OWN rate: channels rows, complex, axis frames", false}};
@@ -174,11 +174,11 @@ ng::NodeSpec member_analytic() {
   n.matches = "Rheome timebank.analysisOwnRate / @timefilterbank wt (the coefficients at the member's own rate); compute nxr::signal::Wt";
   n.description = "one filter-bank member's analytic coefficients of the recording's channels at the member's own rate (frames on the lattice g p/q samples), a retiming node";
   n.plan = [](const ng::Types& in, const Json& p) {
-    const ng::PortType& x = need_port(in, "x", "timebank.member_analytic");
-    if (!x.streamed() || x.axis != ng::Axis::samples || !x.sfreq || !(*x.sfreq > 0)) ng::refuse("timebank.member_analytic: x is a recording's samples (a streamed field with a rate)");
-    if (x.value != ng::ValueType::real) ng::refuse("timebank.member_analytic: x is a real recording");
-    if (!in.count("channels_of")) ng::refuse("timebank.member_analytic: channels_of (the kernel) names the channels kept");
-    const BankChoice c = choose_bank(p, *x.sfreq, 0, "timebank.member_analytic");
+    const ng::PortType& x = need_port(in, "x", "signal.member_analytic");
+    if (!x.streamed() || x.axis != ng::Axis::samples || !x.sfreq || !(*x.sfreq > 0)) ng::refuse("signal.member_analytic: x is a recording's samples (a streamed field with a rate)");
+    if (x.value != ng::ValueType::real) ng::refuse("signal.member_analytic: x is a real recording");
+    if (!in.count("channels_of")) ng::refuse("signal.member_analytic: channels_of (the kernel) names the channels kept");
+    const BankChoice c = choose_bank(p, *x.sfreq, 0, "signal.member_analytic");
     const nxr::signal::Wt w(c.bank, 1, c.wo);
     const nxr::signal::Plan& plan = w.plan();
     ng::Planned out;
@@ -196,9 +196,9 @@ ng::NodeSpec member_analytic() {
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays& constants, const Json& p, ng::Shared&) {
     const double fs = *in.at("x").sfreq;
-    const std::vector<std::int32_t> chans = constant(constants, "channels_of", "timebank.member_analytic").meta.value("channels", std::vector<std::int32_t>());
-    if (chans.empty()) ng::refuse("timebank.member_analytic: the kernel names no channel");
-    const BankChoice c = choose_bank(p, fs, static_cast<int>(chans.size()), "timebank.member_analytic");
+    const std::vector<std::int32_t> chans = constant(constants, "channels_of", "signal.member_analytic").meta.value("channels", std::vector<std::int32_t>());
+    if (chans.empty()) ng::refuse("signal.member_analytic: the kernel names no channel");
+    const BankChoice c = choose_bank(p, fs, static_cast<int>(chans.size()), "signal.member_analytic");
     MemberPrepared m(c, static_cast<int>(chans.size()));
     const nxr::signal::Plan& plan = m.wt.plan();
     m.member = c.member; m.p = plan.p[c.member]; m.q = plan.q[c.member]; m.P = plan.P; m.margin = plan.margin;
@@ -214,11 +214,11 @@ ng::NodeSpec member_analytic() {
     const std::int64_t a_feed = ceil_div(a_blk, m.P) * m.P;                        // the first sample fed (a multiple of P)
     const std::int64_t skip = a_feed - a_blk;
     const std::int64_t width = b.width - skip;
-    if (width <= 0) ng::refuse("timebank.member_analytic: the block is shorter than the lattice period");
+    if (width <= 0) ng::refuse("signal.member_analytic: the block is shorter than the lattice period");
     Eigen::MatrixXd X(m.channels, width);
     for (std::int64_t i = 0; i < m.channels; ++i) {
       const std::int32_t ch = m.picked[static_cast<std::size_t>(i)];
-      if (ch < 0 || ch >= b.rows) ng::refuse("timebank.member_analytic: a channel of the kernel is outside the recording's channels");
+      if (ch < 0 || ch >= b.rows) ng::refuse("signal.member_analytic: a channel of the kernel is outside the recording's channels");
       for (std::int64_t t = 0; t < width; ++t) X(i, t) = b.re[static_cast<std::size_t>(ch * b.width + skip + t)];
     }
     nxr::signal::Wt w = m.wt;                                                         // a copy of the template: no state is shared between blocks
@@ -238,7 +238,7 @@ ng::NodeSpec member_analytic() {
         have[static_cast<std::size_t>(g - g0)] = 1;
       }
     }
-    for (const char h : have) if (!h) ng::refuse("timebank.member_analytic: the filter returned no coefficient for a frame inside the block (the halo is shorter than the filter's margin)");
+    for (const char h : have) if (!h) ng::refuse("signal.member_analytic: the filter returned no coefficient for a frame inside the block (the halo is shorter than the filter's margin)");
     return ng::Blocks{{"z", block_of(Z)}};
   };
   n.frame_place = [](const std::any& prepared, const ng::Place& at) {
@@ -260,20 +260,20 @@ struct ActivationPrepared { Eigen::MatrixXd K; int orientations = 3; bool signed
 
 ng::NodeSpec activation() {
   ng::NodeSpec n;
-  n.name = "flow.activation";
+  n.name = "signal.flow_activation";
   n.kind = ng::Kind::chunk;
   n.linear_map = false;
-  n.inputs = {{"z", "the member's coefficients on the kernel's channels (timebank.member_analytic), frames", false}, {"kernel", "the inverse kernel: a stored operator, sources x channels (3 rows a source: free orientation)", false}};
+  n.inputs = {{"z", "the member's coefficients on the kernel's channels (signal.member_analytic), frames", false}, {"kernel", "the inverse kernel: a stored operator, sources x channels (3 rows a source: free orientation)", false}};
   n.outputs = {{"a", "the activation map of each frame: one non-negative number a source (amplitude |J|), or the signed value for a fixed kernel with input signed", false}};
   n.parameters = {{"input", Json("amplitude"), "amplitude = |J| of the kernel applied to the complex coefficients | signed = the real part (fixed-orientation kernels only)", "-", {"amplitude", "signed"}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input, "the kernel is applied in double to each frame on its own, then the amplitude; handed on in float32");
   n.matches = "Rheome flow.apparent (the amplitude |J| of the kernel applied to the wavelet coefficients); meeg nxr::meeg::applyKernel, amplitude";
   n.description = "J = K z (the linear map before the non-linear step) then the amplitude per source: the map the flow is computed on";
   n.plan = [](const ng::Types& in, const Json& p) {
-    const ng::PortType& z = need_port(in, "z", "flow.activation");
-    if (z.axis != ng::Axis::frames || z.value != ng::ValueType::complex) ng::refuse("flow.activation: z is the member's coefficients on frames (complex): `timebank.member_analytic` first");
-    if (!in.count("kernel")) ng::refuse("flow.activation: kernel is not given");
-    if (p["input"] != "amplitude" && p["input"] != "signed") ng::refuse("flow.activation: input is amplitude or signed");
+    const ng::PortType& z = need_port(in, "z", "signal.flow_activation");
+    if (z.axis != ng::Axis::frames || z.value != ng::ValueType::complex) ng::refuse("signal.flow_activation: z is the member's coefficients on frames (complex): `signal.member_analytic` first");
+    if (!in.count("kernel")) ng::refuse("signal.flow_activation: kernel is not given");
+    if (p["input"] != "amplitude" && p["input"] != "signed") ng::refuse("signal.flow_activation: input is amplitude or signed");
     ng::Planned out;
     ng::PortType a = z;
     a.value = ng::ValueType::real; a.rows = 0;
@@ -282,18 +282,18 @@ ng::NodeSpec activation() {
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) {
     ActivationPrepared a;
-    const ng::Array& k = constant(c, "kernel", "flow.activation");
+    const ng::Array& k = constant(c, "kernel", "signal.flow_activation");
     a.orientations = k.meta.value("to_value_type", std::string("scalar")) == "vector3" ? 3 : 1;
     a.K = Eigen::Map<const MatRM>(k.data.data(), k.rows, k.cols);
     a.signed_input = p["input"] == "signed";
     if (a.signed_input && a.orientations != 1)
-      ng::refuse("flow.activation: input signed needs a fixed-orientation kernel (one value per source); " + k.meta.value("name", std::string()) + " has free orientations, whose signed sum has no meaning");
+      ng::refuse("signal.flow_activation: input signed needs a fixed-orientation kernel (one value per source); " + k.meta.value("name", std::string()) + " has free orientations, whose signed sum has no meaning");
     return std::any(std::move(a));
   };
   n.chunk = [](const std::any& prepared, const ng::Blocks& in, std::int64_t, const ng::Place&) {
     const ActivationPrepared& a = std::any_cast<const ActivationPrepared&>(prepared);
     const Eigen::MatrixXcd Z = own_complex(in.at("z"));
-    if (Z.rows() != a.K.cols()) ng::refuse("flow.activation: z has " + std::to_string(Z.rows()) + " channels, the kernel " + std::to_string(a.K.cols()));
+    if (Z.rows() != a.K.cols()) ng::refuse("signal.flow_activation: z has " + std::to_string(Z.rows()) + " channels, the kernel " + std::to_string(a.K.cols()));
     const Eigen::MatrixXcd J = nxr::meeg::applyKernel(a.K, Z);
     const Eigen::MatrixXd A = a.signed_input ? Eigen::MatrixXd(J.real()) : nxr::meeg::amplitude(J, a.orientations);
     return ng::Blocks{{"a", block_of(A)}};
@@ -308,15 +308,15 @@ struct MaxState { double max = 0; std::int64_t frames = 0; };
 
 ng::NodeSpec max_amplitude() {
   ng::NodeSpec n;
-  n.name = "flow.max_amplitude";
+  n.name = "signal.flow_max_amplitude";
   n.kind = ng::Kind::accumulate;
-  n.inputs = {{"a", "the activation map of each frame (flow.activation)", false}};
+  n.inputs = {{"a", "the activation map of each frame (signal.flow_activation)", false}};
   n.outputs = {{"maximum", "the largest absolute value of the map over the run's frames: one number", false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "a running maximum: it merges whatever the order or the blocks");
   n.matches = "Rheome flow.apparent (the window's unit amplitude); compute nxr::signal::FlowEngine::observe";
   n.description = "the maximum of |a| over every frame and source of the run";
   n.plan = [](const ng::Types& in, const Json&) {
-    if (need_port(in, "a", "flow.max_amplitude").axis != ng::Axis::frames) ng::refuse("flow.max_amplitude: a is the activation on frames");
+    if (need_port(in, "a", "signal.flow_max_amplitude").axis != ng::Axis::frames) ng::refuse("signal.flow_max_amplitude: a is the activation on frames");
     ng::Planned out;
     out.out["maximum"] = constant_port("statistic");
     return out;
@@ -335,7 +335,7 @@ ng::NodeSpec max_amplitude() {
   };
   n.finish = [](const std::any&, std::any state) {
     const MaxState& s = std::any_cast<const MaxState&>(state);
-    if (s.frames == 0) ng::refuse("flow.max_amplitude: no frame was read");
+    if (s.frames == 0) ng::refuse("signal.flow_max_amplitude: no frame was read");
     ng::Array a;
     a.rows = 1; a.cols = 1; a.data = {s.max};
     a.meta["describe"] = Json{{"shape", Json::array({1})}, {"axes", Json::array()}, {"frames", s.frames}, {"measure", "maximum_amplitude"}, {"value_type", "scalar"},
@@ -361,9 +361,9 @@ struct VelocityState {
 
 ng::NodeSpec velocity() {
   ng::NodeSpec n;
-  n.name = "flow.velocity";
+  n.name = "signal.flow_velocity";
   n.kind = ng::Kind::chunk;
-  n.inputs = {{"a", "the activation map of each frame (flow.activation)", false}, {"surface", "the kernel's surface: its vertices and faces", false},
+  n.inputs = {{"a", "the activation map of each frame (signal.flow_activation)", false}, {"surface", "the kernel's surface: its vertices and faces", false},
               {"scale", "the window's maximum amplitude: the statistic `flow_amplitude` stored (the unit amplitude of the solve)", false}};
   n.outputs = {{"v", "the velocity between a frame and the one before it, embedded 3 numbers a vertex (3N rows); the run's first frame has none: NaN", false}};
   n.parameters = {{"method", Json("pcg"), "pcg | direct (perscale is a set of spatial bands: not built here)", "-", {"pcg", "direct"}, false},
@@ -378,16 +378,16 @@ ng::NodeSpec velocity() {
   n.matches = "Rheome opticalflow_scalar (Horn-Schunck on the manifold, frame pairs); compute nxr::signal::FlowEngine";
   n.description = "Horn-Schunck optical flow of the activation map between consecutive frames, the unit amplitude the stored window maximum";
   n.plan = [](const ng::Types& in, const Json& p) {
-    const ng::PortType& a = need_port(in, "a", "flow.velocity");
-    if (a.axis != ng::Axis::frames || a.value != ng::ValueType::real) ng::refuse("flow.velocity: a is the activation on frames (real)");
-    for (const char* k : {"surface", "scale"}) if (!in.count(k)) ng::refuse(std::string("flow.velocity: ") + k + " is not given");
+    const ng::PortType& a = need_port(in, "a", "signal.flow_velocity");
+    if (a.axis != ng::Axis::frames || a.value != ng::ValueType::real) ng::refuse("signal.flow_velocity: a is the activation on frames (real)");
+    for (const char* k : {"surface", "scale"}) if (!in.count(k)) ng::refuse(std::string("signal.flow_velocity: ") + k + " is not given");
     try {
       const auto r = nxr::signal::parseRegulariser(p["regulariser"].get<std::string>());
       nxr::signal::resolveDataFit(r, nxr::signal::parseDataFit(p["datafit"].get<std::string>()));
       nxr::signal::parseFlowMethod(p["method"].get<std::string>());
-    } catch (const std::invalid_argument& e) { ng::refuse(std::string("flow.velocity: ") + e.what()); }
-    if (p["method"] == "perscale") ng::refuse("flow.velocity: perscale is one flow per spatial band (a band set): not built here");
-    if (p.contains("alpha") && p["alpha"].is_number() && !(p["alpha"].get<double>() > 0)) ng::refuse("flow.velocity: alpha must be positive");
+    } catch (const std::invalid_argument& e) { ng::refuse(std::string("signal.flow_velocity: ") + e.what()); }
+    if (p["method"] == "perscale") ng::refuse("signal.flow_velocity: perscale is one flow per spatial band (a band set): not built here");
+    if (p.contains("alpha") && p["alpha"].is_number() && !(p["alpha"].get<double>() > 0)) ng::refuse("signal.flow_velocity: alpha must be positive");
     ng::Planned out;
     ng::PortType v = a;
     v.value = ng::ValueType::real; v.rows = 0;
@@ -396,13 +396,13 @@ ng::NodeSpec velocity() {
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) {
     VelocityPrepared v;
-    const ng::Array& S = constant(c, "surface", "flow.velocity");
+    const ng::Array& S = constant(c, "surface", "signal.flow_velocity");
     v.N = S.rows;
     v.P = Eigen::Map<const nxr::operators::RowMat3>(S.data.data(), S.rows, 3);
     const std::vector<std::int32_t> faces = S.meta.value("faces", std::vector<std::int32_t>());
     v.F = Eigen::Map<const nxr::operators::FaceMat>(faces.data(), static_cast<Eigen::Index>(faces.size() / 3), 3);
-    const ng::Array& sc = constant(c, "scale", "flow.velocity");
-    if (sc.data.empty() || !(sc.data[0] > 0)) ng::refuse("flow.velocity: the stored amplitude scale '" + sc.meta.value("name", std::string()) + "' holds no positive maximum (`run flow_amplitude` first)");
+    const ng::Array& sc = constant(c, "scale", "signal.flow_velocity");
+    if (sc.data.empty() || !(sc.data[0] > 0)) ng::refuse("signal.flow_velocity: the stored amplitude scale '" + sc.meta.value("name", std::string()) + "' holds no positive maximum (`run flow_amplitude` first)");
     v.scale = sc.data[0];
     v.fo.method = nxr::signal::parseFlowMethod(p["method"].get<std::string>());
     v.fo.regulariser = nxr::signal::parseRegulariser(p["regulariser"].get<std::string>());
@@ -423,7 +423,7 @@ ng::NodeSpec velocity() {
     const VelocityPrepared& pr = std::any_cast<const VelocityPrepared&>(prepared);
     VelocityState& s = std::any_cast<VelocityState&>(state);
     const ng::Block& b = in.at("a");
-    if (b.rows != pr.N) ng::refuse("flow.velocity: the map has " + std::to_string(b.rows) + " sources, the surface " + std::to_string(pr.N) + " vertices");
+    if (b.rows != pr.N) ng::refuse("signal.flow_velocity: the map has " + std::to_string(b.rows) + " sources, the surface " + std::to_string(pr.N) + " vertices");
     const Eigen::MatrixXd A = own_real(b);
     Eigen::MatrixXd V = Eigen::MatrixXd::Constant(3 * pr.N, A.cols(), std::numeric_limits<double>::quiet_NaN());
     for (Eigen::Index t = 0; t < A.cols(); ++t) {
@@ -466,17 +466,17 @@ struct ModesPrepared {
 
 ng::NodeSpec hodge_modes() {
   ng::NodeSpec n;
-  n.name = "flow.hodge_modes";
+  n.name = "signal.flow_hodge_modes";
   n.kind = ng::Kind::chunk;
-  n.inputs = {{"v", "the velocity of each frame (flow.velocity): 3N rows", false}, {"package", "a Hodge-Dirac package of the kernel's surface (its eigenvectors, as the runner hands them over)", false}};
+  n.inputs = {{"v", "the velocity of each frame (signal.flow_velocity): 3N rows", false}, {"package", "a Hodge-Dirac package of the kernel's surface (its eigenvectors, as the runner hands them over)", false}};
   n.outputs = {{"b", "the flow weights [K x frames]: an exact mode's divergence potential (sources and sinks), a coexact mode's stream function (rotation); NaN where the velocity is", false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input, "each frame on its own: the carry to the glued surface and the fused read are linear; the weights are stored as float32 for float32 input");
   n.matches = "Rheome flow.apparent (Hodge-Dirac flow weights of the velocity, fused weights); compute nxr::operators::GluedCarry, WeightsReader";
   n.description = "the velocity carried to the package's glued surface and read in its modes: the flow weights of each frame";
   n.plan = [](const ng::Types& in, const Json&) {
-    const ng::PortType& v = need_port(in, "v", "flow.hodge_modes");
-    if (v.axis != ng::Axis::frames) ng::refuse("flow.hodge_modes: v is the velocity on frames");
-    if (!in.count("package")) ng::refuse("flow.hodge_modes: package is not given");
+    const ng::PortType& v = need_port(in, "v", "signal.flow_hodge_modes");
+    if (v.axis != ng::Axis::frames) ng::refuse("signal.flow_hodge_modes: v is the velocity on frames");
+    if (!in.count("package")) ng::refuse("signal.flow_hodge_modes: package is not given");
     ng::Planned out;
     ng::PortType b = v;
     b.rows = 0;
@@ -484,10 +484,10 @@ ng::NodeSpec hodge_modes() {
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json&, ng::Shared&) {
-    const ng::Array& H = constant(c, "package", "flow.hodge_modes");
-    if (!H.meta.value("hodge", false)) ng::refuse("flow.hodge_modes: package is not a Hodge-Dirac package (an operator of kind eigenvectors, <stem>_eigenvectors)");
+    const ng::Array& H = constant(c, "package", "signal.flow_hodge_modes");
+    if (!H.meta.value("hodge", false)) ng::refuse("signal.flow_hodge_modes: package is not a Hodge-Dirac package (an operator of kind eigenvectors, <stem>_eigenvectors)");
     const nxr::operators::Basis basis = basis_of(H);
-    if (basis.mu.size() < 2) ng::refuse("flow.hodge_modes: at least 2 modes");
+    if (basis.mu.size() < 2) ng::refuse("signal.flow_hodge_modes: at least 2 modes");
     const std::vector<double> pin = H.meta.at("input_positions").get<std::vector<double>>();
     const std::int64_t N = static_cast<std::int64_t>(pin.size() / 3);
     ModesPrepared m;
@@ -500,7 +500,7 @@ ng::NodeSpec hodge_modes() {
   n.chunk = [](const std::any& prepared, const ng::Blocks& in, std::int64_t, const ng::Place&) {
     const ModesPrepared& m = std::any_cast<const ModesPrepared&>(prepared);
     const Eigen::MatrixXd V = own_real(in.at("v"));
-    if (V.rows() != 3 * m.N) ng::refuse("flow.hodge_modes: the velocity has " + std::to_string(V.rows()) + " rows, the package's input surface 3 x " + std::to_string(m.N));
+    if (V.rows() != 3 * m.N) ng::refuse("signal.flow_hodge_modes: the velocity has " + std::to_string(V.rows()) + " rows, the package's input surface 3 x " + std::to_string(m.N));
     Eigen::MatrixXd B = Eigen::MatrixXd::Constant(m.K, V.cols(), std::numeric_limits<double>::quiet_NaN());
     for (Eigen::Index t = 0; t < V.cols(); ++t) {
       if (!std::isfinite(V(0, t))) continue;                                       // the run's first frame has no velocity
@@ -516,16 +516,16 @@ struct SeriesState { std::vector<std::vector<float>> cols; std::int64_t first = 
 
 ng::NodeSpec series() {
   ng::NodeSpec n;
-  n.name = "flow.series";
+  n.name = "signal.flow_series";
   n.kind = ng::Kind::accumulate;
-  n.inputs = {{"b", "the flow weights of each frame (flow.hodge_modes)", false}};
+  n.inputs = {{"b", "the flow weights of each frame (signal.flow_hodge_modes)", false}};
   n.outputs = {{"coefficients", "the flow weights [K x steps]: the series on the package's modes", false}, {"time", "the line the steps lie on: a step sits between two frames", false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "materialises each frame's weights in time order (a series, no reduction)");
   n.matches = "Rheome flow.apparent (flow weights per frame)";
   n.description = "the flow weights of the run's steps gathered as a series on the package's modes, with the line they lie on (the first frame, which has no velocity, is not a step)";
   n.plan = [](const ng::Types& in, const Json&) {
-    const ng::PortType& b = need_port(in, "b", "flow.series");
-    if (b.axis != ng::Axis::frames || !b.sfreq) ng::refuse("flow.series: b is the flow weights on frames (with the frame rate)");
+    const ng::PortType& b = need_port(in, "b", "signal.flow_series");
+    if (b.axis != ng::Axis::frames || !b.sfreq) ng::refuse("signal.flow_series: b is the flow weights on frames (with the frame rate)");
     ng::Planned out;
     out.out["coefficients"] = constant_port("field");
     out.out["time"] = constant_port("manifold");
@@ -553,7 +553,7 @@ ng::NodeSpec series() {
   n.finish = [](const std::any& prepared, std::any state) {
     const SeriesPrepared& pr = std::any_cast<const SeriesPrepared&>(prepared);
     const SeriesState& s = std::any_cast<const SeriesState&>(state);
-    if (s.first < 0 || s.last - s.first + 1 < 7) ng::refuse("flow.series: the window holds fewer than 8 frames at the member's rate (" + std::to_string(pr.rate) + " Hz); the flow needs at least 8");
+    if (s.first < 0 || s.last - s.first + 1 < 7) ng::refuse("signal.flow_series: the window holds fewer than 8 frames at the member's rate (" + std::to_string(pr.rate) + " Hz); the flow needs at least 8");
     const std::int64_t K = static_cast<std::int64_t>(s.cols.size()), steps = static_cast<std::int64_t>(s.cols[0].size());
     ng::Array a;
     a.rows = K; a.cols = steps;

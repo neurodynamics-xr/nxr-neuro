@@ -4,7 +4,7 @@
 # Run alone it stores the field (materialised); COMPOSED into `measure` (input `chain: band_analytic`) its steps are inlined before the consumer's and nothing is stored; the chain's name and resolved parameters are
 # part of the consumer's cache key.
 #
-# THE GRAPH:  recording (sensors x T) -- fft.spectrum {once a block} -- band gains (select.bands) -- inverse transform --> z (field<sensors x members(bands) x T; complex>)
+# THE GRAPH:  recording (sensors x T) -- signal.rfft {once a block} -- band gains (select.bands) -- inverse transform --> z (field<sensors x members(bands) x T; complex>)
 #
 # What it cannot resolve: the filter is circular over the block, so the first and last `halo` of a recording carry its edge effect; a Morlet band overlaps its neighbours, so band powers do not add to broadband
 # (the Meyer shape does).

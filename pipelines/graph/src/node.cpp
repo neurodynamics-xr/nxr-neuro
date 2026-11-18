@@ -1,4 +1,5 @@
 // nxr-graph — the nodes' declarations: names for the traits, the trait check, and the registry of nodes (node.h).
+#include <map>
 #include "nxr/graph/node.h"
 #include "nxr/graph/frame_nodes.h"
 
@@ -136,6 +137,10 @@ std::vector<std::string> Registry::near(const std::string& name, std::size_t lim
 }
 const NodeSpec& Registry::at(const std::string& name) const {
   if (const NodeSpec* n = find(name)) return *n;
+  // renamed to the toolbox words: refused with the new name, never answered as an alias (the test names_across_layers reads this table)
+  static const std::map<std::string, std::string> retired = {
+      {"frame.embed", "geometry.frame_embed"}, {"frame.project", "geometry.frame_project"}, {"frame.rotate", "geometry.frame_rotate"}};
+  if (const auto it = retired.find(name); it != retired.end()) refuse("the node '" + name + "' was renamed: use " + it->second);
   std::string msg = "unknown node '" + name + "'";
   const auto near_names = near(name);
   if (!near_names.empty()) {

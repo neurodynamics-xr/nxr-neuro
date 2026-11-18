@@ -45,16 +45,16 @@ std::size_t members_axis(const Json& axes, const std::string& m, const std::stri
   char* end = nullptr;
   const long pos = std::strtol(m.c_str(), &end, 10);
   if (!m.empty() && end && *end == '\0') {
-    if (pos < 0 || static_cast<std::size_t>(pos) >= axes.size()) ng::refuse("statistic.pca: members " + m + " is not an axis of '" + statistic + "': its axes are " + listing);
+    if (pos < 0 || static_cast<std::size_t>(pos) >= axes.size()) ng::refuse("stats.pca: members " + m + " is not an axis of '" + statistic + "': its axes are " + listing);
     return static_cast<std::size_t>(pos);
   }
   std::size_t found = axes.size();
   for (std::size_t i = 0; i < axes.size(); ++i)
     if (axes[i].value("name", std::string()) == m) {
-      if (found != axes.size()) ng::refuse("statistic.pca: members " + m + " names more than one axis of '" + statistic + "'; give its position: " + listing);
+      if (found != axes.size()) ng::refuse("stats.pca: members " + m + " names more than one axis of '" + statistic + "'; give its position: " + listing);
       found = i;
     }
-  if (found == axes.size()) ng::refuse("statistic.pca: '" + statistic + "' has no axis named " + m + ": its axes are " + listing);
+  if (found == axes.size()) ng::refuse("stats.pca: '" + statistic + "' has no axis named " + m + ": its axes are " + listing);
   return found;
 }
 
@@ -73,7 +73,7 @@ Json axis_copy(const Json& ax, const std::string& name, std::int64_t size) {   /
 
 ng::NodeSpec statistic_pca() {
   ng::NodeSpec n;
-  n.name = "statistic.pca";
+  n.name = "stats.pca";
   n.kind = ng::Kind::array;
   n.inputs = {{"x", "a stored statistic of real values with two axes: the members (the observations) and the features", false}};
   n.outputs = {{"components", "the principal components: [component x feature], unit rows", false},
@@ -88,17 +88,17 @@ ng::NodeSpec statistic_pca() {
   n.description = "the principal components across the members of a table of measurements, by the thin SVD of the centred table";
   n.plan = [](const ng::Types& in, const Json& p) {
     const auto x = in.find("x");
-    if (x == in.end() || x->second.cls != ng::PortClass::constant) ng::refuse("statistic.pca: x is a stored statistic");
-    if (!p.contains("members") || !p["members"].is_string() || p["members"].get<std::string>().empty()) ng::refuse("statistic.pca: name the axis whose entries are the members (members: an axis name or position)");
+    if (x == in.end() || x->second.cls != ng::PortClass::constant) ng::refuse("stats.pca: x is a stored statistic");
+    if (!p.contains("members") || !p["members"].is_string() || p["members"].get<std::string>().empty()) ng::refuse("stats.pca: name the axis whose entries are the members (members: an axis name or position)");
     const std::string s = p.value("scale", std::string("none"));
-    if (s != "none" && s != "unit-variance") ng::refuse("statistic.pca: scale is none or unit-variance (got '" + s + "')");
+    if (s != "none" && s != "unit-variance") ng::refuse("stats.pca: scale is none or unit-variance (got '" + s + "')");
     ng::Planned out;
     for (const char* o : {"components", "scores", "variance", "centring"}) out.out[o] = statistic_out();
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) {
     const auto it = c.find("x");
-    if (it == c.end() || it->second.meta.value("placeholder", false)) ng::refuse("statistic.pca: the statistic's values were not handed over");
+    if (it == c.end() || it->second.meta.value("placeholder", false)) ng::refuse("stats.pca: the statistic's values were not handed over");
     ng::Arrays a{{"x", it->second}};
     a["x"].meta["members"] = p["members"];
     a["x"].meta["scale"] = p.value("scale", std::string("none"));
@@ -108,11 +108,11 @@ ng::NodeSpec statistic_pca() {
     const ng::Array& X = std::any_cast<const ng::Arrays&>(prepared).at("x");
     const std::string name = X.meta.value("name", std::string());
     if (X.meta.value("value_type", std::string("scalar")) != "scalar")
-      ng::refuse("statistic.pca: '" + name + "' holds " + X.meta.value("value_type", std::string()) + " values; only real (scalar) values are decomposed: decompose its real and imaginary parts, or a derived real quantity, as separate tables");
+      ng::refuse("stats.pca: '" + name + "' holds " + X.meta.value("value_type", std::string()) + " values; only real (scalar) values are decomposed: decompose its real and imaginary parts, or a derived real quantity, as separate tables");
     const Json axes = X.meta.value("axes", Json::array());
     const Json shape = X.meta.value("shape", Json::array());
-    if (!axes.is_array() || axes.size() != shape.size()) ng::refuse("statistic.pca: '" + name + "' has " + std::to_string(shape.size()) + " array dimensions but " + std::to_string(axes.is_array() ? axes.size() : 0) + " axes");
-    if (axes.size() != 2) ng::refuse("statistic.pca: '" + name + "' has " + std::to_string(axes.size()) + " axes: a table is the members and ONE feature axis (reduce the others first)");
+    if (!axes.is_array() || axes.size() != shape.size()) ng::refuse("stats.pca: '" + name + "' has " + std::to_string(shape.size()) + " array dimensions but " + std::to_string(axes.is_array() ? axes.size() : 0) + " axes");
+    if (axes.size() != 2) ng::refuse("stats.pca: '" + name + "' has " + std::to_string(axes.size()) + " axes: a table is the members and ONE feature axis (reduce the others first)");
     const std::size_t a = members_axis(axes, X.meta["members"].get<std::string>(), name), f = 1 - a;
     const std::int64_t n_members = shape[a].get<std::int64_t>(), p = shape[f].get<std::int64_t>();
     Eigen::MatrixXd T(n_members, p);                                       // [member x feature]; the stored values are C order over the axes

@@ -41,7 +41,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: welch.cross_spectrum, in: {x: recording, channels_of: channels_of, exclude: bad}, with: {bands: $bands, channel_types: $channel_types, resolve: $resolve, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: [channels, spectrum, bins]}
+      - {node: signal.xpsd, in: {x: recording, channels_of: channels_of, exclude: bad}, with: {bands: $bands, channel_types: $channel_types, resolve: $resolve, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: [channels, spectrum, bins]}
 
 outputs:
   channels:

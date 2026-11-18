@@ -85,7 +85,7 @@ struct SurState {
 void add_surrogate_steps(std::vector<StepSpec>& r) {
   {
     StepSpec s;
-    s.name = "surrogate.lagfree_mixing"; s.kind = "setup";
+    s.name = "synthesis.lagfree_mixing"; s.kind = "setup";
     s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "once, from a stored cross-spectrum (no time axis), in double", {});
     s.inputs = {"cross_spectrum"}; s.outputs = {"mixing"};
     s.parameters = Json::object();
@@ -94,10 +94,10 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
                     "(meta.channels, in order) with its provenance (meta.provenance: the cross-spectrum's id and name). A surrogate's unmixed draw awaits it; it is composed ONCE into the first linear map of the chain "
                     "(apply_kernel's `pre_operator`), never applied per sample";
     s.plan = [](const Values& ins, const Json&, const PlanContext&) {
-      statistic_input(ins.at("cross_spectrum"), "surrogate.lagfree_mixing", "cross_spectrum", "welch", {"cross_spectral_density"});
+      statistic_input(ins.at("cross_spectrum"), "synthesis.lagfree_mixing", "cross_spectrum", "welch", {"cross_spectral_density"});
       Value y;
       y.cls = "operator";
-      y.facts = Json{{"operator_of", operator_of(ins.at("cross_spectrum"))}, {"linear", true}, {"made_by", "surrogate.lagfree_mixing"}};
+      y.facts = Json{{"operator_of", operator_of(ins.at("cross_spectrum"))}, {"linear", true}, {"made_by", "synthesis.lagfree_mixing"}};
       return Values{{"mixing", y}};
     };
     s.prepare = [](const Values& ins, const Json&, ExecContext&) {
@@ -109,7 +109,7 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
       const MixingState& st = std::any_cast<const MixingState&>(st_);
       const auto cs = c.bound.cross_spectrum(st.name);
       Eigen::MatrixXd B;
-      try { B = nxr::synthesis::zeroLagMixing(cs.S); } catch (const std::invalid_argument& e) { refuse(std::string("surrogate.lagfree_mixing: ") + st.name + ": " + e.what()); }
+      try { B = nxr::synthesis::zeroLagMixing(cs.S); } catch (const std::invalid_argument& e) { refuse(std::string("synthesis.lagfree_mixing: ") + st.name + ": " + e.what()); }
       const std::int64_t M = B.rows();
       Array a;
       a.rows = M; a.cols = M;
@@ -124,7 +124,7 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
 
   {
     StepSpec s;
-    s.name = "surrogate.lagfree"; s.kind = "chunk";
+    s.name = "synthesis.lagfree"; s.kind = "chunk";
     s.reads_shape_only = true;
     s.traits = node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the noise is a function of the sample index (a counter-based generator) and reads no sample of the input; each output sample is that noise filtered by the shaping taps, made from the sample index on each side, so it asks no halo of the input; computed in double, stored as float32", "none from the input: the taps' reach (`taps_half` samples each side) is made from the sample index");
     s.inputs = {"x", "psd", "psd_channel_mean", "cross_spectrum", "power_series"}; s.outputs = {"y"};
@@ -133,24 +133,24 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
     s.description = "ONE LAG-FREE DRAW, UNMIXED, in place of the recording: per channel of the stored cross-spectrum one stream of Gaussian noise with the recording's own mean spectrum (the stored Welch PSD over those channels: never flat), "
                     "scaled in time to the data's tile power (`power_series`) over the draw's expected power through the band's analytic gain, so the mixed draw's analytic signal has the data's band envelope. A function of the SAMPLE "
                     "INDEX (a counter-based generator of `seed`): the draw does not depend on the chunk size; another `seed` is another draw. x is the recording's SHAPE (rows, rate, samples; `read: shape`): no sample is read. "
-                    "Channels the cross-spectrum does not cover are zero. The output AWAITS the zero-lag mixing (`surrogate.lagfree_mixing`), applied once in the first linear map (apply_kernel's `pre_operator`): it commutes "
+                    "Channels the cross-spectrum does not cover are zero. The output AWAITS the zero-lag mixing (`synthesis.lagfree_mixing`), applied once in the first linear map (apply_kernel's `pre_operator`): it commutes "
                     "with every linear time step before it (spec docs/specs/2026-11-17-surrogates.md, section 4). `taps_half` 0: from the PSD's resolution (half = fs / (2 df), at most 4096)";
     s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
       const Value& x = ins.at("x");
-      recording_input(x, "surrogate.lagfree", false);
-      band_params(p, "surrogate.lagfree", x.rate);
-      need(p["seed"].is_number_integer() && p["seed"].get<std::int64_t>() >= 0, "surrogate.lagfree: seed is a whole number >= 0 (a draw)");
-      need(p["taps_half"].is_number_integer() && p["taps_half"].get<int>() >= 0, "surrogate.lagfree: taps_half is a whole number >= 0 (0: from the PSD's resolution)");
-      statistic_input(ins.at("psd"), "surrogate.lagfree", "psd", "welch", {"power_density", "power"});
-      statistic_input(ins.at("cross_spectrum"), "surrogate.lagfree", "cross_spectrum", "welch", {"cross_spectral_density"});
-      measurement_input(ins.at("psd_channel_mean"), "surrogate.lagfree", "psd_channel_mean");
-      measurement_input(ins.at("power_series"), "surrogate.lagfree", "power_series");
+      recording_input(x, "synthesis.lagfree", false);
+      band_params(p, "synthesis.lagfree", x.rate);
+      need(p["seed"].is_number_integer() && p["seed"].get<std::int64_t>() >= 0, "synthesis.lagfree: seed is a whole number >= 0 (a draw)");
+      need(p["taps_half"].is_number_integer() && p["taps_half"].get<int>() >= 0, "synthesis.lagfree: taps_half is a whole number >= 0 (0: from the PSD's resolution)");
+      statistic_input(ins.at("psd"), "synthesis.lagfree", "psd", "welch", {"power_density", "power"});
+      statistic_input(ins.at("cross_spectrum"), "synthesis.lagfree", "cross_spectrum", "welch", {"cross_spectral_density"});
+      measurement_input(ins.at("psd_channel_mean"), "synthesis.lagfree", "psd_channel_mean");
+      measurement_input(ins.at("power_series"), "synthesis.lagfree", "power_series");
       Value y = x;
       y.row.reset();
       y.facts.erase("read");                                                  // the draw has values: the steps after it read them
-      y.facts["made_by"] = "surrogate.lagfree";
+      y.facts["made_by"] = "synthesis.lagfree";
       y.facts["awaits_operator"] = Json{{"of", operator_of(ins.at("cross_spectrum"))}};
-      y.facts["surrogate"] = Json{{"generator", "surrogate.lagfree"}, {"seed", p["seed"]}, {"psd", nxr::io::text(*ins.at("psd").row, "name")}, {"cross_spectrum", nxr::io::text(*ins.at("cross_spectrum").row, "name")},
+      y.facts["surrogate"] = Json{{"generator", "synthesis.lagfree"}, {"seed", p["seed"]}, {"psd", nxr::io::text(*ins.at("psd").row, "name")}, {"cross_spectrum", nxr::io::text(*ins.at("cross_spectrum").row, "name")},
                                   {"power_series", ins.at("power_series").facts["over"].value("selection", std::string())}, {"psd_channel_mean", ins.at("psd_channel_mean").facts["over"].value("selection", std::string())}};
       return Values{{"y", y}};
     };
@@ -158,18 +158,18 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
       SurState st;
       const Value& x = ins.at("x");
       const auto man = c.bound.manifold(x.manifolds[0]);
-      need(man.has_value(), "surrogate.lagfree: x's channels are not among the subject's manifolds");
+      need(man.has_value(), "synthesis.lagfree: x's channels are not among the subject's manifolds");
       st.rows = nxr::io::integer(*man, "n_vertices");
       const auto cs = c.bound.cross_spectrum(nxr::io::text(*ins.at("cross_spectrum").row, "name"));
       st.channels = cs.channels;
       const std::int64_t M = static_cast<std::int64_t>(cs.channels.size());
-      for (const std::int32_t ch : st.channels) need(ch >= 0 && ch < st.rows, "surrogate.lagfree: the cross-spectrum's channel " + std::to_string(ch) + " is not one of x's " + std::to_string(st.rows) + " rows");
+      for (const std::int32_t ch : st.channels) need(ch >= 0 && ch < st.rows, "synthesis.lagfree: the cross-spectrum's channel " + std::to_string(ch) + " is not one of x's " + std::to_string(st.rows) + " rows");
       // the spectrum: the PSD's mean over the cross-spectrum's channels, on its frequency line (k df)
       const nxr::io::StoredStatistic P = c.bound.statistic(nxr::io::text(*ins.at("psd").row, "name"));
-      need(P.shape.size() == 2, "surrogate.lagfree: the PSD " + nxr::io::text(*ins.at("psd").row, "name") + " is not [channels × frequencies]");
+      need(P.shape.size() == 2, "synthesis.lagfree: the PSD " + nxr::io::text(*ins.at("psd").row, "name") + " is not [channels × frequencies]");
       const std::int64_t nf = P.shape[1];
       const double df = P.producer.value("frequency_resolution_hz", 0.0), fs = P.producer.value("sfreq", x.rate);
-      need(df > 0 && std::abs(fs - x.rate) < 1e-6 * x.rate, "surrogate.lagfree: the PSD's resolution or sampling rate is not recorded, or it is not the recording's");
+      need(df > 0 && std::abs(fs - x.rate) < 1e-6 * x.rate, "synthesis.lagfree: the PSD's resolution or sampling rate is not recorded, or it is not the recording's");
       Eigen::VectorXd freq(nf), gain(nf), psd;
       for (std::int64_t k = 0; k < nf; ++k) freq[k] = static_cast<double>(k) * df;
       const auto g = gain_of(p);
@@ -182,21 +182,21 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
         psd = Eigen::Map<const Eigen::VectorXd>(pm.values.data(), nf);
         st.taps = nxr::synthesis::spectrumShapingTaps(freq, psd, fs, half);
         st.expected = nxr::synthesis::analyticGainPower(freq, psd, gain);             // the unscaled draw's mean |z|^2 through the analytic gain (unit-variance streams, unit mean channel variance after the mixing)
-      } catch (const std::invalid_argument& e) { refuse(std::string("surrogate.lagfree: ") + e.what() + " (band " + p["band"].dump() + " Hz)"); }
+      } catch (const std::invalid_argument& e) { refuse(std::string("synthesis.lagfree: ") + e.what() + " (band " + p["band"].dump() + " Hz)"); }
       // the data's tile power: the mean derived at read (sum / count); a tile with no good sample takes the one before it
       const nxr::io::MeasurementValues S = read_measurement(c.bound, ins.at("power_series"), "power");            // mean |z|^2 per tile over the cross-spectrum's channels
-      need(S.rows == 1, "surrogate.lagfree: power_series is [" + std::to_string(S.rows) + " rows x " + std::to_string(S.members) + " tiles]; one row of tiles (the channel set one member)");
+      need(S.rows == 1, "synthesis.lagfree: power_series is [" + std::to_string(S.rows) + " rows x " + std::to_string(S.members) + " tiles]; one row of tiles (the channel set one member)");
       const std::int64_t n = S.members;
-      st.stride = time_tile_of(c.bound, ins.at("power_series"), "surrogate.lagfree");
-      need(st.stride > 1, "surrogate.lagfree: the power series' time grid records no tile");
+      st.stride = time_tile_of(c.bound, ins.at("power_series"), "synthesis.lagfree");
+      need(st.stride > 1, "synthesis.lagfree: the power series' time grid records no tile");
       st.power.assign(static_cast<std::size_t>(n), std::nan(""));
       for (std::int64_t k = 0; k < n; ++k) if (std::isfinite(S.values[static_cast<std::size_t>(k)])) st.power[static_cast<std::size_t>(k)] = S.values[static_cast<std::size_t>(k)];   // a tile with no good sample is NaN: it takes the one before it
       std::int64_t first_ok = -1;
       for (std::int64_t k = 0; k < n; ++k) if (std::isfinite(st.power[static_cast<std::size_t>(k)])) { first_ok = k; break; }
-      need(first_ok >= 0, "surrogate.lagfree: the power series holds no good tile");
+      need(first_ok >= 0, "synthesis.lagfree: the power series holds no good tile");
       for (std::int64_t k = 0; k < n; ++k) { if (!std::isfinite(st.power[static_cast<std::size_t>(k)])) st.power[static_cast<std::size_t>(k)] = k > 0 ? st.power[static_cast<std::size_t>(k - 1)] : st.power[static_cast<std::size_t>(first_ok)]; }
       st.seed = static_cast<std::uint64_t>(p["seed"].get<std::int64_t>());
-      st.record = Json{{"generator", "surrogate.lagfree"}, {"seed", p["seed"]}, {"channels", M}, {"taps", st.taps.size()}, {"taps_half", half}, {"frequency_resolution_hz", df}, {"expected_power", st.expected}, {"tile_samples", st.stride},
+      st.record = Json{{"generator", "synthesis.lagfree"}, {"seed", p["seed"]}, {"channels", M}, {"taps", st.taps.size()}, {"taps_half", half}, {"frequency_resolution_hz", df}, {"expected_power", st.expected}, {"tile_samples", st.stride},
                        {"psd", nxr::io::text(*ins.at("psd").row, "name")}, {"cross_spectrum", nxr::io::text(*ins.at("cross_spectrum").row, "name")}, {"power_series", ins.at("power_series").facts["over"].value("selection", std::string())}, {"psd_channel_mean", ins.at("psd_channel_mean").facts["over"].value("selection", std::string())},
                        {"reads", "the recording's shape only (no sample)"}, {"order", "white -> taps -> scale; the mixing composed into the first linear map (spec docs/specs/2026-11-17-surrogates.md, section 4)"},
                        {"reference", "Rheome lagfreenull, envelopenull"},

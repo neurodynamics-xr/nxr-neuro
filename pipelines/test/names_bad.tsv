@@ -1,0 +1,3 @@
+# the fixture of names_across_layers_catches: a node whose word is not its function's, and a binding that is not in the sources
+node	signal.psd	nxr::signal::fft	ok
+mex	compute.signal.nothing	nxr::signal::nothing	ok

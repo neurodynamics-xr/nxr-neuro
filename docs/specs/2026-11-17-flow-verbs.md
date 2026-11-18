@@ -1,6 +1,6 @@
 # The flow verbs as definitions: quadrature, optical flow, cycle patterns, the spatial-band phase gradient (2026-11-17)
 
-Status: `quadrature` is converted (definition `quadrature`, node `quadrature.source_pairs`). The other three are designed here as graphs, checked against the Studio's chain,
+Status: `quadrature` is converted (definition `quadrature`, node `signal.source_planes`). The other three are designed here as graphs, checked against the Studio's chain,
 and wait on the points under "What remains". Each graph is written first, as CONTRIBUTING.md asks: nodes, typed ports, the inputs it is handed, the outputs it gives back.
 
 The Studio's chain (`studio/src/engine/toolbox/signal/chain.ts`, its device form `deviceChain.ts`, the field forms `fieldForms.ts`) is: members (a linear spatial map) -> filter
@@ -11,8 +11,8 @@ chain BEFORE any non-linear transform (D106). The names below are the Studio's w
 
 ```
 recording [channels x samples, streamed]
-  --welch.cross_spectrum (accumulate; partition = the Welch segments, a Rule on the time line; channels_of = the kernel's)--> spectrum [bands x M x M, complex]
-  --quadrature.source_pairs (array; F = K L, S = L L^H; Im(F F^H) in factored form)--> energy [vertex x band], pairs [vertex x pattern (x 3)]
+  --signal.xpsd (accumulate; partition = the Welch segments, a Rule on the time line; channels_of = the kernel's)--> spectrum [bands x M x M, complex]
+  --signal.source_planes (array; F = K L, S = L L^H; Im(F F^H) in factored form)--> energy [vertex x band], pairs [vertex x pattern (x 3)]
 ```
 - Loading: the chunk service reads the recording; the cross-spectrum node is the only node on the stream. Preparation: the kernel's channels pick the rows (type-checked: the
   cross-spectrum must be bands x M x M on the kernel's M channels). Graph: two pure nodes. Readback: two statistics over the segment partition.
@@ -33,7 +33,7 @@ recording [channels x samples, streamed]
 recording [channels x samples, streamed]
   --band.analytic member (chunk, windowed; RETIMING to the member's own rate; halo = the wavelet's margin, declared)--> z [channels x frames, complex]
   --meeg.apply_kernel (chunk, pointwise; linear map BEFORE the non-linear step, D106)--> J [3N x frames, complex]
-  --flow.activation (chunk, pointwise: amplitude |J|, the sum of squares over a source's orientations)--> A [N x frames, real >= 0]
+  --signal.flow_activation (chunk, pointwise: amplitude |J|, the sum of squares over a source's orientations)--> A [N x frames, real >= 0]
   --flow.horn_schunck (chunk, stateful: the previous frame is its carried state; the amplitude scale is a window constant)--> velocity [3N x frames - 1]
   --flow.readout (chunk, pointwise per frame: divergence, curl, speed)--> d, c, s [N x frames - 1]
   --measure over (leaf grid x frame grid): sums per leaf and per frame, weighted by the vertex's area--> the pyramid's leaf x frame sums (measurements)
@@ -65,9 +65,9 @@ analytic cross-spectrum series (a statistic over the time tiles, stored by cross
 ## 4. Optical flow, built (2026-11-17): the nodes and the two definitions
 
 The nodes are in `pipelines/src/flow_steps.cpp`, registered by `register_flow_nodes()`:
-`timebank.member_analytic` (retiming, windowed: one filter-bank member at its own rate, the halo declared = the filter's margin plus the lattice period; frame g sits at g p/q samples from sample 0 of the
-recording, so frames do not depend on the chunk), `flow.activation` (J = K z, then |J|), `flow.max_amplitude` (accumulate), `flow.velocity` (stateful: the previous map; the unit amplitude is the stored
-maximum), `flow.hodge_modes` (pointwise), `flow.series` (accumulate: the weights [K x steps] and their line).
+`signal.member_analytic` (retiming, windowed: one filter-bank member at its own rate, the halo declared = the filter's margin plus the lattice period; frame g sits at g p/q samples from sample 0 of the
+recording, so frames do not depend on the chunk), `signal.flow_activation` (J = K z, then |J|), `signal.flow_max_amplitude` (accumulate), `signal.flow_velocity` (stateful: the previous map; the unit amplitude is the stored
+maximum), `signal.flow_hodge_modes` (pointwise), `signal.flow_series` (accumulate: the weights [K x steps] and their line).
 
 - `run flow_amplitude` stores the window's maximum amplitude as a statistic (rule 13); `run flow_modes` reads it by name (input `scale`) and stores the flow weights as a field on (eigen axis x the made time line).
 - The frame cells are no longer made inside the run (rule 15), and the leaf x frame sums (divergence, curl, speed, velocity components per leaf and frame) are NOT part of the definition: they are measurements over

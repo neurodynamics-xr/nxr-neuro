@@ -33,7 +33,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: filter.apply, in: {x: recording, mean: mean}, with: {kind: notch, frequencies: $frequencies, harmonics: $harmonics, method: $method, ripple: $ripple, transition: $transition, edge: $edge, transient_samples: $transient_samples, remove_mean: $remove_mean, notch_bandwidth: $notch_bandwidth, bandstop_order: $bandstop_order, tolerance: $tolerance}, out: y}
+      - {node: signal.filter, in: {x: recording, mean: mean}, with: {kind: notch, frequencies: $frequencies, harmonics: $harmonics, method: $method, ripple: $ripple, transition: $transition, edge: $edge, transient_samples: $transient_samples, remove_mean: $remove_mean, notch_bandwidth: $notch_bandwidth, bandstop_order: $bandstop_order, tolerance: $tolerance}, out: y}
 
 outputs:
   y:

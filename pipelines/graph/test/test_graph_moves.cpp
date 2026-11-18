@@ -123,7 +123,7 @@ void test_gauge() {
   g::PortType kt = kernel_t(cortex, cortex);
   kt.spin = 1; kt.gauge = "gc/vertex:glued";
   t.spin = 1; t.gauge = "gc/vertex:cortex";
-  CHECK(refused([&] { use("apply_kernel", {{"x", t}, {"kernel", kt}}); }, {"spin 1 in gauge gc/vertex:cortex", "gc/vertex:glued", "frame.rotate"}));
+  CHECK(refused([&] { use("apply_kernel", {{"x", t}, {"kernel", kt}}); }, {"spin 1 in gauge gc/vertex:cortex", "gc/vertex:glued", "geometry.frame_rotate"}));
   kt.gauge = "gc/vertex:cortex";
   CHECK(use("apply_kernel", {{"x", t}, {"kernel", kt}}).count("y") == 1);
   t.gauge.clear();
@@ -294,18 +294,18 @@ void test_coordinates() {
   g::PortType tr; tr.typed = true; tr.cls = g::PortClass::operator_; tr.quantity = "transition";
   tr.transition = std::make_pair(g::CoordinateSystem{"head", "device:run1", "m"}, g::CoordinateSystem{"head", "scs", "m"});
   g::PortType pos; pos.typed = true; pos.cls = g::PortClass::manifold; pos.domain = dom({device});
-  const auto moved = use("positions.transition", {{"positions", pos}, {"transition", tr}}, Json::object(), false, {"moved"}).at("moved");
+  const auto moved = use("meeg.positions_transition", {{"positions", pos}, {"transition", tr}}, Json::object(), false, {"moved"}).at("moved");
   CHECK(moved.domain.factors[0]->cs && moved.domain.factors[0]->cs->name == "scs" && g::same(moved.domain.factors[0], head));
   g::PortType wrong = pos; wrong.domain = dom({head});
-  CHECK(refused([&] { use("positions.transition", {{"positions", wrong}, {"transition", tr}}, Json::object(), false, {"moved"}); }, {"port `transition`", "starts in", "device:run1"}));
+  CHECK(refused([&] { use("meeg.positions_transition", {{"positions", wrong}, {"transition", tr}}, Json::object(), false, {"moved"}); }, {"port `transition`", "starts in", "device:run1"}));
   // a kernel built on the head-frame sensors reads a recording whose sensors are still in the device frame: refused, the transition named, none inserted
   const auto k = kernel_t(g::restricted(head, "channels(kernel)"), surface);
-  CHECK(refused([&] { use("apply_kernel", {{"x", field_t({device, time}, VT::complex)}, {"kernel", k}}); }, {"port `kernel`", "another coordinate system", "head/device:run1", "positions.transition"}));
+  CHECK(refused([&] { use("apply_kernel", {{"x", field_t({device, time}, VT::complex)}, {"kernel", k}}); }, {"port `kernel`", "another coordinate system", "head/device:run1", "meeg.positions_transition"}));
   // a node that reads positions: its ports in one system, or in the one it names
   g::Signature s = g::sig(g::Move::make).in("channels", g::selection_any()).in("surface", g::selection_any()).out("g", g::make_of(g::PortClass::operator_)).positions_share({"channels", "surface"}).positions_in("surface", "scs");
   g::TypeUse tu; tu.label = "chunks[0] toy.gain"; tu.in_names = {{"channels", "c"}, {"surface", "s"}}; tu.out_names = {{"g", "g"}};
   tu.in = {{"channels", selection_t({device}, "indices", false, "c")}, {"surface", selection_t({surface}, "indices", false, "s")}};
-  CHECK(refused([&] { g::type_use("toy.gain", s, tu, Json::object()); }, {"port `surface`", "head/scs", "head/device:run1", "positions.transition", "device:run1 -> scs"}));
+  CHECK(refused([&] { g::type_use("toy.gain", s, tu, Json::object()); }, {"port `surface`", "head/scs", "head/device:run1", "meeg.positions_transition", "device:run1 -> scs"}));
   tu.in.at("channels") = selection_t({head}, "indices", false, "c");
   CHECK(g::type_use("toy.gain", s, tu, Json::object()).count("g") == 1);
 }

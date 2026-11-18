@@ -35,8 +35,8 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: timebank.member_analytic, in: {x: recording, channels_of: kernel}, with: {family: $family, gain: $gain, freq: $freq, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, resolution: $resolution, oversample: $oversample, tolerance: $tolerance}, out: z}
-      - {node: flow.activation, in: {z: z, kernel: kernel}, with: {input: $input}, out: a}
+      - {node: signal.member_analytic, in: {x: recording, channels_of: kernel}, with: {family: $family, gain: $gain, freq: $freq, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, resolution: $resolution, oversample: $oversample, tolerance: $tolerance}, out: z}
+      - {node: signal.flow_activation, in: {z: z, kernel: kernel}, with: {input: $input}, out: a}
 
 outputs:
   a: {kind: field, kind_name: source estimate, name: "{recording}_member_activation", on: kernel.to, derived_from: recording, by_operator: kernel}

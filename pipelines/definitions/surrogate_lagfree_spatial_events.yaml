@@ -2,7 +2,7 @@
 # `run spatial_events`, run on a lag-free surrogate of the recording in place of the recording (Gaussian noise with the data's own spectrum, scaled to the data's band envelope: `run measure --set surrogate_lagfree_envelope`,
 # mixed by the band's real cross-spectrum as its zero-lag covariance, no lag). The baseline, the threshold and the burst frames are the DATA's: only the signal is replaced, so the draw's patches are what
 # the same threshold finds in a signal with the data's covariance, spectrum and envelope and no travelling.
-# THE ORDER (spec section 4): white -> shaping taps -> envelope scale (`surrogate.lagfree`, UNMIXED) -> analytic -> frames -> ONE fused operator per hat level (the kernel's current through the level's hat on
+# THE ORDER (spec section 4): white -> shaping taps -> envelope scale (`synthesis.lagfree`, UNMIXED) -> analytic -> frames -> ONE fused operator per hat level (the kernel's current through the level's hat on
 # the glued surface, composed with the zero-lag mixing: apply_kernel's `pre_operator`), built once and cached across the draws. The first non-linear step is `power`.
 # A DRAW NEVER READS THE RECORDING (`read: shape`). A draw is the run with `seed: i` (`draw: seed`); only the HOME MAP and the PATCH SUMMARY are stored (small statistics:
 # `surrogate_lagfree_spatial_events.draw<seed>.home.<recording>`, `.summary.<recording>`), never the surrogate or the patches. `run surrogate_lagfree_spatial_events_compare` runs the draws in batches with
@@ -65,11 +65,11 @@ parameters:
 
 steps:
   before:
-    - {node: surrogate.lagfree_mixing, in: {cross_spectrum: cross_spectrum}, out: mixing}
+    - {node: synthesis.lagfree_mixing, in: {cross_spectrum: cross_spectrum}, out: mixing}
   chunks:
     over: recording
     do:
-      - node: surrogate.lagfree
+      - node: synthesis.lagfree
         in:   {x: recording, psd: psd, psd_channel_mean: psd_channel_mean, cross_spectrum: cross_spectrum, power_series: power_series}
         with: {band: $band, shape: $shape, taps_half: $taps_half, seed: $seed}
         out:  y

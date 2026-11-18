@@ -1,0 +1,264 @@
+# One name per thing across the layers: see pipelines/test/test_names_across_layers.cpp for the columns and the statuses.
+# kind	entry	function	status
+addon	assembleConnectionLaplacian	-	legacy
+addon	assembleDECOperators	-	legacy
+addon	assembleManifoldOperators	-	legacy
+addon	compute	-	legacy
+addon	computeFreq	-	legacy
+addon	createContext	-	legacy
+addon	curvatures	-	legacy
+addon	dampedWave	-	legacy
+addon	eigs	-	legacy
+addon	eigsPencil	-	legacy
+addon	exactDistance	-	legacy
+addon	extendScalar	-	legacy
+addon	fieldInfo	-	legacy
+addon	findCenter	-	legacy
+addon	frames	-	legacy
+addon	gradient	-	legacy
+addon	heat	-	legacy
+addon	heatDiffusion	-	legacy
+addon	hodge	-	legacy
+addon	isoline	-	legacy
+addon	logMap	-	legacy
+addon	normals	-	legacy
+addon	operatorInfo	-	legacy
+addon	operators	-	legacy
+addon	parallel	-	legacy
+addon	poisson	-	legacy
+addon	signedHeat	-	legacy
+addon	smoothFace	-	legacy
+addon	smoothVertex	-	legacy
+addon	solve	-	legacy
+addon	streamline	-	legacy
+addon	tracePath	-	legacy
+addon	trivial	-	legacy
+addon	vertexFrames	-	legacy
+addon	whitney	-	legacy
+matlab	compute.operators.eigen	nxr::operators::eigen	ok
+matlab	compute.signal.bandpass	nxr::signal::bandpass	ok
+matlab	compute.signal.bandstop	nxr::signal::bandstop	ok
+matlab	compute.signal.highpass	nxr::signal::highpass	ok
+matlab	compute.signal.lowpass	nxr::signal::lowpass	ok
+matlab	compute.signal.notch	nxr::signal::notch	ok
+matlab	compute.signal.psd	-	pending B6a: Welch, LinearWelch, ComplexWelch and welch become the one function psd
+matlab	compute.signal.xpsd	-	pending B6a: CrossWelch becomes the function xpsd
+matlab	compute.stats.pca	nxr::stats::pca	ok
+matlab	compute.stats.reconstruct	nxr::stats::reconstruct	ok
+mex	assembleConnectionLaplacian	-	legacy
+mex	assembleDECOperators	-	legacy
+mex	assembleManifoldOperators	-	legacy
+mex	bff	-	legacy
+mex	bundle	-	legacy
+mex	compute	-	legacy
+mex	compute.operators.eigen	nxr::operators::eigen	ok
+mex	compute.signal.psd	-	pending B6a: Welch, LinearWelch, ComplexWelch and welch become the one function psd
+mex	compute.signal.xpsd	-	pending B6a: CrossWelch becomes the function xpsd
+mex	compute.stats.pca	nxr::stats::pca	ok
+mex	compute.stats.reconstruct	nxr::stats::reconstruct	ok
+mex	computeFreq	-	legacy
+mex	create	-	legacy
+mex	curvatures	-	legacy
+mex	dampedWave	-	legacy
+mex	destroy	-	legacy
+mex	directionField	-	legacy
+mex	embedded	-	legacy
+mex	extendScalar	-	legacy
+mex	extrinsic	-	legacy
+mex	facets	-	legacy
+mex	fieldInfo	-	legacy
+mex	findCenter	-	legacy
+mex	fixDelaunay	-	legacy
+mex	frameTransport	-	legacy
+mex	frames	-	legacy
+mex	gauge	-	legacy
+mex	geometry	-	legacy
+mex	gradient	-	legacy
+mex	heat	-	legacy
+mex	heatDiffusion	-	legacy
+mex	hodge	-	legacy
+mex	intrinsic	-	legacy
+mex	isoline	-	legacy
+mex	liftToFrame	-	legacy
+mex	liftToWorld	-	legacy
+mex	logMap	-	legacy
+mex	normalize	-	legacy
+mex	normals	-	legacy
+mex	operatorInfo	-	legacy
+mex	operators	-	legacy
+mex	parallel	-	legacy
+mex	poisson	-	legacy
+mex	precompute	-	legacy
+mex	randomDecomposed1Form	-	legacy
+mex	removeDC	-	legacy
+mex	signedHeat	-	legacy
+mex	smoothFace	-	legacy
+mex	smoothVertex	-	legacy
+mex	solve	-	legacy
+mex	streamline	-	legacy
+mex	topology	-	legacy
+mex	tracePath	-	legacy
+mex	trivial	-	legacy
+mex	trivialConnectionLaplacian	-	legacy
+mex	version	-	legacy
+mex	vertexFrames	-	legacy
+mex	whitney	-	legacy
+node	analytic	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	apply_kernel	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	at_level	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	band_filter	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	carry_ends	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	cellquadrature	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	collect	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	connection_weights	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	eeg_montage_1005	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	end_connectome	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	end_gate	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	envelope	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	estimate	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	fiber_ends	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	field.form	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	form	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	frames	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	geometry.frame_embed	-	composite
+node	geometry.frame_project	-	composite
+node	geometry.frame_rotate	-	composite
+node	geometry.glue	-	composite
+node	gradient_power	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	hodge_dirac	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	largest_component	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	meeg.minimum_norm	-	composite
+node	meeg.noise_covariance	-	composite
+node	meeg.phase_gradient	-	composite
+node	meeg.positions_transition	-	composite
+node	meeg.source_band_power	-	composite
+node	meeg.source_bins	-	composite
+node	meeg.source_tensor	-	composite
+node	meeg.spherical_head_model	-	composite
+node	nearest_vertex	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	operators.hodge_weights	-	composite
+node	partition_counts	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	patch_summaries	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	pointspread	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	prune_below	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	reduce	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	reduce.members	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	registration_match	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	relative	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	risefall	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	roll_up	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	run_repeat	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	scale	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	scale_selection	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	select.bands	-	composite
+node	select.dyadic_surface	-	composite
+node	select.events.cores	-	composite
+node	select.events.patches	-	composite
+node	select.events.regions	-	composite
+node	select.events.spans	-	composite
+node	select.events.tracks	-	composite
+node	select.product	-	composite
+node	select.time_grid	-	composite
+node	signal.analytic_bands	-	composite
+node	signal.complex_psd	-	pending B6a: complexWelch becomes psd (the complex input)
+node	signal.filter	-	pending B6a: Filter becomes the pure function filter
+node	signal.flow_activation	-	composite
+node	signal.flow_hodge_modes	-	composite
+node	signal.flow_max_amplitude	-	composite
+node	signal.flow_series	-	composite
+node	signal.flow_velocity	-	composite
+node	signal.member_analytic	-	composite
+node	signal.mode_cross_spectra	-	composite
+node	signal.pair_series	-	pending B6a: pairSeries becomes the generic linear operator step (rotary.h removed)
+node	signal.psd	-	pending B6a: Welch, LinearWelch, ComplexWelch and welch become the one function psd
+node	signal.rfft	-	pending B6a: rfftColumns and rfft merge into rfft
+node	signal.source_planes	-	composite
+node	signal.speed_spectrum	-	composite
+node	signal.xpsd	-	pending B6a: CrossWelch becomes the function xpsd
+node	smooth_memberships	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	stats.pca	nxr::stats::pca	ok
+node	summarize	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	surface_frames	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+node	synthesis.lagfree	-	composite
+node	synthesis.lagfree_mixing	-	composite
+node	synthesis.lagfree_pairs	-	composite
+node	tile_crossings	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen with the PI)
+python	operators_eigen	nxr::operators::eigen	ok
+wasm	assembleConnectionLaplacian	-	legacy
+wasm	assembleDECOperators	-	legacy
+wasm	assembleManifoldOperators	-	legacy
+wasm	bff	-	legacy
+wasm	compute	-	legacy
+wasm	computeFreq	-	legacy
+wasm	curvatures	-	legacy
+wasm	dampedWave	-	legacy
+wasm	eigs	-	legacy
+wasm	exactDistance	-	legacy
+wasm	extendScalar	-	legacy
+wasm	findCenter	-	legacy
+wasm	frames	-	legacy
+wasm	gradient	-	legacy
+wasm	heat	-	legacy
+wasm	heatDiffusion	-	legacy
+wasm	hodge	-	legacy
+wasm	isoline	-	legacy
+wasm	logMap	-	legacy
+wasm	nE	-	legacy
+wasm	nF	-	legacy
+wasm	nV	-	legacy
+wasm	normalize	-	legacy
+wasm	normals	-	legacy
+wasm	operators	-	legacy
+wasm	parallel	-	legacy
+wasm	poisson	-	legacy
+wasm	precompute	-	legacy
+wasm	randomDecomposed1Form	-	legacy
+wasm	removeDC	-	legacy
+wasm	signedHeat	-	legacy
+wasm	smoothFace	-	legacy
+wasm	smoothVertex	-	legacy
+wasm	solve	-	legacy
+wasm	streamline	-	legacy
+wasm	tracePath	-	legacy
+wasm	trivial	-	legacy
+wasm	vertexFrames	-	legacy
+wasm	whitney	-	legacy
+python	signal_psd	-	pending B6a: Welch, LinearWelch, ComplexWelch and welch become the one function psd
+python	signal_xpsd	-	pending B6a: CrossWelch becomes the function xpsd
+python	signal_filter	-	pending B6a: Filter becomes the pure function filter
+python	stats_pca	nxr::stats::pca	ok
+python	stats_reconstruct	nxr::stats::reconstruct	ok
+retired	compute.welch.psd	mex	compute.signal.psd
+retired	compute.welch.cross_spectrum	mex	compute.signal.xpsd
+retired	compute.pca.pca	mex	compute.stats.pca
+retired	compute.pca.reconstruct	mex	compute.stats.reconstruct
+retired	compute.manifold.eigenmodes	mex	compute.operators.eigen
+retired	fft.spectrum	node	signal.rfft
+retired	filter.apply	node	signal.filter
+retired	flow.activation	node	signal.flow_activation
+retired	flow.hodge_modes	node	signal.flow_hodge_modes
+retired	flow.max_amplitude	node	signal.flow_max_amplitude
+retired	flow.series	node	signal.flow_series
+retired	flow.velocity	node	signal.flow_velocity
+retired	frame.embed	graphnode	geometry.frame_embed
+retired	frame.project	graphnode	geometry.frame_project
+retired	frame.rotate	graphnode	geometry.frame_rotate
+retired	hodge.speed_spectrum	node	signal.speed_spectrum
+retired	hodge.weights	node	operators.hodge_weights
+retired	positions.transition	node	meeg.positions_transition
+retired	quadrature.source_pairs	node	signal.source_planes
+retired	rotary.pair	node	signal.pair_series
+retired	statistic.pca	node	stats.pca
+retired	surface.glue	node	geometry.glue
+retired	surrogate.lagfree	node	synthesis.lagfree
+retired	surrogate.lagfree_mixing	node	synthesis.lagfree_mixing
+retired	surrogate.lagfree_pairs	node	synthesis.lagfree_pairs
+retired	timebank.analytic_bands	node	signal.analytic_bands
+retired	timebank.member_analytic	node	signal.member_analytic
+retired	welch.complex_psd	node	signal.complex_psd
+retired	welch.cross_spectrum	node	signal.xpsd
+retired	welch.mode_cross_spectra	node	signal.mode_cross_spectra
+retired	welch.psd	node	signal.psd
+retired	welch.source_band_power	node	meeg.source_band_power
+retired	welch.source_bins	node	meeg.source_bins
+retired	welch.source_tensor	node	meeg.source_tensor

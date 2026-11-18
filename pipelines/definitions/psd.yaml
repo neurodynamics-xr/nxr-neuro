@@ -37,7 +37,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: welch.psd, in: {x: recording, exclude: bad}, with: {segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: psd}
+      - {node: signal.psd, in: {x: recording, exclude: bad}, with: {segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: psd}
 
 outputs:
   psd:

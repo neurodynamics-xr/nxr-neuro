@@ -2,7 +2,7 @@
 
 Status: decided structure, implemented in the same change. Builds on the vortex-cores port (`2026-11-14-vortex-cores-port.md`, piece 10), the
 spatial events (`2026-11-14-spatial-events.md`, "Statistics and nulls"), the type system (`2026-11-17-type-system.md`) and compute and run
-(`2026-11-17-compute-and-run.md`, 8.1: `lagfree_surrogate` becomes `surrogate.lagfree`).
+(`2026-11-17-compute-and-run.md`, 8.1: `lagfree_surrogate` becomes `synthesis.lagfree`).
 
 ## 1. What a surrogate is for
 
@@ -27,9 +27,9 @@ The verbs stay `compute` and `run`; there is no new top-level verb, and the old 
 | definition `spatial_events_null` | `surrogate_lagfree_spatial_events` | ONE draw: the spatial-events chain on a lag-free surrogate |
 | `nxr-neuro run spatialnull` | `nxr-neuro run surrogate_lagfree_spatial_events_compare` | the draws and the comparison of the home map and the patch sizes |
 | definition `wishart` | `surrogate_lagfree_pairs` | each burst's lagged share against lag-free Wishart draws of its own second moment |
-| step `lagfree_surrogate` | node `surrogate.lagfree` | the unmixed, shaped and scaled noise of one draw (section 4) |
-| (inside `lagfree_surrogate`) | node `surrogate.lagfree_mixing` | the zero-lag mixing operator √(Re C) of the band's cross-spectrum |
-| step `wishart_null` | node `surrogate.lagfree_pairs` | the Wishart draws and the per-burst comparison |
+| step `lagfree_surrogate` | node `synthesis.lagfree` | the unmixed, shaped and scaled noise of one draw (section 4) |
+| (inside `lagfree_surrogate`) | node `synthesis.lagfree_mixing` | the zero-lag mixing operator √(Re C) of the band's cross-spectrum |
+| step `wishart_null` | node `synthesis.lagfree_pairs` | the Wishart draws and the per-burst comparison |
 | `compute/include/nxr/surrogate.h`, `nxr::surrogate` | `compute/include/nxr/synthesis/lagfree.h`, `nxr::synthesis` | the generators (pure functions of arrays) |
 | the tests inside `null_compute.cpp`, `spatial_null.cpp` | `compute/include/nxr/nulltest.h`, `nxr::nulltest` | the comparison's maths (pure functions of arrays) |
 
@@ -87,9 +87,9 @@ parameter. The stored PSD, the band's cross-spectrum and the data's band-power t
 ```
 inputs: recording (read: shape) · kernel · tiles (the ladder) · tiling (frame tiling) · bursts · threshold (the DATA's) ·
         psd · cross_spectrum · power_series (`lagfree_envelope`) · bad · onset · within · offset
-before:  surrogate.lagfree_mixing  {cross_spectrum}                                   -> mixing        [M x M], over the cross-spectrum's channels
+before:  synthesis.lagfree_mixing  {cross_spectrum}                                   -> mixing        [M x M], over the cross-spectrum's channels
 chunks over recording (its SHAPE only, section 6):
-         surrogate.lagfree         {x: recording, psd, cross_spectrum, power_series}   -> y   white -> taps -> envelope scale (UNMIXED)
+         synthesis.lagfree         {x: recording, psd, cross_spectrum, power_series}   -> y   white -> taps -> envelope scale (UNMIXED)
          analytic                  {x: y}                                               -> z   the band's analytic signal
          frames                    {x: z, tiling, within: bursts}                       -> z_frames
          apply_kernel              {x: z_frames, kernel, tiles, pre_operator: mixing}  -> curl_frames   ONE fused operator (section 5)
@@ -99,13 +99,13 @@ after:   tracks -> tile_crossings (as: statistic)                               
 
 ### `surrogate_lagfree_spatial_events` (one draw)
 
-The same head (`surrogate.lagfree_mixing` before; `surrogate.lagfree` → `analytic` → `frames` → `apply_kernel` with `levels`, `glued` and
+The same head (`synthesis.lagfree_mixing` before; `synthesis.lagfree` → `analytic` → `frames` → `apply_kernel` with `levels`, `glued` and
 `pre_operator: mixing`), then the spatial-events tail unchanged (`power`, `relative` to the DATA's baseline, `at_level`, `scale`, `patches` at
 the DATA's threshold), storing the draw's home map and patch summary.
 
 ### `surrogate_lagfree_pairs`
 
-`before: surrogate.lagfree_pairs {recording, bursts, psd}` with the band's analytic window series by name, as `wishart` was: per burst, the
+`before: synthesis.lagfree_pairs {recording, bursts, psd}` with the band's analytic window series by name, as `wishart` was: per burst, the
 second moment Q of its windows, its lagged share, and the shares of `draws` lag-free Wishart draws of its own Re Q with dof = duration × the band's
 effective bandwidth. The maths are `nxr::synthesis` (`lagfreeSecondMomentDraw`, `laggedShare`, `effectiveBandwidth`) and `nxr::nulltest`
 (`exceedanceIndicator`, `benjaminiHochbergQ`); the node only arranges arrays.
@@ -153,9 +153,9 @@ Generic, not analysis-specific: `apply_kernel` takes an optional input `pre_oper
 (the type system's `compose` move: operator<A → A>, operator<A → B> → operator<A → B>). In preparation the node builds its operator as before
 (the kernel padded to x's channels, the form, the spatial band) and composes it ONCE with the pre-operator: `M' = M · P`, [targets x channels].
 It is applied per block as the kernel was. Any node may make a pre-operator: an array [M x M] with `meta.channels` (the x rows it acts on and
-lands on, in order) and `meta.provenance` (what it is made from). The surrogate's is `surrogate.lagfree_mixing`.
+lands on, in order) and `meta.provenance` (what it is made from). The surrogate's is `synthesis.lagfree_mixing`.
 
-**Typing.** `surrogate.lagfree` marks its output `awaits_operator: {of: <the cross-spectrum>}`; the facts are carried by the linear time steps
+**Typing.** `synthesis.lagfree` marks its output `awaits_operator: {of: <the cross-spectrum>}`; the facts are carried by the linear time steps
 (`analytic`, `frames`). A node that consumes a value awaiting an operator must be handed that operator as `pre_operator` (the operator's
 `operator_of` names the same cross-spectrum), and the mark is then cleared. Any node that makes a non-linear value or leaves the loop (a
 measurement, a statistic) from a value still awaiting its operator is refused before any data is read, with the reason: the unmixed noise is
@@ -175,7 +175,7 @@ The recording input of a draw is declared `read: shape` in the definition (`reco
 The runner then asks the chunk service for the recording's SHAPE only (`nxr::io::ChunkSource` in `Reading::shape`): its channels, rate, span
 and chunk grid, and each chunk's good-sample mask; no sample is read (the array's header gives the shape). The blocks handed to the graph have
 zero rows and the chunk's width and halo. Only a node that declares it reads no sample of its streamed input (`StepSpec::reads_shape_only`:
-`surrogate.lagfree`) may take such a value; any other is refused at plan with the reason. The draw's values are a function of the sample index
+`synthesis.lagfree`) may take such a value; any other is refused at plan with the reason. The draw's values are a function of the sample index
 (the counter-based generator), so the result is the same as before.
 
 ## 7. Selections and types of the comparison

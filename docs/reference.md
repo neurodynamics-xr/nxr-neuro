@@ -614,13 +614,13 @@ A field's description may name the cells it lies on (`cell`: '0' vertices, '1' e
 `optional: true` (a node that makes none hands an array marked `absent`: a glued surface of a cortex of two pieces), and a field may lie on a manifold the run itself makes. Replacing a manifold (`--replace`) moves what lies on it aside with it.
 
 A name is a template: `{input}` the found input's name, `$parameter` a parameter's value, `{name}` what the step's plan fixes (`facts.names`). The short forms (`kind: spans`, `kind: labelling`, `kind: measurement`, a statistic without `axes:`, a Field's own kind
-name such as `band power`) are stored as before. A `node:` use (grouped names such as `welch.psd`) and a `step:` use are the same.
+name such as `band power`) are stored as before. A `node:` use (grouped names such as `signal.psd`) and a `step:` use are the same.
 
 `presets:` names parameter sets (each a named alternative); `run NAME --set PRESET` starts from one. Precedence: the parameters' defaults, then the preset's values, then the caller's own `--NAME VALUE` or
 `--set NAME=VALUE`. A preset names only declared parameters (refused when the definition is read); its name is in the provenance and the cache key (`preset`), beside the resolved parameters.
 `run NAME --help` lists every preset with the values it sets.
 A statistic's `describe` may carry `producer`, what its readers ask of the provenance beside the run's own record (a spectrum's `frequency_resolution_hz` and `sfreq`, its segments, the share of samples left out, the scaling
-record). A native node that applies a stored dense Operator (`rotary.pair`) is handed its matrix and the channels it lies over by the runner (`meta.channels`); it reads no store.
+record). A native node that applies a stored dense Operator (`signal.pair_series`) is handed its matrix and the channels it lies over by the runner (`meta.channels`); it reads no store.
 
 ## The Hodge-Dirac eigenmodes (`run eigenmodes`, the step `hodge_dirac`; spec `docs/specs/2026-11-17-eigenmodes-as-definition.md`)
 
@@ -642,7 +642,7 @@ Options (each a named field of `WelchOptions`): segment length (samples, or seco
 detrend (none · constant · linear), scaling (`Density` power per Hz = scipy "density" and Brainstorm's physical units · `Spectrum` · `Chain` = nxr.spectral.chain's per-bin power). One-sided: interior bins doubled.
 The references are named option sets: `brainstormPsdOptions()` (4 s, 50 %, Hamming **symmetric**, the mean of each segment removed, power per Hz), `scipyWelchOptions()` (Hann periodic, constant detrend; nxr's `qc.sensors.psd` is this at 4 s),
 `nxrChainWelchOptions()` (`nxr.spectral.chain._welch`).
-**`run psd` is a definition** (`pipelines/definitions/psd.yaml`, since D1c of `docs/specs/2026-11-17-definition-outputs.md`): the node `welch.psd` (an accumulate node of `nxr::welch::Welch`; the segment rule is the pure
+**`run psd` is a definition** (`pipelines/definitions/psd.yaml`, since D1c of `docs/specs/2026-11-17-definition-outputs.md`): the node `signal.psd` (an accumulate node of `nxr::welch::Welch`; the segment rule is the pure
 `nxr::welch::segmentFor`) streamed by the runner, and a declared `statistic` output with its channel axis, its frequency line and its segment partition. The sets below are its **presets** (`--set tiles|brainstorm|scipy|nxr-chain`);
 the Welch options are its parameters (`--segment-seconds`, `--segment-samples`, `--segment-level`, `--segment-rule tile|round|even`, `--overlap`, `--window`, `--periodic true|false`, `--detrend`, `--scaling`,
 `--bad-segments exclude|ignore`; `--name`; `--recording`, none = every recording), each with its meaning, default and unit in `run psd --help`; the caller's own values win over a preset's. The old `--no-bad-segments` is
@@ -681,7 +681,7 @@ partition, axes **[pair (1), frequency]**, the frequency on a SIGNED closed-form
 has every Welch option, `sides: two`, and `input` = the operator, its id, its rows and the band it was made for (the operator's own `band`); its unit is the operator's output squared per Hz.
 It is told from the sensor PSD by its axes (`pair` × a signed frequency). The reference is nxr's `nxr.timefreq.psd` of a complex series (scipy.signal.welch, `return_onesided=False`, f ascending): parity
 to 1e-16 on synthetic signals (`compute/test/golden/gen_rotary_welch_golden.py`), a forward pair peaking at +f and a backward pair at −f (`test_welch`); the stored statistic, the chunk-width
-independence to the last bit and the mirror (fy negated gives P(−f)) are in `test_psd_pipeline`; the graph is `rotary.pair` (a pointwise linear map) then `welch.complex_psd` (an accumulate node), the operator handed to the node as its matrix and channels by the runner.
+independence to the last bit and the mirror (fy negated gives P(−f)) are in `test_psd_pipeline`; the graph is `signal.pair_series` (a pointwise linear map) then `signal.complex_psd` (an accumulate node), the operator handed to the node as its matrix and channels by the runner.
 
 ## Source maps: band power, quadrature, Hodge power (`pipelines/include/nxr/pipelines/meeg.h`)
 
@@ -695,7 +695,7 @@ from lo to hi inclusive).
   `<R>_<kernel>_psd_<band>` (as its Field was named; one stored before as Fields stays readable). `io::map_slices` lists a surface's maps of statistics and
   `read_map_slice` reads one; `run measure` and `measure export` take them as they take Fields (their rows name the statistic and the band:
   `of_statistic_id`, `of_index`, added to the measurement table in place).
-- `run sourcepsd_bins` (spec `docs/specs/2026-11-16-meg-fingerprinting.md`, 3.1; the node `welch.source_bins`): the same Welch pass as `run sourcepsd` keeps every bin of ONE band instead of its mean: the frequency
+- `run sourcepsd_bins` (spec `docs/specs/2026-11-16-meg-fingerprinting.md`, 3.1; the node `meeg.source_bins`): the same Welch pass as `run sourcepsd` keeps every bin of ONE band instead of its mean: the frequency
   partition's members are the bins, nothing reduced over frequency. `--kernel`, `--band-name`, `--lo` and `--hi` are required (each a choice of data); one run a band (a band is a selection that selects; resolving
   frequency within it is this transform). Stored: the statistic `<recording>_<kernel>_psd_<band>_bins` (measure `power_density`, `power` for the other scalings; method `welch`; OF the recording, from its segment
   partition), axes vertex (the kernel's target) x frequency (the band's bins, a line on the Frequency manifold), in the precision of the recording; the band statistic of `run sourcepsd` is the mean of these bins. No
@@ -704,7 +704,7 @@ from lo to hi inclusive).
   rows, where the sensor side would hold channels^2 x bins (270 channels, 299 bins: ~350 MB). `LinearWelch` is tested in `compute/test/test_welch.cpp`: equal to Welch on K x over the bins kept, with a bad span and odd
   segment lengths, independent of the chunk size. **What it cannot resolve:** neighbouring bins are correlated (the window's width), so the bins are not independent estimates; each source's spectrum is the kernel's
   estimate, with the kernel's spread and orientation bias, and a spectral feature two sources share through that spread is not told apart.
-- `run quadrature` (a definition: `welch.cross_spectrum` on the kernel's channels, then the node `quadrature.source_pairs`; `docs/specs/2026-11-17-flow-verbs.md`): the quadrature (imaginary) part of the source cross-spectrum, which no zero-delay mixture produces. Per band: `quadratureFraction` ||Im C|| / ||C|| (in the
+- `run quadrature` (a definition: `signal.xpsd` on the kernel's channels, then the node `signal.source_planes`; `docs/specs/2026-11-17-flow-verbs.md`): the quadrature (imaginary) part of the source cross-spectrum, which no zero-delay mixture produces. Per band: `quadratureFraction` ||Im C|| / ||C|| (in the
   fields' params), the `quadratureEnergy` map per source `<stem>_energy_<band>`, and the top K quadrature pairs (p leads q by a quarter cycle) `<stem>_pair<k>_p_<band>` / `_q_`
   (vector3 fields for a free kernel). nxr's `lagged.py` is the reference. Since 2026-11-13 they are MAP STATISTICS by `welch`: `<stem>_energy`
   (`quadrature_energy`, vertex × band, each band entry with its quadrature fraction and the sensors' rank) and `<stem>` (`quadrature_pattern`, vertex ×
@@ -896,7 +896,7 @@ A node declares a **signature**: a move, and its ports' types written with manif
 | move | rule |
 |---|---|
 | `pointwise` | the domain is unchanged; non-linear nodes set `nonlinear` |
-| `apply` | an operator maps one factor (its source may be a restriction: the one implicit move); the field is linear (D106); a tangent field needs an operator built in its own gauge (`frame.rotate` otherwise) |
+| `apply` | an operator maps one factor (its source may be a restriction: the one implicit move); the field is linear (D106); a tangent field needs an operator built in its own gauge (`geometry.frame_rotate` otherwise) |
 | `compose` | two operators meet: A to B, B to C gives A to C |
 | `restrict` | at most one factor narrowed (`at_level`: the stack of levels) |
 | `measure` | the **only** move that removes a factor: a partition's members replace the factors it partitions; the partition must be disjoint; a ladder's level is chosen by the field's band; a joint partition's band and level must equal the field's (the level IS the band); a partition of the streamed factor needs an accumulate node |
@@ -1216,16 +1216,16 @@ spectrum (never flat), its zero-lag covariance and its amplitude envelope, and r
 - **The comparison (`nxr::nulltest`)**: `sequentialP` / `sequentialPs` (Besag-Clifford: h / n when stopped, else (e + 1) / (n + 1)), `fixedDrawPs` ((e + 1) / (n + 1), Rheome `tilepq`), `benjaminiHochbergQ` (NaN members left out of the tests; Rheome `bh`), the draw tally (`tallyDraw`, `rollUp`, `undecidedMembers`, `nullMean`), `countRatio`, `unbiasedConsistency`, `meanResultants`, `occupancyFraction`, `patchShares`, `compareMeanOverMembers`: pure functions of the data's and the draws' values over the same members.
 - **What it cannot resolve.** The null has the data's covariance at zero lag, its spectrum and its envelope, and nothing else: a result beyond it is beyond what mixing and amplitude modulation produce, never a proof of a wave. Its spatial structure is the band's (the cross-spectrum's real part), the same at every frequency.
 
-### The lag-free surrogates in the graph and their comparisons (`run measure --set surrogate_lagfree_envelope`, `run surrogate_lagfree_vortex`, `run surrogate_lagfree_vortex_compare`; steps `power_series`, `surrogate.lagfree_mixing`, `surrogate.lagfree`; spec `docs/specs/2026-11-17-surrogates.md`)
+### The lag-free surrogates in the graph and their comparisons (`run measure --set surrogate_lagfree_envelope`, `run surrogate_lagfree_vortex`, `run surrogate_lagfree_vortex_compare`; steps `power_series`, `synthesis.lagfree_mixing`, `synthesis.lagfree`; spec `docs/specs/2026-11-17-surrogates.md`)
 
 **Why.** Cores, tracks and crossings are descriptions; a tile's direction consistency and the run-to-run repeat are evidence only beyond the lag-free null. The null is the SAME vortex graph run on a surrogate of the recording.
 - **Ingredients (all stored, read by name):** the recording's Welch PSD (`run psd`: the spectrum's shape, never flat), the band's cross-spectrum (`run crossspectrum --channels-of KERNEL --bands alpha:8-12`: √(Re C) mixes the draw and its channels are the null's), and the data's band power
   in dyadic time tiles (`run measure --set surrogate_lagfree_envelope`: step `power_series`, a reduction over a time partition folded chunk by chunk; the statistic `lagfree_envelope.series.<recording>`, [tiles x (sum, count)], measure `power_sum`, method `power_tiles`; the mean is derived at read; bad samples leave the tiles).
   The stored band cross-spectrum is one matrix a band (the bins averaged): it carries the covariance but not the spectrum's shape within the band, which is why the shape comes from the PSD.
-- **`surrogate.lagfree`** (a chunk step; the recording is declared `read: shape`: the chunk service hands its rows, rate, span and good samples and reads NO sample): `nxr::synthesis::shapedNoiseBlock`, one UNMIXED stream for each of the cross-spectrum's channels (the others are 0, the kernel uses none), scaled by √(the data's tile power / the draw's expected power through the band's analytic gain), so the analytic signal of the draw
+- **`synthesis.lagfree`** (a chunk step; the recording is declared `read: shape`: the chunk service hands its rows, rate, span and good samples and reads NO sample): `nxr::synthesis::shapedNoiseBlock`, one UNMIXED stream for each of the cross-spectrum's channels (the others are 0, the kernel uses none), scaled by √(the data's tile power / the draw's expected power through the band's analytic gain), so the analytic signal of the draw
   has the data's envelope. A function of the sample index: chunk-size independent (tested in compute to the last bit). `seed` is a parameter; a draw is the graph with another seed, in the cache key and, by the definition header `draw: seed`, in the stored node's name.
-- **The mixing is composed, not applied.** `surrogate.lagfree_mixing` (before the loop) makes √(Re C) from the cross-spectrum; the unmixed draw AWAITS it through the linear time steps (analytic, frames: the same filter on every channel, so they commute with it, as the per-sample scale does), and `apply_kernel` composes it ONCE into its operator (`pre_operator`: kernel · tangent part · curl · hat · mixing, one [vertices × channels] matrix, cached across the draws by its inputs' provenance). A non-linear step or a reduction of a value still awaiting its operator is refused at plan.
-- **`run surrogate_lagfree_vortex`** is `vortex_cores` after `surrogate.lagfree`: analytic, frames on the DATA's burst frames, the curl of the hat (the fused operator), cores at the DATA's stored threshold, tracks, `tile_crossings` with `as: statistic`. Only the draw's tile crossings are stored, as a statistic beside the recording
+- **The mixing is composed, not applied.** `synthesis.lagfree_mixing` (before the loop) makes √(Re C) from the cross-spectrum; the unmixed draw AWAITS it through the linear time steps (analytic, frames: the same filter on every channel, so they commute with it, as the per-sample scale does), and `apply_kernel` composes it ONCE into its operator (`pre_operator`: kernel · tangent part · curl · hat · mixing, one [vertices × channels] matrix, cached across the draws by its inputs' provenance). A non-linear step or a reduction of a value still awaiting its operator is refused at plan.
+- **`run surrogate_lagfree_vortex`** is `vortex_cores` after `synthesis.lagfree`: analytic, frames on the DATA's burst frames, the curl of the hat (the fused operator), cores at the DATA's stored threshold, tracks, `tile_crossings` with `as: statistic`. Only the draw's tile crossings are stored, as a statistic beside the recording
   (`surrogate_lagfree_vortex.draw<seed>.null_crossings.<recording>`, [stage x sense, tiles + bridge, (x y z, count)], measure `crossing_sum`, method `lagfree_null`, over the level's Selection: small); the surrogate, cores and tracks of a draw are never stored.
 - **`nxr-neuro run surrogate_lagfree_vortex_compare --recording-a A [--recording-b B] [--set NAME=VALUE ...]`** runs the draws in batches (default 20; at least 20, at most 100; `--batch`, `--min-draws`, `--max-draws`), reading each from the store, refuses a draw over another Selection than the data's crossings or made by another definition, and compares the data's crossings with them (stage by `--stage NAME|INDEX`, the senses pooled, tiles with at least `--min-crossings` 10):
   - the **crossing consistency** per tile: the unbiased ρ² = (|S|² - n) / (n (n - 1)) (never R), one-sided; with B, the **run repeat** per tile (the dot of the two runs' mean resultants, draw i of A against draw i of B: the two runs' seeds are 100000 apart so their noise is independent) and the count-weighted mean cosine;
@@ -1302,7 +1302,7 @@ an area and a characteristic size. This section grows with the spec's pieces (th
 
 ### The spatial events against the lag-free surrogate, and the instrument's blur (`run surrogate_lagfree_spatial_events`, `run surrogate_lagfree_spatial_events_compare`, `run pointspread`)
 
-- **`run surrogate_lagfree_spatial_events`** is `run spatial_events` on a lag-free surrogate of the recording (`surrogate.lagfree`, its mixing composed into each hat level's operator: the recording's own spectrum, the band's real cross-spectrum as its zero-lag covariance, the data's band envelope; see the lag-free null above), the baseline, the threshold and the burst frames the DATA's. A draw is the run with `seed: i`
+- **`run surrogate_lagfree_spatial_events`** is `run spatial_events` on a lag-free surrogate of the recording (`synthesis.lagfree`, its mixing composed into each hat level's operator: the recording's own spectrum, the band's real cross-spectrum as its zero-lag covariance, the data's band envelope; see the lag-free null above), the baseline, the threshold and the burst frames the DATA's. A draw is the run with `seed: i`
   (`draw: seed`: its own node, its own cache key); only its home map and its patch summary are stored (`surrogate_lagfree_spatial_events.draw<seed>.home.<recording>`, `.summary.<recording>`), never the surrogate or the patches (`events: false`).
 - **`nxr-neuro run surrogate_lagfree_spatial_events_compare --recording R [--set NAME=VALUE ...]`** runs the draws in batches (20, at least 20, at most 100, h = 10: Besag-Clifford), refuses a draw on another surface or with other summary entries than the data's, and compares the data's `spatial_events.home.<R>` and `.summary.<R>`: per glued vertex the HOME OCCUPANCY (the fraction of burst frames in a patch) one-sided against the draws, BH q over the vertices; and the SIZE
   DISTRIBUTION: the share of the patches at each characteristic level and in each area bin, and the patches per frame, two-sided (the draws at least as large, and at most as large). Stored (statistics of the recording): `surrogate_lagfree_spatial_events_compare.<R>.home_p` [vertex x (p, q, exceedances)], `.home_null` [vertex] (the null's mean occupancy, what the home map is read against),
@@ -1316,7 +1316,7 @@ an area and a characteristic size. This section grows with the spec's pieces (th
   Tested (`test_pointspread`: a 10 cm sphere, a Gaussian smoothing gain of KNOWN width, a kernel that hands each sensor back to its vertex): the peak is at the source (0 cm over 54 sources); the patch diameter grows with the blur (4.4 cm for the identity, 4.9 for a 2 cm Gaussian, 8.1 for a 6 cm one); the three orientations agree where the model has no preference; a rerun is a hit. The sphere is small
   (its finest hat is 18.6 cm), so the characteristic LEVEL is the coarsest at every source: the test fixes the order and the localization, not the absolute width. **What it cannot resolve:** the blur of THIS head model and kernel (their noise model and regularisation) for a source ALONE, not of many together; sizes are octave-spaced levels.
 
-### The lag-free pairs surrogate of the second-moment measures (`run surrogate_lagfree_pairs`, node `surrogate.lagfree_pairs`, `nxr::synthesis::lagfreeSecondMomentDraw`)
+### The lag-free pairs surrogate of the second-moment measures (`run surrogate_lagfree_pairs`, node `synthesis.lagfree_pairs`, `nxr::synthesis::lagfreeSecondMomentDraw`)
 
 - **Why a second null.** The surrogate (above) is a null for cores, tracks and patches (thresholds, links: not quadratic in the data). A quantity LINEAR in a burst's second moment Q_b = Σ z zᴴ (the quadrature, the lagged share, a phase current) needs no surrogate recording: its null is a distribution of Q. Under no lag Q_null ~ complex Wishart(Re Q_b / ν, ν), the burst's own
   zero-lag covariance with ν degrees of freedom (nxr `wishart`): 1000 draws a burst cost almost nothing. It complements the sign-flip test (is a direction SHARED across bursts?): the Wishart null asks whether LAGS EXIST AT ALL in each burst.
@@ -1469,7 +1469,7 @@ is a STATISTIC: "field -> selection/measurements -> statistic. the statistic is 
   mean · sd (n − 1) · median · mad (1.4826 MAD) · percentile:p (numpy linear) · peak · kurtosis · skewness · min · max (`nxr::stats`, golden from
   numpy/scipy). It reads either stored form (array-backed or scalar rows), never the recording; a rerun is a hit. `band_bursts` stores its thresholds'
   ingredients this way (its baseline) and detects from them.
-- **The `pca` statistic** (`run pca`, the node `statistic.pca`, `compute/include/nxr/pca.h`; spec `docs/specs/2026-11-16-meg-fingerprinting.md`, 4.4): the principal components ACROSS the members of a table (members x
+- **The `pca` statistic** (`run pca`, the node `stats.pca`, `compute/include/nxr/pca.h`; spec `docs/specs/2026-11-16-meg-fingerprinting.md`, 4.4): the principal components ACROSS the members of a table (members x
   features), method `pca`, generalising `eigendecomposition` (which decomposes one second-moment statistic; unchanged). The table is a stored real statistic of two axes (`--of NAME --members AXIS`, by name or position; the
   other axis is the features; a statistic of more axes is reduced to a table first). The maths is `nxr::pca::pca`, a pure function of a matrix: the thin SVD of the table with each column's mean removed (scikit-learn's PCA,
   `svd_solver="full"`), never the features x features covariance; `--scale none` (default) or `unit-variance` (ddof 1; a constant feature is refused). Every component up to the table's rank is kept (numpy's
@@ -1871,7 +1871,7 @@ a pulled change under `bindings/` needs moving by hand).
 ## Node traits: the settled classifications (2026-11-17)
 
 Every registered node declares its time behaviour and precision (`ARCHITECTURE.md`, *Backends and node traits*); no node is `uncertain` any more (`test_node_traits` fails on one). What each was decided from:
-- `surrogate.lagfree`: **windowed**. The noise is a function of the sample index, but each output sample is that noise filtered by the shaping taps (`taps_half` samples each side), made from the sample index: it asks no halo of its input, whose shape only it reads.
+- `synthesis.lagfree`: **windowed**. The noise is a function of the sample index, but each output sample is that noise filtered by the shaping taps (`taps_half` samples each side), made from the sample index: it asks no halo of its input, whose shape only it reads.
 - `tile_crossings` (the crossings step): **windowed**, a window of two cores along a track; it runs once on the whole event table and carries no state between blocks.
 - `extent` grow (hysteresis regions): **stateful**; the labelling is carried forward in time.
 - `extent` roll-up and `rollup_events`: **windowed**; the window is the event's own cells or tiles (variable length).

@@ -233,7 +233,7 @@ void gauge_rule(const Unified& u, Types& out, const Signature& sg) {
   if (!x || !op) return;
   if (x->spin != 0 && (op->second.spin != x->spin || op->second.gauge != x->gauge)) {
     u.fail(op_port, "x is spin " + std::to_string(x->spin) + " in gauge " + (x->gauge.empty() ? "(none)" : x->gauge) + "; the operator is spin " + std::to_string(op->second.spin) + " in gauge " +
-                       (op->second.gauge.empty() ? "(none)" : op->second.gauge) + ". Insert frame.rotate, or recompute the stored field (it predates the gauge record).");
+                       (op->second.gauge.empty() ? "(none)" : op->second.gauge) + ". Insert geometry.frame_rotate, or recompute the stored field (it predates the gauge record).");
   }
   if (op->second.spin != 0)
     for (auto& [port, o] : out)
@@ -332,7 +332,7 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
     return found;
   };
   auto transition_hint = [&](const ManifoldRef& from, const ManifoldRef& to) {
-    return "No transition is applied by the checker: add `positions.transition` with the transition operator " + from->cs->space + ": " + from->cs->name + " -> " + to->cs->name +
+    return "No transition is applied by the checker: add `meeg.positions_transition` with the transition operator " + from->cs->space + ": " + from->cs->name + " -> " + to->cs->name +
            " (a transition is stored when the recording's device-to-head transform was imported), then run again.";
   };
   for (const auto& group : sg.position_groups) {
@@ -365,7 +365,7 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
         u.fail(kv.first, "is spin " + std::to_string(t.spin) + " but `" + first->first + "` is spin " + std::to_string(a.spin) + ": values of different spin are not combined (a tangent vector, a line field and a conjugate transform differently under a change of gauge).");
       if (a.gauge != t.gauge)
         u.fail(kv.first, "is in gauge " + (t.gauge.empty() ? std::string("(none)") : t.gauge) + " but `" + first->first + "` is in gauge " + (a.gauge.empty() ? std::string("(none)") : a.gauge) +
-                             ": two gauges never meet. Insert frame.rotate on one of them, or recompute the stored field (it predates the gauge record).");
+                             ": two gauges never meet. Insert geometry.frame_rotate on one of them, or recompute the stored field (it predates the gauge record).");
     }
   }
 

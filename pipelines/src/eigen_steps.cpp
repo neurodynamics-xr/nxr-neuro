@@ -119,7 +119,7 @@ StepSpec hodge_dirac_step() {
   s.matches = "nxr.eigen.hodge_dirac.solve_hodge and nxr.pipelines.hodge.solved_package; Rheome rheome.eigen.hodge_dirac; the Studio's glue.ts glueMesh and intrinsicDelaunay.ts";
   s.description =
       "The Hodge-Dirac eigenmodes of a surface: the Laplace-Beltrami ladder (exact modes) and the 2-form ladder (coexact modes) of the surface's intrinsic Delaunay complex, cut at one lambda, the constants out. "
-      "The surface is ONE closed piece: a cortex of two hemispheres is solved on its glued surface (made by `surface.glue`, named as the input). Makes the mode axis (the eigenvalues mu, ascending), each mode's kind (0 exact, 2 coexact), "
+      "The surface is ONE closed piece: a cortex of two hemispheres is solved on its glued surface (made by `geometry.glue`, named as the input). Makes the mode axis (the eigenvalues mu, ascending), each mode's kind (0 exact, 2 coexact), "
       "the eigenvectors (per mode one vertex potential) and the 2-form parts (the faces of the complex), the complex itself with d0 and d1 and the stars and signposts on its cells.";
   s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the surface: positions as the Studio receives them (float32 widened), double");
 
@@ -296,7 +296,7 @@ StepSpec hodge_dirac_step() {
 struct GlueState { std::string surface; };
 StepSpec surface_glue_step() {
   StepSpec s;
-  s.name = "surface.glue";
+  s.name = "geometry.glue";
   s.kind = "setup";
   s.inputs = {"surface"};
   s.outputs = {"glued", "map", "bridge"};
@@ -306,7 +306,7 @@ StepSpec surface_glue_step() {
                   "glued vertex -> original vertex (-1 on the bridge) and the bridge selection; refused when the pieces do not match";
   s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the surface: positions as the Studio receives them (float32 widened), double");
   s.plan = [](const Values& ins, const Json&, const PlanContext&) {
-    need(ins.count("surface") != 0 && ins.at("surface").row, "surface.glue: the input `surface` is missing");
+    need(ins.count("surface") != 0 && ins.at("surface").row, "geometry.glue: the input `surface` is missing");
     const std::string sid = ins.at("surface").manifolds.empty() ? std::string() : ins.at("surface").manifolds[0];
     Values out;
     for (const char* port : {"glued", "map", "bridge"}) {

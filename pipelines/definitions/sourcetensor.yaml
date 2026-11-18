@@ -39,7 +39,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: welch.source_tensor, in: {x: recording, kernel: kernel, frames: frames, surface: surface, exclude: bad}, with: {bands: $bands, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: [tensor, stokes, normal_power, normal_share]}
+      - {node: meeg.source_tensor, in: {x: recording, kernel: kernel, frames: frames, surface: surface, exclude: bad}, with: {bands: $bands, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: [tensor, stokes, normal_power, normal_share]}
 
 outputs:
   tensor:

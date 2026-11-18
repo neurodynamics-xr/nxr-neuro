@@ -40,7 +40,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: welch.source_band_power, in: {x: recording, kernel: kernel, exclude: bad}, with: {bands: $bands, normalisation: $normalisation, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: power}
+      - {node: meeg.source_band_power, in: {x: recording, kernel: kernel, exclude: bad}, with: {bands: $bands, normalisation: $normalisation, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: power}
 
 outputs:
   power:

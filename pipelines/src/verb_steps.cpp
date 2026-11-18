@@ -239,7 +239,7 @@ StepSpec pointspread_step() {
 struct PairsState { Value recording, bursts, psd; Json p; };
 StepSpec lagfree_pairs_step() {
   StepSpec s;
-  s.name = "surrogate.lagfree_pairs";
+  s.name = "synthesis.lagfree_pairs";
   s.kind = "setup";
   s.inputs = {"recording", "bursts", "psd"};
   s.outputs = {"per_burst", "run"};
@@ -248,12 +248,12 @@ StepSpec lagfree_pairs_step() {
   s.description = "per burst, the lagged share of its sensors' second moment against lag-free Wishart draws of its own zero-lag second moment and degrees of freedom; and the run's mean share against the draws'";
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double from stored windows");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
-    for (const char* k : {"recording", "bursts", "psd"}) if (!ins.count(k)) refuse(std::string("surrogate.lagfree_pairs: ") + k + " is not given");
-    if (!p["windows"].is_string()) refuse("surrogate.lagfree_pairs: windows names the analytic cross-spectrum series of the band (<name>_<band>_windows)");
-    if (!p["band"].is_array() || p["band"].size() != 2 || !(p["band"][0].get<double>() >= 0 && p["band"][0].get<double>() < p["band"][1].get<double>())) refuse("surrogate.lagfree_pairs: band is [lo, hi] Hz, lo < hi");
-    if (p.value("draws", 1000) < 20) refuse("surrogate.lagfree_pairs: draws is at least 20");
+    for (const char* k : {"recording", "bursts", "psd"}) if (!ins.count(k)) refuse(std::string("synthesis.lagfree_pairs: ") + k + " is not given");
+    if (!p["windows"].is_string()) refuse("synthesis.lagfree_pairs: windows names the analytic cross-spectrum series of the band (<name>_<band>_windows)");
+    if (!p["band"].is_array() || p["band"].size() != 2 || !(p["band"][0].get<double>() >= 0 && p["band"][0].get<double>() < p["band"][1].get<double>())) refuse("synthesis.lagfree_pairs: band is [lo, hi] Hz, lo < hi");
+    if (p.value("draws", 1000) < 20) refuse("synthesis.lagfree_pairs: draws is at least 20");
     const std::string sh = p.value("shape", std::string("morlet"));
-    if (sh != "morlet" && sh != "meyer") refuse("surrogate.lagfree_pairs: shape is morlet or meyer");
+    if (sh != "morlet" && sh != "meyer") refuse("synthesis.lagfree_pairs: shape is morlet or meyer");
     return Values{{"per_burst", statistic_value()}, {"run", statistic_value()}};
   };
   s.prepare = [](const Values& ins, const Json& p, ExecContext&) { return std::any(PairsState{ins.at("recording"), ins.at("bursts"), ins.at("psd"), p}); };
@@ -263,16 +263,16 @@ StepSpec lagfree_pairs_step() {
     const Bound& b = ctx.bound;
     const std::string windows = p["windows"].get<std::string>();
     const CrossSpectrumWindows win = b.cross_spectrum_windows(windows);
-    if (win.level < 0 || win.sum.empty()) refuse("surrogate.lagfree_pairs: " + windows + " is not an analytic cross-spectrum series on time tiles");
+    if (win.level < 0 || win.sum.empty()) refuse("synthesis.lagfree_pairs: " + windows + " is not an analytic cross-spectrum series on time tiles");
     std::vector<std::pair<double, double>> spans = b.spans(text(*st.bursts.row, "id"));
-    if (spans.empty()) refuse("surrogate.lagfree_pairs: the bursts hold no burst");
-    if (!st.recording.time || nxr::io::opt_text(*st.bursts.row, "manifold_id") != st.recording.time) refuse("surrogate.lagfree_pairs: the bursts are on another time line than the recording's");
+    if (spans.empty()) refuse("synthesis.lagfree_pairs: the bursts hold no burst");
+    if (!st.recording.time || nxr::io::opt_text(*st.bursts.row, "manifold_id") != st.recording.time) refuse("synthesis.lagfree_pairs: the bursts are on another time line than the recording's");
     const double rate = st.recording.rate, dt = 1.0 / rate, t0 = st.recording.origin;
     const double width = static_cast<double>(std::int64_t(1) << win.level) * dt, eps = 0.5 * dt;
     const nxr::io::StoredStatistic P = b.statistic(text(*st.psd.row, "name"));
-    if (P.shape.size() != 2) refuse("surrogate.lagfree_pairs: the PSD is not [channels x frequencies]");
+    if (P.shape.size() != 2) refuse("synthesis.lagfree_pairs: the PSD is not [channels x frequencies]");
     const double df = P.producer.value("frequency_resolution_hz", 0.0);
-    if (!(df > 0)) refuse("surrogate.lagfree_pairs: the PSD records no frequency resolution");
+    if (!(df > 0)) refuse("synthesis.lagfree_pairs: the PSD records no frequency resolution");
     const std::int64_t nf = P.shape[1];
     const std::vector<double> band = p["band"].get<std::vector<double>>();
     const std::string shape = p.value("shape", std::string("morlet"));
@@ -280,7 +280,7 @@ StepSpec lagfree_pairs_step() {
     for (std::int64_t k = 0; k < nf; ++k) freq[k] = static_cast<double>(k) * df;
     for (std::int64_t k = 0; k < nf; ++k) gain[k] = shape == "morlet" ? nxr::signal::graphfilterbank::morletBand(freq[k], band[0], band[1]) : nxr::signal::graphfilterbank::meyerBand(freq[k], band[0], band[1], 1.0 / 3.0);
     double Beff = 0;
-    try { Beff = nxr::synthesis::effectiveBandwidth(freq, channel_mean_spectrum(P.values, P.shape[0], nf, win.channels), gain); } catch (const std::invalid_argument& e) { refuse(std::string("surrogate.lagfree_pairs: ") + e.what()); }
+    try { Beff = nxr::synthesis::effectiveBandwidth(freq, channel_mean_spectrum(P.values, P.shape[0], nf, win.channels), gain); } catch (const std::invalid_argument& e) { refuse(std::string("synthesis.lagfree_pairs: ") + e.what()); }
     // each burst's second moment: the windows wholly inside it summed (a selection of the windows by the burst's span: the windows are read, never recomputed)
     std::map<std::int64_t, std::size_t> at;
     for (std::size_t w = 0; w < win.index.size(); ++w) at[win.index[w]] = w;
@@ -300,7 +300,7 @@ StepSpec lagfree_pairs_step() {
       dof[static_cast<std::size_t>(k)] = static_cast<double>(k1 - k0 + 1) * width * Beff;
       ++used;
     }
-    if (used == 0) refuse("surrogate.lagfree_pairs: no burst is whole in the stored windows (tile-aligned bursts inside the windows' span)");
+    if (used == 0) refuse("synthesis.lagfree_pairs: no burst is whole in the stored windows (tile-aligned bursts inside the windows' span)");
     const int draws = p.value("draws", 1000);
     const std::uint64_t seed = p.value("seed", std::uint64_t(0));
     const double nan = std::numeric_limits<double>::quiet_NaN();
@@ -321,7 +321,7 @@ StepSpec lagfree_pairs_step() {
     const Json warnings = Json::array({"the surrogate is a zero-lag Gaussian process with the burst's own covariance and `dof` independent samples: a burst beyond it has lags beyond sampling noise, not a wave",
                                        "dof = the burst's duration x the band's effective bandwidth (the PSD's, through the analytic gain): a spectrum with structure inside the band changes it",
                                        "the lagged share is a SENSOR-level quantity (the share of the second moment in quadrature between the sensors)"});
-    const Json opts = Json{{"generator", "surrogate.lagfree_pairs"}, {"draws", draws}, {"seed", seed}, {"seeds", "burst k: seed + 7919 k, draws 0 .. draws - 1"}, {"band", band}, {"shape", shape}, {"effective_bandwidth_hz", Beff}, {"windows", windows}, {"window_level", win.level},
+    const Json opts = Json{{"generator", "synthesis.lagfree_pairs"}, {"draws", draws}, {"seed", seed}, {"seeds", "burst k: seed + 7919 k, draws 0 .. draws - 1"}, {"band", band}, {"shape", shape}, {"effective_bandwidth_hz", Beff}, {"windows", windows}, {"window_level", win.level},
                            {"selection", text(*st.bursts.row, "name")}, {"selection_id", text(*st.bursts.row, "id")}};
     Json names = Json::array();
     for (std::int64_t k = 0; k < B; ++k) names.push_back(Json{{"name", "burst" + std::to_string(k)}, {"start", spans[static_cast<std::size_t>(k)].first}, {"stop", spans[static_cast<std::size_t>(k)].second}});

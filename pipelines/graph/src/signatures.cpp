@@ -712,7 +712,7 @@ Signature s_array_node(const std::vector<std::string>& ins, const std::vector<st
 const std::map<std::string, Signature>& table() {
   static const std::map<std::string, Signature> t = [] {
     std::map<std::string, Signature> m;
-    m["positions.transition"] = s_positions_transition();
+    m["meeg.positions_transition"] = s_positions_transition();
     m["analytic"] = s_analytic();
     m["envelope"] = s_envelope();
     m["frames"] = s_frames();
@@ -743,10 +743,10 @@ const std::map<std::string, Signature>& table() {
     m["select.events.tracks"] = s_tracks();
     m["tile_crossings"] = s_tile_crossings();
     m["power_series"] = s_power_series();
-    m["surrogate.lagfree"] = s_surrogate_lagfree();
-    m["frame.rotate"] = s_frame_rotate();
-    m["frame.embed"] = s_frame_embed();
-    m["frame.project"] = s_frame_project();
+    m["synthesis.lagfree"] = s_surrogate_lagfree();
+    m["geometry.frame_rotate"] = s_frame_rotate();
+    m["geometry.frame_embed"] = s_frame_embed();
+    m["geometry.frame_project"] = s_frame_project();
     m["fiber_ends"] = s_array_node({"fibers"}, {}, {"end_points"});
     m["nearest_vertex"] = s_array_node({"points", "positions"}, {}, {"vertex", "distance"});
     m["end_gate"] = s_array_node({"end_distance"}, {}, {"keep"});

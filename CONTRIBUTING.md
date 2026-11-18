@@ -80,7 +80,7 @@ is a PR of its own, on the latest main, with these parts in this order. Nothing 
    (a link: `recording.manifold.0`, `recording.time`), its name as a template (the verb's default name, `$name`), the names of its line and partition. What the values ARE (measure, method, axes with sizes and a closed-form
    line, the segment tiling, the scaling record, the unit, the options it resolved, the `producer` keys readers ask for) goes in the node's `describe`, never in the definition.
 3. **Nodes.** Move each piece of maths the verb holds into `compute/` as a pure function (matrices and parameters in, matrices out) with a unit test and a golden against its reference, then register it as a node
-   (grouped name, e.g. `welch.psd`; a file `pipelines/src/<topic>_steps.cpp`, which the layering test `layering_nodes_without_io` scans): ports (streamed input, optional `exclude` for the bad segments), parameters (each with
+   (grouped name, e.g. `signal.psd`; a file `pipelines/src/<topic>_steps.cpp`, which the layering test `layering_nodes_without_io` scans): ports (streamed input, optional `exclude` for the bad segments), parameters (each with
    meaning, default and unit), traits (time behaviour: an accumulate node over segments carried across blocks is `stateful`; precision), `plan` on types only (its refusals say the port and the reason; `Planned::align` when
    the span must snap to a grid), `prepare`, `start`/`step`/`finish` (accumulate) or `chunk` (pointwise). A node reads no database, file or id: what it needs of a stored operator comes as an array from the runner. A node
    chooses nothing by itself: a mode that changes the graph is another definition, not a switch.

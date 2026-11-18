@@ -361,7 +361,7 @@ std::vector<StepSpec> build() {
                  const bool awaits = x.facts.contains("awaits_operator");
                  if (ins.count("pre_operator")) {
                    const Value& po = ins.at("pre_operator");
-                   need(po.cls == "operator" && po.facts.contains("operator_of"), "apply_kernel: pre_operator must be a linear operator made by an earlier node (an array over x's rows, e.g. surrogate.lagfree_mixing's)");
+                   need(po.cls == "operator" && po.facts.contains("operator_of"), "apply_kernel: pre_operator must be a linear operator made by an earlier node (an array over x's rows, e.g. synthesis.lagfree_mixing's)");
                    need(awaits, "apply_kernel: pre_operator " + po.facts["operator_of"].dump() + " is given, but x awaits no operator: it would be applied twice (or to a value it is not made for)");
                    need(x.facts["awaits_operator"].value("of", Json()) == po.facts["operator_of"], "apply_kernel: x awaits the operator of " + x.facts["awaits_operator"].value("of", Json()).dump() + "; pre_operator is of " + po.facts["operator_of"].dump());
                  } else {
@@ -1482,7 +1482,34 @@ const std::map<std::string, std::string>& retired_steps() {
       {"magnitude", "field.form (form magnitude)"}, {"power", "field.form (form power)"}, {"phase_current", "field.form (form phase_current)"},
       {"pyramid.band_sums", "reduce over select.product (layout joint)"}, {"pyramid.frame_samples", "reduce over select.product (layout joint)"},
       {"core_histogram", "estimate (method histogram)"}, {"relative_histogram", "estimate (method histogram)"}, {"baseline", "estimate (method sample)"},
-      {"power_series", "reduce (preset surrogate_lagfree_envelope of the definition measure; surrogate.lagfree reads it by name)"}};
+      {"power_series", "reduce (preset surrogate_lagfree_envelope of the definition measure; synthesis.lagfree reads it by name)"},
+      // renamed to the toolbox words (one word per thing across the C++ function, the node and the bindings; the test names_across_layers reads this table)
+      {"fft.spectrum", "signal.rfft"},
+      {"filter.apply", "signal.filter"},
+      {"flow.activation", "signal.flow_activation"},
+      {"flow.hodge_modes", "signal.flow_hodge_modes"},
+      {"flow.max_amplitude", "signal.flow_max_amplitude"},
+      {"flow.series", "signal.flow_series"},
+      {"flow.velocity", "signal.flow_velocity"},
+      {"hodge.speed_spectrum", "signal.speed_spectrum"},
+      {"hodge.weights", "operators.hodge_weights"},
+      {"positions.transition", "meeg.positions_transition"},
+      {"quadrature.source_pairs", "signal.source_planes"},
+      {"rotary.pair", "signal.pair_series"},
+      {"statistic.pca", "stats.pca"},
+      {"surface.glue", "geometry.glue"},
+      {"surrogate.lagfree", "synthesis.lagfree"},
+      {"surrogate.lagfree_mixing", "synthesis.lagfree_mixing"},
+      {"surrogate.lagfree_pairs", "synthesis.lagfree_pairs"},
+      {"timebank.analytic_bands", "signal.analytic_bands"},
+      {"timebank.member_analytic", "signal.member_analytic"},
+      {"welch.complex_psd", "signal.complex_psd"},
+      {"welch.cross_spectrum", "signal.xpsd"},
+      {"welch.mode_cross_spectra", "signal.mode_cross_spectra"},
+      {"welch.psd", "signal.psd"},
+      {"welch.source_band_power", "meeg.source_band_power"},
+      {"welch.source_bins", "meeg.source_bins"},
+      {"welch.source_tensor", "meeg.source_tensor"}};
   return m;
 }
 }  // namespace

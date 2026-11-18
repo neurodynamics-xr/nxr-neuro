@@ -11,7 +11,7 @@ welch = nn.compute.welch
 @pytest.mark.parametrize("detrend,sp_detrend", [("constant", "constant"), ("linear", "linear"), ("none", False)])
 def test_psd_equals_scipy(signal, scaling, detrend, sp_detrend):
     x, fs = signal
-    r = welch.psd(x, fs, segment_samples=256, overlap=0.5, detrend=detrend, scaling=scaling)
+    r = signal.psd(x, fs, segment_samples=256, overlap=0.5, detrend=detrend, scaling=scaling)
     f, p = sps.welch(x, fs, window="hann", nperseg=256, noverlap=128, detrend=sp_detrend, scaling=scaling, axis=-1)
     np.testing.assert_allclose(r.frequencies, f, rtol=1e-12)
     np.testing.assert_allclose(r.psd, p, rtol=1e-9, atol=1e-18)
@@ -21,7 +21,7 @@ def test_psd_equals_scipy(signal, scaling, detrend, sp_detrend):
 @pytest.mark.parametrize("window", ["hann", "hamming", "blackman", "rectangular"])
 def test_psd_windows(signal, window):
     x, fs = signal
-    r = welch.psd(x, fs, segment_samples=512, overlap=0.25, window=window)
+    r = signal.psd(x, fs, segment_samples=512, overlap=0.25, window=window)
     name = {"rectangular": "boxcar"}.get(window, window)
     f, p = sps.welch(x, fs, window=name, nperseg=512, noverlap=128, detrend="constant", axis=-1)
     np.testing.assert_allclose(r.psd, p, rtol=1e-9, atol=1e-18)
@@ -29,21 +29,21 @@ def test_psd_windows(signal, window):
 
 def test_psd_precision_follows_the_input(signal):
     x, fs = signal
-    r64 = welch.psd(x, fs)
-    r32 = welch.psd(x.astype(np.float32), fs)
+    r64 = signal.psd(x, fs)
+    r32 = signal.psd(x.astype(np.float32), fs)
     assert r64.psd.dtype == np.float64 and r32.psd.dtype == np.float32
     np.testing.assert_allclose(r32.psd, r64.psd, rtol=2e-4)
     # an integer input is computed as float64
     xi = np.round(x * 100).astype(np.int64)
-    assert welch.psd(xi, fs).psd.dtype == np.float64
+    assert signal.psd(xi, fs).psd.dtype == np.float64
 
 
 def test_psd_bad_samples_leave_segments_out(signal):
     x, fs = signal
     good = np.ones(x.shape[1], dtype=bool)
     good[1000:1010] = False
-    r = welch.psd(x, fs, segment_samples=256, overlap=0.5, good=good)
-    full = welch.psd(x, fs, segment_samples=256, overlap=0.5)
+    r = signal.psd(x, fs, segment_samples=256, overlap=0.5, good=good)
+    full = signal.psd(x, fs, segment_samples=256, overlap=0.5)
     # segments start at multiples of 128; those touching samples 1000..1009 are 768 (768..1023), 896 (896..1151) and 1024? (no: 1024 > 1009)
     assert r.segments_skipped == 2 and r.segments == full.segments - 2
 
@@ -51,11 +51,11 @@ def test_psd_bad_samples_leave_segments_out(signal):
 def test_psd_refuses_what_it_cannot_do(signal):
     x, fs = signal
     with pytest.raises(ValueError, match="window"):
-        welch.psd(x, fs, window="triangle")
+        signal.psd(x, fs, window="triangle")
     with pytest.raises(ValueError):
-        welch.psd(x, fs, good=np.ones(10, dtype=bool))
+        signal.psd(x, fs, good=np.ones(10, dtype=bool))
     with pytest.raises(TypeError):
-        welch.psd(x[0], fs)  # one dimension: the signal is [channels, samples]
+        signal.psd(x[0], fs)  # one dimension: the signal is [channels, samples]
 
 
 def _reference_cross(x, fs, n=256, overlap=0.5):
@@ -90,7 +90,7 @@ def test_cross_spectrum_diagonal_is_the_psd(signal):
     x, fs = signal
     bins = [(k, k) for k in range(129)]
     r = welch.xpsd(x, fs, bins, segment_samples=256)
-    p = welch.psd(x, fs, segment_samples=256).psd
+    p = signal.psd(x, fs, segment_samples=256).psd
     np.testing.assert_allclose(np.stack([np.diag(r.real[k]) for k in range(129)], axis=1), p, rtol=1e-10)
     assert r.imag is None
 

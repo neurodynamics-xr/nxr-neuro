@@ -49,7 +49,7 @@ const char* to_string(Section s);
 struct CheckedNode {
   std::shared_ptr<const NodeSpec> spec;
   Section section = Section::chunks;
-  std::string label;                                 // "chunks[2] welch.psd", for messages
+  std::string label;                                 // "chunks[2] signal.psd", for messages
   Json params;                                       // every parameter resolved (default, then `with`, $names replaced)
   std::map<std::string, std::string> in;             // input port -> value name
   std::map<std::string, std::string> out;            // output port -> value name

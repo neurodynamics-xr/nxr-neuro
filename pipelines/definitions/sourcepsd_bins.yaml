@@ -43,7 +43,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: welch.source_bins, in: {x: recording, kernel: kernel, exclude: bad, bands: bands}, with: {band: $band_name, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: bins}
+      - {node: meeg.source_bins, in: {x: recording, kernel: kernel, exclude: bad, bands: bands}, with: {band: $band_name, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: bins}
 
 outputs:
   bins:

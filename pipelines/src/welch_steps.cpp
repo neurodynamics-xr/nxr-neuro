@@ -181,7 +181,7 @@ struct PsdState {
 
 ng::NodeSpec welch_psd() {
   ng::NodeSpec n;
-  n.name = "welch.psd";
+  n.name = "signal.psd";
   n.kind = ng::Kind::accumulate;
   n.inputs = {{"x", "the recording: channels x samples (streamed, one chunk at a time)", false}, {"exclude", "the recording's bad segments (spans): a segment touching one is left out when bad_segments is exclude", true}};
   n.outputs = {{"psd", "the one-sided Welch power spectral density, channels x bins, a statistic over the segment partition", false}};
@@ -191,8 +191,8 @@ ng::NodeSpec welch_psd() {
   n.matches = "scipy.signal.welch, Brainstorm's bst_psd and nxr's spectral chain (the named presets of the pipeline psd); compute nxr::signal::spectral::Welch";
   n.description = "the Welch power spectral density of every channel, streaming: segments (a tile of 2^k samples, or Brainstorm's or scipy's rule) are detrended, windowed, transformed and averaged; a segment touching a bad sample is left out";
   n.plan = [](const ng::Types& in, const Json& p) {
-    const ng::PortType& x = streamed_real(in, "x", "welch.psd");
-    if (x.value != ng::ValueType::real) ng::refuse("welch.psd: x is real (a complex series is welch.complex_psd's)");
+    const ng::PortType& x = streamed_real(in, "x", "signal.psd");
+    if (x.value != ng::ValueType::real) ng::refuse("signal.psd: x is real (a complex series is signal.complex_psd's)");
     const Resolved r = resolve(p, *x.sfreq);
     ng::Planned out;
     out.out["psd"] = statistic_port();
@@ -228,7 +228,7 @@ ng::NodeSpec welch_psd() {
   n.finish = [](const std::any& prepared, std::any state) {
     const PsdPrepared& pr = std::any_cast<const PsdPrepared&>(prepared);
     const PsdState& s = std::any_cast<const PsdState&>(state);
-    if (!s.w) ng::refuse("welch.psd: no sample was read");
+    if (!s.w) ng::refuse("signal.psd: no sample was read");
     const nw::WelchResult res = s.w->result();
     if (res.segments == 0) no_segment(pr.r, s.samples, res.segmentsSkipped);
     const std::int64_t C = res.psd.rows(), bins = res.psd.cols();
@@ -266,7 +266,7 @@ struct PairPrepared {
 
 ng::NodeSpec rotary_pair() {
   ng::NodeSpec n;
-  n.name = "rotary.pair";
+  n.name = "signal.pair_series";
   n.kind = ng::Kind::chunk;
   n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"operator", "a stored 2-row operator over the channels (its rows a_x and a_y: the plane's x and y)", false}};
   n.outputs = {{"z", "z = a_x.X + i a_y.X: one complex series, +f the pair turning from x towards y", false}};
@@ -275,10 +275,10 @@ ng::NodeSpec rotary_pair() {
   n.matches = "nxr.timefreq (the complex series of a rotary pair); compute nxr::rotary::pairSeries";
   n.description = "the complex series of a rotary pair: the operator's two rows applied to the channels, x + i y";
   n.plan = [](const ng::Types& in, const Json&) {
-    const ng::PortType& x = streamed_real(in, "x", "rotary.pair");
-    if (x.value != ng::ValueType::real) ng::refuse("rotary.pair: x is a real series");
+    const ng::PortType& x = streamed_real(in, "x", "signal.pair_series");
+    if (x.value != ng::ValueType::real) ng::refuse("signal.pair_series: x is a real series");
     const auto op = in.find("operator");
-    if (op == in.end() || op->second.cls != ng::PortClass::operator_) ng::refuse("rotary.pair: operator is a stored operator");
+    if (op == in.end() || op->second.cls != ng::PortClass::operator_) ng::refuse("signal.pair_series: operator is a stored operator");
     ng::Planned out;
     ng::PortType z = x;
     z.value = ng::ValueType::complex;
@@ -292,13 +292,13 @@ ng::NodeSpec rotary_pair() {
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& constants, const Json&, ng::Shared&) {
     const auto it = constants.find("operator");
-    if (it == constants.end() || it->second.meta.value("placeholder", false)) ng::refuse("rotary.pair: the operator's matrix was not handed over");
+    if (it == constants.end() || it->second.meta.value("placeholder", false)) ng::refuse("signal.pair_series: the operator's matrix was not handed over");
     const ng::Array& a = it->second;
-    if (a.rows != 2) ng::refuse("rotary.pair: a pair is two rows (the operator has " + std::to_string(a.rows) + ")");
+    if (a.rows != 2) ng::refuse("signal.pair_series: a pair is two rows (the operator has " + std::to_string(a.rows) + ")");
     PairPrepared p;
     p.rows = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(a.data.data(), a.rows, a.cols);
     for (const auto& c : a.meta.value("channels", Json::array())) p.channels.push_back(c.get<std::int32_t>());
-    if (static_cast<std::int64_t>(p.channels.size()) != a.cols) ng::refuse("rotary.pair: the operator's channels (" + std::to_string(p.channels.size()) + ") are not its columns (" + std::to_string(a.cols) + ")");
+    if (static_cast<std::int64_t>(p.channels.size()) != a.cols) ng::refuse("signal.pair_series: the operator's channels (" + std::to_string(p.channels.size()) + ") are not its columns (" + std::to_string(a.cols) + ")");
     return std::any(std::move(p));
   };
   n.chunk = [](const std::any& prepared, const ng::Blocks& in, std::int64_t keep, const ng::Place&) {
@@ -308,7 +308,7 @@ ng::NodeSpec rotary_pair() {
     const Eigen::Map<const RowMajor> all(b.re.data(), b.rows, b.width);
     Eigen::MatrixXd X(static_cast<Eigen::Index>(p.channels.size()), w);
     for (std::size_t i = 0; i < p.channels.size(); ++i) {
-      if (p.channels[i] < 0 || p.channels[i] >= b.rows) ng::refuse("rotary.pair: a channel of the operator is outside the recording's channels");
+      if (p.channels[i] < 0 || p.channels[i] >= b.rows) ng::refuse("signal.pair_series: a channel of the operator is outside the recording's channels");
       X.row(static_cast<Eigen::Index>(i)) = all.row(p.channels[i]).segment(c0, w).cast<double>();
     }
     const Eigen::MatrixXcd z = nxr::rotary::pairSeries(p.rows, X);
@@ -332,7 +332,7 @@ struct CState {
 
 ng::NodeSpec welch_complex_psd() {
   ng::NodeSpec n;
-  n.name = "welch.complex_psd";
+  n.name = "signal.complex_psd";
   n.kind = ng::Kind::accumulate;
   n.inputs = {{"z", "a complex series (one row): a rotary pair, streamed", false}, {"exclude", "the recording's bad segments (spans)", true}};
   n.outputs = {{"psd", "the two-sided Welch power spectral density of z on the signed frequency line, [1 x n], a statistic over the segment partition", false}};
@@ -342,8 +342,8 @@ ng::NodeSpec welch_complex_psd() {
   n.matches = "scipy.signal.welch(z, return_onesided=False), the frequencies ascending (nxr.timefreq.psd of a complex series); compute nxr::signal::spectral::ComplexWelch";
   n.description = "the two-sided Welch power spectral density of a complex series, streaming: no bin is doubled; +f is the pair turning from x towards y";
   n.plan = [](const ng::Types& in, const Json& p) {
-    const ng::PortType& z = streamed_real(in, "z", "welch.complex_psd");
-    if (z.value != ng::ValueType::complex || z.rows != 1) ng::refuse("welch.complex_psd: z is one complex series");
+    const ng::PortType& z = streamed_real(in, "z", "signal.complex_psd");
+    if (z.value != ng::ValueType::complex || z.rows != 1) ng::refuse("signal.complex_psd: z is one complex series");
     const Resolved r = resolve(p, *z.sfreq);
     ng::Planned out;
     out.out["psd"] = statistic_port();
@@ -435,7 +435,7 @@ struct SourceBandState {
 
 ng::NodeSpec welch_source_band_power() {
   ng::NodeSpec n;
-  n.name = "welch.source_band_power";
+  n.name = "meeg.source_band_power";
   n.kind = ng::Kind::accumulate;
   n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"kernel", "the inverse kernel: a stored operator, sources x the recording's channels", false},
               {"exclude", "the recording's bad segments (spans): a segment touching one is left out when bad_segments is exclude", true}};
@@ -449,10 +449,10 @@ ng::NodeSpec welch_source_band_power() {
   n.matches = "Brainstorm's band power of sources (bst_psd through the kernel); meeg nxr::meeg::sourcePower";
   n.description = "the band power of the sources through an inverse kernel, from the channels' cross-spectral density per band (Welch), orientations summed";
   n.plan = [](const ng::Types& in, const Json& p) {
-    const ng::PortType& x = streamed_real(in, "x", "welch.source_band_power");
+    const ng::PortType& x = streamed_real(in, "x", "meeg.source_band_power");
     const auto k = in.find("kernel");
-    if (k == in.end() || k->second.cls != ng::PortClass::operator_) ng::refuse("welch.source_band_power: kernel is a stored operator (an inverse kernel)");
-    if (!p.contains("bands") || !p["bands"].is_array() || p["bands"].empty()) ng::refuse("welch.source_band_power: at least one band");
+    if (k == in.end() || k->second.cls != ng::PortClass::operator_) ng::refuse("meeg.source_band_power: kernel is a stored operator (an inverse kernel)");
+    if (!p.contains("bands") || !p["bands"].is_array() || p["bands"].empty()) ng::refuse("meeg.source_band_power: at least one band");
     const Resolved r = resolve(p, *x.sfreq);
     ng::Planned out;
     out.out["power"] = statistic_port();
@@ -463,7 +463,7 @@ ng::NodeSpec welch_source_band_power() {
     SourceBandPrepared pr;
     pr.r = resolve(p, *in.at("x").sfreq);
     const auto it = constants.find("kernel");
-    if (it == constants.end() || it->second.meta.value("placeholder", false)) ng::refuse("welch.source_band_power: the kernel's matrix was not handed over");
+    if (it == constants.end() || it->second.meta.value("placeholder", false)) ng::refuse("meeg.source_band_power: the kernel's matrix was not handed over");
     const ng::Array& a = it->second;
     pr.K = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(a.data.data(), a.rows, a.cols);
     for (const auto& c : a.meta.value("channels", Json::array())) pr.channels.push_back(c.get<std::int32_t>());
@@ -471,18 +471,18 @@ ng::NodeSpec welch_source_band_power() {
     pr.kernel = a.meta.value("name", std::string());
     pr.row_axis = p.value("row_axis", std::string("vertex"));
     if (a.meta.contains("unit") && a.meta["unit"].is_string()) pr.unit = a.meta["unit"].get<std::string>() + kSq;
-    if (pr.K.rows() % pr.orientations != 0) ng::refuse("welch.source_band_power: the kernel's rows are not a multiple of " + std::to_string(pr.orientations));
+    if (pr.K.rows() % pr.orientations != 0) ng::refuse("meeg.source_band_power: the kernel's rows are not a multiple of " + std::to_string(pr.orientations));
     const std::string norm = p.value("normalisation", std::string("none"));
-    if (norm != "none" && norm != "relative") ng::refuse("welch.source_band_power: normalisation is none or relative");
+    if (norm != "none" && norm != "relative") ng::refuse("meeg.source_band_power: normalisation is none or relative");
     pr.relative = norm == "relative";
     const std::size_t nbins = pr.r.wo.segmentSamples / 2 + 1;
     const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
     for (const auto& b : p["bands"]) {
       const std::string name = b.value("name", std::string());
       const double lo = b.value("lo", b.value("lo_hz", 0.0)), hi = b.value("hi", b.value("hi_hz", 0.0));
-      if (!(hi >= lo)) ng::refuse("welch.source_band_power: band " + name + " has hi < lo");
+      if (!(hi >= lo)) ng::refuse("meeg.source_band_power: band " + name + " has hi < lo");
       const double first = std::ceil(lo / df - 1e-9), last = std::floor(hi / df + 1e-9);
-      if (first > last || last < 0 || first >= static_cast<double>(nbins)) ng::refuse("welch.source_band_power: band " + name + " holds no frequency bin at " + std::to_string(df) + " Hz resolution");
+      if (first > last || last < 0 || first >= static_cast<double>(nbins)) ng::refuse("meeg.source_band_power: band " + name + " holds no frequency bin at " + std::to_string(df) + " Hz resolution");
       pr.groups.push_back({static_cast<std::size_t>(first), static_cast<std::size_t>(std::min(last, static_cast<double>(nbins - 1))), true});
       pr.bands.push_back(Json{{"name", name}, {"lo_hz", lo}, {"hi_hz", hi}, {"bins", Json::array({pr.groups.back().first, pr.groups.back().last})}, {"function", "mean"}});
     }
@@ -508,7 +508,7 @@ ng::NodeSpec welch_source_band_power() {
   n.finish = [](const std::any& prepared, std::any state) {
     const SourceBandPrepared& pr = std::any_cast<const SourceBandPrepared&>(prepared);
     const SourceBandState& s = std::any_cast<const SourceBandState&>(state);
-    if (!s.w) ng::refuse("welch.source_band_power: no sample was read");
+    if (!s.w) ng::refuse("meeg.source_band_power: no sample was read");
     const nw::CrossWelchResult cw = s.w->result();
     if (cw.segments == 0) no_segment(pr.r, s.samples, cw.segmentsSkipped);
     const std::size_t B = pr.bands.size();
@@ -597,7 +597,7 @@ struct SourceBinsState {
 
 ng::NodeSpec welch_source_bins() {
   ng::NodeSpec n = welch_source_band_power();
-  n.name = "welch.source_bins";
+  n.name = "meeg.source_bins";
   n.outputs = {{"bins", "the power of every source at every bin of the band, sources x bins, a statistic over the segment partition", false}};
   n.parameters.erase(std::remove_if(n.parameters.begin(), n.parameters.end(), [](const auto& q) { return q.name == "bands" || q.name == "normalisation"; }), n.parameters.end());
   n.inputs.push_back({"bands", "the named band set select.bands made (spans in Hz): the band is one of its members, read from this edge", false});
@@ -607,10 +607,10 @@ ng::NodeSpec welch_source_bins() {
   n.matches = "nxr::signal::spectral::LinearWelch: Welch of the kernel applied to the recording, kept for the band's bins";
   n.description = "the power of the sources through an inverse kernel at every Welch bin of a band (nothing reduced over frequency), orientations summed";
   n.plan = [](const ng::Types& in, const Json& p) {
-    const ng::PortType& x = streamed_real(in, "x", "welch.source_bins");
+    const ng::PortType& x = streamed_real(in, "x", "meeg.source_bins");
     const auto k = in.find("kernel");
-    if (k == in.end() || k->second.cls != ng::PortClass::operator_) ng::refuse("welch.source_bins: kernel is a stored operator (an inverse kernel)");
-    band_member(in, p.value("band", Json()), "welch.source_bins");              // the member must be in the set the edge carries
+    if (k == in.end() || k->second.cls != ng::PortClass::operator_) ng::refuse("meeg.source_bins: kernel is a stored operator (an inverse kernel)");
+    band_member(in, p.value("band", Json()), "meeg.source_bins");              // the member must be in the set the edge carries
     const Resolved r = resolve(p, *x.sfreq);
     ng::Planned out;
     out.out["bins"] = statistic_port();
@@ -621,7 +621,7 @@ ng::NodeSpec welch_source_bins() {
     SourceBinsPrepared pr;
     pr.r = resolve(p, *in.at("x").sfreq);
     const auto it = constants.find("kernel");
-    if (it == constants.end() || it->second.meta.value("placeholder", false)) ng::refuse("welch.source_bins: the kernel's matrix was not handed over");
+    if (it == constants.end() || it->second.meta.value("placeholder", false)) ng::refuse("meeg.source_bins: the kernel's matrix was not handed over");
     const ng::Array& a = it->second;
     pr.K = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(a.data.data(), a.rows, a.cols);
     for (const auto& c : a.meta.value("channels", Json::array())) pr.channels.push_back(c.get<std::int32_t>());
@@ -629,14 +629,14 @@ ng::NodeSpec welch_source_bins() {
     pr.kernel = a.meta.value("name", std::string());
     pr.row_axis = p.value("row_axis", std::string("vertex"));
     if (a.meta.contains("unit") && a.meta["unit"].is_string()) pr.unit = a.meta["unit"].get<std::string>() + kSq;
-    if (pr.K.rows() % pr.orientations != 0) ng::refuse("welch.source_bins: the kernel's rows are not a multiple of " + std::to_string(pr.orientations));
-    const BandMember member = band_member(in, p.value("band", Json()), "welch.source_bins");   // the band, a member of the set select.bands made
+    if (pr.K.rows() % pr.orientations != 0) ng::refuse("meeg.source_bins: the kernel's rows are not a multiple of " + std::to_string(pr.orientations));
+    const BandMember member = band_member(in, p.value("band", Json()), "meeg.source_bins");   // the band, a member of the set select.bands made
     const std::string name = member.name;
     const double lo = member.lo, hi = member.hi;
     const std::size_t nbins = pr.r.wo.segmentSamples / 2 + 1;
     const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
     const double first = std::ceil(lo / df - 1e-9), last = std::floor(hi / df + 1e-9);
-    if (first > last || last < 0 || first >= static_cast<double>(nbins)) ng::refuse("welch.source_bins: band " + name + " holds no frequency bin at " + std::to_string(df) + " Hz resolution");
+    if (first > last || last < 0 || first >= static_cast<double>(nbins)) ng::refuse("meeg.source_bins: band " + name + " holds no frequency bin at " + std::to_string(df) + " Hz resolution");
     pr.first = static_cast<std::size_t>(first);
     pr.last = static_cast<std::size_t>(std::min(last, static_cast<double>(nbins - 1)));
     pr.band = Json{{"name", name}, {"lo_hz", lo}, {"hi_hz", hi}, {"bins", Json::array({pr.first, pr.last})}, {"function", "none"}};
@@ -661,7 +661,7 @@ ng::NodeSpec welch_source_bins() {
   n.finish = [](const std::any& prepared, std::any state) {
     const SourceBinsPrepared& pr = std::any_cast<const SourceBinsPrepared&>(prepared);
     const SourceBinsState& s = std::any_cast<const SourceBinsState&>(state);
-    if (!s.w) ng::refuse("welch.source_bins: no sample was read");
+    if (!s.w) ng::refuse("meeg.source_bins: no sample was read");
     const nw::LinearWelchResult lw = s.w->result();
     if (lw.segments == 0) no_segment(pr.r, s.samples, lw.segmentsSkipped);
     const std::int64_t N = lw.psd.rows(), F = lw.psd.cols();
@@ -708,7 +708,7 @@ struct SourceTensorPrepared {
 
 ng::NodeSpec welch_source_tensor() {
   ng::NodeSpec n = welch_source_band_power();
-  n.name = "welch.source_tensor";
+  n.name = "meeg.source_tensor";
   n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"kernel", "a free-orientation inverse kernel: 3 rows a source x the recording's channels", false},
               {"frames", "the canonical frames of the kernel's surface: a field, vertices x 9 (e1, e2, n)", false},
               {"surface", "the kernel's surface: its normals where the frames are singular", false},
@@ -721,10 +721,10 @@ ng::NodeSpec welch_source_tensor() {
   n.matches = "meeg nxr::meeg::sourceTensor, stokes, normalPower";
   n.description = "the band cross-spectral tensor of the current through a free-orientation kernel, its tangential Stokes parameters, its normal power and share";
   n.plan = [](const ng::Types& in, const Json& p) {
-    const ng::PortType& x = streamed_real(in, "x", "welch.source_tensor");
+    const ng::PortType& x = streamed_real(in, "x", "meeg.source_tensor");
     const auto k = in.find("kernel");
-    if (k == in.end() || k->second.cls != ng::PortClass::operator_) ng::refuse("welch.source_tensor: kernel is a stored operator (an inverse kernel)");
-    if (!p.contains("bands") || !p["bands"].is_array() || p["bands"].empty()) ng::refuse("welch.source_tensor: at least one band");
+    if (k == in.end() || k->second.cls != ng::PortClass::operator_) ng::refuse("meeg.source_tensor: kernel is a stored operator (an inverse kernel)");
+    if (!p.contains("bands") || !p["bands"].is_array() || p["bands"].empty()) ng::refuse("meeg.source_tensor: at least one band");
     const Resolved r = resolve(p, *x.sfreq);
     ng::Planned out;
     for (const char* o : {"tensor", "stokes", "normal_power", "normal_share"}) out.out[o] = statistic_port();
@@ -736,14 +736,14 @@ ng::NodeSpec welch_source_tensor() {
     Json q = p; q["normalisation"] = "none";
     SourceTensorPrepared pr;
     pr.b = std::any_cast<SourceBandPrepared>(base_prepare(in, constants, q, sh));
-    if (pr.b.orientations != 3) ng::refuse("welch.source_tensor: " + pr.b.kernel + " is a fixed-orientation kernel (one orientation a source): it has no tensor");
+    if (pr.b.orientations != 3) ng::refuse("meeg.source_tensor: " + pr.b.kernel + " is a fixed-orientation kernel (one orientation a source): it has no tensor");
     const std::int64_t N = pr.b.K.rows() / 3;
     const auto fr = constants.find("frames"), su = constants.find("surface");
-    if (fr == constants.end() || su == constants.end()) ng::refuse("welch.source_tensor: the frames and the surface were not handed over");
+    if (fr == constants.end() || su == constants.end()) ng::refuse("meeg.source_tensor: the frames and the surface were not handed over");
     const ng::Array& F = fr->second;
-    if (static_cast<std::int64_t>(F.data.size()) != N * 9) ng::refuse("welch.source_tensor: the frames hold " + std::to_string(F.data.size()) + " values for " + std::to_string(N) + " sources (9 each)");
+    if (static_cast<std::int64_t>(F.data.size()) != N * 9) ng::refuse("meeg.source_tensor: the frames hold " + std::to_string(F.data.size()) + " values for " + std::to_string(N) + " sources (9 each)");
     const ng::Array& S = su->second;
-    if (S.rows != N) ng::refuse("welch.source_tensor: the surface has " + std::to_string(S.rows) + " vertices, the kernel " + std::to_string(N) + " sources");
+    if (S.rows != N) ng::refuse("meeg.source_tensor: the surface has " + std::to_string(S.rows) + " vertices, the kernel " + std::to_string(N) + " sources");
     pr.frames = F.meta.value("name", std::string());
     Eigen::MatrixXd mesh = Eigen::MatrixXd::Zero(N, 3);
     const std::vector<std::int32_t> faces = S.meta.value("faces", std::vector<std::int32_t>());
@@ -780,7 +780,7 @@ ng::NodeSpec welch_source_tensor() {
     const SourceTensorPrepared& tp = std::any_cast<const SourceTensorPrepared&>(prepared);
     const SourceBandPrepared& pr = tp.b;
     const SourceBandState& s = std::any_cast<const SourceBandState&>(state);
-    if (!s.w) ng::refuse("welch.source_tensor: no sample was read");
+    if (!s.w) ng::refuse("meeg.source_tensor: no sample was read");
     const nw::CrossWelchResult cw = s.w->result();
     if (cw.segments == 0) no_segment(pr.r, s.samples, cw.segmentsSkipped);
     const std::size_t B = pr.bands.size();
@@ -864,7 +864,7 @@ std::vector<std::int32_t> picked_channels(const ng::PortType& x, const ng::Array
 
 ng::NodeSpec welch_cross_spectrum() {
   ng::NodeSpec n;
-  n.name = "welch.cross_spectrum";
+  n.name = "signal.xpsd";
   n.kind = ng::Kind::accumulate;
   n.inputs = {{"x", "the recording: channels x samples (streamed); its channels' types and quality are the port's facts", false},
               {"channels_of", "an operator whose channels (its from_selection) are the ones covered, in order (a kernel's); absent: the good channels of channel_types", true},
@@ -880,8 +880,8 @@ ng::NodeSpec welch_cross_spectrum() {
   n.matches = "MNE csd_array_fourier / scipy.signal.csd (Welch, averaged over the band's bins); meeg nxr::signal::spectral::CrossWelch";
   n.description = "the sensor cross-spectral density per band (Welch), on a kernel's channels or the good imaging channels";
   n.plan = [](const ng::Types& in, const Json& p) {
-    const ng::PortType& x = streamed_real(in, "x", "welch.cross_spectrum");
-    if (!p.contains("bands") || !p["bands"].is_array() || p["bands"].empty()) ng::refuse("welch.cross_spectrum: at least one band");
+    const ng::PortType& x = streamed_real(in, "x", "signal.xpsd");
+    if (!p.contains("bands") || !p["bands"].is_array() || p["bands"].empty()) ng::refuse("signal.xpsd: at least one band");
     const Resolved r = resolve(p, *x.sfreq);
     ng::Planned out;
     out.out["channels"] = ng::PortType{};
@@ -895,16 +895,16 @@ ng::NodeSpec welch_cross_spectrum() {
     CrossPrepared pr;
     const ng::PortType& x = in.at("x");
     pr.r = resolve(p, *x.sfreq);
-    pr.channels = picked_channels(x, constants, p, "welch.cross_spectrum");
+    pr.channels = picked_channels(x, constants, p, "signal.xpsd");
     pr.unit = x.unit.empty() ? std::string("channel unit") : x.unit;
     const std::size_t nbins = pr.r.wo.segmentSamples / 2 + 1;
     const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
     for (const auto& b : p["bands"]) {
       const std::string name = b.value("name", std::string());
       const double lo = b.value("lo", b.value("lo_hz", 0.0)), hi = b.value("hi", b.value("hi_hz", 0.0));
-      if (!(hi >= lo)) ng::refuse("welch.cross_spectrum: band " + name + " has hi < lo");
+      if (!(hi >= lo)) ng::refuse("signal.xpsd: band " + name + " has hi < lo");
       const double first = std::ceil(lo / df - 1e-9), last = std::floor(hi / df + 1e-9);
-      if (first > last || last < 0 || first >= static_cast<double>(nbins)) ng::refuse("welch.cross_spectrum: band " + name + " holds no frequency bin at " + std::to_string(df) + " Hz resolution");
+      if (first > last || last < 0 || first >= static_cast<double>(nbins)) ng::refuse("signal.xpsd: band " + name + " holds no frequency bin at " + std::to_string(df) + " Hz resolution");
       pr.groups.push_back({static_cast<std::size_t>(first), static_cast<std::size_t>(std::min(last, static_cast<double>(nbins - 1))), true});
       pr.bands.push_back(Json{{"name", name}, {"lo_hz", lo}, {"hi_hz", hi}, {"bins", Json::array({pr.groups.back().first, pr.groups.back().last})}, {"function", "mean"}});
     }
@@ -932,7 +932,7 @@ ng::NodeSpec welch_cross_spectrum() {
   n.finish = [](const std::any& prepared, std::any state) {
     const CrossPrepared& pr = std::any_cast<const CrossPrepared&>(prepared);
     const SourceBandState& s = std::any_cast<const SourceBandState&>(state);
-    if (!s.w) ng::refuse("welch.cross_spectrum: no sample was read");
+    if (!s.w) ng::refuse("signal.xpsd: no sample was read");
     const nw::CrossWelchResult cw = s.w->result();
     if (cw.segments == 0) no_segment(pr.r, s.samples, cw.segmentsSkipped);
     const std::int64_t M = static_cast<std::int64_t>(pr.channels.size()), B = static_cast<std::int64_t>(pr.band_groups);
@@ -1005,7 +1005,7 @@ ng::NodeSpec welch_cross_spectrum() {
 struct ModePrepared { Resolved r; Eigen::MatrixXd B; std::vector<std::int32_t> channels; std::vector<nw::BinGroup> groups; };
 ng::NodeSpec welch_mode_cross_spectra() {
   ng::NodeSpec n;
-  n.name = "welch.mode_cross_spectra";
+  n.name = "signal.mode_cross_spectra";
   n.kind = ng::Kind::accumulate;
   n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"weights", "an operator from the recording's channels: its rows are the series (the fused Hodge-Dirac weights)", false},
               {"exclude", "the recording's bad segments (spans): a segment touching one is left out when bad_segments is exclude", true}};
@@ -1018,8 +1018,8 @@ ng::NodeSpec welch_mode_cross_spectra() {
   n.matches = "nxr.spectral.chain mode cross-spectra (CrossWelch on the fused weights b, one-bin groups, Re and Im)";
   n.description = "the cross-spectra of a kernel's rows applied to a recording, bin by bin, with their quadrature part";
   n.plan = [](const ng::Types& in, const Json& p) {
-    const ng::PortType& x = streamed_real(in, "x", "welch.mode_cross_spectra");
-    if (!in.count("weights")) ng::refuse("welch.mode_cross_spectra: weights is not given");
+    const ng::PortType& x = streamed_real(in, "x", "signal.mode_cross_spectra");
+    if (!in.count("weights")) ng::refuse("signal.mode_cross_spectra: weights is not given");
     const Resolved r = resolve(p, *x.sfreq);
     ng::Planned out;
     out.out["spectra"] = statistic_port();
@@ -1030,19 +1030,19 @@ ng::NodeSpec welch_mode_cross_spectra() {
     ModePrepared pr;
     pr.r = resolve(p, *in.at("x").sfreq);
     const auto it = c.find("weights");
-    if (it == c.end() || it->second.meta.value("placeholder", false)) ng::refuse("welch.mode_cross_spectra: the weights were not handed over");
+    if (it == c.end() || it->second.meta.value("placeholder", false)) ng::refuse("signal.mode_cross_spectra: the weights were not handed over");
     const ng::Array& W = it->second;
     const Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> all(W.data.data(), W.rows, W.cols);
     const std::string rows = p.value("rows", std::string("flow"));
     pr.B = rows == "all" ? Eigen::MatrixXd(all) : rows == "current" ? Eigen::MatrixXd(all.topRows(W.rows / 2)) : Eigen::MatrixXd(all.bottomRows(W.rows / 2));
     pr.channels = W.meta.value("channels", std::vector<std::int32_t>());
-    if (static_cast<std::int64_t>(pr.channels.size()) != W.cols) ng::refuse("welch.mode_cross_spectra: the weights' channels do not fit their columns");
+    if (static_cast<std::int64_t>(pr.channels.size()) != W.cols) ng::refuse("signal.mode_cross_spectra: the weights' channels do not fit their columns");
     const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
     const std::size_t nbins = pr.r.wo.segmentSamples / 2 + 1;
     const double fmin = p.value("fmin", 1.0), fmax = p.value("fmax", 40.0);
-    if (!(fmin >= 0) || !(fmax > fmin)) ng::refuse("welch.mode_cross_spectra: 0 <= fmin < fmax");
+    if (!(fmin >= 0) || !(fmax > fmin)) ng::refuse("signal.mode_cross_spectra: 0 <= fmin < fmax");
     const double first = std::max(1.0, std::ceil(fmin / df - 1e-9)), last = std::min(static_cast<double>(nbins) - 2, std::floor(fmax / df + 1e-9));
-    if (first > last) ng::refuse("welch.mode_cross_spectra: the range holds no frequency bin at " + std::to_string(df) + " Hz resolution");
+    if (first > last) ng::refuse("signal.mode_cross_spectra: the range holds no frequency bin at " + std::to_string(df) + " Hz resolution");
     for (std::size_t b = static_cast<std::size_t>(first); b <= static_cast<std::size_t>(last); ++b) pr.groups.push_back({b, b, true});
     return std::any(std::move(pr));
   };
@@ -1065,7 +1065,7 @@ ng::NodeSpec welch_mode_cross_spectra() {
   n.finish = [](const std::any& prepared, std::any state) {
     const ModePrepared& pr = std::any_cast<const ModePrepared&>(prepared);
     const SourceBandState& s = std::any_cast<const SourceBandState&>(state);
-    if (!s.w) ng::refuse("welch.mode_cross_spectra: no sample was read");
+    if (!s.w) ng::refuse("signal.mode_cross_spectra: no sample was read");
     const nw::CrossWelchResult cw = s.w->result();
     if (cw.segments == 0) no_segment(pr.r, s.samples, cw.segmentsSkipped);
     const std::int64_t K = pr.B.rows(), Bn = static_cast<std::int64_t>(pr.groups.size());
@@ -1098,7 +1098,7 @@ ng::NodeSpec welch_mode_cross_spectra() {
 
 ng::NodeSpec fft_spectrum() {
   ng::NodeSpec n;
-  n.name = "fft.spectrum";
+  n.name = "signal.rfft";
   n.kind = ng::Kind::chunk;
   n.inputs = {{"x", "the recording: channels x samples (streamed, one chunk at a time)", false}};
   n.outputs = {{"spectrum", "the one-sided Fourier transform of every channel of the block, complex channels x bins, made once per block (axis block)", false}};
@@ -1108,8 +1108,8 @@ ng::NodeSpec fft_spectrum() {
   n.description = "the one-sided FFT of every channel of the block as given: no window, no taper, no detrend, no scaling (X[k] = sum_j x[j] exp(-2 pi i j k / n), n = the block's samples); "
                   "its frequency line is bin k at k x sfreq / n Hz (spacing sfreq / n, origin 0, unit Hz), bins n/2 + 1";
   n.plan = [](const ng::Types& in, const Json&) {
-    const ng::PortType& x = streamed_real(in, "x", "fft.spectrum");
-    if (x.value != ng::ValueType::real) ng::refuse("fft.spectrum: x is real");
+    const ng::PortType& x = streamed_real(in, "x", "signal.rfft");
+    if (x.value != ng::ValueType::real) ng::refuse("signal.rfft: x is real");
     ng::Planned out;
     ng::PortType s;
     s.cls = ng::PortClass::field; s.value = ng::ValueType::complex; s.axis = ng::Axis::none;
@@ -1118,7 +1118,7 @@ ng::NodeSpec fft_spectrum() {
     // 3.1 and 5 apply; the Studio's product manifold, D37): the one-sided frequency line of the block, bin k at k x sfreq / n Hz (origin 0, n = the block's samples,
     // carried on the block). Its key is "<use>.<output>"; the plan does not know the use, so the node's name and its output stand for it until the checker keys it.
     const ng::ManifoldRef channels = x.domain.factors.size() > 1 ? x.domain.factors.front() : ng::manifold_id("channels", "recording");
-    s.domain.factors = {channels, ng::made_line("frequency", "fft.spectrum.spectrum", ng::Role::frequency, "Hz", 0.0, x.sfreq)};
+    s.domain.factors = {channels, ng::made_line("frequency", "signal.rfft.spectrum", ng::Role::frequency, "Hz", 0.0, x.sfreq)};
     s.domain.cells = "0,1";
     out.out["spectrum"] = s;
     return out;

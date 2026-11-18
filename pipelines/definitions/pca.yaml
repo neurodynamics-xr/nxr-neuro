@@ -24,7 +24,7 @@ parameters:
 
 steps:
   before:
-    - {node: statistic.pca, in: {x: x}, with: {members: $members, scale: $scale}, out: [components, scores, variance, centring]}
+    - {node: stats.pca, in: {x: x}, with: {members: $members, scale: $scale}, out: [components, scores, variance, centring]}
 
 outputs:
   components:

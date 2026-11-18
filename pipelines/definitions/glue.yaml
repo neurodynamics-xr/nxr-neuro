@@ -23,7 +23,7 @@ parameters:
 
 steps:
   before:
-    - {node: surface.glue, in: {surface: surface}, out: [glued, map, bridge]}
+    - {node: geometry.glue, in: {surface: surface}, out: [glued, map, bridge]}
 
 outputs:
   glued:  {kind: manifold, type: surface, name: $name, derived_from: surface.manifold.0}

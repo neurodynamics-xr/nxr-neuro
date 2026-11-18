@@ -52,13 +52,13 @@ parameters:
 
 steps:
   before:
-    - {node: hodge.weights, in: {kernel: kernel, package: package}, with: {modes: $modes}, out: weights}
+    - {node: operators.hodge_weights, in: {kernel: kernel, package: package}, with: {modes: $modes}, out: weights}
   chunks:
     over: recording
     do:
-      - {node: welch.mode_cross_spectra, in: {x: recording, weights: weights, exclude: bad}, with: {rows: flow, fmin: $fmin, fmax: $fmax, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: spectra}
+      - {node: signal.mode_cross_spectra, in: {x: recording, weights: weights, exclude: bad}, with: {rows: flow, fmin: $fmin, fmax: $fmax, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: spectra}
   after:
-    - {node: hodge.speed_spectrum, in: {spectra: spectra, weights: weights}, with: {graph_family: $graph_family, graph_voices: $graph_voices, graph_filters: $graph_filters, family: $family, gain: $gain, sides: $sides, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, speed_bins: $speed_bins, speed_min: $speed_min, speed_max: $speed_max}, out: [energy, tile_speed, quadrature, histogram]}
+    - {node: signal.speed_spectrum, in: {spectra: spectra, weights: weights}, with: {graph_family: $graph_family, graph_voices: $graph_voices, graph_filters: $graph_filters, family: $family, gain: $gain, sides: $sides, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, speed_bins: $speed_bins, speed_min: $speed_min, speed_max: $speed_max}, out: [energy, tile_speed, quadrature, histogram]}
 
 outputs:
   energy:

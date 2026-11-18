@@ -395,7 +395,7 @@ outputs:
 | `analytic_cross_spectrum_tiles` | `band_outer` | time grid `band` | sum | `crossspectrum_analytic`, `analytic.tile_cross_spectrum` |
 | `channel_span_mean` | none (the stored recording) | `select.product` {the run's span as one member, channels} | mean | `channel_mean`, `filter.channel_mean` |
 | `surrogate_lagfree_envelope` | `band_analytic` restricted to the cross-spectrum's channels, form power | `select.product` {time grid `tiles` (duration), the channel set as one member} | power | `lagfree_envelope`, `power_series` |
-| `flow_max_amplitude` | `member_activation` | the run's span | envelope_max | `flow_amplitude`, `flow.max_amplitude` (rule 13: stored, then read by name) |
+| `flow_max_amplitude` | `member_activation` | the run's span | envelope_max | `flow_amplitude`, `signal.flow_max_amplitude` (rule 13: stored, then read by name) |
 | `psd_channel_mean` | none (a stored PSD statistic) | the channel set as one member | mean | the PSD's channel mean inside the surrogate node (rule 32) |
 
 A plain `measure` with a stored field and a stored grid level by name replaces `measure_over_time`; with a stored map and a parcellation, today's
@@ -463,7 +463,7 @@ was computed from (Welch's segments, the selection summarized), never an axis.
 - FREQUENCY: the dataset's `Frequency` line in the default subject (nxr's `convert.frequency`; `nxr/bst/frequency.h`): a line in Hz, origin 0,
   spacing 0.5 Hz, 0-500 Hz, charts `linear` (reference, Hz) and `log10`. Every band set is spans on it in Hz. `select.bands` no longer makes a
   per-recording line (`{recording}_fft_freq`, the one-chunk resolution line, retire). A transform's bins are the made line of its output domain
-  (`fft.spectrum`: bin k at k·rate/n), a factor of the field's type, stored only as a statistic's axis.
+  (`signal.rfft`: bin k at k·rate/n), a factor of the field's type, stored only as a statistic's axis.
 - EIGENVALUE: the dataset's `Eigenvalue` line in the default subject (`io/spatial_bands.h`): 1/m², charts `eigenvalue` (reference) and
   `wavelength` (mm, power map 2π/√λ). Spatial band sets are spans on it, owned by the surface's subject. An operator's eigenvalues are a FIELD of the
   operator (`of_operator_id`, rule 31) on its mode axis, read against this line when a band resolves modes.
@@ -546,10 +546,10 @@ was computed from (Welch's segments, the selection summarized), never an axis.
 | `summarize` (step), `summarize_measurements` | `summarize` |
 | `core_histogram`, `relative_histogram`, `baseline` | `estimate` |
 | `welch.*` segment accumulation, `analytic.tile_cross_spectrum` | `estimate` (`SegmentMean`); the latter a preset (reduce of `outer`) |
-| `measure.band_amplitude`, `filter.channel_mean`, `power_series`, `flow.max_amplitude` | `reduce` (presets of `measure`) |
+| `measure.band_amplitude`, `filter.channel_mean`, `power_series`, `signal.flow_max_amplitude` | `reduce` (presets of `measure`) |
 | `magnitude`, `power`, `phase_current` | `field.form` |
 | `pyramid.band_analytic`, `pyramid.estimate` | `cortical_band` chain (`analytic`, `apply_kernel`, `frames`) and the declared field output |
-| `analytic`, `envelope`, `apply_kernel`, `frames` (resample onto a frame grid), `collect`, `relative`, `at_level`, `risefall`, `scale_selection`, `tile_crossings`, `run_repeat`, `cellquadrature`, `pointspread`, `patch_summaries`, `hodge_dirac`, `surface_frames`, and the native `fft.*`, `filter.apply`, `flow.*`, `hodge.*`, `meeg.*`, `rotary.pair`, `statistic.pca`, `timebank.*`, `quadrature.source_pairs`, connectome nodes | kept (`apply_kernel` loses `glued`, its `level`/`levels` become spatial scales; `patch_summaries` and `tile_crossings` emit measurements; `surrogate.*` become native nodes) |
+| `analytic`, `envelope`, `apply_kernel`, `frames` (resample onto a frame grid), `collect`, `relative`, `at_level`, `risefall`, `scale_selection`, `tile_crossings`, `run_repeat`, `cellquadrature`, `pointspread`, `patch_summaries`, `hodge_dirac`, `surface_frames`, and the native `fft.*`, `signal.filter`, `flow.*`, `hodge.*`, `meeg.*`, `signal.pair_series`, `stats.pca`, `timebank.*`, `signal.source_planes`, connectome nodes | kept (`apply_kernel` loses `glued`, its `level`/`levels` become spatial scales; `patch_summaries` and `tile_crossings` emit measurements; `surrogate.*` become native nodes) |
 
 ### 9.3 Hand-wired verbs and command-line routes
 

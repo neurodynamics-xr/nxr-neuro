@@ -3,7 +3,7 @@
 # carried to the package's glued surface and read in its modes (an exact mode: divergence potential, sources and sinks; a coexact mode: stream function, rotation). The amplitude scale is the stored
 # measurement stored by `run measure --set flow_max_amplitude` (the window's maximum, read by name; rule 13); run both over the same span.
 #
-# THE GRAPH. recording --[timebank.member_analytic, retiming, halo = the filter's margin]--> z --[flow.activation]--> a --[flow.velocity, stateful]--> v --[flow.hodge_modes]--> b --[flow.series]--> the
+# THE GRAPH. recording --[signal.member_analytic, retiming, halo = the filter's margin]--> z --[signal.flow_activation]--> a --[signal.flow_velocity, stateful]--> v --[signal.flow_hodge_modes]--> b --[signal.flow_series]--> the
 # weights [K x steps] on (eigen axis x the made time line). The divergence, curl and speed of a leaf and a frame are measurements over the grid (cortex x time): they are NOT part of this definition
 # (the grids are being redesigned as plain selections; the measurement follows them).
 #
@@ -57,11 +57,11 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: timebank.member_analytic, in: {x: recording, channels_of: kernel}, with: {family: $family, gain: $gain, freq: $freq, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, resolution: $resolution, oversample: $oversample, tolerance: $tolerance}, out: z}
-      - {node: flow.activation, in: {z: z, kernel: kernel}, with: {input: $input}, out: a}
-      - {node: flow.velocity, in: {a: a, surface: surface, scale: scale}, with: {method: $method, regulariser: $regulariser, datafit: $datafit, alpha: $alpha, flow_tolerance: $flow_tolerance, max_iterations: $max_iterations, preconditioner: $preconditioner}, out: v}
-      - {node: flow.hodge_modes, in: {v: v, package: package}, out: b}
-      - {node: flow.series, in: {b: b}, out: [coefficients, time]}
+      - {node: signal.member_analytic, in: {x: recording, channels_of: kernel}, with: {family: $family, gain: $gain, freq: $freq, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, resolution: $resolution, oversample: $oversample, tolerance: $tolerance}, out: z}
+      - {node: signal.flow_activation, in: {z: z, kernel: kernel}, with: {input: $input}, out: a}
+      - {node: signal.flow_velocity, in: {a: a, surface: surface, scale: scale}, with: {method: $method, regulariser: $regulariser, datafit: $datafit, alpha: $alpha, flow_tolerance: $flow_tolerance, max_iterations: $max_iterations, preconditioner: $preconditioner}, out: v}
+      - {node: signal.flow_hodge_modes, in: {v: v, package: package}, out: b}
+      - {node: signal.flow_series, in: {b: b}, out: [coefficients, time]}
 
 outputs:
   time:

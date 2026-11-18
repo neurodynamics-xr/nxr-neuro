@@ -70,7 +70,7 @@ struct Planned {
 using Shared = std::map<std::string, std::any>;
 
 struct NodeSpec {
-  std::string name;                       // grouped: "welch.psd"
+  std::string name;                       // grouped: "signal.psd"
   Kind kind = Kind::chunk;
   std::vector<PortSpec> inputs, outputs;
   std::vector<ParamSpec> parameters;

@@ -61,23 +61,23 @@ void test_types() {
   const std::string gA = "gc@8579865/vertex:surf:aaaa0001", gB = "gc@8579865/vertex:surf:bbbb0002";
   const auto x = field_t({cortex, time}, VT::complex, 1, gA);
   const auto to = map_t(VT::real);
-  const auto y = use("frame.rotate", {{"x", x}, {"to", to}}).at("y");
+  const auto y = use("geometry.frame_rotate", {{"x", x}, {"to", to}}).at("y");
   CHECK(y.spin == 1 && y.gauge == "frame(to)@" + gA);
-  CHECK(refused([&] { use("frame.rotate", {{"x", field_t({cortex, time}, VT::complex)}, {"to", to}}); }, {"has no spin", "`spin`"}));
-  CHECK(use("frame.rotate", {{"x", field_t({cortex, time}, VT::complex, 0, "")}, {"to", to}}, Json{{"spin", 2}}).at("y").spin == 2);
-  CHECK(refused([&] { use("frame.rotate", {{"x", x}, {"to", map_t(VT::real, 1, gA)}}); }, {"angle is a scalar"}));
+  CHECK(refused([&] { use("geometry.frame_rotate", {{"x", field_t({cortex, time}, VT::complex)}, {"to", to}}); }, {"has no spin", "`spin`"}));
+  CHECK(use("geometry.frame_rotate", {{"x", field_t({cortex, time}, VT::complex, 0, "")}, {"to", to}}, Json{{"spin", 2}}).at("y").spin == 2);
+  CHECK(refused([&] { use("geometry.frame_rotate", {{"x", x}, {"to", map_t(VT::real, 1, gA)}}); }, {"angle is a scalar"}));
   // an embedded value is gauge-free; its projection is in the grid's gauge
   const auto grid = map_t(VT::complex, 1, gA);
-  const auto v = use("frame.embed", {{"x", x}, {"grid", grid}}).at("y");
+  const auto v = use("geometry.frame_embed", {{"x", x}, {"grid", grid}}).at("y");
   CHECK(v.value == VT::vector3 && v.spin == 0 && v.gauge.empty());
-  const auto z = use("frame.project", {{"x", field_t({cortex, time}, VT::vector3)}, {"grid", grid}}).at("y");
+  const auto z = use("geometry.frame_project", {{"x", field_t({cortex, time}, VT::vector3)}, {"grid", grid}}).at("y");
   CHECK(z.value == VT::complex && z.spin == 1 && z.gauge == gA);
   // two gauges meet: refused, naming both and frame.rotate
-  CHECK(refused([&] { use("frame.embed", {{"x", x}, {"grid", map_t(VT::complex, 1, gB)}}); }, {"two gauges never meet", gA, gB, "frame.rotate"}));
-  CHECK(refused([&] { use("frame.embed", {{"x", field_t({cortex, time}, VT::complex, 2, gA)}, {"grid", grid}}); }, {"is spin 2", "values of different spin"}));
-  CHECK(refused([&] { use("frame.embed", {{"x", field_t({cortex, time}, VT::complex, 0, "")}, {"grid", grid}}); }, {"only a tangent vector (spin 1)"}));
+  CHECK(refused([&] { use("geometry.frame_embed", {{"x", x}, {"grid", map_t(VT::complex, 1, gB)}}); }, {"two gauges never meet", gA, gB, "geometry.frame_rotate"}));
+  CHECK(refused([&] { use("geometry.frame_embed", {{"x", field_t({cortex, time}, VT::complex, 2, gA)}, {"grid", grid}}); }, {"is spin 2", "values of different spin"}));
+  CHECK(refused([&] { use("geometry.frame_embed", {{"x", field_t({cortex, time}, VT::complex, 0, "")}, {"grid", grid}}); }, {"only a tangent vector (spin 1)"}));
   // a field that predates the gauge record is refused
-  CHECK(refused([&] { use("frame.embed", {{"x", field_t({cortex, time}, VT::complex, 1, "")}, {"grid", grid}}); }, {"records no gauge"}));
+  CHECK(refused([&] { use("geometry.frame_embed", {{"x", field_t({cortex, time}, VT::complex, 1, "")}, {"grid", grid}}); }, {"records no gauge"}));
 }
 
 g::Block complex_block(std::int64_t rows, std::int64_t width) {
@@ -93,7 +93,7 @@ void test_run() {
   g::Registry r;
   g::register_frame_nodes(r);
   CHECK(r.unmatched_signatures().empty());
-  CHECK(r.at("frame.rotate").signature.has_value());
+  CHECK(r.at("geometry.frame_rotate").signature.has_value());
   const std::int64_t V = 4, W = 5;
   // a grid: e1, e2 are an orthonormal pair in the plane z = const rotated by a per-vertex angle about z; the normal is z
   g::Array grid; grid.rows = V; grid.cols = 3; grid.comps = 2; grid.data.assign(static_cast<std::size_t>(V * 3 * 2), 0.0);
@@ -107,7 +107,7 @@ void test_run() {
   g::Array to; to.rows = V; to.cols = 1; to.data = {0.0, 0.5, -1.0, 2.0};
   for (int k : {1, 2}) {
     g::PortType xt = field_t({cortex, time}, VT::complex, k, "gA");
-    const auto& n = r.at("frame.rotate");
+    const auto& n = r.at("geometry.frame_rotate");
     const auto prepared = n.prepare({{"x", xt}, {"to", map_t(VT::real)}}, {{"to", to}}, Json{{"spin", 0}}, *std::make_unique<g::Shared>());
     const auto out = n.chunk(prepared, {{"x", x}}, 0, g::Place{}).at("y");
     double worst = 0;
@@ -122,7 +122,7 @@ void test_run() {
   // embed then project is the identity on the tangent plane; the embedded vector is tangent (z component 0) and has the length |z|
   g::Shared sh;
   const g::PortType xt = field_t({cortex, time}, VT::complex, 1, "gA");
-  const auto emb = r.at("frame.embed"), proj = r.at("frame.project");
+  const auto emb = r.at("geometry.frame_embed"), proj = r.at("geometry.frame_project");
   const auto pe = emb.prepare({{"x", xt}, {"grid", map_t(VT::complex, 1, "gA")}}, {{"grid", grid}}, Json::object(), sh);
   const g::Block ev = emb.chunk(pe, {{"x", x}}, 0, g::Place{}).at("y");
   CHECK(ev.rows == 3 * V && ev.width == W && !ev.complex());

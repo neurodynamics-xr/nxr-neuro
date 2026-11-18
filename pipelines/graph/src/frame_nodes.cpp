@@ -46,7 +46,7 @@ Grid grid_of(const Array& a, const std::string& who) {
 
 NodeSpec frame_rotate_node() {
   NodeSpec s;
-  s.name = "frame.rotate";
+  s.name = "geometry.frame_rotate";
   s.kind = Kind::chunk;
   s.traits = traits();
   s.inputs = {{"x", "a tangent value, complex, spin k, in some gauge"}, {"to", "the angle of the target reference in that gauge, radians, one per element"}};
@@ -56,24 +56,24 @@ NodeSpec frame_rotate_node() {
   s.description = "x e^(-i k to) per element: the components of a spin-k value on the frame whose reference lies at angle `to` in x's gauge (north's gauge angle gives (north, west) for k = 1; for k = 2 a line field's double angle is measured from north).";
   s.plan = [](const Types& in, const Json& p) {
     const PortType& x = in.at("x");
-    need(x.value == ValueType::complex, "frame.rotate: x must be complex, it is " + std::string(to_string(x.value)));
-    need(in.at("to").value == ValueType::real, "frame.rotate: `to` must be real (radians)");
-    need(in.at("to").rows == x.rows, "frame.rotate: `to` has " + std::to_string(in.at("to").rows) + " elements, x has " + std::to_string(x.rows) + " rows");
+    need(x.value == ValueType::complex, "geometry.frame_rotate: x must be complex, it is " + std::string(to_string(x.value)));
+    need(in.at("to").value == ValueType::real, "geometry.frame_rotate: `to` must be real (radians)");
+    need(in.at("to").rows == x.rows, "geometry.frame_rotate: `to` has " + std::to_string(in.at("to").rows) + " elements, x has " + std::to_string(x.rows) + " rows");
     PortType y = x;
     if (y.spin == 0 && p.contains("spin") && p["spin"].is_number_integer()) y.spin = p["spin"].get<int>();
     return Planned{{{"y", y}}, 0};
   };
   s.prepare = [](const Types& in, const Arrays& c, const Json& p, Shared&) {
     const int k = in.at("x").spin != 0 ? in.at("x").spin : p.value("spin", 0);
-    need(k != 0, "frame.rotate: x has no spin; name it as the parameter `spin`");
-    need(c.count("to") != 0, "frame.rotate: `to` is not given");
+    need(k != 0, "geometry.frame_rotate: x has no spin; name it as the parameter `spin`");
+    need(c.count("to") != 0, "geometry.frame_rotate: `to` is not given");
     return std::any(std::make_pair(k, c.at("to").data));
   };
   s.chunk = [](const std::any& prepared, const Blocks& in, std::int64_t keep, const Place&) {
     const auto& [k, to] = std::any_cast<const std::pair<int, std::vector<double>>&>(prepared);
     const Block& x = in.at("x");
-    need(x.complex(), "frame.rotate: the block is not complex");
-    need(static_cast<std::size_t>(x.rows) == to.size(), "frame.rotate: `to` has " + std::to_string(to.size()) + " elements, the block " + std::to_string(x.rows) + " rows");
+    need(x.complex(), "geometry.frame_rotate: the block is not complex");
+    need(static_cast<std::size_t>(x.rows) == to.size(), "geometry.frame_rotate: `to` has " + std::to_string(to.size()) + " elements, the block " + std::to_string(x.rows) + " rows");
     Block y = shaped(x, x.rows, keep, true);
     for (std::int64_t r = 0; r < y.rows; ++r) {
       const double th = -static_cast<double>(k) * to[static_cast<std::size_t>(r)];
@@ -92,7 +92,7 @@ NodeSpec frame_rotate_node() {
 
 NodeSpec frame_embed_node() {
   NodeSpec s;
-  s.name = "frame.embed";
+  s.name = "geometry.frame_embed";
   s.kind = Kind::chunk;
   s.traits = traits();
   s.inputs = {{"x", "a tangent vector, complex, spin 1"}, {"grid", "the surface's vertexGrid (e1 + i e2), in x's gauge"}};
@@ -101,20 +101,20 @@ NodeSpec frame_embed_node() {
   s.description = "z = a + ib at a vertex becomes the 3-vector a e1 + b e2 (tangent to the surface, gauge-free).";
   s.plan = [](const Types& in, const Json&) {
     const PortType& x = in.at("x");
-    need(x.value == ValueType::complex, "frame.embed: x must be complex, it is " + std::string(to_string(x.value)));
-    need(in.at("grid").rows == x.rows, "frame.embed: `grid` has " + std::to_string(in.at("grid").rows) + " rows, x has " + std::to_string(x.rows));
+    need(x.value == ValueType::complex, "geometry.frame_embed: x must be complex, it is " + std::string(to_string(x.value)));
+    need(in.at("grid").rows == x.rows, "geometry.frame_embed: `grid` has " + std::to_string(in.at("grid").rows) + " rows, x has " + std::to_string(x.rows));
     PortType y = x;
     y.value = ValueType::vector3; y.complex_parts = false; y.spin = 0; y.gauge.clear(); y.components = 3; y.rows = x.rows * 3;
     return Planned{{{"y", y}}, 0};
   };
   s.prepare = [](const Types&, const Arrays& c, const Json&, Shared&) {
-    need(c.count("grid") != 0, "frame.embed: `grid` is not given");
-    return std::any(grid_of(c.at("grid"), "frame.embed"));
+    need(c.count("grid") != 0, "geometry.frame_embed: `grid` is not given");
+    return std::any(grid_of(c.at("grid"), "geometry.frame_embed"));
   };
   s.chunk = [](const std::any& prepared, const Blocks& in, std::int64_t keep, const Place&) {
     const Grid& g = std::any_cast<const Grid&>(prepared);
     const Block& x = in.at("x");
-    need(x.complex() && x.rows == g.V, "frame.embed: the block has " + std::to_string(x.rows) + " rows, the grid " + std::to_string(g.V) + " vertices");
+    need(x.complex() && x.rows == g.V, "geometry.frame_embed: the block has " + std::to_string(x.rows) + " rows, the grid " + std::to_string(g.V) + " vertices");
     Block y = shaped(x, 3 * x.rows, keep, false);
     for (std::int64_t v = 0; v < x.rows; ++v)
       for (std::int64_t j = 0; j < y.width; ++j) {
@@ -130,30 +130,30 @@ NodeSpec frame_embed_node() {
 
 NodeSpec frame_project_node() {
   NodeSpec s;
-  s.name = "frame.project";
+  s.name = "geometry.frame_project";
   s.kind = Kind::chunk;
   s.traits = traits();
   s.inputs = {{"x", "an embedded 3-vector, three consecutive rows per vertex"}, {"grid", "the surface's vertexGrid (e1 + i e2)"}};
   s.outputs = {{"y", "the tangent vector in the grid's gauge, complex, spin 1"}};
   s.matches = "an analytic projection (tests): z = (v . e1) + i (v . e2)";
-  s.description = "The inverse of frame.embed on the tangent plane: z = (v . e1) + i (v . e2); the part of v along the normal is dropped.";
+  s.description = "The inverse of geometry.frame_embed on the tangent plane: z = (v . e1) + i (v . e2); the part of v along the normal is dropped.";
   s.plan = [](const Types& in, const Json&) {
     const PortType& x = in.at("x");
-    need(x.value == ValueType::vector3, "frame.project: x must be a vector3 value, it is " + std::string(to_string(x.value)));
-    need(x.rows == 3 * in.at("grid").rows, "frame.project: x has " + std::to_string(x.rows) + " rows, the grid " + std::to_string(in.at("grid").rows) + " vertices (three rows each)");
+    need(x.value == ValueType::vector3, "geometry.frame_project: x must be a vector3 value, it is " + std::string(to_string(x.value)));
+    need(x.rows == 3 * in.at("grid").rows, "geometry.frame_project: x has " + std::to_string(x.rows) + " rows, the grid " + std::to_string(in.at("grid").rows) + " vertices (three rows each)");
     PortType y = x;
     y.value = ValueType::complex; y.complex_parts = false; y.components = 1; y.rows = x.rows / 3;
     y.spin = in.at("grid").spin; y.gauge = in.at("grid").gauge;
     return Planned{{{"y", y}}, 0};
   };
   s.prepare = [](const Types&, const Arrays& c, const Json&, Shared&) {
-    need(c.count("grid") != 0, "frame.project: `grid` is not given");
-    return std::any(grid_of(c.at("grid"), "frame.project"));
+    need(c.count("grid") != 0, "geometry.frame_project: `grid` is not given");
+    return std::any(grid_of(c.at("grid"), "geometry.frame_project"));
   };
   s.chunk = [](const std::any& prepared, const Blocks& in, std::int64_t keep, const Place&) {
     const Grid& g = std::any_cast<const Grid&>(prepared);
     const Block& x = in.at("x");
-    need(x.rows == 3 * g.V, "frame.project: the block has " + std::to_string(x.rows) + " rows, the grid " + std::to_string(g.V) + " vertices");
+    need(x.rows == 3 * g.V, "geometry.frame_project: the block has " + std::to_string(x.rows) + " rows, the grid " + std::to_string(g.V) + " vertices");
     Block y = shaped(x, g.V, keep, true);
     for (std::int64_t v = 0; v < g.V; ++v)
       for (std::int64_t j = 0; j < y.width; ++j) {

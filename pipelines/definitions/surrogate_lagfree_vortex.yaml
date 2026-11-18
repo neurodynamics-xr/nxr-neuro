@@ -1,7 +1,7 @@
 # ONE DRAW OF THE LAG-FREE SURROGATE of the vortex chain (spec docs/specs/2026-11-17-surrogates.md): the SAME graph as `vortex_cores`, run on a lag-free surrogate of the recording in place of the
 # recording: Gaussian noise with the data's own spectrum (the stored Welch PSD), scaled to the data's band envelope (`run measure --set surrogate_lagfree_envelope`), mixed by the square root of the band's real cross-spectrum
 # (the zero-lag structure kept, no lag). The threshold is the DATA's (the stored `vortex_core_threshold` histogram, by name), the burst frames the data's: only the signal is replaced.
-# THE ORDER (spec section 4): white -> shaping taps -> envelope scale (`surrogate.lagfree`, the UNMIXED draw) -> the band's analytic signal -> frames -> ONE fused operator (the curl of the
+# THE ORDER (spec section 4): white -> shaping taps -> envelope scale (`synthesis.lagfree`, the UNMIXED draw) -> the band's analytic signal -> frames -> ONE fused operator (the curl of the
 # kernel's tangent current through the level's hat, composed with the zero-lag mixing: apply_kernel's `pre_operator`). It is the same draw as mixing first: the scale is the same number on every channel
 # of a sample, and the analytic filter and the frame sampling are the same linear filter on every channel, so the mixing commutes with them; the kernel, the tangent part, the curl and the hat are linear,
 # so they and the mixing are one operator [vertices x channels], built once and cached across the draws. The first non-linear step is `cores` (the threshold).
@@ -70,11 +70,11 @@ parameters:
 
 steps:
   before:
-    - {node: surrogate.lagfree_mixing, in: {cross_spectrum: cross_spectrum}, out: mixing}
+    - {node: synthesis.lagfree_mixing, in: {cross_spectrum: cross_spectrum}, out: mixing}
   chunks:
     over: recording
     do:
-      - node: surrogate.lagfree
+      - node: synthesis.lagfree
         in:   {x: recording, psd: psd, psd_channel_mean: psd_channel_mean, cross_spectrum: cross_spectrum, power_series: power_series}
         with: {band: $band, shape: $shape, taps_half: $taps_half, seed: $seed}
         out:  y

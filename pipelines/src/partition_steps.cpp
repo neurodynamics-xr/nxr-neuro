@@ -26,7 +26,7 @@ namespace {
 // names this node when two manifolds' systems differ and never inserts it. Its output is the same manifold term with the target system; stored, a surface in that system.
 ng::NodeSpec positions_transition() {
   ng::NodeSpec n;
-  n.name = "positions.transition";
+  n.name = "meeg.positions_transition";
   n.kind = ng::Kind::array;
   n.inputs = {{"positions", "a manifold with positions (a surface: vertices n x 3, its faces with them)", false},
               {"transition", "an operator of kind transition: an affine [3 x 4] or [4 x 4] from the positions' system to another of the same space", false}};
@@ -35,7 +35,7 @@ ng::NodeSpec positions_transition() {
   n.matches = "Brainstorm's cs_convert; the Studio's coordinate transitions (one operator a pair of systems)";
   n.description = "a manifold's positions brought into another coordinate system of the same space by its transition operator";
   n.plan = [](const ng::Types& in, const Json&) {
-    for (const char* k : {"positions", "transition"}) if (!in.count(k)) ng::refuse(std::string("positions.transition: ") + k + " is not given");
+    for (const char* k : {"positions", "transition"}) if (!in.count(k)) ng::refuse(std::string("meeg.positions_transition: ") + k + " is not given");
     ng::Planned out;
     ng::PortType m = in.at("positions");
     m.facts["cls"] = "manifold";
@@ -43,7 +43,7 @@ ng::NodeSpec positions_transition() {
     return out;
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays& c, const Json&, ng::Shared&) {
-    for (const char* k : {"positions", "transition"}) if (!c.count(k) || c.at(k).meta.value("placeholder", false)) ng::refuse(std::string("positions.transition: ") + k + " was not handed over");
+    for (const char* k : {"positions", "transition"}) if (!c.count(k) || c.at(k).meta.value("placeholder", false)) ng::refuse(std::string("meeg.positions_transition: ") + k + " was not handed over");
     ng::Arrays a{{"positions", c.at("positions")}, {"transition", c.at("transition")}};
     if (in.count("transition") && in.at("transition").transition) a["transition"].meta["to_cs"] = in.at("transition").transition->second.name;
     return std::any(std::move(a));
@@ -52,8 +52,8 @@ ng::NodeSpec positions_transition() {
     const ng::Arrays& c = std::any_cast<const ng::Arrays&>(prepared);
     const ng::Array& X = c.at("positions");
     const ng::Array& T = c.at("transition");
-    if (X.cols != 3) ng::refuse("positions.transition: the positions are not n x 3");
-    if (T.cols != 4 || (T.rows != 3 && T.rows != 4)) ng::refuse("positions.transition: the transition is not an affine [3 x 4] or [4 x 4]");
+    if (X.cols != 3) ng::refuse("meeg.positions_transition: the positions are not n x 3");
+    if (T.cols != 4 || (T.rows != 3 && T.rows != 4)) ng::refuse("meeg.positions_transition: the transition is not an affine [3 x 4] or [4 x 4]");
     ng::Array Y;
     Y.rows = X.rows; Y.cols = 3;
     Y.data.resize(X.data.size());

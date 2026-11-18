@@ -37,11 +37,11 @@ presets:
 
 steps:
   before:
-    - {node: hodge.weights, in: {kernel: kernel, package: package}, with: {modes: $modes}, out: weights}
+    - {node: operators.hodge_weights, in: {kernel: kernel, package: package}, with: {modes: $modes}, out: weights}
   chunks:
     over: recording
     do:
-      - {node: welch.source_band_power, in: {x: recording, kernel: weights, exclude: bad}, with: {bands: $bands, normalisation: none, row_axis: mode_part, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: power}
+      - {node: meeg.source_band_power, in: {x: recording, kernel: weights, exclude: bad}, with: {bands: $bands, normalisation: none, row_axis: mode_part, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: power}
 
 outputs:
   power:

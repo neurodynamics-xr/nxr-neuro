@@ -51,9 +51,9 @@ struct PairsPrepared { ng::Array spectrum, kernel; int pairs = 3; };
 
 ng::NodeSpec source_pairs() {
   ng::NodeSpec n;
-  n.name = "quadrature.source_pairs";
+  n.name = "signal.source_planes";
   n.kind = ng::Kind::array;
-  n.inputs = {{"spectrum", "the sensors' band cross-spectrum (welch.cross_spectrum): bands x channels x channels, complex, on the kernel's channels", false},
+  n.inputs = {{"spectrum", "the sensors' band cross-spectrum (signal.xpsd): bands x channels x channels, complex, on the kernel's channels", false},
               {"kernel", "an inverse kernel (free or fixed orientation) on the cross-spectrum's channels", false}};
   n.outputs = {{"energy", "per source and band, the quadrature energy sum_j (Im C_ij)^2, with each band's quadrature fraction and the sensors' rank (a statistic over the segment partition)", false},
                {"pairs", "per source, the strongest quadrature pairs p -> q of each band (vector3 for a free kernel), with sigma, share and rotary sense (a statistic over the segment partition)", false}};
@@ -62,8 +62,8 @@ ng::NodeSpec source_pairs() {
   n.matches = "nxr.spectral.lagged (im_fraction, im_rows, planes); compute nxr::signal";
   n.description = "the quadrature spectrum of the sources: per band the quadrature fraction, the energy per source and the strongest quadrature pairs, from the sensors' cross-spectrum and a kernel";
   n.plan = [](const ng::Types& in, const Json& p) {
-    for (const char* k : {"spectrum", "kernel"}) if (!in.count(k)) ng::refuse(std::string("quadrature.source_pairs: ") + k + " is not given");
-    if (p.value("pairs", 3) < 1) ng::refuse("quadrature.source_pairs: at least one pair");
+    for (const char* k : {"spectrum", "kernel"}) if (!in.count(k)) ng::refuse(std::string("signal.source_planes: ") + k + " is not given");
+    if (p.value("pairs", 3) < 1) ng::refuse("signal.source_planes: at least one pair");
     ng::Planned out;
     out.out["energy"] = statistic_out();
     out.out["pairs"] = statistic_out();
@@ -71,7 +71,7 @@ ng::NodeSpec source_pairs() {
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) {
     PairsPrepared pr;
-    for (const char* k : {"spectrum", "kernel"}) if (!c.count(k) || c.at(k).meta.value("placeholder", false)) ng::refuse(std::string("quadrature.source_pairs: ") + k + " was not handed over");
+    for (const char* k : {"spectrum", "kernel"}) if (!c.count(k) || c.at(k).meta.value("placeholder", false)) ng::refuse(std::string("signal.source_planes: ") + k + " was not handed over");
     pr.spectrum = c.at("spectrum");
     pr.kernel = c.at("kernel");
     pr.pairs = p.value("pairs", 3);
@@ -85,12 +85,12 @@ ng::NodeSpec source_pairs() {
     const std::vector<std::int32_t> chans = KA.meta.value("channels", std::vector<std::int32_t>());
     const std::int64_t M = static_cast<std::int64_t>(chans.size());
     const int orientations = KA.meta.value("to_value_type", std::string("vector3")) == "scalar" ? 1 : 3;
-    if (M == 0 || KA.cols != M) ng::refuse("quadrature.source_pairs: the kernel's array is not [rows x its " + std::to_string(M) + " channels]");
-    if (KA.rows % orientations != 0) ng::refuse("quadrature.source_pairs: the kernel's rows are not a multiple of " + std::to_string(orientations));
+    if (M == 0 || KA.cols != M) ng::refuse("signal.source_planes: the kernel's array is not [rows x its " + std::to_string(M) + " channels]");
+    if (KA.rows % orientations != 0) ng::refuse("signal.source_planes: the kernel's rows are not a multiple of " + std::to_string(orientations));
     const std::int64_t N = KA.rows / orientations;
     const Json bands_in = d.contains("axes") && d["axes"].is_array() && !d["axes"].empty() ? d["axes"][0].value("values", Json::array()) : Json::array();
     const std::int64_t nb = static_cast<std::int64_t>(bands_in.size());
-    if (nb < 1 || SA.rows != nb || SA.cols != M * M * 2) ng::refuse("quadrature.source_pairs: the cross-spectrum is not bands x " + std::to_string(M) + " x " + std::to_string(M) + " (complex) on the kernel's channels");
+    if (nb < 1 || SA.rows != nb || SA.cols != M * M * 2) ng::refuse("signal.source_planes: the cross-spectrum is not bands x " + std::to_string(M) + " x " + std::to_string(M) + " (complex) on the kernel's channels");
     const bool density = d.value("measure", std::string()) == "cross_spectral_density";
     using MatRM = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
     const Eigen::MatrixXcd Kc = Eigen::Map<const MatRM>(KA.data.data(), KA.rows, M).cast<std::complex<double>>();
@@ -123,7 +123,7 @@ ng::NodeSpec source_pairs() {
     }
     std::int64_t total_pairs = 0;
     for (const auto& v : pairs) total_pairs += static_cast<std::int64_t>(v.size());
-    if (total_pairs == 0) ng::refuse("quadrature.source_pairs: the sensors' cross-spectrum has no quadrature pair in any band (no imaginary part beyond rounding): nothing travels or turns in it");
+    if (total_pairs == 0) ng::refuse("signal.source_planes: the sensors' cross-spectrum has no quadrature pair in any band (no imaginary part beyond rounding): nothing travels or turns in it");
 
     // the statistics ride on the cross-spectrum's own partition (its Welch segments) and options
     Json bands = Json::array();

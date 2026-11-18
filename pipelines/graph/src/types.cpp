@@ -595,7 +595,7 @@ bool unify(const ManifoldRef& pattern, const ManifoldRef& actual, Bindings& b, s
     if (same(bound, actual)) return true;
     if (bound->key == actual->key && bound->label == actual->label && !same_cs(bound->cs, actual->cs)) {
       why = print(actual) + " is the manifold " + print(bound) + " in another coordinate system (" + print_cs(actual->cs) + ", not " + print_cs(bound->cs) +
-            "); no transition is applied by the checker: add the node `positions.transition` with the transition operator " + print_cs(actual->cs) + " to " + print_cs(bound->cs);
+            "); no transition is applied by the checker: add the node `meeg.positions_transition` with the transition operator " + print_cs(actual->cs) + " to " + print_cs(bound->cs);
       return false;
     }
     if (pattern->subsume) {
@@ -603,7 +603,7 @@ bool unify(const ManifoldRef& pattern, const ManifoldRef& actual, Bindings& b, s
       if (actual->form == Manifold::Form::restricted && same(bound, actual->of)) return true;
       if (actual->form == Manifold::Form::restricted && actual->of && bound->key == actual->of->key && bound->label == actual->of->label && !same_cs(bound->cs, actual->of->cs)) {
         why = print(actual) + " is a selection of the manifold " + print(bound) + " in another coordinate system (" + print_cs(actual->of->cs) + ", not " + print_cs(bound->cs) +
-              "); no transition is applied by the checker: add the node `positions.transition` with the transition operator " + print_cs(actual->of->cs) + " to " + print_cs(bound->cs);
+              "); no transition is applied by the checker: add the node `meeg.positions_transition` with the transition operator " + print_cs(actual->of->cs) + " to " + print_cs(bound->cs);
         return false;
       }
       if (actual->form == Manifold::Form::restricted && bound->form == Manifold::Form::restricted && same(bound->of, actual->of)) {
@@ -626,7 +626,7 @@ bool unify(const ManifoldRef& pattern, const ManifoldRef& actual, Bindings& b, s
       if (!same(pattern, actual)) {
         why = print(actual) + " is not " + print(pattern);
         if (pattern->key == actual->key && pattern->label == actual->label)
-          why += " (the same manifold in another coordinate system: " + print_cs(actual->cs) + ", not " + print_cs(pattern->cs) + "; no transition is applied by the checker: add the node `positions.transition` with the transition operator)";
+          why += " (the same manifold in another coordinate system: " + print_cs(actual->cs) + ", not " + print_cs(pattern->cs) + "; no transition is applied by the checker: add the node `meeg.positions_transition` with the transition operator)";
         return false;
       }
       return true;

@@ -18,7 +18,7 @@ parameters:
 
 steps:
   before:
-    - {node: positions.transition, in: {positions: surface, transition: transition}, out: moved}
+    - {node: meeg.positions_transition, in: {positions: surface, transition: transition}, out: moved}
 
 outputs:
   moved:

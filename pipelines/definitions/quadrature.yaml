@@ -4,7 +4,7 @@
 # pairs of Im C: p leads q by a quarter cycle, the pattern turns p -> q. A free kernel reads the quadrature over its 3N rows; a pair is one pattern over them, stored as its x y z components.
 # The kernel spreads each source over its neighbours with no lag: it shrinks Im C, so a quadrature fraction is a lower bound of what the sources hold.
 #
-# THE GRAPH. recording --[welch.cross_spectrum, accumulate: partition = the Welch segments (a Rule on the time line)]--> spectrum --[quadrature.source_pairs, array: pointwise matrix maths with the
+# THE GRAPH. recording --[signal.xpsd, accumulate: partition = the Welch segments (a Rule on the time line)]--> spectrum --[signal.source_planes, array: pointwise matrix maths with the
 # kernel, no neighbourhood]--> energy, pairs. Reductions over time are the cross-spectrum's (a statistic over the segment partition); the per-source values are one member each.
 # Stored: the statistics `<name>_energy` (vertex x band) and `<name>` (vertex x pattern: `pair<k>_<p|q>_<band>`), their segment partition `<name>_segments`.
 #
@@ -43,9 +43,9 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: welch.cross_spectrum, in: {x: recording, channels_of: kernel, exclude: bad}, with: {bands: $bands, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: [channels, spectrum, bins]}
+      - {node: signal.xpsd, in: {x: recording, channels_of: kernel, exclude: bad}, with: {bands: $bands, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: [channels, spectrum, bins]}
   after:
-    - {node: quadrature.source_pairs, in: {spectrum: spectrum, kernel: kernel}, with: {pairs: $pairs}, out: [energy, pairs]}
+    - {node: signal.source_planes, in: {spectrum: spectrum, kernel: kernel}, with: {pairs: $pairs}, out: [energy, pairs]}
 
 outputs:
   energy:
