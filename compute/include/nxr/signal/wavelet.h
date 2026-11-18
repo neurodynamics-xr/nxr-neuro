@@ -1,7 +1,13 @@
 #pragma once
-// nxr::signal — the chunked filterbank transform `wt` and its inverse `iwt` (names: Rheome's @timefilterbank and MATLAB's cwtfilterbank).
+// nxr::signal — the wavelet transform `wt` of a time filterbank and its inverse `iwt` (Rheome's names; a bank only DESIGNS, as MATLAB's cwtfilterbank holds the wavelets and cwt transforms).
 //
-// PURE MATHS (arrays in, arrays out; the transform is nxr::signal). STREAMING: a state fed chunk after chunk, as nxr::signal::filters.
+// PURE MATHS (arrays in, arrays out). No state: a window (a chunk with its halo, as io's chunk service hands it) in, the window's coefficients out. Three forms, one name:
+//   wt(bank, x)            FULL RATE: every member on the bank's grid, [nfft x C] a member (was timefilterbank::analysis); a real signal for an Analytic bank, a complex one for a TwoSided bank.
+//   wt(layout, x, members) OWN RATE: each member at its own lattice rate (below), the window `x` [channels x samples] treated as the whole record: the coefficients for t in [-margin, n + margin)
+//                          (the window's tails included). `layout` = wtLayout(bank, options) declares the margin, the halo a node must give a window; `members` restricts the work (empty: all).
+//   wtOwnRate(bank, x)     Rheome's whole-array own-rate form of ONE signal (was analysisOwnRate), the FFT of the zero-padded record.
+// iwt(bank, W, n, mode) / iwtComplex: synthesis from full-rate coefficients (was synthesis / synthesisComplex); iwt(layout, blocks, n, mode): from the own-rate blocks wt(layout, ...) gave.
+// wtBlock(design, block, fs, left, own): the full-rate transform of a haloed block, the own columns kept (was analysisOfBlock).
 //
 // The bank is a nxr::signal::timefilterbank::TimeFilterbank, ANALYTIC (a real recording). Its family, gain and sides are REQUIRED by timebank::Design (no default). The bank is
 // designed ONCE on a reference grid `bank.nfft` (its frequency resolution: the lowest member spans >= minBins bins of fs/nfft); the record's length plays no part.
@@ -30,8 +36,39 @@
 
 namespace nxr::signal {
 
-struct Options {
-    double oversample = 2.0;                  // timebank::rates: the member's rate = next_fast_len(oversample * bins) fs / nfft
+// ── FULL RATE ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Analytic: a REAL signal x [n x C] (n <= nfft; zero-padded): W_m = ifft(rfft(x) g_m) on the one-sided bins, [nfft x C] a member. */
+timefilterbank::Coefficients wt(const timefilterbank::TimeFilterbank& bank, const Eigen::MatrixXd& x);
+/** TwoSided: a complex (or real) signal, W_m = ifft(fft(x) g_m). An Analytic bank REFUSES this overload (std::invalid_argument). */
+timefilterbank::Coefficients wt(const timefilterbank::TimeFilterbank& bank, const Eigen::MatrixXcd& x);
+/** Analytic synthesis to the real record [n x C]. Dual: sum (g/S) conv W, exact wherever the bank covers; Tight: sum g conv W / S_nominal (G^2, G^2/2 at DC and Nyquist), exact when the bank is tight. */
+Eigen::MatrixXd iwt(const timefilterbank::TimeFilterbank& bank, const timefilterbank::Coefficients& W, std::size_t n, graphfilterbank::Synthesis mode = graphfilterbank::Synthesis::Dual);
+/** TwoSided synthesis to the complex record [n x C]. */
+Eigen::MatrixXcd iwtComplex(const timefilterbank::TimeFilterbank& bank, const timefilterbank::Coefficients& W, std::size_t n, graphfilterbank::Synthesis mode = graphfilterbank::Synthesis::Dual);
+
+/** Rheome's wt of one real signal: per member the coefficients at the member's OWN rate (inverse FFT of its bins alone, oversampled). Analytic only. coef[t] = ifft(bins g) (Nm / nfft) at t = k nfft / (Nm fs). */
+struct OwnRate { Eigen::VectorXcd coef; Eigen::VectorXd t; double rate = 0, weight = 0; };
+std::vector<OwnRate> wtOwnRate(const timefilterbank::TimeFilterbank& bank, const Eigen::VectorXd& x, double oversample = 2.0);
+
+/** The transform of a haloed block: a block [channels x width] whose own columns are [left, left + own). The bank is designed on the BLOCK's grid (gridLength(width, FastLen): zero-padded, no wrap), the block
+ *  transformed, and only the own columns kept: one [channels x own] complex block per member. With a halo of at least timefilterbank::haloOf(bank, member) on each side the own columns are what the whole record
+ *  gives there; where a recording ENDS the block has no context and the transform zero-pads (the taps route reflects there). The band's choice is the caller's Design; the member a run keeps is the caller's too. */
+struct BlockTransform {
+  timefilterbank::TimeFilterbank bank;              // the bank as designed on the block's grid (its members, their nominal bands)
+  timefilterbank::Coefficients own;                 // per member: [channels x own] complex, the block's own columns
+};
+BlockTransform wtBlock(const timefilterbank::Design& design, const Eigen::MatrixXd& block, double fs, std::size_t left, std::size_t own);
+
+/** wt of ONE member of an Analytic bank EVALUATED AT GIVEN INSTANTS (a frame Selection's: samples from column 0 of the window, not whole numbers): x [channels x width] a window (a chunk with its halo, zero outside),
+ *  `at` [J] the instants; returns the member's analytic signal a(t_j) = (1/N) sum_b X_b g(f_b) e^{2 pi i b t_j / N} exactly (a sum over the member's bins, no interpolation), [channels x J], on the window's own grid N =
+ *  next_fast_len(width) (the gain at f_b = b fs / N: the continuous design, masked to the member's support). The window is taken periodic on N: the caller's halo keeps the ends out of the instants. */
+Eigen::MatrixXcd wt(const timefilterbank::TimeFilterbank& bank, int member, const Eigen::MatrixXd& x, const Eigen::VectorXd& at);
+
+// ── OWN RATE: the lattice, the margin, the window ─────────────────────────────────────────────────────────────────────
+
+struct WtOptions {
+    double oversample = 2.0;                  // timefilterbank::rates: the member's rate = next_fast_len(oversample * bins) fs / nfft
     double tolerance = 1e-12;                 // the impulse response's tail (L1, relative to its L1 norm) that the margin may leave out
     std::size_t maxMargin = std::size_t(1) << 16;
     std::size_t block = 0;                    // core samples per window (rounded up to a multiple of P); 0: max(L + R, min(4 (L + R), maxBlock))
@@ -41,9 +78,10 @@ struct Options {
 /** One member's run of coefficients: instants first, first+1, ...; rows = instants, columns = channels. */
 struct Block { std::int64_t first = 0; Eigen::MatrixXcd coef; };
 
-struct Plan {                                 // what wt and iwt share (a function of the bank and the options alone)
-    signal::timefilterbank::TimeFilterbank bank;
-    Options options;
+/** What wt and iwt of one bank share, a function of the bank and the options alone (no state): the lattice, the margin (the halo a node declares: `margin` samples each side, plus P so a window starts on the lattice), the windows. */
+struct WtLayout {
+    timefilterbank::TimeFilterbank bank;
+    WtOptions options;
     std::vector<std::size_t> Nm;              // own-rate lengths
     Eigen::VectorXd rate;                     // Hz
     std::vector<std::int64_t> p, q;           // D_m = p/q samples
@@ -54,41 +92,14 @@ struct Plan {                                 // what wt and iwt share (a functi
     std::vector<std::int64_t> b1, b2;         // member support on the window grid
     std::vector<Eigen::VectorXd> gain;        // g_m on window bins b1..b2 (masked to the support)
     Eigen::VectorXd frame;                    // S = sum g^2 on window bins 0..N/2
-    Plan(const signal::timefilterbank::TimeFilterbank& bank, const Options& options = Options());
 };
+/** The layout of an ANALYTIC bank (a real recording). */
+WtLayout wtLayout(const timefilterbank::TimeFilterbank& bank, const WtOptions& options = WtOptions());
 
-class Wt {
-public:
-    Wt(const signal::timefilterbank::TimeFilterbank& bank, int channels, const Options& options = Options());
-    /** Feed [channels x samples] (any size); returns, per member, the coefficients that are now final (possibly empty blocks). */
-    std::vector<Block> add(const Eigen::MatrixXd& chunk);
-    /** The end of the record: the rest, including the tails. */
-    std::vector<Block> finish();
-    std::int64_t samplesIn() const { return total_; }
-    const Plan& plan() const { return plan_; }
-    std::int64_t margin() const { return plan_.margin; }
-    double achievedTolerance() const { return plan_.achieved; }
-private:
-    std::vector<Block> drain(bool final);
-    Plan plan_; int channels_;
-    Eigen::MatrixXd buf_; std::int64_t bufStart_ = 0, total_ = 0, next_;   // next_: the first sample of the next core
-    bool finished_ = false;
-};
-
-class Iwt {
-public:
-    Iwt(const signal::timefilterbank::TimeFilterbank& bank, int channels, const Options& options = Options(), signal::graphfilterbank::Synthesis mode = signal::graphfilterbank::Synthesis::Dual);
-    /** Feed the coefficients wt returned (any split in time, in order); returns the signal samples now final, [channels x samples]. */
-    Eigen::MatrixXd add(const std::vector<Block>& blocks);
-    /** The end: `samples` = the record's length n (wt's samplesIn()); returns the rest of x[0, n). */
-    Eigen::MatrixXd finish(std::int64_t samples);
-    const Plan& plan() const { return plan_; }
-private:
-    Eigen::MatrixXd drain(bool final, std::int64_t n);
-    Plan plan_; int channels_; signal::graphfilterbank::Synthesis mode_;
-    std::vector<std::vector<Eigen::VectorXcd>> have_;   // per member, per channel: the coefficients held, from instant start_[m]
-    std::vector<std::int64_t> start_, end_;
-    std::int64_t next_ = 0;
-};
+/** The own-rate coefficients of `x` [channels x n], a window of the record taken as zero outside, for t in [-margin, n + margin) from its first column: per member, instants first = (start - margin) q/p on. `start` is the
+ *  window's first sample in the record (a multiple of the lattice period P: the lattice and the baseband shift are the RECORD's, so the coefficients do not depend on where the window starts). `members`: those wanted (empty: all; the others are empty blocks). */
+std::vector<Block> wt(const WtLayout& layout, const Eigen::MatrixXd& x, const std::vector<int>& members = {}, std::int64_t start = 0);
+/** x[0, n) back from the blocks wt(layout, x) gave: [channels x n]. Dual g/S or Tight g/G^2. */
+Eigen::MatrixXd iwt(const WtLayout& layout, const std::vector<Block>& blocks, std::int64_t n, graphfilterbank::Synthesis mode = graphfilterbank::Synthesis::Dual, std::int64_t start = 0);
 
 }  // namespace nxr::signal

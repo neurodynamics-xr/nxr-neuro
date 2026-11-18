@@ -52,15 +52,14 @@ int main() {
         const int N = 20 * static_cast<int>(fs);
         Eigen::MatrixXd x(1, N);
         for (int i = 0; i < N; ++i) x(0, i) = A * std::cos(2 * kPi * f * i / fs + phi);
-        signal::Wt w(bk, 1);
-        std::vector<signal::Block> all = w.add(x), rest = w.finish();
-        const signal::Plan& pl = w.plan();
+        const signal::WtLayout pl = signal::wtLayout(bk);
+        std::vector<signal::Block> all = signal::wt(pl, x);
         int m = -1;
         for (int j = 0; j < static_cast<int>(bk.members.size()); ++j) if (std::abs(bk.members[static_cast<std::size_t>(j)].fc - f) < 1e-9) m = j;
         check(m >= 0, "a member at 8 Hz", 0);
         // join the member's blocks
         std::vector<std::complex<double>> a; std::vector<double> t;
-        for (const auto* part : {&all, &rest}) {
+        for (const auto* part : {&all}) {
             const signal::Block& b = (*part)[static_cast<std::size_t>(m)];
             if (b.coef.rows() == 0) continue;
             const Eigen::MatrixXcd cb = signal::carrier(pl, m, b);

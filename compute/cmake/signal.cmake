@@ -10,9 +10,11 @@ target_sources(nxr_compute PRIVATE
   src/signal/forms.cpp
   src/signal/fourier.cpp
   src/signal/graphfilterbank.cpp
+  src/signal/graphwavelet.cpp
   src/signal/intrinsic_forms.cpp
   src/signal/isolines.cpp
   src/signal/jointfilterbank.cpp
+  src/signal/jointwavelet.cpp
   src/signal/kernels.cpp
   src/signal/opticalflow.cpp
   src/signal/opticalflow_connection.cpp
@@ -74,6 +76,15 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   target_link_libraries(test_quadrature PRIVATE nxr_compute)
   target_compile_definitions(test_quadrature PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
   add_test(NAME test_quadrature COMMAND test_quadrature)
+  add_executable(test_signal_banks_golden test/test_signal_banks_golden.cpp)
+  target_link_libraries(test_signal_banks_golden PRIVATE nxr_compute)
+  target_compile_definitions(test_signal_banks_golden PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+  add_test(NAME test_signal_banks_golden COMMAND test_signal_banks_golden)
+  add_executable(test_wt_at test/test_wt_at.cpp)
+  target_link_libraries(test_wt_at PRIVATE nxr_compute)
+  add_test(NAME test_wt_at COMMAND test_wt_at)
+  add_executable(bench_wt_at_frames test/bench/bench_wt_at_frames.cpp)      # timing, not a test: wt at a frame grid's instants against the band's analytic signal + sinc interpolation
+  target_link_libraries(bench_wt_at_frames PRIVATE nxr_compute)
   add_executable(test_wt test/test_wt.cpp)
   target_link_libraries(test_wt PRIVATE nxr_compute)
   add_test(NAME test_wt COMMAND test_wt)

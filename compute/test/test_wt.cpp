@@ -1,4 +1,4 @@
-// nxr::signal / iwt: the chunked transform equals the whole-record aperiodic transform at the members' instants, for any chunk size; iwt(wt(x)) = x; a tone of amplitude A gives |c| = (G/2) A.
+// nxr::signal wt / iwt: the transform of haloed chunks (wt(layout, window), the node's use: chunk + halo in, the chunk's coefficients out) equals the whole-record aperiodic transform at the members' instants, for any chunk size; iwt(wt(x)) = x; a tone of amplitude A gives |c| = (G/2) A.
 // Synthetic data only. The reference is a direct sum over the whole record's FFT bins (no chunks), with the same continuous gains.
 #include "nxr/signal/wavelet.h"
 #include "mesh_helpers.h"
@@ -22,7 +22,7 @@ static MatrixXd bandNoise(int C, int n, double fs, unsigned seed, double fmax) {
 }
 
 // whole-record reference: c_m(t_k) = e^{-2 pi i f_lo t} (1/Nr) sum_b X_b g_m(f_b) e^{2 pi i f_b t}, b over the member's support (masked), X the FFT of the zero-padded record
-static MatrixXcd reference(const TimeFilterbank& bk, const Plan& pl, int m, const MatrixXd& x, std::int64_t k0, std::int64_t k1) {
+static MatrixXcd reference(const TimeFilterbank& bk, const WtLayout& pl, int m, const MatrixXd& x, std::int64_t k0, std::int64_t k1) {
     const std::int64_t n = x.cols();
     const std::size_t Nr = nxr::signal::next_fast_len(static_cast<std::size_t>(n + 4 * pl.margin + 16), true);
     MatrixXd xp = MatrixXd::Zero(Nr, x.rows()); xp.topRows(n) = x.transpose();
@@ -42,22 +42,34 @@ static MatrixXcd reference(const TimeFilterbank& bk, const Plan& pl, int m, cons
     return out;
 }
 
-static std::vector<Block> runWt(const TimeFilterbank& bk, const MatrixXd& x, std::int64_t chunk, const Options& o, std::int64_t* margin = nullptr, double* achieved = nullptr) {
-    Wt w(bk, (int)x.rows(), o);
-    if (margin) *margin = w.margin(); if (achieved) *achieved = w.achievedTolerance();
+static std::int64_t ceilDiv(std::int64_t a, std::int64_t b) { return a >= 0 ? (a + b - 1) / b : -((-a) / b); }
+
+// the node's use, emulated: every chunk of `chunk` samples is transformed from a window of the record with a halo of margin + P on each side (zero outside the record), starting on the lattice period P,
+// and only the instants inside the chunk are kept; chunks cover [-margin, n + margin) so the tails are included. The result per member: instants first, first + 1, ...
+static std::vector<Block> runWt(const TimeFilterbank& bk, const MatrixXd& x, std::int64_t chunk, const WtOptions& o, std::int64_t* margin = nullptr, double* achieved = nullptr) {
+    const WtLayout pl = wtLayout(bk, o);
+    if (margin) *margin = pl.margin; if (achieved) *achieved = pl.achieved;
+    const std::int64_t n = x.cols(), halo = pl.margin + pl.P;
     std::vector<Block> all(bk.size());
-    for (auto& b : all) { b.coef = MatrixXcd::Zero(0, x.rows()); }
-    bool first = true;
-    auto take = [&](std::vector<Block> r) {
+    std::vector<std::int64_t> gnext(bk.size());
+    for (int m = 0; m < bk.size(); ++m) { all[m].first = (-pl.margin) * pl.q[m] / pl.p[m]; all[m].coef = MatrixXcd::Zero(0, x.rows()); gnext[m] = all[m].first; }
+    for (std::int64_t s = -pl.margin; s < n + pl.margin; s += chunk) {
+        const std::int64_t e = std::min(s + chunk, n + pl.margin);
+        const std::int64_t a_blk = s - halo, a_feed = ceilDiv(a_blk, pl.P) * pl.P, width = e + halo - a_feed;
+        MatrixXd X = MatrixXd::Zero(x.rows(), width);
+        for (std::int64_t t = 0; t < width; ++t) { const std::int64_t g = a_feed + t; if (g >= 0 && g < n) X.col(t) = x.col(g); }
+        const std::vector<Block> got = wt(pl, X, {}, a_feed);
         for (int m = 0; m < bk.size(); ++m) {
-            if (first) all[m].first = r[m].first;
-            const Eigen::Index h = all[m].coef.rows();
-            all[m].coef.conservativeResize(h + r[m].coef.rows(), Eigen::NoChange); all[m].coef.bottomRows(r[m].coef.rows()) = r[m].coef;
+            const std::int64_t g0 = ceilDiv(s * pl.q[m], pl.p[m]), g1 = ceilDiv(e * pl.q[m], pl.p[m]);
+            for (std::int64_t g = g0; g < g1; ++g) {
+                const std::int64_t r = g - got[m].first;
+                if (g != gnext[m] || r < 0 || r >= got[m].coef.rows()) { EXPECT(false, "wt: an instant is missing in the chunk"); continue; }
+                const Eigen::Index h = all[m].coef.rows();
+                all[m].coef.conservativeResize(h + 1, Eigen::NoChange); all[m].coef.row(h) = got[m].coef.row(r);
+                ++gnext[m];
+            }
         }
-        first = false;
-    };
-    for (std::int64_t s = 0; s < x.cols(); s += chunk) take(w.add(x.middleCols(s, std::min<std::int64_t>(chunk, x.cols() - s))));
-    take(w.finish());
+    }
     return all;
 }
 
@@ -72,14 +84,14 @@ int main() {
     const std::size_t nfftDesign = 1024;
     for (auto& cs : cases) {
         const TimeFilterbank bk = design(cs.d, nfftDesign, fs);
-        Options o; o.tolerance = 1e-9; o.maxMargin = 8192;
-        const Plan pl(bk, o);
+        WtOptions o; o.tolerance = 1e-9; o.maxMargin = 8192;
+        const WtLayout pl = wtLayout(bk, o);
         std::cout << "=== " << cs.name << ": " << bk.size() << " members, margin " << pl.margin << " samples, P " << pl.P << ", achieved tail " << sci(pl.achieved) << "\n";
         std::vector<Block> ref0;
         double worstChunk = 0, worstEdge = 0;
         for (std::int64_t chunk : {(std::int64_t)1, (std::int64_t)37, (std::int64_t)n}) {
             if (chunk == 1) { /* tiny */ }
-            Options oo = o; oo.block = 0;
+            WtOptions oo = o; oo.block = 0;
             const auto got = runWt(bk, chunk == 1 ? x.leftCols(300) : x, chunk, oo);
             const MatrixXd xs = chunk == 1 ? MatrixXd(x.leftCols(300)) : x;
             for (int m = 0; m < bk.size(); ++m) {
@@ -94,18 +106,18 @@ int main() {
             std::cout << "  chunk " << chunk << ": worst relative error " << sci(worstEdge) << " (" << sci(worstChunk) << " x its tail bound)" << "\n";
         }
         EXPECT(worstChunk < 10, std::string(cs.name) + ": chunked wt equals the whole-record transform at the members' instants within the stated tail (chunks 1, 37, whole record), error " + sci(worstEdge));
-        // chunk sizes give identical streams
+        // chunk sizes give the same coefficients: exactly (1e-12) where the margin holds the whole impulse response; otherwise within the tail the margin leaves out (a member whose gain jumps has a 1/t tail)
         const auto a = runWt(bk, x, 53, o), b = runWt(bk, x, n, o);
-        double dif = 0; for (int m = 0; m < bk.size(); ++m) dif = std::max(dif, (a[m].coef - b[m].coef).cwiseAbs().maxCoeff());
-        EXPECT(dif < 1e-12, std::string(cs.name) + ": chunk size 53 equals the whole record " + sci(dif));
+        double dif = 0, rel = 0;
+        for (int m = 0; m < bk.size(); ++m) {
+            const double d = (a[m].coef - b[m].coef).cwiseAbs().maxCoeff(), bound = 20 * pl.tail[m] * pl.l1[m] * x.cwiseAbs().maxCoeff() + 1e-12;
+            dif = std::max(dif, d); rel = std::max(rel, d / bound);
+        }
+        EXPECT(rel <= 1, std::string(cs.name) + ": chunk size 53 equals the whole record within the margin's tail: largest difference " + sci(dif) + " (" + sci(rel) + " x its bound)");
         // reconstruction
         if (std::string(cs.name) != "morlet") {
-            Iwt iw(bk, C, o, nxr::signal::graphfilterbank::Synthesis::Dual);
             const auto W = runWt(bk, x, 100, o);
-            // feed in two pieces to exercise the streaming
-            Eigen::MatrixXd rec = iw.add(W); rec.conservativeResize(C, rec.cols());
-            const MatrixXd tail = iw.finish(n);
-            MatrixXd all(C, rec.cols() + tail.cols()); all << rec, tail;
+            const MatrixXd all = iwt(pl, W, n, nxr::signal::graphfilterbank::Synthesis::Dual);
             const double e = (all - x).cwiseAbs().maxCoeff() / x.cwiseAbs().maxCoeff();
             EXPECT(all.cols() == n && e < 1e-4, std::string(cs.name) + ": iwt(wt(x)) = x over the whole record, ends included, " + sci(e));
         }
@@ -115,8 +127,8 @@ int main() {
         Design d(Family::Itersine, 3.0, Sides::Analytic); d.voices = 2; d.limits = std::make_pair(2.0, 100.0);
         const TimeFilterbank bk = design(d, nfftDesign, fs);
         const double A = 1.7, f0 = centerFrequencies(bk)(5); MatrixXd t(1, 4000); for (int i = 0; i < 4000; ++i) t(0, i) = A * std::cos(2 * kPi * f0 * i / fs + 0.3);
-        const auto W = runWt(bk, t, 500, Options());
-        double best = 0; const Plan pl(bk, Options());
+        const auto W = runWt(bk, t, 500, WtOptions());
+        double best = 0; const WtLayout pl = wtLayout(bk, WtOptions());
         for (int m = 0; m < bk.size(); ++m) {   // the instants well inside the record (t in [0.4, 0.6] n)
             const std::int64_t k0 = (std::int64_t)(0.4 * 4000) * pl.q[m] / pl.p[m] - W[m].first, k1 = (std::int64_t)(0.6 * 4000) * pl.q[m] / pl.p[m] - W[m].first;
             if (k1 > k0) best = std::max(best, W[m].coef.middleRows(k0, k1 - k0).cwiseAbs().maxCoeff());

@@ -1,6 +1,7 @@
 // nxr::signal::timefilterbank — see include/nxr/timebank.h and docs/specs/2026-11-10-filterbanks.md.
 #include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/filters_fir.h"
+#include "nxr/stats/bandwidth.h"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -51,6 +52,33 @@ MatrixXd bandGains(const VectorXd& freqs, const std::vector<std::pair<double, do
   return g;
 }
 
+static std::vector<double> logCentres(double fs, double f0, double f1, int voices) {
+    f1 = std::min(f1, fs / 2.5);
+    f0 = std::min(std::max(f0, 1e-3), f1);
+    const int F = std::max(1, static_cast<int>(std::floor(voices * std::log2(f1 / f0) + 1e-9)) + 1);
+    std::vector<double> c;
+    for (int k = 0; k < F; ++k) c.push_back(f0 * std::pow(2.0, static_cast<double>(k) / voices));
+    return c;
+}
+
+static std::vector<double> cwtCentres(double fmin, double fmax, int voices) {
+    if (!(fmin > 0 && fmax >= fmin && voices >= 1)) throw std::invalid_argument("cwtCentres: 0 < fmin <= fmax and voices >= 1");
+    std::vector<double> c;
+    for (int k = 0;; ++k) {
+        const double f = fmax * std::pow(2.0, -static_cast<double>(k) / voices);
+        if (f < fmin * (1 - 1e-12)) break;
+        c.push_back(f);
+    }
+    std::reverse(c.begin(), c.end());
+    return c;
+}
+
+std::vector<double> centerFrequencies(CentreGrid grid, double lo, double hi, int voices, double fs) {
+  return grid == CentreGrid::Studio ? logCentres(fs, lo, hi, voices) : cwtCentres(lo, hi, voices);
+}
+
+Freqz freqz(const TimeFilterbank& bank) { return {gains(bank), bins(bank)}; }
+
 std::size_t gridLength(std::size_t n, Padding padding) {
     if (n == 0) throw std::invalid_argument("timebank: an empty record");
     return padding == Padding::None ? n : next_fast_len(2 * n, true);
@@ -73,27 +101,6 @@ std::vector<double> windowEdges(std::size_t nfft, double fs, const std::optional
     }
     if (edges.empty()) throw std::invalid_argument("timebank: no octave edge of the window within the range");
     return edges;
-}
-
-std::vector<double> logCentres(double fs, double f0, double f1, int voices) {
-    f1 = std::min(f1, fs / 2.5);
-    f0 = std::min(std::max(f0, 1e-3), f1);
-    const int F = std::max(1, static_cast<int>(std::floor(voices * std::log2(f1 / f0) + 1e-9)) + 1);
-    std::vector<double> c;
-    for (int k = 0; k < F; ++k) c.push_back(f0 * std::pow(2.0, static_cast<double>(k) / voices));
-    return c;
-}
-
-std::vector<double> cwtCentres(double fmin, double fmax, int voices) {
-    if (!(fmin > 0 && fmax >= fmin && voices >= 1)) throw std::invalid_argument("cwtCentres: 0 < fmin <= fmax and voices >= 1");
-    std::vector<double> c;
-    for (int k = 0;; ++k) {
-        const double f = fmax * std::pow(2.0, -static_cast<double>(k) / voices);
-        if (f < fmin * (1 - 1e-12)) break;
-        c.push_back(f);
-    }
-    std::reverse(c.begin(), c.end());
-    return c;
 }
 
 namespace {
@@ -220,7 +227,7 @@ TimeFilterbank design(const Design& d, std::size_t nfft, double fs) {
             b.total = kNaN;
             break;
         }
-        if (d.centres.empty()) throw std::invalid_argument("timebank::design: Morlet / Morse / Amor / Bump need centres (see logCentres, cwtCentres)");
+        if (d.centres.empty()) throw std::invalid_argument("timebank::design: Morlet / Morse / Amor / Bump need centres (see centerFrequencies(CentreGrid, ...))");
         for (double fc : d.centres) {
             if (!(fc > 0)) throw std::invalid_argument("timebank::design: centres must be positive");
             std::function<double(double)> onAbs;
@@ -402,89 +409,6 @@ MatrixXcd inverseComplex(const TimeFilterbank& b, const MatrixXcd& S, std::size_
     return ifft(S).topRows(static_cast<Eigen::Index>(n));
 }
 
-static Coefficients analyse(const TimeFilterbank& b, const MatrixXcd& X) {
-    const MatrixXd G = gains(b);
-    Coefficients W;
-    for (int m = 0; m < b.size(); ++m) W.push_back(filterSpectrum(b, G.col(m), X));
-    return W;
-}
-
-Coefficients analysis(const TimeFilterbank& b, const MatrixXd& x) { return analyse(b, spectrum(b, x)); }
-Coefficients analysis(const TimeFilterbank& b, const MatrixXcd& x) { return analyse(b, spectrum(b, x)); }
-
-// Σ_m w_m ⊙ spec(W_m); w = the dual g/S, or g / S_nominal (G², and G²/2 at an analytic DC / Nyquist under Single) for the tight synthesis
-static MatrixXcd combine(const TimeFilterbank& b, const Coefficients& W, Synthesis mode) {
-    if (static_cast<int>(W.size()) != b.size()) throw std::invalid_argument("timebank: one coefficient block per member");
-    MatrixXd w;
-    if (mode == Synthesis::Dual) w = dualGains(b);
-    else {
-        w = gains(b);
-        const double S0 = b.gain * b.gain;
-        for (Eigen::Index k = 0; k < w.rows(); ++k) w.row(k) /= (isEdgeBin(b, k) && b.edgeBins == EdgeBins::Single) ? S0 / 2 : S0;
-    }
-    MatrixXcd Z;
-    for (int m = 0; m < b.size(); ++m) {
-        const MatrixXcd Sm = coefficientSpectrum(b, W[static_cast<std::size_t>(m)]);
-        if (m == 0) Z = MatrixXcd::Zero(Sm.rows(), Sm.cols());
-        for (Eigen::Index j = 0; j < Sm.cols(); ++j)
-            for (Eigen::Index k = 0; k < Sm.rows(); ++k) Z(k, j) += w(k, m) * Sm(k, j);
-    }
-    return Z;
-}
-
-MatrixXd synthesis(const TimeFilterbank& b, const Coefficients& W, std::size_t n, Synthesis mode) {
-    requireSides(b, Sides::Analytic, "synthesis");
-    return inverseReal(b, combine(b, W, mode), n);
-}
-
-MatrixXcd synthesisComplex(const TimeFilterbank& b, const Coefficients& W, std::size_t n, Synthesis mode) {
-    requireSides(b, Sides::TwoSided, "synthesisComplex");
-    return inverseComplex(b, combine(b, W, mode), n);
-}
-
-std::vector<MatrixXd> scalogram(const Coefficients& W) {
-    std::vector<MatrixXd> P;
-    for (const auto& w : W) P.push_back(w.cwiseAbs2());
-    return P;
-}
-
-MatrixXd energies(const Coefficients& W) {
-    MatrixXd E(static_cast<Eigen::Index>(W.size()), W.empty() ? 0 : W[0].cols());
-    for (std::size_t m = 0; m < W.size(); ++m) E.row(static_cast<Eigen::Index>(m)) = W[m].cwiseAbs2().colwise().sum();
-    return E;
-}
-
-std::vector<OwnRate> analysisOwnRate(const TimeFilterbank& b, const VectorXd& x, double oversample) {
-    requireSides(b, Sides::Analytic, "analysisOwnRate");
-    MatrixXd col = x;
-    const MatrixXcd X = spectrum(b, col);
-    const MatrixXd G = gains(b);
-    std::vector<OwnRate> out;
-    for (int m = 0; m < b.size(); ++m) {
-        const auto [i1, i2] = b.support[static_cast<std::size_t>(m)];
-        const std::size_t nb = i2 - i1 + 1, Nm = next_fast_len(static_cast<std::size_t>(std::ceil(oversample * static_cast<double>(nb))), true);
-        Eigen::VectorXcd Y = Eigen::VectorXcd::Zero(static_cast<Eigen::Index>(Nm));
-        for (std::size_t i = 0; i < nb; ++i) Y(static_cast<Eigen::Index>(i)) = X(static_cast<Eigen::Index>(i1 + i), 0) * G(static_cast<Eigen::Index>(i1 + i), m);
-        OwnRate r;
-        r.coef = ifft(Y) * (static_cast<double>(Nm) / static_cast<double>(b.nfft));
-        r.t = VectorXd::LinSpaced(static_cast<Eigen::Index>(Nm), 0, static_cast<double>(Nm - 1)) * (static_cast<double>(b.nfft) / static_cast<double>(Nm) / b.fs);
-        r.rate = static_cast<double>(Nm) * b.fs / static_cast<double>(b.nfft);
-        r.weight = static_cast<double>(b.nfft) / static_cast<double>(Nm);
-        out.push_back(std::move(r));
-    }
-    return out;
-}
-
-BlockTransform analysisOfBlock(const Design& design, const Eigen::MatrixXd& block, double fs, std::size_t left, std::size_t own) {
-  const std::size_t width = static_cast<std::size_t>(block.cols());
-  if (left + own > width) throw std::invalid_argument("analysisOfBlock: the own columns [left, left + own) are not inside the block");
-  BlockTransform r{nxr::signal::timefilterbank::design(design, gridLength(width, Padding::FastLen), fs), {}};
-  const Coefficients all = analysis(r.bank, Eigen::MatrixXd(block.transpose()));   // analysis takes [samples x signals]
-  r.own.reserve(all.size());
-  for (const auto& w : all) r.own.push_back(w.middleRows(static_cast<Eigen::Index>(left), static_cast<Eigen::Index>(own)).transpose());
-  return r;
-}
-
 std::size_t haloOf(const TimeFilterbank& bank, int member) {
   if (member < 0 || member >= bank.size()) throw std::invalid_argument("haloOf: no member " + std::to_string(member));
   const Gain1 g = bank.members[static_cast<std::size_t>(member)].gain;
@@ -497,15 +421,9 @@ double equivalentBandwidth(const TimeFilterbank& bank, int member, int grid) {
   if (grid < 16) throw std::invalid_argument("equivalentBandwidth: grid >= 16");
   const Gain1& g = bank.members[static_cast<std::size_t>(member)].gain;
   const double df = bank.fs / 2 / (grid - 1);
-  double s2 = 0, s4 = 0;
-  for (int i = 0; i < grid; ++i) {
-    const double w = (i == 0 || i == grid - 1) ? 0.5 : 1.0;   // the trapezoid
-    const double v = g(i * df), v2 = v * v;
-    s2 += w * v2;
-    s4 += w * v2 * v2;
-  }
-  if (!(s4 > 0)) throw std::invalid_argument("equivalentBandwidth: the member passes nothing");
-  return (s2 * df) * (s2 * df) / (s4 * df);
+  VectorXd p(grid);
+  for (int i = 0; i < grid; ++i) { const double v = g(i * df); p(i) = v * v; }
+  return nxr::stats::statisticalBandwidth(p, df, nxr::stats::Rule::Trapezoid);
 }
 
 double noiseBandwidth(const TimeFilterbank& bank, int member, int grid) {
@@ -513,9 +431,9 @@ double noiseBandwidth(const TimeFilterbank& bank, int member, int grid) {
   if (grid < 16) throw std::invalid_argument("noiseBandwidth: grid >= 16");
   const Gain1& g = bank.members[static_cast<std::size_t>(member)].gain;
   const double df = bank.fs / 2 / (grid - 1);
-  double s2 = 0;
-  for (int i = 0; i < grid; ++i) { const double w = (i == 0 || i == grid - 1) ? 0.5 : 1.0; const double v = g(i * df) / 2; s2 += w * v * v; }
-  return s2 * df;
+  VectorXd p(grid);
+  for (int i = 0; i < grid; ++i) { const double v = g(i * df) / 2; p(i) = v * v; }
+  return nxr::stats::enbw(p, df, 1.0, nxr::stats::Rule::Trapezoid);
 }
 
 double independentEstimates(const TimeFilterbank& bank, int member, std::int64_t samples) {

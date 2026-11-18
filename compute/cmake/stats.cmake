@@ -2,6 +2,7 @@
 # Paths are relative to compute/.
 
 target_sources(nxr_compute PRIVATE
+  src/stats/bandwidth.cpp
   src/stats/circular.cpp
   src/stats/histogram.cpp
   src/stats/lag.cpp

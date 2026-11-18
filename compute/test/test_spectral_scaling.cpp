@@ -3,6 +3,7 @@
 //   normaliser, an unknown name); units;
 //   WHITE NOISE three ways: Welch density (scipy scaling), Welch spectrum (÷ the window's ENBW per bin) and the analytic signal's band power (÷ its noise
 //   bandwidth) all read as the same density, σ² / (fs / 2).
+#include "nxr/signal/wavelet.h"
 #include <cmath>
 #include <iostream>
 #include <random>
@@ -56,7 +57,7 @@ int main() {
   Scaling ws; ws.stored = Stored::Spectrum; ws.binEnbwHz = enbw;
   nxr::signal::timefilterbank::Design dsg(nxr::signal::timefilterbank::Family::Meyer, 2.0, nxr::signal::timefilterbank::Sides::Analytic); dsg.bands = {{20.0, 30.0}};
   const nxr::signal::timefilterbank::TimeFilterbank bank = nxr::signal::timefilterbank::design(dsg, static_cast<std::size_t>(n), fs);
-  const Eigen::MatrixXcd z = nxr::signal::timefilterbank::analysis(bank, Eigen::MatrixXd(x.transpose()))[0];
+  const Eigen::MatrixXcd z = nxr::signal::wt(bank, Eigen::MatrixXd(x.transpose()))[0];
   Scaling an; an.stored = Stored::BandPower; an.bandWidthHz = nxr::signal::timefilterbank::noiseBandwidth(bank, 0);
   const double analytic = convert(z.squaredNorm() / n / 2, an, Target::Density);
   std::printf("  white noise density %.5f: Welch density %.5f, Welch spectrum / ENBW %.5f, analytic band power / B_n %.5f (B_n %.2f Hz)\n", truth, dens,
