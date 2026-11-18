@@ -214,6 +214,24 @@ static tb::Coefficients analyse(const tb::TimeFilterbank& b, const MatrixXcd& X)
 }
 
 tb::Coefficients wt(const tb::TimeFilterbank& b, const MatrixXd& x) { return analyse(b, tb::spectrum(b, x)); }
+
+tb::Coefficients bandAnalytic(const MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, tb::Family shape, double halfWidth) {
+    if (x.rows() < 2) throw std::invalid_argument("bandAnalytic: x holds at least 2 samples");
+    if (bands.empty()) throw std::invalid_argument("bandAnalytic: at least one band");
+    tb::Design design(shape, 2.0, tb::Sides::Analytic);
+    design.bands = bands;
+    design.halfWidth = halfWidth;
+    design.edgeBins = tb::EdgeBins::Drop;
+    return wt(tb::timeBank(design, static_cast<std::size_t>(x.rows()), fs), x);
+}
+
+std::vector<MatrixXd> bandEnvelope(const MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, tb::Family shape, double halfWidth) {
+    const tb::Coefficients z = bandAnalytic(x, fs, bands, shape, halfWidth);
+    std::vector<MatrixXd> out;
+    out.reserve(z.size());
+    for (const auto& m : z) out.push_back(m.cwiseAbs());
+    return out;
+}
 tb::Coefficients wt(const tb::TimeFilterbank& b, const MatrixXcd& x) { return analyse(b, tb::spectrum(b, x)); }
 
 // sum_m w_m * spec(W_m); w = the dual g/S, or g / S_nominal (G^2, and G^2/2 at an analytic DC / Nyquist under Single) for the tight synthesis
@@ -311,7 +329,7 @@ MatrixXcd wt(const tb::TimeFilterbank& b, int member, const MatrixXd& x, const V
 BlockTransform wtBlock(const tb::Design& design, const Eigen::MatrixXd& block, double fs, std::size_t left, std::size_t own) {
   const std::size_t width = static_cast<std::size_t>(block.cols());
   if (left + own > width) throw std::invalid_argument("wtBlock: the own columns [left, left + own) are not inside the block");
-  BlockTransform r{tb::design(design, tb::gridLength(width, tb::Padding::FastLen), fs), {}};
+  BlockTransform r{tb::timeBank(design, tb::gridLength(width, tb::Padding::FastLen), fs), {}};
   const tb::Coefficients all = wt(r.bank, Eigen::MatrixXd(block.transpose()));   // wt takes [samples x signals]
   r.own.reserve(all.size());
   for (const auto& w : all) r.own.push_back(w.middleRows(static_cast<Eigen::Index>(left), static_cast<Eigen::Index>(own)).transpose());

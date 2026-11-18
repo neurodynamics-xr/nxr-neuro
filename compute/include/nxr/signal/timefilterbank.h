@@ -92,6 +92,10 @@ struct TimeFilterbank {
 /** The family named "morlet" | "power_partition" (the node parameter `shape`); throws std::invalid_argument naming both. */
 Family bandFamilyOf(const std::string& name);
 const char* bandFamilyName(Family family);
+/** Every family by name: "itersine" | "meyer" | "morlet" | "morse" | "amor" | "bump" | "power_partition" (for a Design described in data); throws naming them. */
+Family familyOf(const std::string& name);
+/** "analytic" | "two_sided"; throws naming both. */
+Sides sidesOf(const std::string& name);
 /** [bands x freqs] amplitude gains at |f| (freqs in Hz, any sign) of the band shapes Morlet and PowerPartition (a function of the bands alone, no grid): the gains the bank gives its members, divided by G. */
 Eigen::MatrixXd bandGains(const Eigen::VectorXd& freqs, const std::vector<std::pair<double, double>>& bands, Family family);
 
@@ -108,7 +112,7 @@ enum class CentreGrid { Studio, Cwt };
 std::vector<double> centerFrequencies(CentreGrid grid, double lo, double hi, int voices, double fs = 0);
 
 /** Build the bank on a grid of `nfft` samples at `fs`. Throws on an unsatisfiable design (no member fits; gain <= 0; missing centres). */
-TimeFilterbank design(const Design& d, std::size_t nfft, double fs);
+TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs);
 
 /** The grid's frequencies: rfftfreq(nfft, 1/fs) (Analytic) or fftfreq(nfft, 1/fs) (TwoSided). */
 Eigen::VectorXd bins(const TimeFilterbank& bank);

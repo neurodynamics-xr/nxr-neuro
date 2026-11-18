@@ -292,4 +292,19 @@ Eigen::VectorXd massLost(const GraphFilterbank& bank) {
     return v;
 }
 
+Family familyOf(const std::string& name) {
+    if (name == "mexhat") return Family::MexHat;
+    if (name == "heat") return Family::Heat;
+    if (name == "itersine") return Family::Itersine;
+    if (name == "logitersine") return Family::LogItersine;
+    throw std::invalid_argument("graph bank family '" + name + "' is not one of mexhat, heat, itersine, logitersine, meyer, weyl, rank");
+}
+
+GraphFilterbank graphBank(const NamedBank& b) {
+    if (b.family == "meyer") return dyadic(b.edges, b.halfWidth);
+    if (b.family == "weyl") return weyl(b.area, b.levels, b.halfWidth);
+    if (b.family == "rank") return rank(b.levels, b.halfWidth);
+    return design(familyOf(b.family), b.range, b.options);
+}
+
 }  // namespace nxr::signal::graphfilterbank

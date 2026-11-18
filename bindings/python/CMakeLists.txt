@@ -9,10 +9,12 @@ find_package(nanobind CONFIG REQUIRED)
 nanobind_add_module(nxr_neuro_core NB_STATIC STABLE_ABI NB_DOMAIN nxr
   src/module.cpp
   src/compute.cpp
+  src/access.cpp
   src/formats.cpp
   src/pipeline.cpp)
 set_target_properties(nxr_neuro_core PROPERTIES OUTPUT_NAME _core)
 target_compile_features(nxr_neuro_core PRIVATE cxx_std_17)
+target_include_directories(nxr_neuro_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../common)   # what the Python and MATLAB faces share for the wavelet functions
 target_link_libraries(nxr_neuro_core PRIVATE nxr_compute nxr_io_formats nxr_pipelines)
 if(COMMAND nxr_io_hide_static_symbols)
   # the format readers use matio (EEGLAB), which carries HDF5 as static archives: neither is exported from the module (it may meet h5py's or MATLAB's)

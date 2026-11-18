@@ -105,6 +105,25 @@ GraphFilterbank rank(int levels, double halfWidth = 1.0 / 3.0);
 /** Each mode's pattern index (1-based) among |λ|, counted in groups of `mult` (4: a quaternion quadruplet), in the modes' own order. */
 Eigen::VectorXd rankCoordinates(const Eigen::VectorXd& lambdas, int mult = 1);
 
+/** A bank DESCRIBED IN DATA (by a binding, a definition): the family by name and the settings it takes.
+ *    "mexhat" · "heat" · "itersine" · "logitersine"  → design(family, range, options)         (range: lmax, or lmin and lmax, or the spectrum lambda)
+ *    "meyer"                                          → dyadic(edges, halfWidth)               (edges ascending, in λ)
+ *    "weyl"                                           → weyl(area, levels, halfWidth)          (one octave a level: edges 4π·2^j / area)
+ *    "rank"                                           → rank(levels, halfWidth)
+ *  Every other name is refused, naming the valid ones; a setting the family needs and lacks is refused by the design function. */
+struct NamedBank {
+    std::string family;
+    Range range;                         // mexhat · heat · itersine · logitersine
+    DesignOptions options;               // the same four
+    std::vector<double> edges;           // meyer
+    double area = 0;                     // weyl, in the units of 1/λ
+    int levels = 0;                      // weyl · rank
+    double halfWidth = 1.0 / 3.0;        // meyer · weyl · rank: the transition half-width in octaves
+};
+GraphFilterbank graphBank(const NamedBank& spec);
+/** "mexhat" | "heat" | "itersine" | "logitersine" → Family; throws naming the valid ones. */
+Family familyOf(const std::string& name);
+
 // ── the frame ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Every member's gain at each λ → [K × M]. */

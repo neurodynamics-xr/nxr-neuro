@@ -127,7 +127,7 @@ BankChoice choose_bank(const Json& p, double sfreq, int channels, const char* wh
   d.halfWidth = p["half_width"].get<double>(); d.gamma = p["gamma"].get<double>(); d.timeBandwidth = p["time_bandwidth"].get<double>();
   BankChoice c;
   const std::size_t nfft = nxr::signal::next_fast_len(static_cast<std::size_t>(std::ceil(sfreq / resolution)), true);
-  try { c.bank = tb::design(d, nfft, sfreq); } catch (const std::invalid_argument& e) { ng::refuse(std::string(who) + ": the filter bank: " + e.what()); }
+  try { c.bank = tb::timeBank(d, nfft, sfreq); } catch (const std::invalid_argument& e) { ng::refuse(std::string(who) + ": the filter bank: " + e.what()); }
   c.wo.oversample = p["oversample"].get<double>();
   c.wo.tolerance = p.contains("tolerance") && p["tolerance"].is_number() ? p["tolerance"].get<double>() : 1e-7;   // 1e-7: float32 recordings (the blocks are float32); name it for float64
   if (!(c.wo.tolerance > 0) || !(c.wo.tolerance < 1)) ng::refuse(std::string(who) + ": tolerance must be in (0, 1)");

@@ -5,9 +5,9 @@ Signals are NumPy arrays of shape [channels, samples]. A float32 or float64 inpu
 input's precision (float64 results are handed over without a copy and may be Fortran-ordered).
 """
 
-from . import operators, signal, stats
+from . import operators, select, signal, stats
 
-__all__ = ["operators", "signal", "stats"]
+__all__ = ["operators", "select", "signal", "stats"]
 
 # the modules renamed to the toolbox words: an old name is refused with the new one (no alias)
 _RENAMED = {

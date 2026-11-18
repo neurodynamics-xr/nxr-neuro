@@ -22,6 +22,21 @@ Family bandFamilyOf(const std::string& name) {
     if (name == "power_partition") return Family::PowerPartition;
     throw std::invalid_argument("the band shape is morlet or power_partition, not '" + name + "'");
 }
+Family familyOf(const std::string& name) {
+    if (name == "itersine") return Family::Itersine;
+    if (name == "meyer") return Family::Meyer;
+    if (name == "morlet") return Family::Morlet;
+    if (name == "morse") return Family::Morse;
+    if (name == "amor") return Family::Amor;
+    if (name == "bump") return Family::Bump;
+    if (name == "power_partition") return Family::PowerPartition;
+    throw std::invalid_argument("time bank family '" + name + "' is not one of itersine, meyer, morlet, morse, amor, bump, power_partition");
+}
+Sides sidesOf(const std::string& name) {
+    if (name == "analytic") return Sides::Analytic;
+    if (name == "two_sided") return Sides::TwoSided;
+    throw std::invalid_argument("time bank sides '" + name + "' is not one of analytic, two_sided");
+}
 const char* bandFamilyName(Family family) { return family == Family::PowerPartition ? "power_partition" : "morlet"; }
 
 MatrixXd bandGains(const VectorXd& freqs, const std::vector<std::pair<double, double>>& bands, Family family) {
@@ -123,7 +138,7 @@ double bump(double x) {
 
 }  // namespace
 
-TimeFilterbank design(const Design& d, std::size_t nfft, double fs) {
+TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs) {
     if (nfft < 2 || !(fs > 0)) throw std::invalid_argument("timebank::design: nfft >= 2 and fs > 0");
     if (!(d.gain > 0) || !std::isfinite(d.gain)) throw std::invalid_argument("timebank::design: the gain is the peak in-band response, a positive number");
     const bool analytic = d.sides == Sides::Analytic;

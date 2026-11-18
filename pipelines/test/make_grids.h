@@ -89,7 +89,7 @@ inline Eigen::MatrixXcd analytic_at_frames(const std::vector<float>& x, int M, i
   tb::Design d(tb::Family::Morlet, 2.0, tb::Sides::Analytic);
   d.bands = {{lo, hi}};
   d.edgeBins = tb::EdgeBins::Drop;
-  const auto bank = tb::design(d, std::size_t(1) << 16, fs);
+  const auto bank = tb::timeBank(d, std::size_t(1) << 16, fs);
   nxr::signal::WtOptions wo; wo.block = 1; wo.tolerance = 1e-6;
   const std::int64_t H = std::max<std::int64_t>(static_cast<std::int64_t>(tb::haloOf(bank, 0)), nxr::signal::wtLayout(bank, wo).margin);   // the step's halo: zero beyond the record (wt takes its window periodic)
   Eigen::MatrixXd X = Eigen::MatrixXd::Zero(M, T + 2 * H);

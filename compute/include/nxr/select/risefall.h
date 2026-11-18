@@ -35,7 +35,7 @@ struct Fit {
   int iterations = 0;
 };
 /** `a` [n] the amplitude, `fs` samples a second, [t0, t1] the candidate episode (s). A window under 11 samples, a series of no amplitude, or a fit that ends with tOff <= tOn: ok = false (every number NaN). */
-Fit fit(const Eigen::Ref<const Eigen::VectorXd>& a, double fs, double t0, double t1, const Options& opt = {});
+Fit risefall(const Eigen::Ref<const Eigen::VectorXd>& a, double fs, double t0, double t1, const Options& opt = {});
 
 /** THE STAGES of an episode from its fit's numbers (s;; nxr `burst_stages`, rheome.flow.labelalpha's episodes): ONSET [tOn − 2 tauR, tOn + 2 tauR], WITHIN the plateau [tOn + 2 tauR, tOff − 2 tauF] (none
  *  when they meet), OFFSET [tOff − 2 tauF, tOff + 2 tauF]. Pure: four numbers in, three intervals out (NaN in → no stage). */
