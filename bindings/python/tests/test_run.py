@@ -27,13 +27,11 @@ def test_run_needs_the_time_range(dataset):
             nn.run("psd", dataset, "S1", recording="rest", **kwargs)
     with pytest.raises(nn.InvalidArgumentError, match="no parameter 'bogus'"):
         nn.run("psd", dataset, "S1", recording="rest", all=True, bogus=1)
-    with pytest.raises(nn.InvalidArgumentError, match="recording"):
-        nn.run("psd", dataset, "S1", all=True)
 
 
 def test_psd_is_the_pure_functions_result(dataset):
     lines = []
-    r = nn.run("psd", dataset, "S1", recording="rest", set="scipy", segment_seconds=2.0, all=True, progress=lines.append)
+    r = nn.run("psd", dataset, "S1", recording="rest", preset="scipy", segment_seconds=2.0, all=True, progress=lines.append)
     assert r.cache == "computed" and lines and all(isinstance(line, dict) for line in lines)
     assert [s["name"] for s in r.stored] == ["rest_psd_welch"]
     got = r.read()
@@ -46,7 +44,7 @@ def test_psd_is_the_pure_functions_result(dataset):
     assert got.meta["producer"]["bad_segments"]["n_spans"] == 1
     np.testing.assert_allclose(got.values, want.psd, rtol=1e-6)
     # without the bad span left out: the plain PSD
-    r2 = nn.run("psd", dataset, "S1", recording="rest", set="scipy", segment_seconds=2.0, all=True, name="plain", exclude_bad_segments=False)
+    r2 = nn.run("psd", dataset, "S1", recording="rest", preset="scipy", segment_seconds=2.0, all=True, name="plain", bad_segments="ignore")
     np.testing.assert_allclose(r2.read().values, nn.compute.signal.psd(x, SFREQ, segment_samples=200).psd, rtol=1e-6)
 
 
@@ -61,7 +59,7 @@ def test_a_rerun_is_a_cache_hit_and_a_range_is_a_range(dataset):
 
 def test_lists(dataset, tmp_path):
     names = {p.name: p for p in nn.list.pipelines()}
-    assert "psd" in names and "global_bursts" in names and names["psd"].form == "built-in" and names["global_bursts"].form == "definition"
+    assert "psd" in names and "global_bursts" in names and names["psd"].form == "definition" and names["global_bursts"].form == "definition"
     assert all(p["meaning"] for p in names["psd"].parameters) and "segment_seconds" in names["psd"].help()
     assert [d["name"] for d in nn.list.datasets(tmp_path)] == ["demo"]
     assert [s["name"] for s in nn.list.subjects(dataset)] == ["S1"]

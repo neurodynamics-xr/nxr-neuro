@@ -1,6 +1,8 @@
 // nxr::geometry: face areas.
 #include "nxr/geometry/mesh.h"
 
+#include <Eigen/Geometry>   // cross() is declared by Eigen/Core and defined here; gcc/ld reports it undefined without this include
+
 namespace nxr::geometry {
 
 Eigen::VectorXd faceAreas(const RowMat3& positions, const FaceMat& faces) {

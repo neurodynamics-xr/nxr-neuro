@@ -17,7 +17,7 @@ function r = run(pipeline, dataset, subject, varargin)
 %     'replace'      Another job's outputs of the same names are moved aside (never deleted) and replaced; without it they are refused (default false).
 %     'progress'     A function handle called with each progress line, a struct (the command line's JSON lines), e.g. @(s) disp(s.stage).
 %     any other name is a parameter of the pipeline: psd's are recording, name, set, segment_seconds, segment_samples, segment_level, overlap, window, periodic,
-%                detrend, scaling, exclude_bad_segments, through.
+%                detrend, scaling, bad_segments, through.
 %   A rerun with the same pipeline, parameters, inputs and range is a cache hit: nothing is computed.
 %
 %   Output r (struct)

@@ -3,7 +3,7 @@ import pytest
 
 import nxr_neuro as nn
 
-pca = nn.compute.pca
+pca = nn.compute.stats
 
 
 def reference(X, unit=False):
