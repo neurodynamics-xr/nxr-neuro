@@ -7,6 +7,7 @@
 Rules (CONTRIBUTING.md, Continuous integration):
 - a changed TEST source (`*/test/<stem>.cpp`) selects only that test; other files under a test folder (data, goldens, helpers, the .cmake) select their library's tests;
 - a changed library source selects that library's tests (every kind) plus the INTEGRATION tests of the libraries that depend on it;
+- a change to `tests/kinds.tsv` selects the tests whose rows it adds or edits;
 - the guards (kind `guard`) always run; a shared file (top-level CMake, cmake/, this workflow, this script) selects everything.
 """
 from __future__ import annotations
@@ -55,6 +56,13 @@ def main() -> None:
     for f in changed:
         if f in (".github/workflows/ci.yml", "tools/ci_select.py") or f.startswith("cmake/") or ("/" not in f and not f.endswith(".md") and f not in ("LICENSE", "AUTHORS")):
             allscope = True; continue
+        if f == "tests/kinds.tsv":
+            # the kinds table only labels tests: the rows this change adds or edits select those tests (the guards run anyway)
+            diff = subprocess.run(["git", "diff", "-U0", f"{a.base}...{a.head}", "--", f], capture_output=True, text=True, check=True).stdout
+            for line in diff.splitlines():
+                if line.startswith("+") and not line.startswith("+++") and line[1:].strip() and not line[1:].startswith("#"):
+                    names.add(line[1:].split("\t")[0])
+            continue
         if f == "tools/gen_record_rows.py":
             libs.add("io"); continue
         if f.startswith(("bindings/", "docs/", "tools/", ".github/")) or f.endswith(".md"):
