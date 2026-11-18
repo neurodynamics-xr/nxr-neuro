@@ -816,7 +816,7 @@ StepSpec roll_up_node() {
     Value y = made(x);
     y.facts["rolled_to"] = p["to"];
     if (p["merge"] == "max") y.facts["merged_by"] = "max";
-    if (p["measures"].is_array()) y.facts["measures"] = p["measures"];
+    if (p["measures"].is_array() && !p["measures"].empty()) { y.facts["measures"] = p["measures"]; y.facts["measure"] = p["measures"][0]; }
     return Values{{"values", y}, {"ingredients", y}};
   };
   s.prepare = [](const Values&, const Json& p, ExecContext&) { return std::any(p); };

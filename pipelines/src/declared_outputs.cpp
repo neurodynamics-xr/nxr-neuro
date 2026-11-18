@@ -860,7 +860,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     const std::string mkey = nxr::io::sha256_hex(maker_key(P, o).dump());
     if (!s.params.is_object()) s.params = Json::object();
     s.params["maker_key"] = mkey;
-    if (spec.value("get_or_create", false) && !replace)
+    if (spec.value("get_or_create", false))                                   // found by its maker key it is reused even under --replace: it is the same selection, and measurements lie over it
       if (const auto row = sub.find("selection", path)) {
         const Json pj = Json::parse(nxr::io::opt_text(*row, "params_json").value_or("{}"), nullptr, false);
         // a time grid IS its closed form (origin, width, hop, count, size and the band it is named for): the same grid made by another job (`select_time_grid`, a preset's maker) is the one found, not another

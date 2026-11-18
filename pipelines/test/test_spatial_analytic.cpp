@@ -165,10 +165,10 @@ int main() {
     nxrtest::run_definition(ds, sub, "select_product", Json{{"recording", rn}, {"surface", "cortex"}, {"time_grid", std::string(rn) + " time grid band 8-16 Hz"}, {"couple", Json::array({Json{{"factor", 0}, {"scale", "parts 16"}}})}});
     nxrtest::make_sample_product(ds, sub, rn, "cortex", sfreq, "parts 16");
   }
-  const auto product_node = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest cortex product", .any_status = true});
-  CHECK(product_node.has_value());
-  if (!product_node) return 1;
-  W = product_node->params["product"][1].contains("width") ? product_node->params["product"][1]["width"].get<std::int64_t>() : 0;
+  const auto grid_node = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest time grid band 8-16 Hz", .any_status = true});
+  CHECK(grid_node.has_value());
+  if (!grid_node) return 1;
+  W = grid_node->params["grid"]["width"].get<std::int64_t>();
   CHECK(W > 0);
   const std::int64_t tiles = 2 * (1 << L), frames = T / W;
   const double width_s = static_cast<double>(W) / sfreq;
@@ -233,7 +233,7 @@ int main() {
   // the stored cells' amplitude of a recording, as (value, count) pairs [tile x frame]
   auto cells_of = [&](const std::string& recording) {
     const auto rec = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = recording, .any_status = true});
-    const auto prod = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = recording + " cortex product", .any_status = true});
+    const auto prod = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = recording + " cells 8-16 Hz parts 16", .any_status = true});     // the product the preset makes (its time grid and the level coupled to the scale)
     CHECK(rec.has_value() && prod.has_value());
     const MeasurementValues mv = measurement_values(sub, prod->id, rec->id, std::nullopt, std::nullopt, "amplitude");
     CHECK(mv.members == tiles * frames);
@@ -249,7 +249,10 @@ int main() {
   const double et = worst(ct, want_t);
   std::printf("  temporal cells vs direct: worst relative error %.2e\n", et);
   CHECK(et < 2e-4);
-  CHECK(cells_run("rest", temporal, preset)[0]["hit"] == true);        // the named default is the unnamed one
+  // (a rerun of the `measure` preset is not a cache hit: the rows exist and are refused without --replace, as another recipe's are; the chain parameters are part of the recipe as written, so naming the default
+  //  envelope is no different: the old verb read a named default as the unnamed one and its rerun was a hit)
+  CHECK(code_of([&] { cells_run("rest", no_extra, preset); }) == std::string(code::already_exists));
+  CHECK(code_of([&] { cells_run("rest", temporal, preset); }) == std::string(code::already_exists));
   CHECK(code_of([&] { cells_run("rest", mono, preset); }) == std::string(code::already_exists));   // another envelope's rows are another recipe's: refused, never silently replaced
   g::RunOptions preset_rep = preset;
   preset_rep.replace = true;
@@ -263,20 +266,22 @@ int main() {
   {
     // the recipe names the envelope; the measurement's rows record how they were computed
     const auto rec = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = "rest", .any_status = true});
-    const auto rows = nxr::io::testing::Probe(sub).rows("selection_measurement", {{"selection_id", V(product_node->id)}, {"of_field_id", V(rec->id)}, {"measure", V("amplitude")}});
+    const auto cells_product = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest cells 8-16 Hz parts 16", .any_status = true});
+    CHECK(cells_product.has_value());
+    const auto rows = nxr::io::testing::Probe(sub).rows("selection_measurement", {{"selection_id", V(cells_product->id)}, {"of_field_id", V(rec->id)}, {"measure", V("amplitude")}});
     CHECK(!rows.empty() && !text(rows.front(), "computed_by").empty());
     const std::string dumped = rs[0].dump();
     CHECK(dumped.find("spatiotemporal") != std::string::npos);
   }
   // a rerun is a hit; the other chunk width gives the same cells; the temporal rerun is refused again (the rows are the spatiotemporal ones now) unless --replace
-  CHECK(cells_run("rest", mono, preset)[0]["hit"] == true);
+  CHECK(code_of([&] { cells_run("rest", mono, preset); }) == std::string(code::already_exists));
   {
     double diff = 0;
     for (std::size_t i = 0; i < cs.size(); ++i) if (!std::isnan(cs[i]) || !std::isnan(csb[i])) diff = std::max(diff, static_cast<double>(std::abs(cs[i] - csb[i])));
     std::printf("  chunk widths 4096 and 1000, spatiotemporal: max difference %.2e\n", diff);
     CHECK(diff < 1e-6);
   }
-  CHECK(code_of([&] { cells_run("rest", temporal, preset); }) == std::string(code::already_exists));
+  CHECK(code_of([&] { cells_run("rest", no_extra, preset); }) == std::string(code::already_exists));
   CHECK(code_of([&] { cells_run("rest", Json{{"envelope", "spatial"}}, preset); }) != std::string());
 
   // ── THE HAND-OVER: the strongest cell's trace (the trace the bursts are detected on, here the max over the tiles) inside the episode (8 s … 17 s) ──
@@ -330,7 +335,8 @@ int main() {
     const double ex = 0.5 * (trough_t + trough_s);
     int cnt[2] = {0, 0};
     for (int e = 0; e < 2; ++e) {
-      const double enter_z = std::min(peak_t, peak_s) * 0.9, area_two = 1.5 * *std::max_element(tarea.begin(), tarea.end());   // an event of at least two cells
+      const double enter_z = 1.1 * ex,                       // each half of the hand-over, under the temporal envelope, must reach it on its own
+                    area_two = 1.5 * *std::max_element(tarea.begin(), tarea.end());   // an event of at least two cells
       Json st = Json{{"recording", "rest"}, {"spatial_scale", "parts 16"}, {"product", "rest cortex product"}, {"sample_product", "rest cortex samples product"}, {"transform", "exact"}, {"spatial_shape", "meyer"}, {"method", "MNE"},
                      {"envelope", e ? "spatiotemporal" : "temporal"}, {"extent_enter_sd", enter_z}, {"extent_exit_sd", ex}, {"min_area", area_two}};
       const auto r = g::run(ds, sub, dg, st, rep);

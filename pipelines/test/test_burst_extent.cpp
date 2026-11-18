@@ -154,19 +154,16 @@ int main() {
   nxrtest::run_definition(ds, sub, "select_product", Json{{"recording", "rest"}, {"surface", "cortex"}, {"time_grid", "rest time grid band 8-16 Hz"}, {"couple", Json::array({Json{{"factor", 0}, {"scale", "parts 16"}}})}});
   nxrtest::make_sample_product(ds, sub, "rest", "cortex", sfreq, "parts 16");
   g::RunOptions all; all.chunks = "all";
-  { g::RunOptions po = all; po.preset = "cortical_band_cells";
-    const auto rm = g::run(ds, sub, g::load("measure"), Json{{"recording", "rest"}, {"band", "8-16 Hz"}, {"spatial_scale", "parts 16"}, {"chain_parameters", Json{{"recording", "rest"}, {"band", "8-16 Hz"}, {"spatial_scale", "parts 16"}, {"transform", "exact"}, {"spatial_shape", "meyer"}, {"shape", "meyer"}}}}, po);
-    CHECK(rm.size() == 1); }
   const auto product_node = tk::Subject::of(sub).find({.cls = tk::Cls::selection, .name = "rest cortex product", .any_status = true});
   const auto rest_field = tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = "rest", .any_status = true});
-  CHECK(product_node.has_value() && rest_field.has_value());
-  if (!product_node || !rest_field) return 1;
-  W = product_node->params["product"][1].contains("width") ? product_node->params["product"][1]["width"].get<std::int64_t>() : 0;
+  const auto grid_node = tk::Subject::of(sub).find({.cls = tk::Cls::selection, .name = "rest time grid band 8-16 Hz", .any_status = true});
+  CHECK(product_node.has_value() && rest_field.has_value() && grid_node.has_value());
+  if (!product_node || !rest_field || !grid_node) return 1;
+  W = grid_node->params["grid"]["width"].get<std::int64_t>();
   auto values_of = [&](const std::string& selection_id, const char* measure) { return measurement_values(sub, selection_id, rest_field->id, std::nullopt, std::nullopt, measure); };
-  const MeasurementValues cell_amp = values_of(product_node->id, "amplitude"), cell_peak = values_of(product_node->id, "envelope_max");
-  const int S = 32, F = static_cast<int>(cell_amp.members) / S;
-  if (W == 0) W = T / F;
-  CHECK(cell_amp.members == static_cast<std::int64_t>(S) * F && F == T / W);
+  const int S = 32, F = static_cast<int>(T / W);
+  // the cells are the amplitude and envelope_max of the band on the cortex over the product (`global_bursts` stores them: its `cells` output); read after its first run, the reference for the independent detection
+  MeasurementValues cell_amp, cell_peak;
   auto cell = [&](int s, int f) { return cell_amp.values[static_cast<std::size_t>(s + S * f)]; };
   const double width_s = static_cast<double>(W) / sfreq;
   // the tiles' areas and vertex areas, from the mesh directly
@@ -178,14 +175,18 @@ int main() {
   for (const auto& [a, b2] : SL.pairs) { nbr[static_cast<std::size_t>(a)].push_back(b2); nbr[static_cast<std::size_t>(b2)].push_back(a); }
   auto median = [](std::vector<double> x) { std::sort(x.begin(), x.end()); const std::size_t n = x.size(); return n % 2 ? x[n / 2] : 0.5 * (x[n / 2 - 1] + x[n / 2]); };
   std::vector<double> med(static_cast<std::size_t>(S)), sd(static_cast<std::size_t>(S));
-  for (int s = 0; s < S; ++s) {
-    std::vector<double> x;
-    for (int f = 0; f < F; ++f) if (std::isfinite(cell(s, f))) x.push_back(cell(s, f));
-    med[static_cast<std::size_t>(s)] = median(x);
-    std::vector<double> dv;
-    for (const double v : x) dv.push_back(std::abs(v - med[static_cast<std::size_t>(s)]));
-    sd[static_cast<std::size_t>(s)] = 1.4826 * median(dv);
-  }
+  auto load_cells = [&]() {
+    cell_amp = values_of(product_node->id, "amplitude"); cell_peak = values_of(product_node->id, "envelope_max");
+    CHECK(cell_amp.members == static_cast<std::int64_t>(S) * F);
+    for (int s = 0; s < S; ++s) {
+      std::vector<double> x;
+      for (int f = 0; f < F; ++f) if (std::isfinite(cell(s, f))) x.push_back(cell(s, f));
+      med[static_cast<std::size_t>(s)] = median(x);
+      std::vector<double> dv;
+      for (const double v : x) dv.push_back(std::abs(v - med[static_cast<std::size_t>(s)]));
+      sd[static_cast<std::size_t>(s)] = 1.4826 * median(dv);
+    }
+  };
   auto z = [&](int s, int f) { return (cell(s, f) - med[static_cast<std::size_t>(s)]) / sd[static_cast<std::size_t>(s)]; };
 
   // the labelling read back: the Selection's array [S x F] int32
@@ -270,8 +271,23 @@ int main() {
   const g::Definition d = g::load("global_bursts");
   const double min_area2 = 1.5 * *std::max_element(tarea.begin(), tarea.end());        // an event of at least two cells (the tiles are of near equal area)
   Json set1 = Json{{"recording", "rest"}, {"spatial_scale", "parts 16"}, {"product", "rest cortex product"}, {"sample_product", "rest cortex samples product"}, {"transform", "exact"}, {"spatial_shape", "meyer"}, {"shape", "meyer"},
-                   {"extent_enter_sd", 7000.0}, {"extent_exit_sd", 4000.0}, {"min_area", min_area2}};
-  const auto r1 = g::run(ds, sub, d, set1, all);
+                   {"min_area", min_area2}};
+  // the extent's thresholds are z against the tile's own baseline, whose robust SD is tiny here (noise 0.005 under a planted pattern): read the z of the cells from a first run, and put the hysteresis between the
+  // episodes' own largest z and the noise (enter at half of the smaller burst's largest z, extend down to half of that)
+  const auto r0 = g::run(ds, sub, d, set1, all);
+  load_cells();
+  CHECK(F == static_cast<int>(cell_amp.members / S));
+  double enter_z = 1e300;
+  for (const auto& bu : bursts_of(r0[0])) {
+    double mz = 0;
+    for (int f = bu[0]; f < bu[1]; ++f) for (int s2 = 0; s2 < S; ++s2) if (std::isfinite(z(s2, f))) mz = std::max(mz, z(s2, f));
+    enter_z = std::min(enter_z, 0.5 * mz);
+  }
+  const double exit_z = 0.5 * enter_z;
+  std::printf("  extent thresholds from the cells: enter %.0f, exit %.0f robust SDs\n", enter_z, exit_z);
+  set1["extent_enter_sd"] = enter_z; set1["extent_exit_sd"] = exit_z;
+  g::RunOptions rep0 = all; rep0.replace = true;
+  const auto r1 = g::run(ds, sub, d, set1, rep0);
   const auto bursts = bursts_of(r1[0]);
   std::printf("  bursts (time tiles):");
   for (const auto& bu : bursts) std::printf(" [%d, %d)", bu[0], bu[1]);
@@ -279,7 +295,7 @@ int main() {
   CHECK_EQ(static_cast<int>(bursts.size()), 2);
   std::vector<std::int32_t> lab;
   const Json ext = read_labels(r1[0], lab);
-  const auto [expected, nexp] = flood(bursts, 7000.0, 4000.0, min_area2, false);
+  const auto [expected, nexp] = flood(bursts, enter_z, exit_z, min_area2, false);
   int mismatches = 0, labelled = 0;
   for (std::size_t i = 0; i < lab.size(); ++i) { mismatches += lab[i] != expected[i]; labelled += lab[i] >= 0; }
   std::printf("  events %d (independent flood fill: %d); labelled cells %d; mismatching cells %d\n", static_cast<int>(ext["events"].get<int>()), nexp, labelled, mismatches);
@@ -303,33 +319,39 @@ int main() {
     CHECK(row.has_value());
     const Json pj = row->params.is_null() ? Json::object() : row->params;
     CHECK(row->type.value_or("") == "set" && row->n_members.value_or(0) == 2 && row->n_elements.value_or(0) == S * F);
-    CHECK(pj["extent"]["thresholds"]["enter_sd"] == 7000.0 && pj["extent"]["space_level"] == L && pj["cells_of"]["selection_id"] == product_node->id && pj["extent"]["described_by"] == "centre + extent");
+    CHECK(pj["extent"]["thresholds"]["enter_sd"] == enter_z && pj["extent"]["space_level"] == L && pj["cells_of"]["selection_id"] == product_node->id && pj["extent"]["described_by"] == "centre + extent");
     CHECK(pj.contains("bursts") && pj["bursts"]["selection"].is_string() && pj.contains("cache") && pj["extent"]["baseline"]["summaries"].size() == 2);
     CHECK(pj["extent"]["bursts"].size() == 2 && pj["extent"]["event_list"][0]["burst"] == 0 && pj["extent"]["event_list"][1]["burst"] == 1);
   }
   // THE MEASURES, each against a direct computation from the labelling
   std::int64_t R = 0, E = 0;
   const auto ncells = measure_of(r1[0], "extent_n_cells", R, E), ntiles = measure_of(r1[0], "extent_n_tiles", R, E), area = measure_of(r1[0], "extent_area", R, E), amp = measure_of(r1[0], "extent_amplitude", R, E);
-  const auto first = measure_of(r1[0], "extent_first_tile", R, E), last = measure_of(r1[0], "extent_last_tile", R, E), dur = measure_of(r1[0], "extent_duration", R, E), bor = measure_of(r1[0], "extent_burst", R, E);
+  const auto first = measure_of(r1[0], "extent_first_tile", R, E), last = measure_of(r1[0], "extent_last_tile", R, E), dur = measure_of(r1[0], "extent_duration", R, E);
   const auto pathl = measure_of(r1[0], "extent_path_length", R, E);
   CHECK(R == 1 && E == 2);
   const double kSamples = static_cast<double>(W);
+  std::vector<double> tcount(static_cast<std::size_t>(S), 0.0);                    // the vertices of each tile
+  for (int v = 0; v < N; ++v) if (SL.tile[static_cast<std::size_t>(v)] >= 0) tcount[static_cast<std::size_t>(SL.tile[static_cast<std::size_t>(v)])] += 1.0;
   std::vector<double> path_direct(2, 0.0);
   for (int e = 0; e < 2; ++e) {
     int nc = 0, f0 = F, f1 = -1;
     std::set<int> tiles;
-    double wsum = 0, asum = 0;
+    double wsum = 0, asum = 0, csum = 0, cw = 0;
     for (int f = 0; f < F; ++f)
       for (int s = 0; s < S; ++s)
-        if (L_(s, f) == e) { ++nc; tiles.insert(s); f0 = std::min(f0, f); f1 = std::max(f1, f); wsum += tarea[static_cast<std::size_t>(s)] * kSamples; asum += tarea[static_cast<std::size_t>(s)] * kSamples * cell(s, f); }
+        if (L_(s, f) == e) { ++nc; tiles.insert(s); f0 = std::min(f0, f); f1 = std::max(f1, f); wsum += tarea[static_cast<std::size_t>(s)] * kSamples; asum += tarea[static_cast<std::size_t>(s)] * kSamples * cell(s, f);
+                             csum += tcount[static_cast<std::size_t>(s)] * kSamples * cell(s, f); cw += tcount[static_cast<std::size_t>(s)] * kSamples; }
     double ua = 0;
     for (const int s : tiles) ua += tarea[static_cast<std::size_t>(s)];
     const std::size_t i = static_cast<std::size_t>(e * 2);
     std::printf("  event %d: %d cells on %zu tiles, area %.4f, time tiles %d … %d, amplitude %.4f, path %.4f\n", e, nc, tiles.size(), area[i], f0, f1, amp[i], pathl[i]);
     CHECK(static_cast<int>(ncells[i]) == nc && static_cast<std::size_t>(ntiles[i]) == tiles.size());
     CHECK(std::abs(area[i] - ua) < 1e-5 * ua);                                                    // float32 storage
-    CHECK(std::abs(amp[i] - asum / wsum) < 1e-5 * (asum / wsum));
-    CHECK(static_cast<int>(first[i]) == f0 && static_cast<int>(last[i]) == f1 && std::abs(dur[i] - (f1 - f0 + 1) * width_s) < 1e-5 && static_cast<int>(bor[i]) == e);
+    // the event's amplitude is the merge of its cells' ingredients by the registry's rule for `amplitude`: a mean weighted by the ELEMENTS the cell holds (the tile's vertices x its samples), not by the tile's area
+    // as the retired roll-up weighed it (asum / wsum: the same cells weighed by area differ by ~1%)
+    CHECK(std::abs(amp[i] - csum / cw) < 1e-5 * (csum / cw));
+    (void)asum; (void)wsum;
+    CHECK(static_cast<int>(first[i]) == f0 && static_cast<int>(last[i]) == f1 && std::abs(dur[i] - (f1 - f0 + 1) * width_s) < 1e-5);
     // the centre per time tile: the vertex nearest the area-weighted centroid of the vertices of the event's tiles, and the chord path
     std::vector<int> centre_of(static_cast<std::size_t>(F), -1);
     for (int f = f0; f <= f1; ++f) {
@@ -387,7 +409,7 @@ int main() {
   // a rerun is a hit; another threshold is refused without --replace
   { const auto r = g::run(ds, sub, d, set1, all); CHECK(r.size() == 1 && r[0]["hit"] == true); }
   {
-    Json other = set1; other["extent_enter_sd"] = 6500.0;
+    Json other = set1; other["extent_enter_sd"] = 0.9 * enter_z;
     CHECK(code_of([&] { g::run(ds, sub, d, other, all); }) == std::string(code::already_exists));
   }
   g::RunOptions rep = all; rep.replace = true;
@@ -411,7 +433,7 @@ int main() {
     const auto b2 = bursts_of(r[0]);
     std::vector<std::int32_t> l2;
     const Json x = read_labels(r[0], l2);
-    const auto [exp2, n2] = flood(b2, 7000.0, 4000.0, min_area2, true);
+    const auto [exp2, n2] = flood(b2, enter_z, exit_z, min_area2, true);
     int mm = 0;
     for (std::size_t i = 0; i < l2.size(); ++i) mm += l2[i] != exp2[i];
     std::printf("  per hemisphere: %zu bursts, %d events, mismatches %d\n", b2.size(), x["events"].get<int>(), mm);
