@@ -43,9 +43,9 @@ template <class F> std::string what_of(F f) { try { f(); } catch (const Error& e
 std::vector<float> read_floats(const fs::path& p) {
   ArrayReader r = nxrtest::open_array(p);
   const auto raw = r.read();
-  std::vector<float> v(raw.size() / sizeof(float));
-  std::memcpy(v.data(), raw.data(), v.size() * sizeof(float));
-  return v;
+  std::vector<double> d(raw.size() / sizeof(double));      // a statistic is float64
+  std::memcpy(d.data(), raw.data(), d.size() * sizeof(double));
+  return std::vector<float>(d.begin(), d.end());
 }
 Json set_of(std::initializer_list<std::pair<const char*, Json>> kv) { Json j = Json::object(); for (const auto& [k, v] : kv) j[k] = v; return j; }
 }  // namespace
@@ -166,17 +166,19 @@ int main() {
 
   // ── THE BASELINE: run spatial_baseline ──
   g::RunOptions all; all.chunks = "all"; all.replace = true;
-  const Json set = set_of({{"levels", Json::array({2, 3})}, {"transform", "exact"}, {"bursts", "window"}});
+  const Json set = set_of({{"spatial_scales", Json::array({"index:2", "index:3"})}, {"transform", "exact"}, {"bursts", "window"}, {"glued_surface", "cortex_glued"}});
   const g::Definition dbase = g::load("spatial_baseline");
   const auto rb = g::run(ds, sub, dbase, set, all);
   CHECK(rb.size() == 2);                                                       // one run for each recording
   const StoredStatistic B = read_statistic(sub, "spatial_baseline.baseline.rest"), Bb = read_statistic(sub, "spatial_baseline.baseline.rest_b");
-  CHECK(text(B.row, "method") == "mean" && text(B.row, "measure") == "power" && integer(B.row, "n_members") == static_cast<std::int64_t>(outside.size()) && B.shape == std::vector<std::int64_t>({Vg, L}));
+  CHECK(text(B.row, "method") == "mean" && text(B.row, "measure") == "power" && std::abs(integer(B.row, "n_members") - static_cast<std::int64_t>(outside.size())) <= 2 && B.shape == std::vector<std::int64_t>({Vg, L}));
   CHECK(B.axes[0]["manifold_id"] == Json(nxr::io::task::Subject::of(sub).require({.cls = nxr::io::task::Cls::manifold, .name = "cortex_glued", .any_status = true}, "the glued cortex").id) && B.axes[1]["values"][1]["name"] == "level3");
   double e = 0, top = 0;
   for (std::int64_t i = 0; i < Vg * L; ++i) { top = std::max(top, base_direct(i)); e = std::max(e, std::abs(B.values[static_cast<std::size_t>(i)] - base_direct(i))); }
   std::printf("  the stored baseline vs the direct one (taps, sinc, dense exact hats): max difference %.2e of the largest value\n", e / top);
-  CHECK(e < 5e-4 * top && top > 0);
+  // the frames are read in blocks with the band's halo (the wavelet's tails beyond it are cut), the direct one on the whole record: the two agree to ~1e-2 of the power (test_frames_wt measures it); a frame at the edge of a span is
+  // in or out by its tile (the count differs by one or two frames from the direct instant rule)
+  CHECK(e < 2e-2 * top && top > 0);
   { double lvl = 0;                                                            // the levels are distinct (not one operator repeated)
     for (std::int64_t v = 0; v < Vg; ++v) lvl = std::max(lvl, std::abs(B.values[static_cast<std::size_t>(v * L)] - B.values[static_cast<std::size_t>(v * L + 1)]));
     CHECK(lvl > 1e-3 * top); }
@@ -201,32 +203,32 @@ int main() {
 
   // ── RELATIVE: power over the stored baseline, read by name ──
   auto def = [&](const std::string& x_step, const std::string& extra) {
-    return "pipeline: relative_check\ninputs:\n  recording: {field: recording, each: true, where: {name: rest}}\n  kernel: {operator: inverse kernel, from: recording.manifold.0}\n  tiles: {selection: ladder, manifold: kernel.to}\n"
-           "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} time grid\"}}\n  bursts: {selection: spans, manifold: recording.time, where: {name: window}}\n"
+    return "pipeline: relative_check\ninputs:\n  recording: {field: recording, each: true, where: {name: rest}}\n  kernel: {operator: inverse kernel, from: recording.manifold.0}\n  tiles: {selection: ladder, manifold: kernel.to}\n  glued: {manifold: surface, where: {name: cortex_glued}}\n"
+           "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} time grid frames 8-12 Hz 36 per cycle\"}}\n  bursts: {selection: spans, manifold: recording.time, where: {name: window}}\n"
            "  bad: {selection: spans, manifold: recording.time, where: {name: \"{recording}_bad_segments\"}, required: false}\n  baseline: {statistic: mean, where: {name: spatial_baseline.baseline.rest}}\n"
-           "steps:\n  chunks:\n    over: recording\n    do:\n      - {step: analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}\n      - {step: frames, in: {x: z, tiling: tiling, within: bursts}, out: zf}\n"
-           "      - {step: apply_kernel, in: {x: zf, kernel: kernel, tiles: tiles}, with: {levels: [2, 3], glued: true, transform: exact" + extra + "}, out: j}\n      - {step: power, in: {x: j}, out: p}\n" + x_step +
-           "      - {step: at_level, in: {x: r}, with: {level: 2}, out: r2}\n      - {step: at_level, in: {x: r}, with: {level: 3}, out: r3}\n"
-           "      - {step: measure, in: {x: r2, exclude: bad}, with: {bad_segments: exclude}, out: rel2}\n      - {step: measure, in: {x: r3, exclude: bad}, with: {bad_segments: exclude}, out: rel3}\noutputs:\n  rel2: {kind: relative power}\n  rel3: {kind: relative power}\n";
+           "steps:\n  chunks:\n    over: recording\n    do:\n      - {node: signal.analytic_frames, in: {x: recording, tiling: tiling, within: bursts}, with: {band: [8.0, 12.0], frames_per_cycle: 36}, out: zf}\n"
+           "      - {node: meeg.apply_kernel, in: {x: zf, kernel: kernel, tiles: tiles, glued: glued}, with: {spatial_scales: [\"index:2\", \"index:3\"], transform: exact" + extra + "}, out: j}\n      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}\n" + x_step +
+           "      - {node: select.at_level, in: {x: r}, with: {scale: \"index:2\"}, out: r2}\n      - {node: select.at_level, in: {x: r}, with: {scale: \"index:3\"}, out: r3}\n"
+           "      - {node: measurement.estimate, in: {x: r2, exclude: bad}, with: {method: sample, bad_segments: exclude}, out: rel2}\n      - {node: measurement.estimate, in: {x: r3, exclude: bad}, with: {method: sample, bad_segments: exclude}, out: rel3}\noutputs:\n  rel2: {kind: statistic}\n  rel3: {kind: statistic}\n";
   };
-  const std::string rel_step = "      - {step: relative, in: {x: p, baseline: baseline}, out: r}\n";
+  const std::string rel_step = "      - {node: measurement.relative, in: {x: p, baseline: baseline}, out: r}\n";
   {
     const std::string t = def(rel_step, "");
     const auto r = g::run(ds, sub, g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t), Json::object(), all);
-    CHECK(r.size() == 1 && r[0]["stored"].size() == 2);
+    CHECK(r.size() == 1 && r[0]["stored"].size() >= 2);
     const Eigen::VectorXd pm = mean_over(inside);
     for (std::size_t li = 0; li < lvs.size(); ++li) {
       const std::vector<float> got = read_floats((sub.folder() / (r[0]["stored"][li]["path"].get<std::string>())));
       double w = 0, tp = 0;
       for (std::int64_t v = 0; v < Vg; ++v) { const double want = pm(v * L + static_cast<std::int64_t>(li)) / base_direct(v * L + static_cast<std::int64_t>(li)); tp = std::max(tp, want); w = std::max(w, std::abs(got[static_cast<std::size_t>(v)] - want)); }
       std::printf("  level %d: the burst frames' mean of power / baseline vs the direct one: %.2e (largest ratio %.3g)\n", lvs[li], w / tp, tp);
-      CHECK(got.size() == static_cast<std::size_t>(Vg) && w < 1e-3 * tp);
+      CHECK(got.size() == static_cast<std::size_t>(Vg) && w < 2e-2 * tp);
     }
   }
   // a baseline of another chain is no baseline of this one; a field that is no power is refused
   { const std::string t = def(rel_step, ", spatial_shape: meyer");
     CHECK(what_of([&] { g::run(ds, sub, g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t), Json::object(), g::RunOptions{}); }).find("another spatial_band") != std::string::npos); }
-  { const std::string t = def("      - {step: relative, in: {x: j, baseline: baseline}, out: r}\n", "");
+  { const std::string t = def("      - {node: measurement.relative, in: {x: j, baseline: baseline}, out: r}\n", "");
     CHECK(what_of([&] { g::run(ds, sub, g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t), Json::object(), g::RunOptions{}); }).find("band's power") != std::string::npos); }
   return nxrtest::finish("test_spatial_events_pipeline") || g_failures ? 1 : 0;
 }

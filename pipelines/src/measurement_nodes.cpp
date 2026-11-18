@@ -831,7 +831,7 @@ void redirect_summarize(StepSpec& sc) {
 // A statistic from a partition of the stream: the MEAN over a family of segments (they may overlap) of a per-segment quantity, folded block by block (`SegmentMean`), or the counts of
 // fixed bins (`Histogram`). The per-segment quantity (taper and FFT; X Xᴴ; |X|²) is a pointwise node before it; `estimate` only means or counts. A segment cut by an excluded span is
 // skipped and counted.
-struct EstimateState { std::string method; std::vector<double> edges; };
+struct EstimateState { std::string method; std::vector<double> edges; std::string rows_manifold, quantity; };
 struct EstimateAcc { std::optional<nm::Histogram> hist; nm::SegmentMean mean; std::int64_t rows = 0, cols = 0; };
 
 StepSpec estimate_node() {
@@ -860,9 +860,11 @@ StepSpec estimate_node() {
     y.time.reset();
     return Values{{"y", y}};
   };
-  s.prepare = [](const Values&, const Json& p, ExecContext&) {
+  s.prepare = [](const Values& ins, const Json& p, ExecContext&) {
     EstimateState st;
     st.method = p["method"].get<std::string>();
+    st.rows_manifold = ins.at("x").manifolds.empty() ? std::string() : ins.at("x").manifolds[0];
+    st.quantity = ins.at("x").facts.value("made_by", std::string());
     if (st.method == "histogram") for (const auto& e : p["edges"]) st.edges.push_back(e.get<double>());
     return std::any(std::move(st));
   };
@@ -906,6 +908,10 @@ StepSpec estimate_node() {
     if (st.method == "histogram") {
       Array y{1, static_cast<std::int64_t>(acc.hist->counts.size()), std::vector<double>(acc.hist->counts.begin(), acc.hist->counts.end())};
       y.meta = Json{{"method", "histogram"}, {"edges", acc.hist->edges}};
+      const std::int64_t nb = static_cast<std::int64_t>(acc.hist->counts.size());
+      y.meta["generic_statistic"] = Json{{"measure", "count"}, {"method", "histogram"}, {"shape", Json::array({1, nb})},
+                                         {"axes", Json::array({Json{{"name", "pool"}, {"values", Json::array({Json{{"name", "every row, every good sample"}}})}, {"size", 1}}, Json{{"name", "bin"}, {"size", nb}, {"edges", acc.hist->edges}}})},
+                                         {"description", "the counts of the good samples of the field in the given bins"}, {"options", Json{{"edges", acc.hist->edges}}}};
       return Arrays{{"y", std::move(y)}};
     }
     need(acc.mean.used > 0, "estimate: no good sample in the span");
@@ -913,6 +919,12 @@ StepSpec estimate_node() {
     Array y{m.rows(), 1, std::vector<double>(static_cast<std::size_t>(m.rows()))};
     for (Eigen::Index r = 0; r < m.rows(); ++r) y.data[static_cast<std::size_t>(r)] = m(r, 0).real();
     y.meta = Json{{"method", "sample"}, {"used", acc.mean.used}, {"skipped", acc.mean.skipped}};
+    // the generic mean of a real per-sample field (the relative power, a magnitude): [row] on the field's first factor, stored as a statistic of method mean
+    Json row_axis = Json{{"name", "row"}, {"size", m.rows()}};
+    if (!st.rows_manifold.empty()) row_axis["manifold_id"] = st.rows_manifold;
+    y.meta["generic_statistic"] = Json{{"measure", st.quantity == "relative" ? std::string("relative_power") : st.quantity == "magnitude" ? std::string("amplitude") : std::string("mean")}, {"method", "mean"}, {"shape", Json::array({m.rows(), 1})},
+                                       {"axes", Json::array({row_axis, Json{{"name", "estimate"}, {"values", Json::array({Json{{"name", "mean"}}})}, {"size", 1}}})},
+                                       {"n_members", acc.mean.used}, {"description", "the mean over the good samples of the field, per row"}, {"options", Json{{"used", acc.mean.used}, {"skipped", acc.mean.skipped}}}};
     return Arrays{{"y", std::move(y)}};
   };
   return s;
