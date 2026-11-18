@@ -1,7 +1,7 @@
 // nxr::filterbank — see include/nxr/filterbank.h and docs/specs/2026-11-10-filterbanks.md.
 // Ported line for line from Rheome (@graphfilterbank/private/designbank.m, +graphtransform/{eigen,chebyshev}.m,
 // +filters/frame_{gains,bounds,analysis,synthesis}.m) and checked against nxr's filters.frames and the Studio's dyadicFrame.ts.
-#include "nxr/filterbank.h"
+#include "nxr/signal/graphfilterbank.h"
 
 #include <Eigen/Cholesky>
 #include <Spectra/MatOp/SparseCholesky.h>
@@ -12,7 +12,7 @@
 #include <random>
 #include <stdexcept>
 
-namespace nxr::filterbank {
+namespace nxr::signal::graphfilterbank {
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
@@ -583,4 +583,4 @@ Eigen::VectorXd bandPower(const Bank& bank, const Eigen::VectorXd& lambda, const
     return gains(bank, lambda).array().square().matrix().transpose() * modePower;
 }
 
-}  // namespace nxr::filterbank
+}  // namespace nxr::signal::graphfilterbank

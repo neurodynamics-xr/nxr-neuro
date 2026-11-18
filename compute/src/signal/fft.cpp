@@ -1,11 +1,11 @@
 // nxr::fft over pocketfft (deps/pocketfft). Single-threaded: no pthreads, so it is safe in the wasm and N-API builds.
 #define POCKETFFT_NO_MULTITHREADING
-#include "nxr/fft.h"
+#include "nxr/signal/fourier.h"
 #include "../deps/pocketfft/pocketfft_hdronly.h"
 #include <cmath>
 #include <stdexcept>
 
-namespace nxr::fft {
+namespace nxr::signal {
 namespace {
 
 pocketfft::stride_t rowMajorStrides(const Shape& shape, std::size_t elemBytes) {
@@ -110,4 +110,4 @@ Eigen::VectorXd irfft(const Eigen::VectorXcd& X, std::size_t n, Norm norm) { ret
 Eigen::VectorXcd fft(const Eigen::VectorXcd& x, Norm norm) { return fftColumns(x, true, norm).col(0); }
 Eigen::VectorXcd ifft(const Eigen::VectorXcd& X, Norm norm) { return fftColumns(X, false, norm).col(0); }
 
-}  // namespace nxr::fft
+}  // namespace nxr::signal

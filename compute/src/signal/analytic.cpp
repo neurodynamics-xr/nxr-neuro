@@ -1,11 +1,11 @@
 // nxr::analytic — amplitude, phase, unwrapping, instantaneous frequency, and wt's carrier (see the header).
-#include "nxr/analytic.h"
+#include "nxr/signal/complex_signal.h"
 
 #include <cmath>
 #include <complex>
 #include <stdexcept>
 
-namespace nxr::analytic {
+namespace nxr::signal {
 namespace {
 constexpr double kPi = 3.14159265358979323846;
 using i128 = __int128;
@@ -82,4 +82,4 @@ Eigen::MatrixXcd carrier(const wt::Plan& plan, int m, const wt::Block& block) {
     return out;
 }
 
-}  // namespace nxr::analytic
+}  // namespace nxr::signal

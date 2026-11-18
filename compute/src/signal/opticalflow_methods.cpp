@@ -1,5 +1,5 @@
 // nxr::flow — alternative optical-flow methods; see opticalflow_methods.h.
-#include "nxr/opticalflow_methods.h"
+#include "nxr/signal/opticalflow_methods.h"
 
 #include <algorithm>
 #include <chrono>
@@ -10,11 +10,11 @@
 #include "nxr/filterbank.h"
 #include "nxr/opticalflow_connection.h"
 
-namespace nxr::flow {
+namespace nxr::signal {
 
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
-namespace fb = nxr::filterbank;
+namespace fb = nxr::signal::graphfilterbank;
 constexpr double EPS = 2.220446049250313e-16;
 
 Regulariser parseRegulariser(const std::string& n) {
@@ -187,4 +187,4 @@ FlowStep FlowEngine::step(const VectorXd& prev, const VectorXd& next) {
     return out;
 }
 
-}  // namespace nxr::flow
+}  // namespace nxr::signal

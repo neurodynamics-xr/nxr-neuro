@@ -1,5 +1,5 @@
 // nxr::filter — see include/nxr/filter.h.
-#include "nxr/filter.h"
+#include "nxr/signal/filters.h"
 #include "nxr/fft.h"
 #include <algorithm>
 #include <cmath>
@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace nxr::filter {
+namespace nxr::signal::filters {
 
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -453,4 +453,4 @@ MatrixXd bandpass(const MatrixXd& x, double lowerEdge, double upperEdge, FilterO
 MatrixXd bandstop(const MatrixXd& x, double lowerEdge, double upperEdge, FilterOptions o) { o.kind = Kind::Bandstop; o.lowerEdge = lowerEdge; o.upperEdge = upperEdge; return runWhole(x, o); }
 MatrixXd notch(const MatrixXd& x, const std::vector<double>& frequencies, FilterOptions o) { o.kind = Kind::Notch; o.frequencies = frequencies; return runWhole(x, o); }
 
-}  // namespace nxr::filter
+}  // namespace nxr::signal::filters

@@ -1,11 +1,11 @@
 // nxr::phase — the phase of a complex field, pointwise (phase.h): nxr's core_phase formulas.
-#include "nxr/phase.h"
+#include "nxr/signal/phase_gradient.h"
 
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 
-namespace nxr::phase {
+namespace nxr::signal {
 
 namespace {
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
@@ -138,4 +138,4 @@ Eigen::MatrixXd travellingIndex(const Eigen::MatrixXd& j, const Eigen::MatrixXd&
     return t;
 }
 
-}  // namespace nxr::phase
+}  // namespace nxr::signal

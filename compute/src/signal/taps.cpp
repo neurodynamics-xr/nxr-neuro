@@ -1,5 +1,5 @@
 // nxr::taps — zero-phase taps and the row convolution (taps.h): nxr's filters/taps.py, line for line.
-#include "nxr/taps.h"
+#include "nxr/signal/filters_fir.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,7 +9,7 @@
 
 #include "nxr/fft.h"
 
-namespace nxr::taps {
+namespace nxr::signal {
 
 namespace {
 // numpy's pairwise summation (numpy/_core/src/umath/loops_utils.h.src, pairwise_sum): fewer than 8 values summed in order; up to 128 summed into 8
@@ -93,4 +93,4 @@ std::vector<float> convolveRows(const float* x, std::size_t C, std::size_t Wr, c
     return y;
 }
 
-}  // namespace nxr::taps
+}  // namespace nxr::signal

@@ -1,16 +1,16 @@
 // nxr::timebank — see include/nxr/timebank.h and docs/specs/2026-11-10-filterbanks.md.
-#include "nxr/timebank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/taps.h"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
-namespace nxr::timebank {
+namespace nxr::signal::timefilterbank {
 
 using Eigen::MatrixXcd;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
-namespace fb = nxr::filterbank;
+namespace fb = nxr::signal::graphfilterbank;
 static constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 static constexpr double kPi = 3.14159265358979323846;
 
@@ -416,7 +416,7 @@ std::vector<OwnRate> analysisOwnRate(const TimeBank& b, const VectorXd& x, doubl
 BlockTransform analysisOfBlock(const Design& design, const Eigen::MatrixXd& block, double fs, std::size_t left, std::size_t own) {
   const std::size_t width = static_cast<std::size_t>(block.cols());
   if (left + own > width) throw std::invalid_argument("analysisOfBlock: the own columns [left, left + own) are not inside the block");
-  BlockTransform r{nxr::timebank::design(design, gridLength(width, Padding::FastLen), fs), {}};
+  BlockTransform r{nxr::signal::timefilterbank::design(design, gridLength(width, Padding::FastLen), fs), {}};
   const Coefficients all = analysis(r.bank, Eigen::MatrixXd(block.transpose()));   // analysis takes [samples x signals]
   r.own.reserve(all.size());
   for (const auto& w : all) r.own.push_back(w.middleRows(static_cast<Eigen::Index>(left), static_cast<Eigen::Index>(own)).transpose());
@@ -470,4 +470,4 @@ Eigen::MatrixXcd decimate(const Eigen::MatrixXcd& Z, int d, int offset) {
   return out;
 }
 
-}  // namespace nxr::timebank
+}  // namespace nxr::signal::timefilterbank

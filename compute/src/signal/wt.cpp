@@ -1,13 +1,13 @@
-#include "nxr/wt.h"
+#include "nxr/signal/wavelet.h"
+#include "nxr/fft.h"   // the old name nxr::fft (forwarder), until the callers are renamed
 #include <algorithm>
 #include <cmath>
 #include <numeric>
 #include <stdexcept>
 
-namespace nxr::wt {
+namespace nxr::signal {
 using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXcd; using Eigen::VectorXd;
 using cd = std::complex<double>;
-namespace fft = nxr::fft;
 using i64 = std::int64_t;
 static constexpr double kPi = 3.14159265358979323846;
 
@@ -236,4 +236,4 @@ Eigen::MatrixXd Iwt::drain(bool final, std::int64_t n) {
     return out;
 }
 
-}  // namespace nxr::wt
+}  // namespace nxr::signal

@@ -1,16 +1,16 @@
 // nxr::jointbank — see include/nxr/jointbank.h and docs/specs/2026-11-10-filterbanks.md.
-#include "nxr/jointbank.h"
+#include "nxr/signal/jointfilterbank.h"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
-namespace nxr::jointbank {
+namespace nxr::signal::jointfilterbank {
 
 using Eigen::MatrixXcd;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
-namespace fb = nxr::filterbank;
-namespace tb = nxr::timebank;
+namespace fb = nxr::signal::graphfilterbank;
+namespace tb = nxr::signal::timefilterbank;
 
 JointBank make(const fb::Bank& graph, const tb::TimeBank& time, std::vector<Kernel> kernels) {
     JointBank b; b.graph = graph; b.time = time; b.kernels = std::move(kernels);
@@ -296,4 +296,4 @@ Kernel ridgeKernel(double v, double width, int sense) {
     };
 }
 
-}  // namespace nxr::jointbank
+}  // namespace nxr::signal::jointfilterbank

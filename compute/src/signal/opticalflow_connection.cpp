@@ -1,7 +1,7 @@
 // nxr::flow::connection — the Cortical Flow Studio's optical flow, ported line for line; see opticalflow_connection.h.
 // Studio files: flow/opticalFlow.ts (componentPencil, frameTerms, embed, opticalFlow), differential/intrinsicGauge.ts, differential/faceGradient.ts,
 // differential/connectionLaplacian.ts (tangentBasis' normals, rescaledAngle, coneTarget).
-#include "nxr/opticalflow_connection.h"
+#include "nxr/signal/opticalflow_connection.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,7 +10,7 @@
 
 #include "nxr/errors.h"
 
-namespace nxr::flow::connection {
+namespace nxr::signal::connection {
 using Eigen::VectorXd;
 using Corners0 = nxr::manifold::IntrinsicSurface::InputCorners;
 constexpr double kTwoPi = 6.283185307179586476925286766559;
@@ -417,4 +417,4 @@ VectorXd ConnectionFlow::stepPcg(const VectorXd& previous, const VectorXd& next,
     return s.embed(x);
 }
 
-}  // namespace nxr::flow::connection
+}  // namespace nxr::signal::connection

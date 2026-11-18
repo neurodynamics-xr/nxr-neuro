@@ -1,5 +1,5 @@
 // nxr::flow — see opticalflow.h. A port of Rheome's +dynamics/opticalflow_scalar, tangent_basis, flow_readout and +flow/apparent, activation.
-#include "nxr/opticalflow.h"
+#include "nxr/signal/opticalflow.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,7 +11,7 @@
 #include "nxr/fft.h"
 #include "nxr/opticalflow_connection.h"
 
-namespace nxr::flow {
+namespace nxr::signal {
 
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -304,4 +304,4 @@ MatrixXd flowCoefficients(const nxr::hodge::Basis& basis, const MatrixXd& veloci
     return w.bottomRows(w.rows() / 2);
 }
 
-}  // namespace nxr::flow
+}  // namespace nxr::signal

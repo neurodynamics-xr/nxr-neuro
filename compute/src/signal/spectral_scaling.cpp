@@ -1,9 +1,9 @@
 // nxr::spectral — the scaling of a spectral quantity, chosen at read (spectral_scaling.h).
-#include "nxr/spectral_scaling.h"
+#include "nxr/signal/spectral_scaling.h"
 
 #include <stdexcept>
 
-namespace nxr::spectral {
+namespace nxr::signal::spectral {
 
 Target parseTarget(const std::string& n) {
   if (n == "stored") return Target::Stored;
@@ -90,4 +90,4 @@ std::string unitOf(const std::string& pu, const Scaling& s, Target t) {
   }
 }
 
-}  // namespace nxr::spectral
+}  // namespace nxr::signal::spectral

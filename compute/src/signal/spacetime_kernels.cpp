@@ -1,11 +1,11 @@
 // nxr::kernels — see include/nxr/spacetime_kernels.h. Ported from rheome/+rheome/+filters.
-#include "nxr/spacetime_kernels.h"
+#include "nxr/signal/kernels.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 
-namespace nxr::kernels {
+namespace nxr::signal {
 
 using cd = std::complex<double>;
 static constexpr double kPi = 3.14159265358979323846;
@@ -281,4 +281,4 @@ Scatter scatter(const filterbank::Bank& bank, const filterbank::EigenTransform& 
     return S;
 }
 
-}  // namespace nxr::kernels
+}  // namespace nxr::signal

@@ -1,5 +1,5 @@
 // nxr::patterns — the leading patterns of a Hermitian matrix (patterns.h).
-#include "nxr/patterns.h"
+#include "nxr/signal/crossspectral_decomposition.h"
 
 #include <cmath>
 #include <complex>
@@ -7,7 +7,7 @@
 
 #include <Eigen/Eigenvalues>
 
-namespace nxr::patterns {
+namespace nxr::signal {
 
 Eigen::VectorXcd rotateToLargest(const Eigen::VectorXcd& m) {
   const std::complex<double> s = (m.array() * m.array()).sum();
@@ -40,4 +40,4 @@ Eigen::VectorXd similarity(const Eigen::MatrixXcd& U, const Eigen::MatrixXcd& V)
   return out;
 }
 
-}  // namespace nxr::patterns
+}  // namespace nxr::signal

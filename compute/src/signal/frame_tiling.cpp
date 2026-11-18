@@ -1,10 +1,10 @@
-#include "nxr/frame_tiling.h"
+#include "nxr/signal/resample.h"
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
-namespace nxr::frametiling {
+namespace nxr::signal {
 
 namespace {
 double besselI0(double x) {
@@ -43,4 +43,4 @@ std::vector<float> sincInterpolate(const float* x, std::int64_t rows, std::int64
     return out;
 }
 
-}  // namespace nxr::frametiling
+}  // namespace nxr::signal

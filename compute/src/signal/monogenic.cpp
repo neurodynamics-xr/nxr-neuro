@@ -1,10 +1,10 @@
-#include "nxr/monogenic.h"
+#include "nxr/signal/riesz.h"
 
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 
-namespace nxr::monogenic {
+namespace nxr::signal {
 
 std::function<double(double)> rieszGain(const std::function<double(double)>& g, double lambdaMin) {
   return [g, lambdaMin](double l) {
@@ -68,4 +68,4 @@ Eigen::MatrixXd orientation(const Eigen::MatrixXd& R) {
   return o;
 }
 
-}  // namespace nxr::monogenic
+}  // namespace nxr::signal

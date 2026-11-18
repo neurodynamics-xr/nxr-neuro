@@ -1,4 +1,4 @@
-#include "nxr/intrinsic_forms.h"
+#include "nxr/signal/intrinsic_forms.h"
 #include "geometrycentral/surface/intrinsic_geometry_interface.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -8,7 +8,7 @@
 #include <cmath>
 #include <stdexcept>
 
-namespace nxr::intrinsic {
+namespace nxr::signal {
 
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -324,4 +324,4 @@ Eigen::VectorXd phaseOneForm(const Complex& c, const Eigen::VectorXcd& x) {
   return w;
 }
 
-}  // namespace nxr::intrinsic
+}  // namespace nxr::signal

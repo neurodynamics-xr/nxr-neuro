@@ -1,11 +1,11 @@
 // nxr::welch — see include/nxr/welch.h.
-#include "nxr/welch.h"
+#include "nxr/signal/spectral.h"
 #include "nxr/fft.h"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
-namespace nxr::welch {
+namespace nxr::signal::spectral {
 
 using Eigen::MatrixXd;
 using Eigen::MatrixXcd;
@@ -563,4 +563,4 @@ double enbwPerBin(const WelchOptions& o) {
   return o.sfreq * w.squaredNorm() / (w.sum() * w.sum());
 }
 
-}  // namespace nxr::welch
+}  // namespace nxr::signal::spectral
