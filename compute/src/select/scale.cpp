@@ -1,5 +1,5 @@
 // nxr::scale — see scale.h. Pure functions of arrays.
-#include "nxr/scale.h"
+#include "nxr/select/scale_selection.h"
 
 #include <algorithm>
 #include <cmath>
@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace nxr::scale {
+namespace nxr::select::scale_selection {
 
 namespace {
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
@@ -168,4 +168,4 @@ Selection selectScale(const std::vector<Pair>& pairs, Response response, int min
   return out;
 }
 
-}  // namespace nxr::scale
+}  // namespace nxr::select::scale_selection

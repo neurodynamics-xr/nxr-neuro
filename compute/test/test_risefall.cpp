@@ -8,7 +8,7 @@
 #include <sstream>
 #include <vector>
 
-#include "nxr/risefall.h"
+#include "nxr/select/risefall.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)

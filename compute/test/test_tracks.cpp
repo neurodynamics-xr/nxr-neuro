@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include "nxr/tracks.h"
+#include "nxr/select/tracks.h"
 
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)

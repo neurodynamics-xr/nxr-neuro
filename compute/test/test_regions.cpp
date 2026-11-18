@@ -5,8 +5,8 @@
 #include <iostream>
 #include <random>
 
-#include "nxr/intervals.h"
-#include "nxr/regions.h"
+#include "nxr/select/events.h"
+#include "nxr/select/regions.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)

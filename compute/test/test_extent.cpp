@@ -5,7 +5,7 @@
 #include <cmath>
 #include <iostream>
 
-#include "nxr/extent.h"
+#include "nxr/select/extent.h"
 #include "nxr/measurement/reduce.h"
 
 static int failures = 0;

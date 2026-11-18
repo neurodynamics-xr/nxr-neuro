@@ -1,12 +1,12 @@
 // nxr::selection (compute) — the band sets (bands.h).
-#include "nxr/selection/bands.h"
+#include "nxr/select/bands.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <stdexcept>
 
-namespace nxr::selection {
+namespace nxr::select {
 
 namespace {
 constexpr double kTwoPi = 2 * M_PI, kFourPi = 4 * M_PI;
@@ -113,4 +113,4 @@ std::pair<std::int64_t, std::int64_t> bins_of_band(double lo_hz, double hi_hz, s
   return {first, last};
 }
 
-}  // namespace nxr::selection
+}  // namespace nxr::select

@@ -1,5 +1,5 @@
 // nxr::quantity — the one parser of a stated quantity and the chart arithmetic (quantity.h).
-#include "nxr/quantity.h"
+#include "nxr/quantity/quantity.h"
 
 #include <algorithm>
 #include <cctype>

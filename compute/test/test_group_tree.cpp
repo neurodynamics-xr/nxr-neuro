@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)

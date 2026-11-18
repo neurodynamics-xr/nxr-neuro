@@ -1,13 +1,13 @@
 // nxr::selection::constantq — the band-design arithmetic of a constant-Q ladder (constant_q.h): the Studio's backend/src/db/constant-q.ts (JavaScript's Math.round
 // rounds halves up).
-#include "nxr/selection/constant_q.h"
+#include "nxr/select/constant_q.h"
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <string>
 
-namespace nxr::selection::constantq {
+namespace nxr::select::constantq {
 
 namespace {
 double js_round(double x) { return std::floor(x + 0.5); }                 // Math.round: halves toward +infinity
@@ -32,4 +32,4 @@ std::int64_t strideFor(double sfreq, double hz, int min) {
   return std::max<std::int64_t>(1, static_cast<std::int64_t>(std::pow(2.0, std::floor(std::log2(sfreq / (min * hz))))));
 }
 
-}  // namespace nxr::selection::constantq
+}  // namespace nxr::select::constantq

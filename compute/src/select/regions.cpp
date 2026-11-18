@@ -1,12 +1,12 @@
 // nxr::regions — regions on a graph (regions.h).
-#include "nxr/regions.h"
+#include "nxr/select/regions.h"
 
 #include <algorithm>
 #include <cmath>
 #include <numeric>
 #include <stdexcept>
 
-namespace nxr::regions {
+namespace nxr::select {
 
 Sign parseSign(const std::string& name) {
   if (name == "positive") return Sign::Positive;
@@ -74,4 +74,4 @@ Regions detectRegions(const Eigen::Ref<const Eigen::VectorXd>& values, const std
   return out;
 }
 
-}  // namespace nxr::regions
+}  // namespace nxr::select

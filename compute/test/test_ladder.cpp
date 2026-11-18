@@ -14,7 +14,7 @@
 #include "mesh_helpers.h"
 #include "nxr/chart.h"
 #include "nxr/frames.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/measurement/reduce.h"
 
 using namespace nxr::ladder;

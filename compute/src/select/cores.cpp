@@ -1,12 +1,12 @@
 // nxr::cores (cores.h): nxr `_core_patches`, per frame.
-#include "nxr/cores.h"
+#include "nxr/select/cores.h"
 
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <string>
 
-namespace nxr::cores {
+namespace nxr::select {
 
 Cores corePatches(const Eigen::Ref<const Eigen::MatrixXd>& C, const std::vector<std::pair<std::int32_t, std::int32_t>>& pairs, const Eigen::Ref<const Eigen::VectorXd>& area,
                   const Eigen::Ref<const Eigen::MatrixXd>& positions, double threshold, std::int32_t firstFrame) {
@@ -69,4 +69,4 @@ void append(Cores& into, const Cores& more) {
   if (more.centre.rows()) into.centre.bottomRows(more.centre.rows()) = more.centre;
 }
 
-}  // namespace nxr::cores
+}  // namespace nxr::select

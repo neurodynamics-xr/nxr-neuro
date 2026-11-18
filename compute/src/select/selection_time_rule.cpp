@@ -4,11 +4,11 @@
 #include <stdexcept>
 #include <string>
 
-#include "nxr/selection/grid.h"
-#include "nxr/selection/partition.h"
+#include "nxr/select/grid.h"
+#include "nxr/select/partition.h"
 #include "nxr/welch.h"
 
-namespace nxr::selection {
+namespace nxr::select {
 
 namespace {
 std::int64_t pow2(int k) { return std::int64_t(1) << k; }
@@ -109,4 +109,4 @@ TimeGrid time_rule_resolved(const Line& line, const TimeRule& r) {
 
 Selection time_rule(const Line& line, const TimeRule& rule) { return time_rule_resolved(line, rule).grid; }
 
-}  // namespace nxr::selection
+}  // namespace nxr::select

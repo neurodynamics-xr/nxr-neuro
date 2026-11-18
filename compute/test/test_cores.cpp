@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include "nxr/cores.h"
+#include "nxr/select/cores.h"
 #include "measurement_helpers.h"
 #include "nxr/histogram.h"
 

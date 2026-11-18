@@ -1,5 +1,5 @@
 // nxr::selection (compute) — coupled levels and grid addresses (grid.h).
-#include "nxr/selection/grid.h"
+#include "nxr/select/grid.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,7 +7,7 @@
 #include <string>
 
 
-namespace nxr::selection {
+namespace nxr::select {
 
 namespace {
 constexpr double kFourPi = 4 * M_PI;
@@ -151,4 +151,4 @@ Address dyadic_address(const Selection& g, std::int64_t center_vertex, double ra
   return a;
 }
 
-}  // namespace nxr::selection
+}  // namespace nxr::select

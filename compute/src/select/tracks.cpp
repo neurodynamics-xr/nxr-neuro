@@ -1,5 +1,5 @@
 // nxr::tracks (tracks.h): nxr `_track_stats`'s linking.
-#include "nxr/tracks.h"
+#include "nxr/select/tracks.h"
 
 #include <algorithm>
 #include <cmath>
@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace nxr::tracks {
+namespace nxr::select {
 
 Linker::Linker(double link) : link_(link) {
   if (!(link > 0) || !std::isfinite(link)) throw std::invalid_argument("Linker: the link distance is above 0");
@@ -104,4 +104,4 @@ TrackStats trackStats(const std::vector<std::int64_t>& frame, const std::vector<
   return s;
 }
 
-}  // namespace nxr::tracks
+}  // namespace nxr::select
