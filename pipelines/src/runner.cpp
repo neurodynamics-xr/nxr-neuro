@@ -1419,7 +1419,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   for (const MadeOperator& op : bound.offered_operators()) {
     if (bound.stored_operator(op.key)) continue;
     nxr::pipelines::task::OperatorOut oo;
-    oo.name = op.name.empty() ? "fused operator " + nxr::io::sha256_hex(op.key.dump()).substr(0, 12) : op.name;
+    oo.name = (op.name.empty() ? std::string("fused operator") : op.name) + " " + nxr::io::sha256_hex(op.key.dump()).substr(0, 12);   // one name per key: two operators of one kernel (another form, another hat) are two rows
     oo.output = "operator";
     oo.kind = op.kind;
     oo.from_manifold_id = op.from_manifold_id; oo.to_manifold_id = op.to_manifold_id;

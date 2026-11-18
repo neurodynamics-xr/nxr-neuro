@@ -38,15 +38,17 @@ template <class F> std::string what_of(F f) { try { f(); } catch (const Error& e
 std::vector<float> read_floats(const fs::path& p) {
   ArrayReader r = nxrtest::open_array(p);
   const auto raw = r.read();
-  std::vector<float> v(raw.size() / sizeof(float));
-  std::memcpy(v.data(), raw.data(), v.size() * sizeof(float));
+  std::vector<float> v;
+  std::vector<double> d(raw.size() / sizeof(double));      // a statistic is float64
+  std::memcpy(d.data(), raw.data(), d.size() * sizeof(double));
+  v.assign(d.begin(), d.end());
   return v;
 }
 std::string def(const std::string& form, const std::string& shape, const std::string& extra = "") {
   return "pipeline: form_run\ninputs:\n  recording: {field: recording, each: true, where: {name: rest}}\n  kernel: {operator: inverse kernel, from: recording.manifold.0, where: {name: " + std::string(form == "fixed" ? "fixed" : "free") +
-         "}}\n  tiles: {selection: ladder, manifold: kernel.to}\nsteps:\n  chunks:\n    over: recording\n    do:\n      - {step: analytic, in: {x: recording}, with: {band: [8.0, 12.0], shape: morlet}, out: z}\n"
-         "      - {step: apply_kernel, in: {x: z, kernel: kernel, tiles: tiles}, with: {level: 3, transform: exact, spatial_shape: " + shape + ", form: " + (form == "fixed" ? "none" : form) + extra + "}, out: j}\n"
-         "      - {step: power, in: {x: j}, out: p}\n      - {step: measure, in: {x: p}, with: {bad_segments: ignore}, out: power}\noutputs:\n  power: {kind: band power}\n";
+         "}}\n  tiles: {selection: ladder, manifold: kernel.to}\nsteps:\n  chunks:\n    over: recording\n    do:\n      - {node: signal.analytic, in: {x: recording}, with: {band: [8.0, 12.0], shape: morlet}, out: z}\n"
+         "      - {node: meeg.apply_kernel, in: {x: z, kernel: kernel, tiles: tiles}, with: {spatial_scale: \"index:3\", transform: exact, spatial_shape: " + shape + ", form: " + (form == "fixed" ? "none" : form) + extra + "}, out: j}\n"
+         "      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}\n      - {node: measurement.estimate, in: {x: p}, with: {method: sample}, out: power}\noutputs:\n  power: {kind: statistic}\n";
 }
 }  // namespace
 
@@ -154,15 +156,16 @@ int main() {
     const std::string text_def = def(name, "mexhat");
     const g::Definition d = g::parse(parse_yaml(text_def, "f.yaml"), "f.yaml", text_def);
     const auto r = g::run(ds, sub, d, Json::object(), g::RunOptions{[] { g::RunOptions o; o.replace = true; o.chunks = "0"; return o; }()});
-    CHECK(r.size() == 1 && r[0]["stored"].size() == 1);
+    if (r.size() == 1) { Json c = r[0]; c.erase("prepared"); c.erase("run"); std::printf("%s\n", c.dump().substr(0, 2500).c_str()); }
+    CHECK(r.size() == 1 && r[0]["stored"].size() >= 1 && r[0]["stored"][0]["output"] == "power");  // the statistic, then the fused operator the run stored
     if (r.size() != 1) continue;
-    const auto row = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::field, r[0]["stored"][0]["id"].get<std::string>());
+    const auto row = sub.db().read("statistic", r[0]["stored"][0]["id"].get<std::string>());   // the band power per vertex is a statistic (`estimate`, method sample)
     const std::vector<float> got = read_floats((sub.folder() / (r[0]["stored"][0]["path"].get<std::string>())));
     const Eigen::MatrixXd Mop = sband.apply_glued(nxr::signal::formOfFreeColumns(id, Kfree, op));
     const std::vector<double> want = direct(Mop);
     const double e = worst(got, want);
     std::printf("  form %s, mexhat level %d: band power per vertex vs the direct operator: %.2e\n", name.c_str(), level, e);
-    CHECK(e < 5e-4 && row && row->value_type == "scalar" && got.size() == static_cast<std::size_t>(Vg));
+    CHECK(e < 5e-4 && row && got.size() == static_cast<std::size_t>(Vg));
     if (name == "curl_tan") {
       folded_curl = want;
       const std::vector<double> wantN = direct(sband.apply(nxr::signal::formOfFreeColumns(id, Kfree, op)));            // the same operator read back on the native vertices

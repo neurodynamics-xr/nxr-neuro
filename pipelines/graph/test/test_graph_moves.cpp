@@ -100,10 +100,10 @@ void test_apply() {
   CHECK(curl.quantity == "curl_tan" && curl.value == VT::complex && g::print(curl.domain.factors[0]) == "glued(cortex(kernel))");
   // tiles: the ladder of the kernel's target, with its level; the ladder of the sensors is refused
   const auto tiles = selection_t({cortex}, "ladder", false, "tiles");
-  const auto y5 = use("meeg.apply_kernel", {{"x", rec}, {"kernel", k}, {"tiles", tiles}}, Json{{"level", "index:5"}}).at("y");
+  const auto y5 = use("meeg.apply_kernel", {{"x", rec}, {"kernel", k}, {"tiles", tiles}}, Json{{"spatial_scale", "index:5"}}).at("y");
   CHECK(y5.res.ladder == "tiles" && y5.res.levels == std::vector<int>{5});
-  CHECK(refused([&] { use("meeg.apply_kernel", {{"x", rec}, {"kernel", k}, {"tiles", selection_t({sensors}, "ladder", false, "tiles")}}, Json{{"level", "index:5"}}); }, {"port `tiles`", "sensors(rest) is not cortex(kernel)"}));
-  CHECK(refused([&] { use("meeg.apply_kernel", {{"x", rec}, {"kernel", k}, {"tiles", tiles}}); }, {"`tiles` comes with `level` or `levels`"}));
+  CHECK(refused([&] { use("meeg.apply_kernel", {{"x", rec}, {"kernel", k}, {"tiles", selection_t({sensors}, "ladder", false, "tiles")}}, Json{{"spatial_scale", "index:5"}}); }, {"port `tiles`", "sensors(rest) is not cortex(kernel)"}));
+  CHECK(refused([&] { use("meeg.apply_kernel", {{"x", rec}, {"kernel", k}, {"tiles", tiles}}); }, {"`tiles` comes with `spatial_scale` or `spatial_scales`"}));
   // analytic_frames: the band's analytic signal read at the frame tiling's members; a non-linear x is refused
   const auto real_rec = field_t({sensors, time});
   const auto tiling = selection_t({time}, "tiling", true, "tiling");
@@ -147,9 +147,9 @@ void test_compose_restrict_make() {
   // restrict: at_level narrows the stack of levels; the domain is unchanged
   g::PortType stack = field_t({cortex, time});
   stack.res.ladder = "tiles"; stack.res.levels = {4, 5, 6};
-  const auto one = use("select.at_level", {{"x", stack}}, Json{{"level", "index:5"}}).at("y");
+  const auto one = use("select.at_level", {{"x", stack}}, Json{{"scale", "index:5"}}).at("y");
   CHECK(one.res.levels == std::vector<int>{5} && g::same(one.domain, stack.domain));
-  CHECK(refused([&] { use("select.at_level", {{"x", one}}, Json{{"level", "index:5"}}); }, {"is not a multi-level field"}));
+  CHECK(refused([&] { use("select.at_level", {{"x", one}}, Json{{"scale", "index:5"}}); }, {"is not a multi-level field"}));
   // make: no field input
   g::Signature mk = g::sig(g::Move::make).in("x", g::field({g::var("M")})).out("t", g::make_of(g::PortClass::selection));
   CHECK(refused([&] { mk.validate("toy.make"); }, {"a `make` node has no field input"}));
