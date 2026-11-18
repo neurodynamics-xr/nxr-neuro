@@ -54,6 +54,7 @@ std::pair<double, double> hz_band(const Json& j, const std::string& who) {
 // ── select.time_grid ─────────────────────────────────────────────────────────────────────────────────────────────
 struct TimeGridState {
   std::string rule, recording, line_name;
+  std::string rule_name;                       // the grid NAMED BY ITS RULE ("band 8-16 Hz", "frames 8-12 Hz 36 per cycle"): several grids coexist on a line, each found by this name
   double rate = 0, line_origin = 0;
   std::int64_t size = 0, origin = 0, width = 0, hop = 0, count = 0;
   double hop_exact = 0, width_exact = 0;       // in samples: equal to hop and width on a dyadic grid; a frame grid of frames per cycle is NOT whole samples (PI rule 34/36: exactly, never snapped)
@@ -208,6 +209,18 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
     s.snapped = Json{{"f_min", d.f_min}, {"f_max", d.f_max}, {"levels", static_cast<std::int64_t>(d.levels.size())}};
     s.level = d.levels.empty() ? -1 : d.levels.front().power;
   } else refuse("select.time_grid: rule '" + s.rule + "': tiles, band, frames, constant_q, segments, windows or chunks");
+  // THE RULE'S NAME: the stated quantities in a canonical form (a band as `lo-hi Hz`, a duration as seconds), so a consumer that states the same quantity finds the grid by name
+  auto band_text = [&](const Json& b) { const auto [lo, hi] = hz_band(b, who); return g(lo) + "-" + g(hi) + " Hz"; };
+  auto seconds_text = [&](const Json& d, const char* what) { const nxr::quantity::Quantity q = parse_q(d, who, what); return g(q.hi) + " s"; };
+  if (s.rule == "tiles") s.rule_name = "tiles " + seconds_text(p["duration"], "duration");
+  else if (s.rule == "band") s.rule_name = "band " + band_text(p["band"]);
+  else if (s.rule == "frames")
+    s.rule_name = "frames " + band_text(p["band"]) + (p["frames_per_tile"].is_number() ? " " + g(p["frames_per_tile"].get<double>()) + " per tile" : " " + g(p["frames_per_cycle"].get<double>()) + " per cycle");
+  else if (s.rule == "constant_q") s.rule_name = "constant_q " + g(s.design["f_min"].get<double>()) + "-" + g(s.design["f_max"].get<double>()) + " Hz " + g(s.design["voices"].get<double>()) + " voices";
+  else if (s.rule == "segments") s.rule_name = "segments " + seconds_text(p["segment"], "segment") + " overlap " + g(p["overlap"].get<double>());
+  else if (s.rule == "windows") s.rule_name = "windows " + seconds_text(p["window"], "window") + " step " + seconds_text(p["step"], "step");
+  else s.rule_name = s.rule;
+  if (s.origin != 0) s.rule_name += " from sample " + std::to_string(s.origin);
   return s;
 }
 
@@ -237,6 +250,7 @@ StepSpec time_grid_step() {
     v.cls = "selection";
     v.manifolds = {*ins.at("line").time};
     v.facts = Json{{"node", "select.time_grid"}, {"port", "grid"}, {"rule", t.rule}, {"names", Json::object()}, {"family", t.rule == "segments" ? "irregular" : "grid"}};
+    v.facts["names"]["grid_rule"] = t.rule_name;
     if (t.width > 0) v.facts["names"]["tile_s"] = g(t.width_exact / t.rate);
     v.facts["window_samples"] = t.width; v.facts["tiles"] = t.count; v.facts["width_s"] = t.width_exact / t.rate; v.facts["origin"] = t.line_origin + static_cast<double>(t.origin) / t.rate;
     if (!t.band.is_null()) v.facts["resolves_hz"] = Json{{"lo", t.band[0]}, {"hi", t.band[1]}};          // the level IS the band (D84): what detection and the events' units read
@@ -251,7 +265,7 @@ StepSpec time_grid_step() {
     const auto& t = std::any_cast<const TimeGridState&>(st);
     const double origin_s = t.line_origin + static_cast<double>(t.origin) / t.rate;
     Json grid = Json{{"kind", "time"}, {"origin", t.origin}, {"width", t.width}, {"hop", t.hop}, {"hop_exact", t.hop_exact}, {"width_exact", t.width_exact}, {"count", t.count}, {"size", t.size}, {"level", t.level}, {"rate", t.rate}, {"rule", t.rule}};
-    Json params = Json{{"grid", grid}, {"quantity", Json{{"stated", t.stated}, {"snapped", t.snapped}}}, {"rule", t.rule}};
+    Json params = Json{{"grid", grid}, {"quantity", Json{{"stated", t.stated}, {"snapped", t.snapped}}}, {"rule", t.rule}, {"rule_name", t.rule_name}};
     if (!t.band.is_null()) params["band"] = t.band;
     if (!t.levels.is_null()) { params["levels"] = t.levels; params["design"] = t.design; }
     Json desc = Json{{"params", params},

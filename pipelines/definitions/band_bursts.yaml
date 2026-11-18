@@ -4,10 +4,10 @@
 #   duration) --> the bursts (an IRREGULAR selection, detected over the grid; each member described by its centre and extent) -- reduce {over: the bursts} --> each burst's amplitude, peak, duration,
 #   interval -- summarize --> the statistics across the bursts (a `summary`, never a per-member statistic).
 # The band is a QUANTITY (Hz): the time grid's level is resolved from it in closed form (the Studio's `fitLevelOf`: the first 2^k samples holding 4 cycles of the band's centre) and recorded with the
-# snapped tile length; the grid is the line's one stored `<recording> time grid` (`run select_time_grid`, once). The filters of the bursts are quantities in physical units: a duration range, a gap to join.
+# snapped tile length; the grid is the line's stored `<recording> time grid band <band>` (`run select_time_grid --rule band`, once per band). The filters of the bursts are quantities in physical units: a duration range, a gap to join.
 # Stored: the tile measurements, the baseline, the bursts, the bursts' measurements and their statistics.
 #
-#   nxr-neuro run select_time_grid --dataset <folder> --subject sub-01 --recording rest                # the line's time grid, once
+#   nxr-neuro run select_time_grid --dataset <folder> --subject sub-01 --recording rest --rule band --band "8-16 Hz"   # the band's time grid, once
 #   nxr-neuro run band_bursts --dataset <folder> --subject sub-01 --all                                # alpha (8-16 Hz), the whole recording
 #   nxr-neuro run band_bursts --dataset <folder> --subject sub-01 --band "4-8 Hz" --all                # theta's tile
 pipeline: band_bursts
@@ -17,7 +17,7 @@ scope: subject
 
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}}
-  grid:      {selection: any, manifold: recording.time, where: {name: "{recording} time grid"}, hint: "the line's time grid (`nxr-neuro run select_time_grid` first)"}
+  grid:      {selection: any, manifold: recording.time, where: {name: "{recording} time grid band ${band}"}, hint: "the band's time grid (`nxr-neuro run select_time_grid --rule band --band 8-16Hz` first)"}
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
 
 parameters:
@@ -44,17 +44,17 @@ steps:
       - {node: signal.envelope, in: {x: recording}, with: {band: $band, shape: $shape}, out: amp}
       - {node: measurement.reduce, in: {x: amp, over: grid, exclude: bad}, with: {measures: [amplitude, envelope_max], bad_segments: $bad_segments}, out: [tiles, tiles_ingredients]}
   after:
-    - {node: measurement.summarize, in: {x: tiles}, with: {summaries: [median, mad], combine: $combine}, out: baseline}
+    - {node: measurement.summarize, in: {x: tiles}, with: {measure: amplitude, summaries: [median, mad], combine: $combine}, out: baseline}
     # the bursts: an irregular selection detected over the grid
-    - {node: select.events.spans, in: {x: tiles, baseline: baseline}, with: {rule: detect, combine: $combine, enter_sd: $enter_sd, exit_sd: $exit_sd, merge_s: $merge_s, min_s: $min_s, max_s: $max_s, durations: $durations, merge_cycles: $merge_cycles, min_cycles: $min_cycles, max_cycles: $max_cycles}, out: bursts}
+    - {node: select.events.spans, in: {x: tiles, baseline: baseline}, with: {rule: detect, measure: amplitude, combine: $combine, enter_sd: $enter_sd, exit_sd: $exit_sd, merge_s: $merge_s, min_s: $min_s, max_s: $max_s, durations: $durations, merge_cycles: $merge_cycles, min_cycles: $min_cycles, max_cycles: $max_cycles}, out: bursts}
     # PER BURST: a measurement over the bursts, by merging the tile measurements they cover (the members' own: duration, interval_next)
-    - {node: measurement.reduce_members, in: {x: tiles, over: bursts}, with: {measures: [amplitude, envelope_max, duration, interval_next]}, out: [burst_values, burst_values_ingredients]}
+    - {node: measurement.reduce_members, in: {x: tiles_ingredients, over: bursts}, with: {measures: [amplitude, envelope_max, duration, interval_next]}, out: [burst_values, burst_values_ingredients]}
     # ACROSS THE BURSTS: the statistics of each (the span's good seconds recorded, so rate, occupancy and CV are derived at read)
     - {node: measurement.summarize, in: {x: burst_values}, with: {summaries: $burst_summaries, combine: $combine}, out: burst_stats}
 
 outputs:
   tiles:        {kind: measurement, over: grid, of: recording}
-  baseline:     {kind: statistic, of: tiles}
+  baseline:     {kind: statistic, of: tiles, over: grid}
   bursts:       {kind: spans, types: [burst], detected_over: grid}
   burst_values: {kind: measurement, over: bursts, of: recording}
-  burst_stats:  {kind: statistic, of: burst_values}
+  burst_stats:  {kind: statistic, of: burst_values, over: bursts}

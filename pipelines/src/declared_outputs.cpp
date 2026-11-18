@@ -306,7 +306,11 @@ std::string declared_name(const Plan& P, const std::string& o) {
     if (P.values.count(o) && P.values.at(o).facts.contains("names"))          // what the node's plan fixed that names its output (a frame length): `{frame_s}`
       for (const auto& [k, v] : P.values.at(o).facts["names"].items())
         for (std::size_t at; (at = t.find("{" + k + "}")) != std::string::npos;) t.replace(at, k.size() + 2, v.get<std::string>());
-    return kind_of(spec) == "selection" ? fill(P, t) : nxr::io::safe_name(fill(P, t));   // a selection keeps its name as written (`<recording> frames 0.0026 s`); its store path is made safe by io
+    std::string filled = fill(P, t);
+    if (P.values.count(o) && P.values.at(o).facts.contains("names"))          // a parameter's default may carry a name too (`{recording} time grid {grid_rule}`)
+      for (const auto& [k, v] : P.values.at(o).facts["names"].items())
+        for (std::size_t at; (at = filled.find("{" + k + "}")) != std::string::npos;) filled.replace(at, k.size() + 2, v.get<std::string>());
+    return kind_of(spec) == "selection" ? filled : nxr::io::safe_name(filled);   // a selection keeps its name as written (`<recording> frames 0.0026 s`); its store path is made safe by io
   }
   const auto a = P.definition.anchor();
   return nxr::io::safe_name(P.definition.name + "." + o + (a && P.found.at(*a).row ? "." + text(*P.found.at(*a).row, "name") : std::string()));
@@ -383,6 +387,18 @@ void check_declared(const Plan& P, const std::string& o) {
   }
 }
 
+// a statistic OF a measurement the run stores (a summary of its members) is of the measurement's own field: found, or stored before it
+std::string statistic_of(const Plan& P, const Json& spec, const std::string& o, const bool resolve_made_only_here) {
+  (void)resolve_made_only_here;
+  std::string of = spec["of"].get<std::string>();
+  for (int hop = 0; hop < 8 && P.definition.outputs.contains(of) && kind_of(P.definition.outputs[of]) == "measurement"; ++hop) {
+    const Json& ms = P.definition.outputs[of];
+    if (!ms.contains("of") || !ms["of"].is_string()) bad(o, "of: '" + of + "' is a measurement made of no field: its statistic is of nothing stored");
+    of = ms["of"].get<std::string>();
+  }
+  return of;
+}
+
 std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, const std::string& o, nxr::io::SubjectWriter& sub) {
   const Json& spec = P.definition.outputs[o];
   const std::string k = kind_of(spec), name = declared_name(P, o);
@@ -400,7 +416,7 @@ std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, co
     }
     if (!mid.empty()) out.emplace_back(task::Cls::field, ts.node_path(mid, name));
   } else if (k == "statistic") {
-    const std::string of = spec["of"].get<std::string>();
+    const std::string of = statistic_of(P, spec, o, true);
     std::string path = "statistics/" + nxr::io::safe_name(name);
     if (P.found.count(of) && P.found.at(of).row && P.found.at(of).cls == "field") path = text(*P.found.at(of).row, "path") + "_statistics/" + nxr::io::safe_name(name);
     out.emplace_back(task::Cls::statistic, path);
@@ -842,8 +858,9 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   st.name = name; st.output = o;
   st.measure = d.value("measure", std::string()); st.method = d.value("method", std::string());
   if (st.measure.empty() || st.method.empty()) bad(o, "its node describes no measure or method");
-  const std::string of = spec["of"].get<std::string>();
-  const std::string of_id = link_of(P, spec, "of", &made, o);
+  // a statistic OF a measurement the run stores (a summary of its members): it is of the measurement's own field (found, or stored before it)
+  const std::string of = statistic_of(P, spec, o, false);
+  const std::string of_id = link(P, of, &made, o);
   const bool of_field = !P.found.count(of) || P.found.at(of).cls == "field";
   if (of_field) st.of_field_id = of_id; else st.of_statistic_id = of_id;
   const std::string acq = acquisition_of(P, of);

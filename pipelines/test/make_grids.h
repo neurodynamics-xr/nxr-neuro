@@ -29,7 +29,7 @@ inline std::vector<nxr::io::Json> make_tiles(nxr::io::DatasetWriter& ds, nxr::io
   return nxr::pipelines::run_shipped(ds, sub, "select_dyadic_surface", set, replace);
 }
 
-/** the line's time grid of every recording of the subject with the constant-Q ladder (rule constant_q: the Studio's ConstantQLevelInfo per level) */
+/** a time grid of every recording of the subject, NAMED BY ITS RULE (`<recording> time grid <rule> ...`; several coexist): the constant-Q ladder by default; `more` carries the rule's quantities (`band`, `duration`, ...) */
 inline std::vector<nxr::io::Json> make_time_grids(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const std::string& rule = "constant_q", const nxr::io::Json& more = nxr::io::Json::object()) {
   nxr::io::Json set = more;
   set["rule"] = rule;

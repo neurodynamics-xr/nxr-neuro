@@ -776,7 +776,7 @@ std::string Unit::selection(const SelectionOut& s) {
   Json params = s.params.is_null() ? Json::object() : s.params;
   if (s.type == "grid" && s.grid && s.grid->time) {   // a line's TIME GRID: one ladder row, its rule closed form (schema 53); found and reused when the line has it
     const TimeGridOut& t = *s.grid->time;
-    return selection::save_time_grid(sub, s.manifold_id, selection::TimeGridRule{t.origin, t.rate, t.samples}, std::nullopt).id;
+    return selection::save_time_grid(sub, s.manifold_id, selection::TimeGridRule{t.origin, t.rate, t.samples}, std::nullopt, t.rule_name).id;
   }
   if (s.type == "product") {   // a product of selections (a grid when every factor is): the factors in order, each a set, or a level of a grid (selection_factor.level), mixed radix, first factor fastest
     if (s.factor_ids.size() < 2) throw Error(code::invalid_argument, "selection " + s.name + ": a product has two or more factors (factor_ids)");

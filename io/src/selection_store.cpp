@@ -363,22 +363,25 @@ Saved save_product(SubjectWriter& sub, const Description& d, const Placement& at
 }  // namespace
 
 // ── a line's time grid (schema 53) ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-std::optional<std::pair<records::SelectionRow, TimeGridRule>> find_time_grid(const Database& db, const std::string& manifold_id) {
+std::optional<std::pair<records::SelectionRow, TimeGridRule>> find_time_grid(const Database& db, const std::string& manifold_id, const std::string& rule_name) {
+  const auto line = db.one("SELECT name FROM manifold WHERE id = ?", {V(manifold_id)});
+  const std::string want = line && !rule_name.empty() ? text(*line, "name") + " time grid " + rule_name : std::string();
   for (const Row& r : db.all("SELECT id FROM selection WHERE manifold_id = ? AND type = 'ladder' AND json_extract(params_json, '$.grid.kind') = 'time' ORDER BY created_utc, id", {V(manifold_id)})) {
     const auto row = records::Selections(db).read(text(r, "id"));
     if (!row) continue;
+    if (!want.empty() && row->name != want) continue;
     const Json& g = row->params_json["grid"];
     return std::make_pair(*row, TimeGridRule{g.value("origin", 0.0), g.value("rate", 0.0), g.value("samples", std::int64_t(0))});
   }
   return std::nullopt;
 }
 
-Saved save_time_grid(SubjectWriter& sub, const std::string& manifold_id, const TimeGridRule& rule, const std::optional<std::string>& created_by) {
+Saved save_time_grid(SubjectWriter& sub, const std::string& manifold_id, const TimeGridRule& rule, const std::optional<std::string>& created_by, const std::string& rule_name) {
   if (!(rule.rate > 0) || rule.samples < 1) refuse("a time grid needs a sample rate above 0 and at least one sample");
-  if (const auto have = find_time_grid(sub.db(), manifold_id)) {
+  if (const auto have = find_time_grid(sub.db(), manifold_id, rule_name)) {
     const TimeGridRule& h = have->second;
     if (h.samples != rule.samples || std::abs(h.rate - rule.rate) > 1e-12 * rule.rate || std::abs(h.origin - rule.origin) > 1e-12 * std::max(1.0, std::abs(rule.origin)))
-      refuse("the line already has a time grid with another rule (" + i2s(h.samples) + " samples at " + fixed(h.rate, 6) + " Hz from " + fixed(h.origin, 6) + " s)");
+      refuse("the line already has a time grid of this name with another rule (" + i2s(h.samples) + " samples at " + fixed(h.rate, 6) + " Hz from " + fixed(h.origin, 6) + " s)");
     Saved out;
     out.id = have->first.id;
     out.dictionary_id = have->first.dictionary_id;
@@ -389,7 +392,8 @@ Saved save_time_grid(SubjectWriter& sub, const std::string& manifold_id, const T
   int levels = 0;
   while ((std::int64_t(1) << (levels + 1)) <= rule.samples) ++levels;   // the coarsest level whose tile (2^k samples) fits the line at least once
   DictionarySpec ds;
-  ds.name = text(*line, "name") + " time grid";
+  const std::string grid_name = text(*line, "name") + " time grid" + (rule_name.empty() ? std::string() : " " + rule_name);
+  ds.name = grid_name;
   ds.description = "the levels of the time grid of '" + text(*line, "name") + "': code = ordinal = k, the tile of 2^k samples from the line's first sample; `measurement` its duration in seconds";
   std::vector<DictionaryEntry> entries;
   for (int k = 0; k <= levels; ++k) {
@@ -403,7 +407,7 @@ Saved save_time_grid(SubjectWriter& sub, const std::string& manifold_id, const T
   ds.entries = std::move(entries);
   const std::string dict_id = sub.dictionary(ds).id;
   Placement at;
-  at.name = text(*line, "name") + " time grid";
+  at.name = grid_name;
   at.manifold_id = manifold_id;
   at.cell = "1";
   at.created_by = created_by;

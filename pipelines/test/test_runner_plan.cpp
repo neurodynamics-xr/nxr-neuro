@@ -46,17 +46,17 @@ int main() {
   CHECK(has(refusal([] { parse_yaml("a: [1, 2\n", "bad.yaml"); }), "bad.yaml"));
 
   // 2. THE STRUCTURE (definition.cpp: nxr's parse), each refusal named
-  const std::string ok = chain("      - {node: field.form, in: {x: recording}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {method: sample}, out: out}\n");
+  const std::string ok = chain("      - {node: signal.field_form, in: {x: recording}, with: {form: power}, out: p}\n      - {node: measurement.estimate, in: {x: p}, with: {method: sample}, out: out}\n");
   CHECK(refusal([&] { def(ok); }).empty());
   CHECK(has(refusal([&] { def(ok + "extra: 1\n"); }), "unknown section(s) extra"));
-  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {x: recording}, with: {form: power}, out: p}\n")); }), "nothing leaves the loop without an accumulate step"));
-  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {y: recording}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {method: sample}, out: out}\n")); }), "'y' is not one of its ports"));
-  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {x: nothing}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {method: sample}, out: out}\n")); }), "neither an input nor an earlier step's output"));
-  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {x: recording}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {method: $nope}, out: out}\n")); }), "$nope is not a parameter"));
-  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {x: recording}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {window: 2}, out: out}\n")); }), "'window' is not one of its parameters"));
-  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {x: recording}, with: {form: power}, out: [p, q]}\n      - {node: estimate, in: {x: p}, with: {method: sample}, out: out}\n")); }), "it makes 1 thing(s)"));
-  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {x: recording}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {method: sample}, out: out}\n", "nope: {kind: test}")); }), "outputs.nope: not made by any step"));
-  CHECK(has(refusal([&] { def("pipeline: t\ninputs: {r: {field: recording}}\nsteps:\n  after:\n    - {node: field.form, in: {x: r}, with: {form: power}, out: out}\noutputs: {out: {kind: statistic}}\n"); }), "a chunk step cannot be in 'after'"));
+  CHECK(has(refusal([&] { def(chain("      - {node: signal.field_form, in: {x: recording}, with: {form: power}, out: p}\n")); }), "nothing leaves the loop without an accumulate step"));
+  CHECK(has(refusal([&] { def(chain("      - {node: signal.field_form, in: {y: recording}, with: {form: power}, out: p}\n      - {node: measurement.estimate, in: {x: p}, with: {method: sample}, out: out}\n")); }), "'y' is not one of its ports"));
+  CHECK(has(refusal([&] { def(chain("      - {node: signal.field_form, in: {x: nothing}, with: {form: power}, out: p}\n      - {node: measurement.estimate, in: {x: p}, with: {method: sample}, out: out}\n")); }), "neither an input nor an earlier step's output"));
+  CHECK(has(refusal([&] { def(chain("      - {node: signal.field_form, in: {x: recording}, with: {form: power}, out: p}\n      - {node: measurement.estimate, in: {x: p}, with: {method: $nope}, out: out}\n")); }), "$nope is not a parameter"));
+  CHECK(has(refusal([&] { def(chain("      - {node: signal.field_form, in: {x: recording}, with: {form: power}, out: p}\n      - {node: measurement.estimate, in: {x: p}, with: {window: 2}, out: out}\n")); }), "'window' is not one of its parameters"));
+  CHECK(has(refusal([&] { def(chain("      - {node: signal.field_form, in: {x: recording}, with: {form: power}, out: [p, q]}\n      - {node: measurement.estimate, in: {x: p}, with: {method: sample}, out: out}\n")); }), "it makes 1 thing(s)"));
+  CHECK(has(refusal([&] { def(chain("      - {node: signal.field_form, in: {x: recording}, with: {form: power}, out: p}\n      - {node: measurement.estimate, in: {x: p}, with: {method: sample}, out: out}\n", "nope: {kind: test}")); }), "outputs.nope: not made by any step"));
+  CHECK(has(refusal([&] { def("pipeline: t\ninputs: {r: {field: recording}}\nsteps:\n  after:\n    - {node: signal.field_form, in: {x: r}, with: {form: power}, out: out}\noutputs: {out: {kind: statistic}}\n"); }), "a chunk step cannot be in 'after'"));
   CHECK(has(refusal([&] { def("pipeline: t\ninputs:\n  k: {operator: inverse kernel, from: r.manifold.0}\n  r: {field: recording}\nsteps: {}\noutputs: {out: {kind: statistic}}\n"); }), "relations start from an input declared BEFORE"));
   CHECK(has(refusal([] { g::step("mean_square"); }), "no pipeline step 'mean_square'"));
   CHECK(g::load(kBandPower).anchor() == std::optional<std::string>("recording"));
@@ -160,13 +160,13 @@ int main() {
   }
   // an ambiguous input is refused, naming the matches
   CHECK(has(refusal([&] { g::plan_runs(def("pipeline: t\ninputs:\n  r: {field: recording}\n  k: {operator: inverse kernel, from: r.manifold.0}\nsteps:\n  chunks:\n    over: r\n    do:\n"
-                                           "      - {node: field.form, in: {x: r}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {method: sample}, out: out}\noutputs: {out: {kind: statistic}}\n"), sub.db(), sid, Json::object()); }),
+                                           "      - {node: signal.field_form, in: {x: r}, with: {form: power}, out: p}\n      - {node: measurement.estimate, in: {x: p}, with: {method: sample}, out: out}\noutputs: {out: {kind: statistic}}\n"), sub.db(), sid, Json::object()); }),
             "inputs.r: 2 match (rest, rest_b)"));
 
   // 5. THE PHASE CHAIN: band → analytic → kernel → phase current (vector3 ℝ on the cortex × time) → measure (out of the loop)
-  const std::string phase = chain("      - {node: band_filter, in: {x: recording}, with: {band: [8, 12]}, out: xb}\n      - {node: analytic, in: {x: xb}, out: z}\n"
-                                  "      - {node: apply_kernel, in: {x: z, kernel: kernel}, out: j}\n      - {node: field.form, in: {x: j}, with: {form: phase_current}, out: h}\n"
-                                  "      - {node: gradient_power, in: {x: j}, out: q}\n      - {node: estimate, in: {x: h}, with: {method: sample}, out: out}\n");
+  const std::string phase = chain("      - {node: signal.band_filter, in: {x: recording}, with: {band: [8, 12]}, out: xb}\n      - {node: signal.analytic, in: {x: xb}, out: z}\n"
+                                  "      - {node: meeg.apply_kernel, in: {x: z, kernel: kernel}, out: j}\n      - {node: signal.field_form, in: {x: j}, with: {form: phase_current}, out: h}\n"
+                                  "      - {node: signal.gradient_power, in: {x: j}, out: q}\n      - {node: measurement.estimate, in: {x: h}, with: {method: sample}, out: out}\n");
   const auto pr = g::plan_runs(def(phase), sub.db(), sid, Json::object());
   CHECK(pr.size() == 1);
   if (pr.size() == 1) {
@@ -175,19 +175,19 @@ int main() {
   }
   auto plan_of = [&](const std::string& body) { const std::string r = refusal([&] { g::plan_runs(def(chain(body)), sub.db(), sid, Json::object()); }); return r; };
   // a real field has no phase
-  CHECK(has(plan_of("      - {node: apply_kernel, in: {x: recording, kernel: kernel}, out: j}\n      - {node: field.form, in: {x: j}, with: {form: phase_current}, out: h}\n      - {node: estimate, in: {x: h}, with: {method: sample}, out: out}\n"),
+  CHECK(has(plan_of("      - {node: meeg.apply_kernel, in: {x: recording, kernel: kernel}, out: j}\n      - {node: signal.field_form, in: {x: j}, with: {form: phase_current}, out: h}\n      - {node: measurement.estimate, in: {x: h}, with: {method: sample}, out: out}\n"),
             "x must be complex"));
   // D106: no linear map after the envelope
-  CHECK(has(plan_of("      - {node: envelope, in: {x: recording}, out: e}\n      - {node: apply_kernel, in: {x: e, kernel: kernel}, out: j}\n      - {node: estimate, in: {x: j}, with: {method: sample}, out: out}\n"),
+  CHECK(has(plan_of("      - {node: signal.envelope, in: {x: recording}, out: e}\n      - {node: meeg.apply_kernel, in: {x: e, kernel: kernel}, out: j}\n      - {node: measurement.estimate, in: {x: j}, with: {method: sample}, out: out}\n"),
             "(D106)"));
-  const std::string head = "      - {node: analytic, in: {x: recording}, out: z}\n      - {node: apply_kernel, in: {x: z, kernel: kernel}, out: j}\n";
+  const std::string head = "      - {node: signal.analytic, in: {x: recording}, out: z}\n      - {node: meeg.apply_kernel, in: {x: z, kernel: kernel}, out: j}\n";
   // a form: |q| of the current is its envelope (no phase); nx keeps it; a form the type lacks is refused with the type's forms
-  CHECK(has(plan_of(head + "      - {node: form, in: {x: j}, with: {form: absq}, out: a}\n      - {node: field.form, in: {x: a}, with: {form: phase_current}, out: h}\n      - {node: estimate, in: {x: h}, with: {method: sample}, out: out}\n"),
+  CHECK(has(plan_of(head + "      - {node: signal.form, in: {x: j}, with: {form: absq}, out: a}\n      - {node: signal.field_form, in: {x: a}, with: {form: phase_current}, out: h}\n      - {node: measurement.estimate, in: {x: h}, with: {method: sample}, out: out}\n"),
             "x must be complex"));
-  CHECK(plan_of(head + "      - {node: form, in: {x: j}, with: {form: nx}, out: a}\n      - {node: field.form, in: {x: a}, with: {form: phase_current}, out: h}\n      - {node: field.form, in: {x: a}, with: {form: power}, out: q}\n      - {node: estimate, in: {x: q}, with: {method: sample}, out: out}\n").empty());
-  CHECK(has(plan_of(head + "      - {node: form, in: {x: j}, with: {form: f}, out: a}\n      - {node: estimate, in: {x: a}, with: {method: sample}, out: out}\n"), "'f' is not a form of a ℍ field"));
+  CHECK(plan_of(head + "      - {node: signal.form, in: {x: j}, with: {form: nx}, out: a}\n      - {node: signal.field_form, in: {x: a}, with: {form: phase_current}, out: h}\n      - {node: signal.field_form, in: {x: a}, with: {form: power}, out: q}\n      - {node: measurement.estimate, in: {x: q}, with: {method: sample}, out: out}\n").empty());
+  CHECK(has(plan_of(head + "      - {node: signal.form, in: {x: j}, with: {form: f}, out: a}\n      - {node: measurement.estimate, in: {x: a}, with: {method: sample}, out: out}\n"), "'f' is not a form of a ℍ field"));
   // a reduction of a complex field is refused
-  CHECK(has(plan_of(head + "      - {node: estimate, in: {x: j}, with: {method: sample}, out: out}\n"), "x is complex"));
+  CHECK(has(plan_of(head + "      - {node: measurement.estimate, in: {x: j}, with: {method: sample}, out: out}\n"), "x is complex"));
 
 #ifdef NXR_TEST_CLI
   {

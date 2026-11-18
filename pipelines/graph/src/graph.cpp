@@ -260,6 +260,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
         if (planned == n.planned.out.end()) { n.planned.out[port] = mt; continue; }
         PortType& dst = planned->second;                 // the plan's type keeps what C1 reads; the typed members are the checker's
         dst.typed = true; dst.components = mt.components; dst.domain = mt.domain; dst.target = mt.target; dst.quantity = mt.quantity; dst.res = mt.res; dst.from_value = mt.from_value;
+        if (dst.cls == PortClass::constant && mt.cls != PortClass::constant) dst.cls = mt.cls;   // the checker's class wins: a Value maps measurements, statistics and spans to the stored-constant class
         dst.spin = mt.spin; dst.gauge = mt.gauge; dst.sel = mt.sel; dst.of = mt.of; dst.transition = mt.transition; dst.complex_parts = mt.complex_parts;
       }
     }

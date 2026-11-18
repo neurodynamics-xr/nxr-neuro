@@ -548,7 +548,7 @@ std::vector<StepSpec> build() {
                  y.unit.reset();
                  return Values{{"y", y}};
                }});
-  r.push_back({"measurement.summarize", "after", {"x"}, {}, {"y"}, Json{{"summaries", Json::array({"median", "mad"})}, {"combine", "each"}, {"ddof", 1}},
+  r.push_back({"measurement.summarize", "after", {"x"}, {}, {"y"}, Json{{"summaries", Json::array({"median", "mad"})}, {"combine", "each"}, {"ddof", 1}, {"measure", nullptr}},
                "a statistic across a partition's members; the summaries of compute nxr::stats (numpy median and linear percentile, Rheome's robust SD, MATLAB's sd, kurtosis, skewness)",
                "a measurement of the run summarised over its partition's members into a STATISTIC (field -> selection/measurement -> statistic): per row (each), pooled, or of the mean over rows",
                [](const Values& ins, const Json& p, const PlanContext&) {
@@ -563,6 +563,13 @@ std::vector<StepSpec> build() {
                  need(p["combine"] == "each" || p["combine"] == "pool" || p["combine"] == "mean", "summarize: combine " + p["combine"].dump() + ": each, pool or mean");
                  Value y = made(x);
                  y.cls = "statistic";
+                 if (p["measure"].is_string()) {                // one of x's measures: the statistic is of it alone
+                   bool found = x.facts.value("measure", std::string()) == p["measure"] && !(x.facts.contains("measures") && x.facts["measures"].size() > 1);
+                   if (x.facts.contains("measures")) for (const auto& m : x.facts["measures"]) found = found || m == p["measure"];
+                   need(found, "summarize: measure " + p["measure"].dump() + " is not one of x's measures " + x.facts.value("measures", Json::array()).dump());
+                   y.facts["measure"] = p["measure"];
+                   y.facts["measures"] = Json::array({p["measure"]});
+                 }
                  y.facts["summaries"] = p["summaries"];
                  y.facts["combine"] = p["combine"];
                  return Values{{"y", y}};
@@ -597,7 +604,7 @@ std::vector<StepSpec> build() {
                  return out;
                }});
   r.push_back({"detect_spans", "after", {"x", "baseline"}, {"baseline"}, {"spans"},
-               Json{{"combine", "each"}, {"enter_sd", 1.5}, {"exit_sd", 1.0}, {"merge_s", 0.1}, {"min_s", 0.4}, {"max_s", nullptr}, {"durations", "seconds"}, {"merge_cycles", 1.0}, {"min_cycles", 3.0}, {"max_cycles", nullptr}},
+               Json{{"combine", "each"}, {"measure", nullptr}, {"enter_sd", 1.5}, {"exit_sd", 1.0}, {"merge_s", 0.1}, {"min_s", 0.4}, {"max_s", nullptr}, {"durations", "seconds"}, {"merge_cycles", 1.0}, {"min_cycles", 3.0}, {"max_cycles", nullptr}},
                "Rheome +detect/spindle.m (its rule: per channel the median and robust SD 1.4826·MAD over the baseline, enter at median + hiSD·SD, extend while ≥ median + loSD·SD, "
                "merge gaps ≤ mergeGap, keep minDur ≤ length ≤ maxDur), as +flow/labelalpha.m calls it for alpha episodes (1.5 / 1.0 SD, 0.1 s, 0.4 s, no max); compute nxr::select",
                "a measurement's tiles labelled with events: per row (combine each) or on the mean over rows (combine mean), the median and robust SD over the good "
@@ -609,6 +616,12 @@ std::vector<StepSpec> build() {
                  need(x.cls == "measurement" && x.facts.contains("over"), "detect_spans: x must be a measurement over a time partition (`measure` with `over`)");
                  need(x.facts.value("measure", std::string()) != "phase_current", "detect_spans: x is a vector measurement (the phase current); events are found on a scalar trace");
                  need(p["combine"] == "each" || p["combine"] == "mean", "detect_spans: combine " + p["combine"].dump() + ": each (per row) or mean (over rows)");
+                 if (x.facts.contains("measures") && x.facts["measures"].is_array() && x.facts["measures"].size() > 1) {
+                   need(p["measure"].is_string(), "detect_spans: x holds several measures; `measure` names the one the events are found on");
+                   bool found = false;
+                   for (const auto& m : x.facts["measures"]) found = found || m == p["measure"];
+                   need(found, "detect_spans: measure " + p["measure"].dump() + " is not one of x's measures " + x.facts["measures"].dump());
+                 }
                  for (const char* k : {"enter_sd", "exit_sd", "merge_s", "min_s"}) need(p[k].is_number(), std::string("detect_spans: ") + k + " is a number");
                  need(p["enter_sd"].get<double>() >= p["exit_sd"].get<double>(), "detect_spans: enter_sd is at least exit_sd (enter high, extend low)");
                  need(p["durations"] == "seconds" || p["durations"] == "cycles", "detect_spans: durations " + p["durations"].dump() + ": seconds (merge_s, min_s, max_s) or cycles (merge_cycles, min_cycles, max_cycles of the band's centre)");
@@ -1391,13 +1404,27 @@ void bind_execution(std::vector<StepSpec>& r) {
     const std::int64_t gap = static_cast<std::int64_t>(std::floor(p["merge_s"].get<double>() / width_s + 1e-9)) + 1;
     const std::int64_t minL = std::max<std::int64_t>(1, static_cast<std::int64_t>(std::ceil(p["min_s"].get<double>() / width_s - 1e-9)));
     const std::int64_t maxL = p["max_s"].is_null() ? std::numeric_limits<std::int64_t>::max() : static_cast<std::int64_t>(std::floor(p["max_s"].get<double>() / width_s + 1e-9));
+    // the measure the events are found on: one column of x [rows x tiles x measures]
+    const std::int64_t C = std::max<std::int64_t>(1, x.comps);
+    std::int64_t mi = 0, at_comp = 0;
+    {
+      const Json ms = x.meta.value("measures", Json::array());
+      std::int64_t comp = 0;
+      for (const auto& m : ms) {
+        if (p["measure"].is_string() && m.value("measure", std::string()) == p["measure"].get<std::string>()) { mi = static_cast<std::int64_t>(&m - &ms[0]); at_comp = comp; }
+        comp += m.value("components", 1);
+      }
+      need(C == 1 || p["measure"].is_string(), "detect_spans: x holds several measures; `measure` names the one the events are found on");
+    }
+    std::vector<double> column(static_cast<std::size_t>(R * T));
+    for (std::int64_t r = 0; r < R; ++r) for (std::int64_t t = 0; t < T; ++t) column[static_cast<std::size_t>(r * T + t)] = x.data[static_cast<std::size_t>((r * T + t) * C + at_comp)];
     std::vector<std::pair<std::int64_t, Eigen::VectorXd>> series;    // (row, values)
     if (p["combine"] == "mean") {
       Eigen::VectorXd v(T);
-      for (std::int64_t t = 0; t < T; ++t) { double s = 0; for (std::int64_t r = 0; r < R; ++r) s += x.data[static_cast<std::size_t>(r * T + t)]; v(t) = s / static_cast<double>(R); }
+      for (std::int64_t t = 0; t < T; ++t) { double s = 0; for (std::int64_t r = 0; r < R; ++r) s += column[static_cast<std::size_t>(r * T + t)]; v(t) = s / static_cast<double>(R); }
       series.emplace_back(-1, v);
     } else {
-      for (std::int64_t r = 0; r < R; ++r) series.emplace_back(r, Eigen::Map<const Eigen::VectorXd>(x.data.data() + r * T, T));
+      for (std::int64_t r = 0; r < R; ++r) series.emplace_back(r, Eigen::Map<const Eigen::VectorXd>(column.data() + r * T, T));
     }
     Array out{0, 4, {}};
     Json thresholds = Json::array();
@@ -1405,6 +1432,11 @@ void bind_execution(std::vector<StepSpec>& r) {
     const Array* base = ins.count("baseline") ? &ins.at("baseline") : nullptr;
     std::int64_t bmed = -1, bmad = -1;
     if (base) for (std::size_t k = 0; k < base->meta["summaries"].size(); ++k) { const std::string n = base->meta["summaries"][k]["name"]; if (n == "median") bmed = static_cast<std::int64_t>(k); if (n == "mad") bmad = static_cast<std::int64_t>(k); }
+    std::int64_t bmeasure = 0;                                               // the baseline's columns are measure-major: the chosen measure's block
+    if (base && base->meta.contains("measures") && p["measure"].is_string())
+      for (std::size_t k = 0; k < base->meta["measures"].size(); ++k) if (base->meta["measures"][k].value("name", std::string()) == p["measure"].get<std::string>()) bmeasure = static_cast<std::int64_t>(k);
+    else if (base && base->meta.contains("measures") && base->meta["measures"].size() > 1) bmeasure = mi;
+    const std::int64_t bshift = base ? bmeasure * static_cast<std::int64_t>(base->meta["summaries"].size()) : 0;
     std::size_t si = 0;
     for (const auto& [row, v] : series) {
       const std::size_t this_series = si++;
@@ -1412,8 +1444,8 @@ void bind_execution(std::vector<StepSpec>& r) {
       for (Eigen::Index t = 0; t < v.size(); ++t) if (std::isfinite(v(t))) good.push_back(v(t));
       if (good.size() < 2) { thresholds.push_back(Json{{"row", row}, {"skipped", "fewer than 2 good tiles"}}); continue; }
       const Eigen::Map<const Eigen::VectorXd> g(good.data(), static_cast<Eigen::Index>(good.size()));
-      const double med = base ? base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmed)] : nxr::select::median(g);
-      const double sd = base ? base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmad)] : nxr::select::mad(g);
+      const double med = base ? base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmed + bshift)] : nxr::select::median(g);
+      const double sd = base ? base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmad + bshift)] : nxr::select::mad(g);
       if (!(sd > 0)) { thresholds.push_back(Json{{"row", row}, {"median", med}, {"robust_sd", sd}, {"skipped", "no spread (robust SD 0)"}}); continue; }
       const double hi = med + p["enter_sd"].get<double>() * sd, lo = med + p["exit_sd"].get<double>() * sd;
       Eigen::VectorXd z = v;

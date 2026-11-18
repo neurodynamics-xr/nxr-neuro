@@ -26,6 +26,7 @@
 #include "nxr/measurement/roll_up.h"
 #include "nxr/measurement/summarize.h"
 #include "nxr/quantity/quantity.h"
+#include "nxr/select/events.h"
 #include "nxr/select/grid.h"
 #include "nxr/select/partition.h"
 #include "nxr/selection/resolved.h"
@@ -223,13 +224,19 @@ Json descriptor_of(const Value& over, const ExecContext& c, const std::string& p
       return d;
     }
     need(pj.is_object() && (pj.contains("grid") || pj.contains("product")), who + ": the selection " + nxr::io::text(*over.row, "name") + " records no grid or product (params.grid / params.product)");
-    return pj.contains("product") ? Json{{"kind", "product"}, {"factors", pj["product"]["factors"]}, {"layout", pj["product"].value("layout", std::string("product"))}, {"bits", pj["product"].value("bits", 0)}} : pj["grid"];
+    if (pj.contains("product")) return Json{{"kind", "product"}, {"factors", pj["product"]["factors"]}, {"layout", pj["product"].value("layout", std::string("product"))}, {"bits", pj["product"].value("bits", 0)}};
+    Json grid = pj["grid"];
+    if (pj.contains("band")) grid["band"] = pj["band"];                    // the band the grid is named for (rule band, frames): what its tiles resolve
+    return grid;
   }
   need(c.made && c.made->count(port), who + ": `" + port + "` was not made earlier in the run and is not stored");
   const Json& d = c.made->at(port).meta.value("describe", Json::object());
   const Json& p = d.value("params", Json::object());
   need(p.contains("grid") || p.contains("product"), who + ": the selection made for `" + port + "` records no grid or product");
-  return p.contains("product") ? Json{{"kind", "product"}, {"factors", p["product"]["factors"]}, {"layout", p["product"].value("layout", std::string("product"))}, {"bits", p["product"].value("bits", 0)}} : p["grid"];
+  if (p.contains("product")) return Json{{"kind", "product"}, {"factors", p["product"]["factors"]}, {"layout", p["product"].value("layout", std::string("product"))}, {"bits", p["product"].value("bits", 0)}};
+  Json grid = p["grid"];
+  if (p.contains("band")) grid["band"] = p["band"];
+  return grid;
 }
 
 struct Form {
@@ -579,9 +586,15 @@ StepSpec reduce_node() {
     for (std::size_t k = 0; k < st.measures.size(); ++k) comps.push_back(Json{{"measure", st.measures[k]}, {"components", st.components[k]}});
     y.meta = Json{{"measures", comps}, {"members", T}, {"whole_members", whole}, {"over", st.over}, {"radices", st.radices}, {"rate", st.rate}, {"origin", st.origin}};
     y.meta["describe"] = describe_measures(comps, R, T, C);
+    if (st.over.is_object() && st.over.value("kind", std::string()) == "time" && st.over.value("width", std::int64_t(0)) > 0 && st.rate > 0) {   // a time grid's tile, as the detection after it reads it
+      y.meta["window_samples"] = st.over["width"];
+      y.meta["width_s"] = st.over["width"].get<double>() / st.rate;
+      y.meta["tiles"] = st.over.value("count", std::int64_t(0));
+      if (st.over.contains("band") && st.over["band"].is_array() && st.over["band"].size() == 2) y.meta["resolves_hz"] = Json{{"lo", st.over["band"][0]}, {"hi", st.over["band"][1]}};
+    }
     // the ingredients, packed [rows x members x K] by the measurement module (what is stored, and what rolls up)
     Array g = pack_ingredients(acc.ing, R, T);
-    g.meta = y.meta;
+    for (const auto& [k, v] : y.meta.items()) g.meta[k] = v;               // the values' record beside the ingredients' own layout (ingredient_lengths, ...)
     return Arrays{{"values", std::move(y)}, {"ingredients", std::move(g)}};
   };
   return s;
@@ -624,14 +637,50 @@ StepSpec reduce_members_node() {
       for (std::int64_t m = static_cast<std::int64_t>(e[0]); m < static_cast<std::int64_t>(e[1]); ++m) groups.elements.push_back(m);
       groups.offsets.push_back(static_cast<std::int64_t>(groups.elements.size()));
     }
+    // the measures of the events' CELLS merge by their rule; an event's OWN measures (its duration, the interval to the next event, its tile count) are read from the events' tiles
+    const std::set<std::string> own = {"duration", "interval_next", "n_tiles"};
     nm::Request req;
-    for (const auto& m : p["measures"]) req.measures.push_back(m.get<std::string>());
+    for (const auto& m : p["measures"]) if (!own.count(m.get<std::string>())) req.measures.push_back(m.get<std::string>());
     const nm::Ingredients fine = unpack_ingredients(g);
     const nm::Ingredients merged = nm::merge(fine, groups, req);
-    Array y = values_of(merged, req, g.rows, groups.members());
-    y.meta = Json{{"members", groups.members()}, {"of", g.meta}};
-    Array gi = pack_ingredients(merged, g.rows, groups.members());
-    gi.meta = y.meta;
+    const Array cells = values_of(merged, req, g.rows, groups.members());
+    const std::int64_t E = groups.members(), R = g.rows;
+    const double width_s = g.meta.value("width_s", 0.0);
+    std::vector<nxr::select::TileEvent> evs;
+    for (std::int64_t k = 0; k < ev.rows; ++k) { const double* e = ev.data.data() + k * 4; evs.push_back({static_cast<std::int64_t>(e[0]), static_cast<std::int64_t>(e[1]), static_cast<std::int64_t>(e[2])}); }
+    std::int64_t C = 0, Cc = 0;
+    Json comps = Json::array();
+    for (const auto& m : p["measures"]) { const int k = components_of(m.get<std::string>()); C += k; comps.push_back(Json{{"measure", m}, {"components", k}}); }
+    for (const auto& m : req.measures) Cc += components_of(m);
+    Array y{R, E, std::vector<double>(static_cast<std::size_t>(R * E * C), kNaN)};
+    y.comps = C;
+    std::int64_t off = 0, coff = 0;
+    for (const auto& mj : p["measures"]) {
+      const std::string m = mj.get<std::string>();
+      const int k = components_of(m);
+      if (own.count(m)) {
+        need(width_s > 0, "reduce_members: " + m + " is read from the events' tiles; x carries no tile width (reduce over a time grid)");
+        const std::vector<double> v = m == "duration" ? nxr::select::eventDurations(evs, width_s) : m == "interval_next" ? nxr::select::eventIntervalNext(evs, width_s) : [&] {
+          std::vector<double> n; for (const auto& e : evs) n.push_back(static_cast<double>(e.stop - e.first)); return n; }();
+        for (std::int64_t e = 0; e < E; ++e)
+          for (std::int64_t r = 0; r < R; ++r)
+            if (evs[static_cast<std::size_t>(e)].row < 0 || evs[static_cast<std::size_t>(e)].row == r) y.data[static_cast<std::size_t>((r * E + e) * C + off)] = v[static_cast<std::size_t>(e)];
+      } else {
+        for (std::int64_t r = 0; r < R; ++r)
+          for (std::int64_t e = 0; e < E; ++e)
+            for (int c = 0; c < k; ++c) y.data[static_cast<std::size_t>((r * E + e) * C + off + c)] = cells.data[static_cast<std::size_t>((r * E + e) * Cc + coff + c)];
+        coff += k;
+      }
+      off += k;
+    }
+    // an event found on one row (a channel) is measured on that row alone: the other rows hold no value for it (an event of row -1, found on the mean over rows, is measured on every row)
+    for (std::int64_t e = 0; e < E; ++e)
+      if (evs[static_cast<std::size_t>(e)].row >= 0)
+        for (std::int64_t r = 0; r < R; ++r)
+          if (r != evs[static_cast<std::size_t>(e)].row) for (std::int64_t c = 0; c < C; ++c) y.data[static_cast<std::size_t>((r * E + e) * C + c)] = kNaN;
+    y.meta = Json{{"members", E}, {"of", g.meta}, {"measures", comps}, {"describe", describe_measures(comps, R, E, C)}};
+    Array gi = pack_ingredients(merged, g.rows, E);
+    for (const auto& [kk, vv] : y.meta.items()) gi.meta[kk] = vv;
     return Arrays{{"values", std::move(y)}, {"ingredients", std::move(gi)}};
   };
   return s;
@@ -724,23 +773,56 @@ void redirect_summarize(StepSpec& sc) {
     req.ddof = p["ddof"].get<int>();
     const std::string combine = p["combine"].get<std::string>();
     req.combine = combine == "each" ? nm::Combine::each : combine == "pool" ? nm::Combine::pool : nm::Combine::mean;
+    // THE MEASURES OF x are its columns [rows x members x measures]: each is summarised, the statistic's columns measure-major (measure c, summary s at column c * summaries + s)
+    const std::int64_t C = std::max<std::int64_t>(1, x.comps);
+    std::vector<std::string> column_names;
+    for (const auto& m : x.meta.value("measures", Json::array())) {
+      const std::string name = m.value("measure", std::string());
+      if (m.value("components", 1) == 3) for (const char* ax : {"_x", "_y", "_z"}) column_names.push_back(name + ax);
+      else column_names.push_back(name);
+    }
+    std::int64_t first = 0, count = C;                                       // `measure`: one of the columns alone
+    if (p["measure"].is_string()) {
+      const std::string want = p["measure"].get<std::string>();
+      bool found = false;
+      std::int64_t c = 0;
+      for (const auto& m : x.meta.value("measures", Json::array())) {
+        const int k = m.value("components", 1);
+        if (m.value("measure", std::string()) == want) { first = c; count = k; found = true; }
+        c += k;
+      }
+      if (!found && C == 1) { first = 0; count = 1; found = true; }
+      need(found, "summarize: measure " + p["measure"].dump() + " is not one of x's measures");
+    }
+    if (static_cast<std::int64_t>(column_names.size()) != C) { column_names.clear(); for (std::int64_t c = 0; c < C; ++c) column_names.push_back(C == 1 ? x.meta.value("measure", std::string()) : "column " + std::to_string(c)); }
     // no members at all (a run that found no event): one NaN member, so the counts and sums read 0 and the rest NaN
-    Eigen::MatrixXd values(x.rows, std::max<std::int64_t>(1, x.cols));
-    for (std::int64_t r = 0; r < x.rows; ++r)
-      for (std::int64_t m = 0; m < values.cols(); ++m) values(r, m) = x.cols ? x.data[static_cast<std::size_t>(r * x.cols + m)] : kNaN;
-    const Eigen::MatrixXd out = nm::summarize(values, req);               // rows' x summaries
-    Array y{out.rows(), out.cols(), std::vector<double>(static_cast<std::size_t>(out.size()))};
-    for (Eigen::Index r = 0; r < out.rows(); ++r) for (Eigen::Index c = 0; c < out.cols(); ++c) y.data[static_cast<std::size_t>(r * out.cols() + c)] = out(r, c);
+    const std::int64_t S = static_cast<std::int64_t>(req.names.size());
+    Array y{x.rows, count * S, std::vector<double>(static_cast<std::size_t>(x.rows * count * S), kNaN)};
+    for (std::int64_t j = 0; j < count; ++j) {
+      const std::int64_t c = first + j;
+      Eigen::MatrixXd values(x.rows, std::max<std::int64_t>(1, x.cols));
+      for (std::int64_t r = 0; r < x.rows; ++r)
+        for (std::int64_t m = 0; m < values.cols(); ++m) values(r, m) = x.cols ? x.data[static_cast<std::size_t>((r * x.cols + m) * C + c)] : kNaN;
+      const Eigen::MatrixXd out = nm::summarize(values, req);               // rows' x summaries
+      if (j == 0) { y.rows = out.rows(); y.data.assign(static_cast<std::size_t>(out.rows() * count * S), kNaN); }
+      for (Eigen::Index r = 0; r < out.rows(); ++r) for (Eigen::Index k = 0; k < out.cols(); ++k) y.data[static_cast<std::size_t>(r * count * S + j * S + k)] = out(r, k);
+    }
     Json sj = Json::array();
     for (const auto& n : req.names) sj.push_back(Json{{"name", n}});
-    y.meta = Json{{"summaries", sj}, {"combine", p["combine"]}, {"ddof", p["ddof"]}, {"members", x.cols}, {"of", x.meta}};
-    // what a DECLARED statistic output is stored from: the measure summarised, its rows and its summaries as axes, the options
+    Json measure_values = Json::array();
+    std::string measure_text;
+    for (std::int64_t j = 0; j < count; ++j) { const std::string& n = column_names[static_cast<std::size_t>(first + j)]; measure_values.push_back(Json{{"name", n}}); measure_text += (j ? "+" : "") + n; }
+    y.meta = Json{{"summaries", sj}, {"combine", p["combine"]}, {"ddof", p["ddof"]}, {"members", x.cols}, {"measures", measure_values}, {"of", x.meta}};
+    // what a DECLARED statistic output is stored from: the measure(s) summarised, its rows, measures and summaries as axes, the options
     Json row_values = Json::array();                                       // the rows: the combination they were made into, or (each) the row's number
-    for (Eigen::Index r = 0; r < out.rows(); ++r) row_values.push_back(Json{{"name", combine == "each" ? std::to_string(r) : combine}});
-    y.meta["describe"] = Json{{"measure", x.meta.value("measure", std::string())}, {"method", "summary"}, {"label", "summary"},
-                              {"axes", Json::array({Json{{"name", "row"}, {"size", out.rows()}, {"values", row_values}}, Json{{"name", "summary"}, {"size", out.cols()}, {"values", sj}}})},
+    for (std::int64_t r = 0; r < y.rows; ++r) row_values.push_back(Json{{"name", combine == "each" ? std::to_string(r) : combine}});
+    Json axes = Json::array({Json{{"name", "row"}, {"size", y.rows}, {"values", row_values}}});
+    if (count > 1) axes.push_back(Json{{"name", "measure"}, {"size", count}, {"values", measure_values}});
+    axes.push_back(Json{{"name", "summary"}, {"size", S}, {"values", sj}});
+    y.cols = count * S;
+    y.meta["describe"] = Json{{"measure", count > 1 ? column_names[static_cast<std::size_t>(first)] : measure_text}, {"method", "summary"}, {"label", "summary"}, {"axes", axes},
                               {"n_members", x.cols}, {"options", Json{{"summaries", sj}, {"combine", p["combine"]}, {"ddof", p["ddof"]}}},
-                              {"description", "the " + x.meta.value("measure", std::string()) + " of " + x.meta.value("name", std::string()) + " summarised (" + combine + ")"}};
+                              {"description", "the " + measure_text + " of " + x.meta.value("name", std::string()) + " summarised (" + combine + ")"}};
     return Arrays{{"y", std::move(y)}};
   };
 }
