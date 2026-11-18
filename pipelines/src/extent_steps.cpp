@@ -17,23 +17,33 @@ constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 void need(bool ok, const std::string& msg) { if (!ok) refuse(msg); }
 Value made(const Value& x) { Value v = x; v.row.reset(); return v; }
 
-// the joint partition's record, the surface and the level it names, and the geometry the extent needs: tile areas (the cells' weights: barycentric vertex areas summed by tile)
+// THE PRODUCT CELLS (a selection on the product of a surface grid's level and a time grid; members c = s + S t, the spatial factor fastest) as `reduce` recorded them in the cells' meta (`over`, `radices`):
+// the surface and the level the spatial factor names, and the geometry the extent needs: tile areas (the cells' weights: barycentric vertex areas summed by tile)
 struct Geometry {
-  Json joint;
+  Json over;
   nxr::pipelines::SurfaceInput surface;
   nxr::pipelines::SurfaceLevel level;
   std::vector<double> vertex_area;
   Eigen::VectorXd tile_area;
   nxr::select::Pairs pairs;
+  std::int64_t S = 0, T = 0;                 // the spatial tiles and the time tiles
+  double width_s = 0;                        // a time tile's width in seconds
 };
-Geometry load_geometry(ExecContext& c, const std::string& joint_selection_id) {
+Geometry load_geometry(ExecContext& c, const Json& cells_meta) {
   Geometry g;
-  const auto row = c.bound.selection(joint_selection_id);
-  need(row.has_value(), "the joint partition is not among the subject's rows");
-  g.joint = Json::parse(nxr::io::text(*row, "params_json"))["joint"];
-  g.surface = c.bound.surface(g.joint["surface"].get<std::string>(), true);
-  g.level = c.bound.surface_level(g.surface, g.joint["space_level"].get<int>());
-  if (g.level.nodes != g.joint["tiles"].get<std::int64_t>()) refuse("the joint partition records " + g.joint["tiles"].dump() + " tiles, level " + std::to_string(g.level.l) + " of " + g.surface.name + " has " + std::to_string(g.level.nodes));
+  g.over = cells_meta.value("over", Json::object());
+  need(g.over.is_object() && g.over.value("kind", std::string()) == "product" && g.over.contains("factors") && g.over["factors"].size() == 2, "the cells are not a measurement over a product of a surface grid and a time grid");
+  const Json &sp = g.over["factors"][0], &tm = g.over["factors"][1];
+  need(sp.value("kind", std::string()) == "dyadic" && tm.value("kind", std::string()) == "time", "the cells' product must be (a surface grid's level) x (a time grid): its factors are " + sp.value("kind", std::string("?")) + " x " + tm.value("kind", std::string("?")));
+  g.surface = c.bound.surface(sp["surface"].get<std::string>(), true);
+  g.level = c.bound.surface_level(g.surface, sp["level"].get<int>());
+  g.S = g.level.nodes;
+  g.T = tm.value("count", std::int64_t(0));
+  const double rate = cells_meta.value("rate", 0.0);
+  need(g.T > 0 && rate > 0, "the cells' time grid records no tiles or the cells no rate");
+  g.width_s = tm.value("width", std::int64_t(0)) / rate;
+  need(cells_meta.contains("radices") && cells_meta["radices"].size() == 2 && cells_meta["radices"][0].get<std::int64_t>() == g.S && cells_meta["radices"][1].get<std::int64_t>() == g.T,
+       "the cells' radices are not (spatial tiles " + std::to_string(g.S) + ", time tiles " + std::to_string(g.T) + ")");
   nxr::select::Mesh mesh; mesh.n = static_cast<int>(g.surface.n_vertices()); mesh.positions = g.surface.vertices; mesh.faces = g.surface.faces;
   g.vertex_area = nxr::select::vertexAreas(mesh);
   g.tile_area = Eigen::VectorXd::Zero(g.level.nodes);
@@ -41,19 +51,28 @@ Geometry load_geometry(ExecContext& c, const std::string& joint_selection_id) {
   for (const auto& [a, b] : g.level.pairs) g.pairs.emplace_back(a, b);
   return g;
 }
-Eigen::MatrixXd matrix_of(const Array& a) {
-  Eigen::MatrixXd M(a.rows, a.cols);
-  for (std::int64_t r = 0; r < a.rows; ++r) for (std::int64_t c = 0; c < a.cols; ++c) M(r, c) = a.data[static_cast<std::size_t>(r * a.cols + c)];
+// the cells of one measure of the cells' values [1 x S T x C] as [S x T]
+Eigen::MatrixXd cell_matrix(const Array& a, const Geometry& g, std::int64_t column) {
+  const std::int64_t C = std::max<std::int64_t>(1, a.comps);
+  need(a.cols == g.S * g.T, "the cells have " + std::to_string(a.cols) + " members, the product " + std::to_string(g.S) + " x " + std::to_string(g.T));
+  Eigen::MatrixXd M(g.S, g.T);
+  for (std::int64_t t = 0; t < g.T; ++t) for (std::int64_t s = 0; s < g.S; ++s) M(s, t) = a.data[static_cast<std::size_t>((s + g.S * t) * C + column)];
   return M;
 }
-nxr::select::Labels labels_of(const Array& a) {
-  nxr::select::Labels L(a.rows, a.cols);
-  for (std::int64_t r = 0; r < a.rows; ++r) for (std::int64_t c = 0; c < a.cols; ++c) L(r, c) = static_cast<std::int32_t>(a.data[static_cast<std::size_t>(r * a.cols + c)]);
-  return L;
-}
-int summary_index(const Json& summaries, const char* name) {
-  for (std::size_t k = 0; k < summaries.size(); ++k) if (summaries[k]["name"] == name) return static_cast<int>(k);
+std::int64_t column_of(const Array& a, const std::string& measure) {
+  std::int64_t c = 0;
+  for (const auto& m : a.meta.value("measures", Json::array())) {
+    if (m.value("measure", std::string()) == measure) return c;
+    c += m.value("components", 1);
+  }
+  refuse("the cells hold no measure " + measure);
   return -1;
+}
+nxr::select::Labels labels_of(const Array& a, const Geometry& g) {
+  need(static_cast<std::int64_t>(a.data.size()) == g.S * g.T, "the labelling has " + std::to_string(a.data.size()) + " cells, the product " + std::to_string(g.S * g.T));
+  nxr::select::Labels L(g.S, g.T);
+  for (std::int64_t t = 0; t < g.T; ++t) for (std::int64_t s = 0; s < g.S; ++s) L(s, t) = static_cast<std::int32_t>(a.data[static_cast<std::size_t>(s + g.S * t)]);
+  return L;
 }
 struct ExtentState { Json p; std::shared_ptr<Geometry> g; std::string groups; };
 }  // namespace
