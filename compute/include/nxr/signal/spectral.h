@@ -158,7 +158,7 @@ struct CrossWelchResult {
 
 /** Welch's CROSS-spectral density, streaming, accumulated per GROUP of bins: S_g = scale/(segments) x (mean or sum over the group's bins of w_k Re(X_k X_k^H)), w_k the one-sided doubling.
  *  The same segments, detrending, window, scaling and bad-segment rule as `Welch`, which is its diagonal. Memory: channels^2 per group, never a spectrum per pair. A source kernel K gives the
- *  source PSD of the group as diag(K S_g K^T) (nxr::meeg::sourcePower), equal to Welch on K x. */
+ *  source PSD of the group as diag(K S_g K^T) (the psd of a linear map, above), equal to Welch on K x. */
 class CrossWelch {
 public:
     /** `withQuadrature`: also accumulate the imaginary part Im C (the quadrature spectrum, nxr/signal/crossspectral.h) into `result().Sq`; off, `S` is exactly as before. */
@@ -249,6 +249,11 @@ Eigen::VectorXd signedFrequencies(std::size_t n, double sfreq);
 
 /** `psd`: Welch's power spectral density of every channel of the whole record in one call (the `Welch` accumulator fed once; samples where `good` is false leave out every segment they touch). */
 WelchResult psd(const Eigen::MatrixXd& x, const WelchOptions& options, const std::vector<std::uint8_t>* good = nullptr);
+
+/** `psd` of a LINEAR MAP of the channels from the channels' cross-spectral densities: for each S (a band's cross-spectrum [channels x channels], its real part is what enters), diag(A Re(S) A^T), the power of every
+ *  row of the map A x, equal to Welch run on A x at the cost of a channels x channels matrix per band (an imaging kernel K gives the power of every source: nxr::signal::spectral::CrossWelch makes the S). `rowsPerOutput`
+ *  consecutive rows are SUMMED in power into one output (3 for a free-orientation kernel, whose power is the three orientations' sum; 1 keeps every row); the map's rows are a multiple of it. [outputs x S.size()]. */
+Eigen::MatrixXd psd(const Eigen::MatrixXd& map, const std::vector<Eigen::MatrixXd>& crossSpectra, std::size_t rowsPerOutput = 1);
 
 /** `xpsd`: Welch's cross-spectral density of the whole record in one call (the `CrossWelch` accumulator fed once): per group of bins, the real part (and with `withQuadrature` the imaginary part). */
 CrossWelchResult xpsd(const Eigen::MatrixXd& x, const WelchOptions& options, const std::vector<BinGroup>& groups, bool withQuadrature = false, const std::vector<std::uint8_t>* good = nullptr);

@@ -9,6 +9,7 @@
 #include <random>
 
 #include "check.h"
+#include "nxr/signal/spectral.h"
 #include "run_definition.h"
 #include "nxr/io/task/task.h"
 #include "golden_io.h"
@@ -51,14 +52,14 @@ int main() {
     cw.add(x);
     const auto r = cw.result();
     std::vector<MatrixXd> S(r.S.begin(), r.S.begin() + 6);
-    const MatrixXd P = nxr::meeg::sourcePower(K, S, 3, nxr::meeg::Orientation::Norm);
+    const MatrixXd P = nxr::signal::spectral::psd(K, S, 3);
     const MatrixXd Pb = sum3(bst);
     std::printf("  parity with Brainstorm bands (3 orientations summed): %.2e   (Brainstorm's band function vs its documented rule: %.1e)\n", rel(P, Pb), rel(bst, rule));
     CHECK(rel(P, Pb) < 1e-6);
     // relative power on a fixed-orientation kernel (each row a source, as Brainstorm normalises each row of the file): band mean / the sum of all bins
     const MatrixXd Kf = K.topRows(50);
-    const MatrixXd Pf = nxr::meeg::sourcePower(Kf, S, 1, nxr::meeg::Orientation::Norm);
-    const MatrixXd Rf = nxr::pipelines::relativeToTotal(Pf, nxr::meeg::sourcePower(Kf, {r.S.back()}, 1, nxr::meeg::Orientation::Norm).col(0));
+    const MatrixXd Pf = nxr::signal::spectral::psd(Kf, S, 1);
+    const MatrixXd Rf = nxr::pipelines::relativeToTotal(Pf, nxr::signal::spectral::psd(Kf, {r.S.back()}, 1).col(0));
     std::printf("  parity with Brainstorm relative power (fixed kernel): %.2e\n", rel(Rf, relb.topRows(50)));
     CHECK(rel(Rf, relb.topRows(50)) < 1e-6);
   }
@@ -88,7 +89,7 @@ int main() {
       MatrixXd want(3 * N, gr.size());
       for (std::size_t b = 0; b < gr.size(); ++b)
         { if (gr[b].mean) want.col(b) = direct.psd.middleCols(gr[b].first, gr[b].last - gr[b].first + 1).rowwise().mean(); else want.col(b) = direct.psd.rowwise().sum(); }
-      const MatrixXd got = nxr::meeg::sourcePower(K, r.S, 3, nxr::meeg::Orientation::Components);
+      const MatrixXd got = nxr::signal::spectral::psd(K, r.S, 1);
       std::printf("  cross-spectrum vs Welch on K x, %g Hz, %lld segments (%lld skipped): %.2e\n", fs, static_cast<long long>(r.segments), static_cast<long long>(r.segmentsSkipped), rel(got, want));
       CHECK(rel(got, want) < 1e-10);
     }

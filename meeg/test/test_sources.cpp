@@ -1,4 +1,4 @@
-// nxr::meeg sources: J = K X (real, complex), the orientation handling (components, norm, amplitude), fixed kernels, and the source power from a cross-spectrum equal to the power of J.
+// nxr::meeg sources: J = K X (real, complex), the orientation handling (components, norm, amplitude), fixed kernels.
 #include <random>
 
 #include "check.h"
@@ -32,11 +32,6 @@ int main() {
   // a fixed kernel: one row per source; the norm is |J|
   const MatrixXd Kf = K.topRows(N);
   CHECK((applyKernel(Kf, X, 1, Orientation::Norm) - (Kf * X).cwiseAbs()).cwiseAbs().maxCoeff() < 1e-14);
-  // source power: diag(K S K^T) with S = X X^T is the sum of J^2 over time; the three orientations summed, or apart
-  const MatrixXd S = X * X.transpose();
-  const MatrixXd Pc = sourcePower(K, {S}, 3, Orientation::Components), Ps = sourcePower(K, {S}, 3, Orientation::Norm);
-  CHECK((Pc.col(0) - J.array().square().rowwise().sum().matrix()).cwiseAbs().maxCoeff() < 1e-9);
-  CHECK((Ps.col(0) - Jn.array().square().rowwise().sum().matrix()).cwiseAbs().maxCoeff() < 1e-9);
   bool threw = false;
   try { applyKernel(K, rnd(M + 1, T)); } catch (const std::invalid_argument&) { threw = true; }
   CHECK(threw);

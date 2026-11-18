@@ -491,6 +491,24 @@ double enbwPerBin(const WelchOptions& o) {
   return o.sfreq * w.squaredNorm() / (w.sum() * w.sum());
 }
 
+MatrixXd psd(const MatrixXd& K, const std::vector<MatrixXd>& S, std::size_t rowsPerOutput) {
+    const Eigen::Index o = static_cast<Eigen::Index>(rowsPerOutput);
+    if (o < 1) throw std::invalid_argument("psd of a linear map: rows per output is at least 1");
+    if (K.rows() % o != 0) throw std::invalid_argument("psd of a linear map: the map's rows are not a multiple of the rows per output");
+    const Eigen::Index rows = K.rows(), N = rows / o;
+    MatrixXd P(N, static_cast<Eigen::Index>(S.size()));
+    for (std::size_t g = 0; g < S.size(); ++g) {
+        if (S[g].rows() != K.cols() || S[g].cols() != K.cols()) throw std::invalid_argument("psd of a linear map: a cross-spectrum is not channels x channels");
+        const VectorXd d = ((K * S[g]).cwiseProduct(K)).rowwise().sum();
+        for (Eigen::Index s = 0; s < N; ++s) {
+            double v = 0;
+            for (Eigen::Index c = 0; c < o; ++c) v += d[s * o + c];
+            P(s, static_cast<Eigen::Index>(g)) = v;
+        }
+    }
+    return P;
+}
+
 CrossWelchResult xpsd(const MatrixXd& x, const WelchOptions& options, const std::vector<BinGroup>& groups, bool withQuadrature, const std::vector<std::uint8_t>* good) {
     CrossWelch w(static_cast<int>(x.rows()), options, groups, withQuadrature);
     if (good) w.add(x, *good); else w.add(x);
