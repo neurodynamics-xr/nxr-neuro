@@ -47,22 +47,4 @@ MatrixXd applyKernelAmplitude(const MatrixXd& K, const MatrixXcd& X, int o, Orie
   return orientation == Orientation::Norm ? amplitude(J, o) : MatrixXd(J.cwiseAbs());
 }
 
-MatrixXd sourcePower(const MatrixXd& K, const std::vector<MatrixXd>& S, int o, Orientation orientation) {
-  if (o != 1 && o != 3) throw std::invalid_argument("sources: a kernel has 1 or 3 orientations per source");
-  if (K.rows() % o != 0) throw std::invalid_argument("sources: the kernel's rows are not a multiple of the orientations per source");
-  const Eigen::Index rows = K.rows(), N = rows / o;
-  MatrixXd P(orientation == Orientation::Norm ? N : rows, static_cast<Eigen::Index>(S.size()));
-  for (std::size_t g = 0; g < S.size(); ++g) {
-    if (S[g].rows() != K.cols() || S[g].cols() != K.cols()) throw std::invalid_argument("sources: a cross-spectrum is not channels x channels");
-    const VectorXd d = ((K * S[g]).cwiseProduct(K)).rowwise().sum();
-    if (orientation == Orientation::Components) { P.col(static_cast<Eigen::Index>(g)) = d; continue; }
-    for (Eigen::Index s = 0; s < N; ++s) {
-      double v = 0;
-      for (int c = 0; c < o; ++c) v += d[s * o + c];
-      P(s, static_cast<Eigen::Index>(g)) = v;
-    }
-  }
-  return P;
-}
-
 }  // namespace nxr::meeg

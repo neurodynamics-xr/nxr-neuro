@@ -2,7 +2,7 @@
 # any non-linear step, D106). ONE pointwise field, no reduction and no detection: the field `cortex x members(bands) x T` (or x frames of a frame grid), complex, vector3 for a free kernel or scalar for a fixed one.
 # Run alone it stores the field; composed into `measure` (input `chain: cortical_band`) its steps are inlined, nothing stored, its provenance in the consumer's cache key.
 #
-# THE GRAPH:  recording -- band_analytic (composed) -- apply_kernel {spatial_scale} -- [frames (optional frame grid, resampling)] --> field<cortex x members(bands) x T; complex>
+# THE GRAPH:  recording -- band_analytic (composed) -- apply_kernel {spatial_scale} --> field<cortex x members(bands) x T; complex>
 # The kernel's surface is the caller's (rule 19): the two-hemisphere surface of record, or the glued surface made by `glue` (the default computational manifold for spatiotemporal patterns, rule 33) named as the kernel's
 # target; results are restricted back to the original hemispheres for storage, export and figures.
 #
@@ -24,7 +24,6 @@ inputs:
   bands:     {selection: spans, where: {name: $bands}, hint: "the temporal band set (`nxr-neuro run select_bands` first)"}
   z:         {field: analytic signal, chain: band_analytic, chain_parameters: {recording: "{recording}", bands: $bands, shape: $shape, halo: $halo}, hint: "composed in: the recording's analytic signal in the band set (one transform a block shared by all bands)"}
   grid:      {selection: set, manifold: kernel.to, where: {name: $surface_grid}, required: false, hint: "the surface's grid at the spatial scale (`nxr-neuro run select_dyadic_surface` first)"}
-  frames:    {selection: any, manifold: recording.time, where: {name: $frame_grid}, required: false, hint: "a frame grid to resample onto (`nxr-neuro run select_time_grid --rule frames` first)"}
   glued:     {manifold: surface, where: {name: $glued_surface}, required: false, hint: "the glued cortex made by `nxr-neuro run glue`, by name (rule 33): the field is made on it and restored to the original hemispheres for storage"}
   canonical: {field: canonical frames, manifold: kernel.to, required: false, hint: "a free-orientation kernel's tensor is read in the canonical frames (`nxr-neuro run surface_frames` first)"}
 
@@ -35,7 +34,6 @@ parameters:
   bands: {default: "frequency bands", meaning: "the temporal band set, by name", unit: "-"}
   surface_grid: {default: null, meaning: "the surface's grid by name (null: the kernel's surface's `tiles`)", unit: "-"}
   glued_surface: {default: null, meaning: "the glued cortex (the derived manifold made by `glue`) by name; null: the surface of record, no bridge", unit: "-"}
-  frame_grid: {default: null, meaning: "the frame grid by name; null: the field stays on the recording's samples", unit: "-"}
   shape: {default: morlet, meaning: "the temporal band's shape: morlet | power_partition (nxr's bank: the band powers add to broadband)", unit: "-", choices: [morlet, power_partition]}
   spatial_shape: {default: mexhat, meaning: "the spatial band's gain: mexhat | meyer (the scale IS its Weyl band: compact edges)", unit: "-", choices: [mexhat, meyer]}
   spatial_scale: {default: null, meaning: "the spatial band as a quantity: a tile diameter (20 mm), a wavelength (wavelength 40 mm), an eigenvalue (eigenvalue 1/m2) or a named scale; resolved to the grid's level by space_level_of_band; null: no spatial band (the kernel as it is)", unit: mm, chart: wavelength}
@@ -53,7 +51,6 @@ steps:
     over: recording
     do:
       - {node: meeg.apply_kernel, in: {x: z, kernel: kernel, tiles: grid, glued: glued}, with: {spatial_scale: $spatial_scale, spatial_scales: $spatial_scales, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, envelope: $envelope, form: $form}, out: sources}
-      - {node: signal.frames, in: {x: sources, tiling: frames}, out: framed, when: $frame_grid}
 
 outputs:
   sources: {kind: field, kind_name: source estimate, name: "{recording} x {kernel} bands", on: kernel.to, derived_from: recording, by_operator: kernel}

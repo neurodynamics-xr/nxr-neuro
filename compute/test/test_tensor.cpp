@@ -1,4 +1,4 @@
-// nxr::meeg tensor: the cross-spectral tensor of a free-orientation source and its readings. Its trace is the band power (sourcePower, Norm) exactly;
+// nxr::meeg tensor: the cross-spectral tensor of a free-orientation source and its readings. Its trace is the band power (psd of a linear map, three rows a source) exactly;
 // it is Hermitian; known currents give known Stokes parameters (the cross-spectrum S + i Sq = X X^H of a current's complex amplitude X at the band):
 // turning from e1 to e2 (S3 = +S0), the other way (S3 = -S0), swinging along e1 (S1 = S0), along 45 degrees (S2 = S0), along the normal (normal power =
 // the trace, S0 = 0); and a turn of the frame by psi turns S1 + i S2 by 2 psi and leaves S0, S3 and |S1 + i S2| alone.
@@ -8,6 +8,7 @@
 
 #include "check.h"
 #include "nxr/meeg/sources.h"
+#include "nxr/signal/spectral.h"
 #include "nxr/core/congruence.h"
 #include "nxr/signal/polarisation.h"
 
@@ -33,7 +34,7 @@ int main() {
     const MatrixXd K = rnd(3 * N, M), A = rnd(M, M), B = rnd(M, M);
     const MatrixXd S = A * A.transpose(), Sq = B - B.transpose();
     const SourceTensors t = sourceTensor(K, S, Sq);
-    const MatrixXd P = sourcePower(K, {S}, 3, Orientation::Norm);
+    const MatrixXd P = nxr::signal::spectral::psd(K, {S}, 3);
     double worst = 0, herm = 0;
     for (int v = 0; v < N; ++v) {
       worst = std::max(worst, std::abs(tracePower(t.reOf(v)) - P(v, 0)) / std::abs(P(v, 0)));

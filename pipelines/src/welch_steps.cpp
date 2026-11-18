@@ -449,7 +449,7 @@ ng::NodeSpec welch_psd() {
 
 // ── welch.source_band_power ─────────────────────────────────────────────────────────────────────────────────────
 // The band power of a recording's SOURCES (the hand-wired `sourcepsd` it replaces): the channels' cross-spectral density accumulated per band (bins lo..hi Hz
-// inclusive, mean over the band's bins), then diag(K Re(S) K^T) through the inverse kernel K, the orientations' power summed (nxr::meeg::sourcePower). With
+// inclusive, mean over the band's bins), then diag(K Re(S) K^T) through the inverse kernel K, the orientations' power summed (nxr::signal::spectral::psd of a linear map). With
 // normalisation relative, each band over the total (all bins, summed). Exactly Welch run on K x, at the cost of channels^2 per band.
 struct SourceBandPrepared {
   Resolved r;
@@ -479,7 +479,7 @@ ng::NodeSpec welch_source_band_power() {
   n.parameters.push_back({"row_axis", Json("vertex"), "the name of the rows' axis (vertex for a kernel's sources; mode_part for the fused Hodge-Dirac weights)", "-", {}, false});
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
                              "segments are carried across blocks; the cross-spectra are accumulated in double and the kernel applied once at the end");
-  n.matches = "Brainstorm's band power of sources (bst_psd through the kernel); meeg nxr::meeg::sourcePower";
+  n.matches = "Brainstorm's band power of sources (bst_psd through the kernel); nxr::signal::spectral::psd of a linear map";
   n.description = "the band power of the sources through an inverse kernel, from the channels' cross-spectral density per band (Welch), orientations summed";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = streamed_real(in, "x", "meeg.source_band_power");
@@ -545,8 +545,8 @@ ng::NodeSpec welch_source_band_power() {
     const nw::CrossWelchResult cw = s.w->result();
     if (cw.segments == 0) no_segment(pr.r, s.samples, cw.segmentsSkipped);
     const std::size_t B = pr.bands.size();
-    Eigen::MatrixXd maps = nxr::meeg::sourcePower(pr.K, std::vector<Eigen::MatrixXd>(cw.S.begin(), cw.S.begin() + static_cast<std::ptrdiff_t>(B)), pr.orientations, nxr::meeg::Orientation::Norm);
-    if (pr.relative) maps = nxr::pipelines::relativeToTotal(maps, nxr::meeg::sourcePower(pr.K, {cw.S.back()}, pr.orientations, nxr::meeg::Orientation::Norm).col(0));
+    Eigen::MatrixXd maps = nxr::signal::spectral::psd(pr.K, std::vector<Eigen::MatrixXd>(cw.S.begin(), cw.S.begin() + static_cast<std::ptrdiff_t>(B)), static_cast<std::size_t>(pr.orientations));
+    if (pr.relative) maps = nxr::pipelines::relativeToTotal(maps, nxr::signal::spectral::psd(pr.K, {cw.S.back()}, static_cast<std::size_t>(pr.orientations)).col(0));
     const std::int64_t N = maps.rows();
     const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
     const bool density = pr.r.wo.scaling == nw::Scaling::Density;

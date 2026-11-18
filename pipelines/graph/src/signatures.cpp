@@ -82,12 +82,12 @@ Signature s_envelope() {
       .refine([](Unified& u, const Json& p) { if (auto b = band_of(p.value("band", Json()))) u.out.at("y").res.band = b; });
 }
 
-Signature s_frames() {
+Signature s_analytic_frames() {
   return sig(Move::apply)
-      .in("x", field({M, T}).streamed().linear().because("The frames interpolate the band-limited signal; after a non-linear node its band limit is gone."))
+      .in("x", field({M, T}).streamed().linear().value(VT::real).because("The band's analytic signal is read at the frames of a real field; after a non-linear node its band limit is gone."))
       .in("tiling", selection({T}).because("The frame tiling is made for x's time line."))
       .in("within", selection({T}).optional())
-      .out("y", like("x").on({M, members_of_port("tiling")}))
+      .out("y", like("x").on({M, members_of_port("tiling")}).with_value(VT::complex))
       .refine([](Unified& u, const Json&) {
         const PortType& t = u.type("tiling");
         if (!t.sel || t.sel->type != "tiling") u.fail("tiling", "is a " + (t.sel ? t.sel->type : std::string("?")) + " selection, not a frame tiling (a closed-form tiling of the time line)");
@@ -718,7 +718,7 @@ const std::map<std::string, Signature>& table() {
     m["meeg.positions_transition"] = s_positions_transition();
     m["signal.analytic"] = s_analytic();
     m["signal.envelope"] = s_envelope();
-    m["signal.frames"] = s_frames();
+    m["signal.analytic_frames"] = s_analytic_frames();
     m["meeg.apply_kernel"] = s_apply_kernel();
     m["measurement.reduce"] = s_reduce();
     m["measurement.reduce_members"] = s_reduce_members();

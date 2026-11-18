@@ -2,7 +2,7 @@
 // the frame density, frames per cycle or per tile, and the origin are OPTIONS of the function; no tower, no clock anchor).
 //   - the frames of a 250 Hz recording at 36 frames per cycle of 10 Hz: every frame once, from the origin to the end of the line; an origin (a point of the line) starts the first frame there
 //   - frames per tile nest in the band's dyadic level; the two densities are exclusive; refusals
-//   - a complex exponential in the band (10 Hz, 250 Hz sampling) interpolated at the frames equals e^{iωt} (the analytic signal of a band-limited signal): max error
+//   (the band's signal read at the frames: test_wt_at, test_frames_wt)
 #include <cmath>
 #include <cstdio>
 #include <complex>
@@ -10,7 +10,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include "nxr/signal/resample.h"
 #include "nxr/select/grid.h"
 #include "nxr/select/partition.h"
 
@@ -18,7 +17,6 @@ static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)
 
 int main() {
-  using namespace nxr::signal;
   namespace sel = nxr::selection;
   const double fs = 250.0, f0 = 10.0;
   const std::int64_t n = 5000;
@@ -49,25 +47,6 @@ int main() {
   nxr::select::TimeRule odd = nested; odd.frames_per_tile = 6;
   nxr::select::TimeRule outside = rule; outside.origin = sel::point(n + 5);
   EXPECT(refused([&] { nxr::select::time_rule(line, both); }) && refused([&] { nxr::select::time_rule(line, odd); }) && refused([&] { nxr::select::time_rule(line, outside); }), "both densities, a non power of two, an origin outside the line are refused");
-  // a band-limited complex exponential at 10 Hz (a band 8-12) sampled at the frames
-  const double phi = 0.4;
-  std::vector<float> re(n), im(n);
-  for (std::int64_t i = 0; i < n; ++i) { re[i] = static_cast<float>(std::cos(2 * M_PI * f0 * i / fs + phi)); im[i] = static_cast<float>(std::sin(2 * M_PI * f0 * i / fs + phi)); }
-  // a 600-sample block in the middle: the frames of its own 400 samples need a halo of the half width
-  const int H = 32;
-  const std::int64_t s0 = 2000, len = 400;
-  const std::int64_t j0 = static_cast<std::int64_t>(std::ceil(static_cast<double>(s0) / tile - 1e-9)), j1 = static_cast<std::int64_t>(std::ceil(static_cast<double>(s0 + len) / tile - 1e-9));   // the frames that START in the block
-  std::vector<double> pos;
-  for (std::int64_t j = j0; j < j1; ++j) pos.push_back(static_cast<double>(j) * tile - static_cast<double>(s0 - H));
-  const auto yr = sincInterpolate(re.data() + (s0 - H), 1, len + 2 * H, pos, H), yi = sincInterpolate(im.data() + (s0 - H), 1, len + 2 * H, pos, H);
-  double worst = 0;
-  for (std::int64_t j = j0; j < j1; ++j) {
-    const double tt = static_cast<double>(j) * tile / fs;
-    worst = std::max(worst, std::abs(std::complex<double>(yr[j - j0], yi[j - j0]) - std::polar(1.0, 2 * M_PI * f0 * tt + phi)));
-  }
-  std::printf("  %lld frames of %lld samples at %.0f Hz: max |interpolated - exact| %.2e (half width %d)\n", static_cast<long long>(j1 - j0), static_cast<long long>(len), 1.0 / t.width_s, worst, H);
-  EXPECT(std::llabs((j1 - j0) - static_cast<std::int64_t>(std::llround(len / tile))) <= 1 && worst < 2e-4, "the interpolation is off");
-  EXPECT(refused([&] { sincInterpolate(re.data(), 1, 10, {1.0}, 0); }), "a half width of 0 is refused");
   std::cout << (fails ? "FAILED " : "ok ") << fails << "\n";
   return fails ? 1 : 0;
 }

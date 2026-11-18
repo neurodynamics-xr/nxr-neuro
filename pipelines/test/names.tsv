@@ -16,7 +16,7 @@ node	measurement.estimate	-	composite
 node	meeg.fiber_ends	-	composite
 node	signal.field_form	-	composite
 node	signal.form	-	composite
-node	signal.frames	-	composite
+node	signal.analytic_frames	-	composite
 node	geometry.frame_embed	-	composite
 node	geometry.frame_project	-	composite
 node	geometry.frame_rotate	-	composite
@@ -241,6 +241,7 @@ retired	signal.pair_series	node	signal.linear_map
 retired	statistic.pca	node	stats.pca
 retired	surface.glue	node	geometry.glue
 retired	surrogate.lagfree	node	synthesis.lagfree
+retired	signal.frames	node	signal.analytic_frames
 retired	surrogate.lagfree_mixing	node	synthesis.lagfree_mixing
 retired	surrogate.lagfree_pairs	node	synthesis.lagfree_pairs
 retired	timebank.analytic_bands	node	signal.analytic_bands
