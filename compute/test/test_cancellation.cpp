@@ -24,13 +24,12 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
@@ -45,6 +44,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include "surface_of.h"
 
 // ── Subdivided icosphere generator ──────────────────────────
 //
@@ -166,7 +166,7 @@ void test_SolveCancelledBeforeFactorization() {
     int nV = static_cast<int>(mesh.vertices.size() / 3);
     int nF = static_cast<int>(mesh.faces.size() / 3);
 
-    nxr::geometry::Manifold m(mesh.vertices.data(), nV, mesh.faces.data(), nF);
+    const auto m = surfaceOf(mesh.vertices.data(), nV, mesh.faces.data(), nF);
     auto ops = nxr::operators::assembleManifoldOperators(m);
 
     std::atomic<int32_t> flag{1};  // already cancelled
@@ -190,7 +190,7 @@ void test_SolveCancelledMidIteration() {
     int nV = static_cast<int>(mesh.vertices.size() / 3);
     int nF = static_cast<int>(mesh.faces.size() / 3);
 
-    nxr::geometry::Manifold m(mesh.vertices.data(), nV, mesh.faces.data(), nF);
+    const auto m = surfaceOf(mesh.vertices.data(), nV, mesh.faces.data(), nF);
     auto ops = nxr::operators::assembleManifoldOperators(m);
 
     // Function-based token: returns true after the first perform_op call,
@@ -224,7 +224,7 @@ void test_SolveSucceedsWithIdleToken() {
     int nV = static_cast<int>(mesh.vertices.size() / 3);
     int nF = static_cast<int>(mesh.faces.size() / 3);
 
-    nxr::geometry::Manifold m(mesh.vertices.data(), nV, mesh.faces.data(), nF);
+    const auto m = surfaceOf(mesh.vertices.data(), nV, mesh.faces.data(), nF);
     auto ops = nxr::operators::assembleManifoldOperators(m);
 
     std::atomic<int32_t> flag{0};

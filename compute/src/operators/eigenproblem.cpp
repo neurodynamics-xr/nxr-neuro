@@ -11,13 +11,11 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/operators/registry/operator_registry.h"
@@ -59,7 +57,7 @@ namespace {
 // The vertex FEM mass the registry names as this operator's natural mass.
 // The registry documents the DEFAULT family (massMixedVoronoi); spec.mass remains
 // the caller's override within that family (galerkin and barycentric are named options).
-Eigen::SparseMatrix<double> naturalVertexMass(geometry::Manifold& m, const char* id,
+Eigen::SparseMatrix<double> naturalVertexMass(const geometry::SurfaceArrays& surface, const char* id,
                                               nxr::operators::MassMatrixVariant variant) {
     // A real check (an `assert` is compiled out of release builds, and this guard exists for them): a registry entry that
     // disagrees with the construction below is a programming error, so fail loudly instead of silently solving the wrong pencil.
@@ -68,28 +66,29 @@ Eigen::SparseMatrix<double> naturalVertexMass(geometry::Manifold& m, const char*
         throw Error(ErrorCode::InvalidInput,
             std::string("eigenProblemFor: registry natural_mass of '") + id + "' disagrees with the vertex-mass family used to build it");
     switch (variant) {
-        case nxr::operators::MassMatrixVariant::MixedVoronoi: return nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi);
-        case nxr::operators::MassMatrixVariant::Barycentric:  return nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Barycentric);
-        case nxr::operators::MassMatrixVariant::Galerkin:     return nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Galerkin);
+        case nxr::operators::MassMatrixVariant::MixedVoronoi: return nxr::operators::vertexMass(surface, nxr::operators::MassMatrixVariant::MixedVoronoi);
+        case nxr::operators::MassMatrixVariant::Barycentric:  return nxr::operators::vertexMass(surface, nxr::operators::MassMatrixVariant::Barycentric);
+        case nxr::operators::MassMatrixVariant::Galerkin:     return nxr::operators::vertexMass(surface, nxr::operators::MassMatrixVariant::Galerkin);
     }
     throw Error(ErrorCode::InvalidInput, "eigenProblemFor: unknown mass variant");
 }
 } // namespace
 
-EigenProblem eigenProblemFor(geometry::Manifold& m, const EigenOperatorSpec& spec) {
+EigenProblem eigenProblemFor(const geometry::SurfaceArrays& surface, const EigenOperatorSpec& spec) {
+    geometry::IntrinsicSurface gs(surface);
     EigenProblem p;
     p.sigma = kShiftLadder;   // no fixed shift on the null space — the ladder (compute.h)
     switch (spec.op) {
         case EigenOperator::LaplacianCotan: {
-            p.K = nxr::operators::cotanLaplacian(m);
+            p.K = nxr::operators::cotanLaplacian(surface);
             // Registry documents natural_mass == "massMixedVoronoi" for laplaceBeltrami.
-            p.M = naturalVertexMass(m, "laplaceBeltrami", spec.mass);
+            p.M = naturalVertexMass(surface, "laplaceBeltrami", spec.mass);
             p.blockSize = 1;
             break;
         }
         case EigenOperator::LaplacianGraph: {
-            p.K = nxr::operators::graphLaplacian(m);
-            const int n = m.nV();
+            p.K = nxr::operators::graphLaplacian(surface);
+            const int n = surface.nV();
             p.M.resize(n, n);
             if (spec.graphDegreeMass) {     // random-walk form L φ = λ D φ; registry "graphLaplacianDegreeMass"
                 Eigen::VectorXd deg(n);
@@ -102,23 +101,23 @@ EigenProblem eigenProblemFor(geometry::Manifold& m, const EigenOperatorSpec& spe
             break;
         }
         case EigenOperator::Dirac: {
-            p.K = nxr::operators::diracFamily(m, spec.tau);   // [4V×4V]
+            p.K = nxr::operators::diracFamily(surface, spec.tau);   // [4V×4V]
             // Registry documents natural_mass == "massMixedVoronoi*I4" for relativeDirac.
             const Eigen::SparseMatrix<double> Mv =
-                naturalVertexMass(m, "relativeDirac", spec.mass);
+                naturalVertexMass(surface, "relativeDirac", spec.mass);
             p.M = blockKron(Mv, 4);                           // M ⊗ I₄ (vertex-interleaved)
             p.blockSize = 4;
             break;
         }
         case EigenOperator::DiracFace: {
-            p.K = nxr::operators::diracFaceFamily(m, spec.tau);   // [4F×4F]; throws on open boundary
+            p.K = nxr::operators::diracFaceFamily(surface, spec.tau);   // [4F×4F]; throws on open boundary
             // Registry documents natural_mass == "diag(faceArea)*I4" for relativeFaceDirac.
-            auto& geom = m.geometry();
+            auto& geom = gs.embedded();
             geom.requireFaceAreas();
-            const int Fn = m.nF();
+            const int Fn = surface.nF();
             std::vector<Eigen::Triplet<double>> T;
             T.reserve(Fn);
-            for (auto f : m.mesh().faces())
+            for (auto f : gs.inputMesh().faces())
                 T.emplace_back(static_cast<int>(f.getIndex()),
                                static_cast<int>(f.getIndex()), geom.faceAreas[f]);
             Eigen::SparseMatrix<double> Af(Fn, Fn);
@@ -128,7 +127,7 @@ EigenProblem eigenProblemFor(geometry::Manifold& m, const EigenOperatorSpec& spe
             break;
         }
         case EigenOperator::HodgeDirac: {
-            const auto h = nxr::operators::hodgedirac::assemble(m, spec.star1Floor, spec.mollify, spec.flipEps);
+            const auto h = nxr::operators::hodgedirac::assemble(surface, spec.star1Floor, spec.mollify, spec.flipEps);
             p.K = h.K;
             p.M = nxr::operators::hodgedirac::massMatrix(h);
             p.blockSize = 1;
@@ -263,7 +262,7 @@ EigenResult denseEigen(const EigenProblem& p, int k) {
 
 } // namespace
 
-EigenResult eigenOperator(geometry::Manifold& m, const EigenOperatorSpec& spec, int k,
+EigenResult eigenOperator(const geometry::SurfaceArrays& surface, const EigenOperatorSpec& spec, int k,
                           double sigma, bool normalize, bool reconstructMultiplets,
                           bool dense, const CancellationToken& cancel,
                           const ProgressObserver& progress) {
@@ -271,12 +270,12 @@ EigenResult eigenOperator(geometry::Manifold& m, const EigenOperatorSpec& spec, 
     if (spec.op == EigenOperator::SpinExtrinsic || spec.op == EigenOperator::SpinIntrinsicHY ||
         spec.op == EigenOperator::SpinIntrinsicYe) {
         if (dense) throw Error(ErrorCode::InvalidInput, "eigenOperator: dense is not defined for the spin quotient");
-        return eigenSpin(m, spec.op == EigenOperator::SpinExtrinsic ? Kind::Extrinsic
+        return eigenSpin(surface, spec.op == EigenOperator::SpinExtrinsic ? Kind::Extrinsic
                          : spec.op == EigenOperator::SpinIntrinsicHY ? Kind::IntrinsicHY : Kind::IntrinsicYe,
                          k, cancel, progress);
     }
     if (spec.op == EigenOperator::HodgeDirac) {
-        const auto h = nxr::operators::hodgedirac::assemble(m, spec.star1Floor, spec.mollify, spec.flipEps);
+        const auto h = nxr::operators::hodgedirac::assemble(surface, spec.star1Floor, spec.mollify, spec.flipEps);
         if (std::isnan(sigma) && !dense)   // default: the k lowest +μ by the exact/coexact split (+ mirror)
         {   // the reference method (nxr, Rheome) holds ABOUT `count` modes; eigenOperator's contract is k eigenpairs: the k lowest of it
             HodgeSolveOptions ho;
@@ -295,7 +294,7 @@ EigenResult eigenOperator(geometry::Manifold& m, const EigenOperatorSpec& spec, 
         return r;
     }
 
-    EigenProblem p = eigenProblemFor(m, spec);
+    EigenProblem p = eigenProblemFor(surface, spec);
 
     if (dense)
         return denseEigen(p, k);

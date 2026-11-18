@@ -1,48 +1,16 @@
-#include "nxr/geometry/intrinsic_surface.h"
-#include "nxr/geometry/mesh.h"
-#include "nxr/geometry/geodesics.h"
-#include "nxr/geometry/direction_fields.h"
-#include "nxr/operators/trivial_connection.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
-#include "nxr/operators/dec.h"
-#include "nxr/operators/dirac.h"
-#include "nxr/operators/laplacians.h"
-#include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/assembled.h"
-#include "nxr/synthesis/fields.h"
+// The Hodge decomposition of a field: see nxr/signal/hodge_decomposition.h.
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/signal/surface_calculus.h"
 
-#include "geometrycentral/surface/manifold_surface_mesh.h"
-
 #include <iostream>
-#include <random>
 
-namespace nxr::synthesis {
-
-Eigen::VectorXd randomOmega(int nE, unsigned int seed) {
-    std::mt19937 gen(seed);
-    std::uniform_real_distribution<double> dist(-1.0, 1.0);
-
-    Eigen::VectorXd omega(nE);
-    for (int i = 0; i < nE; i++) {
-        omega(i) = dist(gen);
-    }
-    return omega;
-}
-
-} // namespace nxr::synthesis
-
-namespace nxr::operators {
-
-using namespace geometrycentral::surface;
-using nxr::signal::whitney;
+namespace nxr::signal {
 
 HodgeResult hodge(
-    geometry::Manifold& m,
-    const DECOperators& dec,
-    CholeskyCache& cache,
+    const geometry::SurfaceArrays& surface,
+    const operators::DECOperators& dec,
+    const operators::CholeskyFactor& exactFactor,
+    operators::SquareSolver& coexactSolver,
     const Eigen::VectorXd& omega
 ) {
     const auto& d0 = dec.d0;
@@ -50,9 +18,9 @@ HodgeResult hodge(
     const auto& hodge1 = dec.hodge1;
     const auto& hodge1Inv = dec.hodge1Inverse;
 
-    int nV = m.nV();
+    int nV = surface.nV();
     int nE = static_cast<int>(omega.size());
-    int nF = m.nF();
+    int nF = surface.nF();
 
     HodgeResult result;
     result.omega = omega;
@@ -66,30 +34,26 @@ HodgeResult hodge(
     // ── Exact component: α and dα ────────────────────────────
     // Solve A α = d0ᵀ ★₁ ω  where  A = d0ᵀ ★₁ d0 (regularized).
     Eigen::VectorXd rhsAlpha = d0.transpose() * (hodge1 * omega);
-    const auto& lltA = cache.hodgeExact(dec);
-    result.exactPotential = lltA.solve(rhsAlpha);
+    result.exactPotential = exactFactor.solve(rhsAlpha);
     result.dAlpha = d0 * result.exactPotential;
 
     // ── Co-exact component: β (on faces) and δβ ──────────────
     // Solve B β̃ = d₁ ω  where  B = d₁ ★₁⁻¹ d₁ᵀ (regularized).
     // Then δβ = ★₁⁻¹ d₁ᵀ β̃  (the co-exact 1-form on edges).
     Eigen::VectorXd rhsBeta = d1 * omega;
-    const auto& luB = cache.hodgeCoExact(dec);
-    result.coExactPotentialF = luB.solve(rhsBeta);
+    result.coExactPotentialF = coexactSolver.solve(rhsBeta);
     result.deltaBeta = hodge1Inv * (d1.transpose() * result.coExactPotentialF);
 
     // ── Harmonic component: γ = ω - dα - δβ ──────────────────
     result.gamma = omega - result.dAlpha - result.deltaBeta;
 
     // Average face β values to vertices (for visualization)
-    auto& mesh = m.mesh();
     Eigen::VectorXd vertSum = Eigen::VectorXd::Zero(nV);
     Eigen::VectorXi vertCount = Eigen::VectorXi::Zero(nV);
-    for (Face f : mesh.faces()) {
-        int fi = static_cast<int>(f.getIndex());
-        double val = result.coExactPotentialF(fi);
-        for (Vertex v : f.adjacentVertices()) {
-            int vi = static_cast<int>(v.getIndex());
+    for (int fi = 0; fi < nF; ++fi) {
+        const double val = result.coExactPotentialF(fi);
+        for (int k = 0; k < 3; ++k) {
+            const int vi = surface.faces(fi, k);
             vertSum(vi) += val;
             vertCount(vi)++;
         }
@@ -101,10 +65,10 @@ HodgeResult hodge(
     result.combinedPotential = result.exactPotential + result.coExactPotentialV;
 
     // ── Face-centered vector fields via Whitney interpolation ─
-    result.omegaVectors     = signal::whitney(m, dec, result.omega);
-    result.dAlphaVectors    = signal::whitney(m, dec, result.dAlpha);
-    result.deltaBetaVectors = signal::whitney(m, dec, result.deltaBeta);
-    result.gammaVectors     = signal::whitney(m, dec, result.gamma);
+    result.omegaVectors     = whitney(surface, dec, result.omega);
+    result.dAlphaVectors    = whitney(surface, dec, result.dAlpha);
+    result.deltaBetaVectors = whitney(surface, dec, result.deltaBeta);
+    result.gammaVectors     = whitney(surface, dec, result.gamma);
 
     std::cout << "[hodge] Decomposed 1-form. ||dα|| = " << result.dAlpha.norm()
               << ", ||δβ|| = " << result.deltaBeta.norm()
@@ -113,4 +77,4 @@ HodgeResult hodge(
     return result;
 }
 
-} // namespace nxr::operators
+} // namespace nxr::signal

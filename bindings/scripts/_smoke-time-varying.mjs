@@ -43,12 +43,12 @@ const nF = faces.length / 3   // 20
 console.log(`[smoke] mesh: nV=${nV}, nF=${nF}`)
 
 // ── Build context + ops + eigenmodes ──────────────────────────────
-const ctx = addon.createContext(verts, faces)
-const ops = addon.assembleManifoldOperators(ctx)
+const ctx = addon['geometry.surfaceArrays'](verts, faces)   // the surface as data
+const ops = addon['operators.assembleManifoldOperators'](ctx)
 console.log(`[smoke] ops: nV=${ops.nV}, nE=${ops.nE}, nF=${ops.nF}, totalArea=${ops.totalArea.toFixed(4)}`)
 
 const k = 6
-const eig = await addon.solve(ctx, k)
+const eig = await addon['operators.eigen'](ops.cotanLaplacian, ops.mass, { k, normalize: true, removeDC: true })
 console.log(`[smoke] eigenmodes: k=${eig.k} (post-removeDC), nV=${eig.nV}`)
 const eigvals = Array.from(eig.eigenvalues).map(v => v.toFixed(4))
 console.log(`[smoke] eigenvalues: [${eigvals.join(', ')}]`)
@@ -65,9 +65,8 @@ console.log(`[smoke] eigenvalues: [${eigvals.join(', ')}]`)
   const alpha        = 1.0
 
   const t0 = performance.now()
-  const heat = addon.heatDiffusion(ctx, {
-    sourceVerts, sourceValues, timesteps, alpha,
-  })
+  const u0 = addon['synthesis.delta'](nV, sourceVerts, sourceValues)
+  const heat = addon['synthesis.heatDiffusion'](ops.mass, eig, u0, timesteps, alpha)
   const elapsed = (performance.now() - t0).toFixed(3)
 
   console.log(`[smoke] heat diffusion: ${elapsed} ms`)
@@ -110,7 +109,7 @@ console.log(`[smoke] eigenvalues: [${eigvals.join(', ')}]`)
   for (let i = 0; i < T; i++) timesteps[i] = (i / (T - 1)) * period
 
   const t0 = performance.now()
-  const wave = addon.dampedWave(ctx, {
+  const wave = addon['synthesis.dampedWave'](eig, {
     modeIndices: new Int32Array([0]),
     amplitudes:  new Float64Array([1.0]),
     dampings:    new Float64Array([0.2]),

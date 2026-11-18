@@ -6,13 +6,11 @@
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
@@ -34,8 +32,9 @@ static std::array<double, 16> leftMul(double a, double b, double c, double d) {
     return {a, -b, -c, -d,  b, a, -d, c,  c, d, a, -b,  d, -c, b, a};
 }
 
-static void requireClosed(geometry::Manifold& m, const char* who) {
-    if (m.mesh().hasBoundary())
+static void requireClosed(const geometry::SurfaceArrays& surface, const char* who) {
+    geometry::IntrinsicSurface gs(surface);
+    if (gs.inputMesh().hasBoundary())
         throw Error(ErrorCode::ClosedMeshRequired, std::string(who) + ": the mesh must be closed", "spin Diracs are for closed, oriented surfaces");
 }
 
@@ -48,11 +47,12 @@ static Eigen::Vector3d faceNormal(const VertexPositionGeometry& g, Face f) {
     return Eigen::Vector3d(x.x / l, x.y / l, x.z / l);
 }
 
-SpinDirac assemble(geometry::Manifold& m, Kind kind) {
-    requireClosed(m, "spin::assemble");
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
-    const int nF = m.nF();
+SpinDirac assemble(const geometry::SurfaceArrays& surface, Kind kind) {
+    geometry::IntrinsicSurface gs(surface);
+    requireClosed(surface, "spin::assemble");
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    const int nF = surface.nF();
     std::vector<Eigen::Vector3d> n(nF);
     SpinDirac out;
     out.H = Eigen::VectorXd::Zero(nF);
@@ -92,10 +92,11 @@ SpinDirac assemble(geometry::Manifold& m, Kind kind) {
     return out;
 }
 
-Eigen::SparseMatrix<double> vertexToFace(geometry::Manifold& m, bool covariant) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
-    const int nF = m.nF(), nV = m.nV();
+Eigen::SparseMatrix<double> vertexToFace(const geometry::SurfaceArrays& surface, bool covariant) {
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    const int nF = surface.nF(), nV = surface.nV();
     std::vector<Eigen::Vector3d> vn(nV, Eigen::Vector3d::Zero());
     for (Face f : mesh.faces()) {
         Halfedge h = f.halfedge();
@@ -134,12 +135,12 @@ Eigen::SparseMatrix<double> vertexToFace(geometry::Manifold& m, bool covariant) 
 
 namespace nxr::operators {
 
-EigenResult eigenSpin(geometry::Manifold& m, nxr::operators::spin::Kind kind, int k, const CancellationToken&, const ProgressObserver&) {
+EigenResult eigenSpin(const geometry::SurfaceArrays& surface, nxr::operators::spin::Kind kind, int k, const CancellationToken&, const ProgressObserver&) {
     using SM = Eigen::SparseMatrix<double>;
-    const int nV = m.nV(), nF = m.nF();
+    const int nV = surface.nV(), nF = surface.nF();
     if (k < 1 || k > 4 * nV - 1) throw Error(ErrorCode::EigensolveInvalidK, "eigenSpin: k out of range");
-    nxr::operators::spin::SpinDirac sd = nxr::operators::spin::assemble(m, kind);
-    SM A = nxr::operators::spin::vertexToFace(m, kind != nxr::operators::spin::Kind::Extrinsic);
+    nxr::operators::spin::SpinDirac sd = nxr::operators::spin::assemble(surface, kind);
+    SM A = nxr::operators::spin::vertexToFace(surface, kind != nxr::operators::spin::Kind::Extrinsic);
     Eigen::VectorXd a4(4 * nF);
     for (int f = 0; f < nF; ++f) a4.segment(4 * f, 4).setConstant(sd.area(f));
     SM M(4 * nF, 4 * nF), Mi(4 * nF, 4 * nF);

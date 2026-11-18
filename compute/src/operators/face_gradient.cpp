@@ -4,8 +4,7 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
@@ -30,12 +29,13 @@ namespace nxr::operators::facegrad {
 // constants are annihilated; each output 3-vector is tangent to its face.
 // Closed-mesh v1: every interior face has exactly 3 edge-neighbors — fail loud on
 // an open boundary (a boundary face's missing twin would corrupt the stencil).
-Eigen::SparseMatrix<double> gradient(geometry::Manifold& m) {
+Eigen::SparseMatrix<double> gradient(const geometry::SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
     using namespace geometrycentral;
     using namespace geometrycentral::surface;
 
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
     if (mesh.hasBoundary())
         throw Error(ErrorCode::InvalidInput,
             "facegrad::gradient: open boundary unsupported (closed-mesh v1)",
@@ -44,7 +44,7 @@ Eigen::SparseMatrix<double> gradient(geometry::Manifold& m) {
     geom.requireFaceNormals();
     geom.requireFaceAreas();
 
-    const int Fn = m.nF();
+    const int Fn = surface.nF();
     auto vec3 = [](const Vector3& u) { return Eigen::Vector3d(u.x, u.y, u.z); };
 
     std::vector<Eigen::Triplet<double>> T;
@@ -84,14 +84,15 @@ Eigen::SparseMatrix<double> gradient(geometry::Manifold& m) {
 // (A_f on each of the 3 components). Built from THE SAME gradient triplets so the
 // pair never drifts (mirrors extrinsicBlockFace building Ẽ from matrixFace).
 // Symmetric PSD; kernel = constants on a closed (genus-0) mesh.
-Eigen::SparseMatrix<double> laplacian(geometry::Manifold& m) {
+Eigen::SparseMatrix<double> laplacian(const geometry::SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
     using namespace geometrycentral::surface;
 
-    Eigen::SparseMatrix<double> G = gradient(m);   // [3F × F]
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+    Eigen::SparseMatrix<double> G = gradient(surface);   // [3F × F]
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
     geom.requireFaceAreas();
-    const int Fn = m.nF();
+    const int Fn = surface.nF();
 
     std::vector<Eigen::Triplet<double>> TW;
     TW.reserve(static_cast<size_t>(3) * Fn);

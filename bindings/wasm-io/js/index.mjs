@@ -137,12 +137,12 @@ export async function wasmClient(root, { module, program } = {}) {
 }
 
 /**
- * THE WHOLE OF nxr-neuro in one module instance: the geometry compute on meshes in memory (`compute`: the Manifold context — operators, eigenmodes, frames,
+ * THE WHOLE OF nxr-neuro in one module instance: the geometry compute on meshes in memory (`compute`: the surface as data and the toolbox functions — operators, eigenmodes, frames,
  * geodesics, transport, … — the API of bindings/wasm's standalone build) and data clients on datastores (`client(root)`: wasmClient, with every analysis verb
  * through `cli`). One instance, one heap: load it once (in a worker for long work).
  *
  *   const nxr = await nxrNeuro()
- *   const m = nxr.compute.manifold(vertices, faces)          // geometry in memory
+ *   const m = nxr.compute.createManifoldContext(vertices, faces)   // geometry in memory (the surface as data)
  *   const c = await nxr.client('/path/to/datastore')         // a datastore: reads, writes, imports, analyses
  */
 export async function nxrNeuro(options = {}) {

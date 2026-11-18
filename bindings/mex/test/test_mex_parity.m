@@ -16,10 +16,11 @@ addpath(hits(1).folder);
 [V, F] = local_icosahedron();
 nV = size(V, 1);
 nF = size(F, 1);
-h = nxr_compute('create', V, F);
+S = nxr_compute('geometry.surfaceArrays', V, F);   % the surface as data; nothing is kept between calls
+ops = nxr_compute('operators.assembleManifoldOperators', S);
 
 % ── Group B: operators ───────────────────────────────────────
-dec = nxr_compute('assembleDECOperators', h);
+dec = nxr_compute('operators.assembleDECOperators', S);
 nE = size(dec.d0, 1);
 assert(nE == 30, 'icosahedron nE=30 (got %d)', nE);
 assert(isequal(size(dec.d0), [nE nV]), 'd0 nE×nV');
@@ -27,34 +28,34 @@ assert(isequal(size(dec.d1), [nF nE]), 'd1 nF×nE');
 assert(issparse(dec.hodge1) && isequal(size(dec.hodge1), [nE nE]), 'hodge1 nE×nE');
 fprintf('  assembleDECOperators ✓ (nE=%d)\n', nE);
 
-cl = nxr_compute('assembleConnectionLaplacian', h);
+cl = nxr_compute('operators.assembleConnectionLaplacian', S);
 assert(isequal(size(cl.K_real), [2 * nV, 2 * nV]), 'connection K_real 2V×2V (default Real2N)');
 assert(norm(cl.K_real - cl.K_real', 'fro') < 1e-9, 'connection K_real symmetric');
 assert(cl.outputDim == 2 * nV, 'connection outputDim = 2*nV');
 fprintf('  assembleConnectionLaplacian ✓ (outputDim=%d)\n', cl.outputDim);
 
-fr = nxr_compute('frames', h);
+fr = nxr_compute('geometry.frames', S);
 assert(isequal(size(fr.e1), [nF 3]), 'frames e1 F×3');
 assert(max(abs(vecnorm(fr.e1, 2, 2) - 1)) < 1e-9, 'frames e1 unit-length');
 assert(max(abs(sum(fr.e1 .* fr.e2, 2))) < 1e-9, 'frames e1 ⊥ e2');
 fprintf('  frames ✓\n');
 
-nrm = nxr_compute('normals', h);
+nrm = nxr_compute('geometry.normals', S);
 assert(numel(nrm) == nV * 3 && all(isfinite(nrm(:))), 'normals nV*3 finite');
 fprintf('  normals ✓\n');
 
 % ── Group C: solvers ─────────────────────────────────────────
-phi = nxr_compute('poisson', h, [1; 7], [1.0; -1.0]);
+phi = nxr_compute('operators.poisson', ops.cotanLaplacian, ops.mass, [1; 7], [1.0; -1.0]);
 assert(numel(phi) == nV && all(isfinite(phi)), 'poisson → finite length nV');
 fprintf('  poisson ✓\n');
 
-d = nxr_compute('heat', h, 1);
+d = nxr_compute('geometry.heat', S, 1);
 assert(numel(d) == nV, 'heat length nV');
 assert(abs(d(1)) < 1e-9, 'heat distance at source ≈ 0 (got %g)', d(1));
 assert(all(d >= -1e-9), 'heat distances nonnegative');
 fprintf('  heat ✓ (max d = %.4f)\n', max(d));
 
-pth = nxr_compute('tracePath', h, 1, 4);   % antipodal pair on the icosahedron
+pth = nxr_compute('geometry.tracePath', S, 1, 4);   % antipodal pair on the icosahedron
 assert(size(pth, 1) >= 2 && size(pth, 2) == 3, 'tracePath ≥2 points × 3');
 plen = sum(vecnorm(diff(pth, 1, 1), 2, 2));
 assert(plen > 2.0 && plen < pi, 'antipode path in (chord=2, arc=π), got %g', plen);
@@ -62,14 +63,14 @@ fprintf('  tracePath ✓ (length %.4f)\n', plen);
 
 rng(42);
 omega = randn(nE, 1);
-hd = nxr_compute('hodge', h, omega);
+hd = nxr_compute('signal.hodge', S, omega);
 recomp = hd.dAlpha + hd.deltaBeta + hd.gamma;
 err = max(abs(recomp - omega));
 assert(err < 1e-10, 'hodge recomposition dα+δβ+γ = ω (err %g)', err);
 fprintf('  hodge ✓ (recomposition err %.2e)\n', err);
 
 % ── Group D: geometric ───────────────────────────────────────
-cv = nxr_compute('curvatures', h);
+cv = nxr_compute('geometry.curvatures', S);
 assert(numel(cv.gaussian) == nV, 'curvatures gaussian length nV');
 assert(abs(sum(cv.gaussian) - 4 * pi) < 1e-6, ...
     'discrete Gauss-Bonnet: Σ gaussian = 2πχ = 4π (got %g)', sum(cv.gaussian));
@@ -78,25 +79,25 @@ fprintf('  curvatures ✓ (Σκ_gauss = %.6f ≈ 4π)\n', sum(cv.gaussian));
 
 bffThrew = false;   % closed icosahedron has no boundary
 try
-    nxr_compute('bff', h);
+    nxr_compute('geometry.bff', S);
 catch e
     bffThrew = startsWith(e.identifier, 'nxr:');
 end
 assert(bffThrew, 'bff on a closed mesh should raise a structured nxr:* error');
 fprintf('  bff (closed-mesh throw) ✓\n');
 
-iso = nxr_compute('isoline', h, V(:, 3), 10);   % contours of the z-coordinate
+iso = nxr_compute('signal.isoline', S, V(:, 3), 10);   % contours of the z-coordinate
 assert(iso.segmentCount >= 0, 'isoline segmentCount >= 0');
 assert(isequal(size(iso.positions), [iso.segmentCount * 2, 3]), 'isoline positions (2*segs)×3');
 fprintf('  isoline ✓ (segs=%d)\n', iso.segmentCount);
 
-df = nxr_compute('trivial', h, [1; 4], [1.0; 1.0]);   % Σindices = 2 = χ(sphere)
+df = nxr_compute('operators.trivial', S, [1; 4], [1.0; 1.0]);   % Σindices = 2 = χ(sphere)
 assert(isequal(size(df.directionVectors), [nF 3]), 'trivial directionVectors F×3');
 assert(df.gaussBonnetSatisfied, 'trivial: Σindices = χ should satisfy Gauss-Bonnet');
 fprintf('  trivial ✓ (χ=%g, gaussBonnet=%d)\n', df.eulerCharacteristic, df.gaussBonnetSatisfied);
 
-ff = nxr_compute('smoothFace', h, 4);
-sl = nxr_compute('streamline', h, ff, 8);
+ff = nxr_compute('geometry.smoothFace', S, 4);
+sl = nxr_compute('signal.streamline', S, ff, 8);
 assert(sl.segmentCount >= 0, 'streamline segmentCount >= 0');
 assert(isequal(size(sl.positions), [sl.segmentCount * 2, 3]), 'streamline positions (2*segs)×3');
 fprintf('  streamline ✓ (segs=%d)\n', sl.segmentCount);
@@ -104,50 +105,37 @@ fprintf('  streamline ✓ (segs=%d)\n', sl.segmentCount);
 % ── Group E: vector field ────────────────────────────────────
 rng(7);
 oneForm = randn(nE, 1);
-wv = nxr_compute('whitney', h, oneForm);
+wv = nxr_compute('signal.whitney', S, oneForm);
 assert(isequal(size(wv), [nF 3]) && all(isfinite(wv(:))), 'whitney → F×3 finite');
 fprintf('  whitney ✓\n');
 
 u = zeros(nV, 1); u(1) = 1.0;
-gr = nxr_compute('gradient', h, u);
+gr = nxr_compute('operators.gradient', S, u);
 assert(isequal(size(gr), [nF 3]), 'gradient → F×3');
 assert(max(vecnorm(gr, 2, 2)) > 0, 'gradient nontrivial');
 fprintf('  gradient ✓\n');
 
 % ── Group F: time-varying generators (need eigenmodes) ───────
-nxr_compute('precompute', h, 6);
+eig = nxr_compute('operators.eigen', ops.cotanLaplacian, ops.mass, 6, [], true, true);
 
 ts = (0:4) * 0.1;
-hdif = nxr_compute('heatDiffusion', h, 1, 1.0, ts, 1.0);
+hdif = nxr_compute('synthesis.heatDiffusion', ops.mass, eig, nxr_compute('synthesis.delta', nV, 1, 1.0), ts, 1.0);
 assert(isequal(size(hdif), [numel(ts) nV]), 'heatDiffusion → [T, nV]');
 assert(all(isfinite(hdif(:))), 'heatDiffusion finite');
 fprintf('  heatDiffusion ✓ ([T nV]=[%d %d])\n', size(hdif, 1), size(hdif, 2));
 
-dw = nxr_compute('dampedWave', h, [2; 3], [1.0; 1.0], [0.1; 0.1], [0.0; 0.0], (0:2) * 0.1);
+dw = nxr_compute('synthesis.dampedWave', eig, [2; 3], [1.0; 1.0], [0.1; 0.1], [0.0; 0.0], (0:2) * 0.1);
 assert(isequal(size(dw), [3 nV]), 'dampedWave → [T, nV]');
 assert(all(isfinite(dw(:))), 'dampedWave finite');
 fprintf('  dampedWave ✓ ([T nV]=[%d %d])\n', size(dw, 1), size(dw, 2));
 
-om = nxr_compute('randomDecomposed1Form', h, 1.0, 1.0, 0.0, 42);
+om = nxr_compute('synthesis.randomDecomposed1Form', S, 1.0, 1.0, 0.0, 42);
 assert(numel(om) == nE && all(isfinite(om)), 'randomDecomposed1Form length nE finite');
-hd2 = nxr_compute('hodge', h, om);
+hd2 = nxr_compute('signal.hodge', S, om);
 assert(max(abs(hd2.dAlpha + hd2.deltaBeta + hd2.gamma - om)) < 1e-10, ...
     'randomDecomposed1Form ∘ hodge round-trip');
 fprintf('  randomDecomposed1Form ✓\n');
 
-% generators before solve raise NotPrecomputed on a fresh handle
-h3 = nxr_compute('create', V, F);
-npThrew = false;
-try
-    nxr_compute('heatDiffusion', h3, 1, 1.0, ts, 1.0);
-catch e
-    npThrew = strcmp(e.identifier, 'nxr:notPrecomputed');
-end
-assert(npThrew, 'heatDiffusion before solve must raise nxr:notPrecomputed');
-nxr_compute('destroy', h3);
-fprintf('  notPrecomputed guard ✓\n');
-
-nxr_compute('destroy', h);
 fprintf('[test_mex_parity] all parity assertions passed ✓\n');
 
 % ── local helpers ─────────────────────────────────────────────

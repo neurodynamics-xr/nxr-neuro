@@ -30,13 +30,12 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include <iostream>
@@ -44,6 +43,7 @@
 #include <vector>
 #include <cmath>
 #include <string>
+#include "surface_of.h"
 
 using namespace nxr::geometry;
 using namespace nxr::operators;
@@ -122,7 +122,7 @@ int main() {
     // total surface area is fixed by the embedding — compute it from
     // the lumped run as the reference and require all variants match
     // it exactly (within float roundoff).
-    nxr::geometry::Manifold m(V.data(), nV, F.data(), nF);
+    const auto m = surfaceOf(V.data(), nV, F.data(), nF);
     auto refOps = nxr::operators::assembleManifoldOperators(
         m, MassMatrixVariant::MixedVoronoi);
     const double refArea = refOps.totalArea;
@@ -140,7 +140,7 @@ int main() {
         std::cout << "\n── variant: " << variantName(v) << " ─────────\n";
 
         // Fresh context per variant — avoid any state leak between runs.
-        nxr::geometry::Manifold localCtx(V.data(), nV, F.data(), nF);
+        const auto localCtx = surfaceOf(V.data(), nV, F.data(), nF);
         auto ops = nxr::operators::assembleManifoldOperators(localCtx, v);
 
         check(ops.massVariant == v,                       "ops.massVariant tag");
@@ -215,7 +215,7 @@ int main() {
     auto& ev0 = evalsByVariant[0];   // MixedVoronoi
     auto& ev1 = evalsByVariant[2];   // Galerkin
     {
-        nxr::geometry::Manifold mm(V.data(), nV, F.data(), nF);
+        const auto mm = surfaceOf(V.data(), nV, F.data(), nF);
         const Eigen::SparseMatrix<double> a = nxr::operators::vertexMass(mm, MassMatrixVariant::MixedVoronoi);
         const Eigen::SparseMatrix<double> b = nxr::operators::vertexMass(mm, MassMatrixVariant::Barycentric);
         check((a - b).norm() < 1e-12 * a.norm(), "regular mesh: mixedVoronoi mass == barycentric mass");

@@ -3,18 +3,18 @@
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include <complex>
 #include <cmath>
 #include <iostream>
+#include "surface_of.h"
 using namespace nxr::geometry;
 
 static int g_failures = 0;
@@ -34,7 +34,7 @@ static void icosphere(std::vector<double>& V, std::vector<int32_t>& F) {
 static void testLaplacianCotanGraph() {
     std::cout << "\n=== operators: laplacian cotan/graph + independent cache ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
     const auto L = nxr::operators::cotanLaplacian(m);
     EXPECT(L.rows() == 12 && L.cols() == 12, "cotan Laplacian [12,12]");
@@ -52,7 +52,7 @@ static void testLaplacianCotanGraph() {
 static void testMassDecHodge() {
     std::cout << "\n=== operators: dec/mass/hodge ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
     EXPECT(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi).rows() == 12, "mass.mixedVoronoi [12,12]");
     EXPECT(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi).nonZeros() == 12, "mass.mixedVoronoi is diagonal (12 nnz)");
@@ -61,14 +61,14 @@ static void testMassDecHodge() {
     double s = 0; auto Ml = nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi);
     for (int k = 0; k < Ml.outerSize(); ++k)
         for (Eigen::SparseMatrix<double>::InnerIterator it(Ml,k); it; ++it) s += it.value();
-    EXPECT(std::abs(s - m.lightGeometry().totalArea) < 1e-9, "lumped mass sums to total area");
+    EXPECT(std::abs(s - nxr::geometry::meshGeometry(m).totalArea) < 1e-9, "lumped mass sums to total area");
 
     const auto& dec = nxr::operators::assembleDECOperators(m);
     EXPECT(dec.d0.rows() == 30 && dec.d0.cols() == 12, "dec.d0 [E,V] = [30,12]");
     EXPECT(dec.d1.rows() == 20 && dec.d1.cols() == 30, "dec.d1 [F,E] = [20,30]");
     EXPECT(nxr::operators::hodge1(m).rows() == 30, "hodge.h1 [E,E] = [30,30]");
     // requesting mass.mixedVoronoi only built the lumped slot, not galerkin (independent)
-    Manifold m2(V.data(), 12, F.data(), 20);
+    const auto m2 = surfaceOf(V.data(), 12, F.data(), 20);
     (void)nxr::operators::vertexMass(m2, nxr::operators::MassMatrixVariant::MixedVoronoi);
 }
 
@@ -81,61 +81,58 @@ static double minEigC(const Eigen::SparseMatrix<std::complex<double>>& K) {
 }
 
 static void testConnectionCovariant() {
-    std::cout << "\n=== operators: connection + covariant (active gauge) ===\n";
+    std::cout << "\n=== operators: connection + covariant (the connection as an argument) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);     // LC active
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);     // LC active
     namespace cl = nxr::operators::laplacian::connection;
 
-    const auto& K = nxr::operators::activeConnectionLaplacian(m);
+    const auto& K = nxr::operators::vertexConnectionLaplacian(m);
     EXPECT(K.rows() == 12 && K.cols() == 12, "connection L [12,12] complex");
     auto herm = (K - Eigen::SparseMatrix<std::complex<double>>(K.adjoint())).norm();
     EXPECT(herm < 1e-9, "LC connection L Hermitian");
     EXPECT(minEigC(K) > -1e-9, "LC connection L PSD on icosphere (Delaunay)");
 
-    const auto& C = nxr::operators::activeCovariantLaplacian(m, cl::CovariantCoupling::Ambient);
+    const auto& C = nxr::operators::covariantLaplacian(m, nxr::geometry::ConnectionType::LeviCivita, {}, cl::CovariantCoupling::Ambient);
     EXPECT(C.rows() == 36 && C.cols() == 36, "ambient covariant [3V,3V] = [36,36]");
     EXPECT((C - Eigen::SparseMatrix<double>(C.transpose())).norm() < 1e-9, "covariant symmetric");
 
     // active-gauge sensitivity: trivial gauge yields a different connection L
     std::map<int,double> sing{{0,1.0},{3,1.0}};
-    Manifold mt(V.data(), 12, F.data(), 20, sing);    // trivial active
-    const auto& Kt = nxr::operators::activeConnectionLaplacian(mt);
+    const auto& Kt = nxr::operators::vertexConnectionLaplacian(m, ConnectionType::Trivial, sing);
     EXPECT((Kt - K).norm() > 1e-6, "trivial-gauge connection L differs from LC");
 
-    // setGauge invalidates the cached connection/covariant: a single instance
-    // rebuilds in the new gauge rather than returning the stale LC matrix.
-    Eigen::SparseMatrix<std::complex<double>> Klc = nxr::operators::activeConnectionLaplacian(m); // LC
-    m.setConnection(ConnectionType::Trivial, sing);
-    Eigen::SparseMatrix<std::complex<double>> Ktri = nxr::operators::activeConnectionLaplacian(m); // rebuilt in the new connection
-    EXPECT((Ktri - Klc).norm() > 1e-6, "connection rebuilt for new gauge after setGauge (not stale)");
+    // the connection is the argument: the same surface in the other connection gives the other matrix
+    Eigen::SparseMatrix<std::complex<double>> Klc = nxr::operators::vertexConnectionLaplacian(m); // LC
+    Eigen::SparseMatrix<std::complex<double>> Ktri = nxr::operators::vertexConnectionLaplacian(m, ConnectionType::Trivial, sing);
+    EXPECT((Ktri - Klc).norm() > 1e-6, "the trivial connection's Laplacian differs from Levi-Civita's on the same surface");
 }
 
 static void testCovariantCouplingCacheKey() {
     std::cout << "\n=== operators: covariant cache keys on coupling ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     namespace cl = nxr::operators::laplacian::connection;
     // Request Product then Ambient on the SAME instance — must NOT alias.
-    Eigen::SparseMatrix<double> Cp = nxr::operators::activeCovariantLaplacian(m, cl::CovariantCoupling::Product);
-    Eigen::SparseMatrix<double> Ca = nxr::operators::activeCovariantLaplacian(m, cl::CovariantCoupling::Ambient);
-    EXPECT((Cp - Ca).norm() > 1e-6, "product covariant != ambient covariant (cache keys on coupling)");
+    Eigen::SparseMatrix<double> Cp = nxr::operators::covariantLaplacian(m, nxr::geometry::ConnectionType::LeviCivita, {}, cl::CovariantCoupling::Product);
+    Eigen::SparseMatrix<double> Ca = nxr::operators::covariantLaplacian(m, nxr::geometry::ConnectionType::LeviCivita, {}, cl::CovariantCoupling::Ambient);
+    EXPECT((Cp - Ca).norm() > 1e-6, "product covariant != ambient covariant");
     // Re-requesting Product returns the Product matrix again (rebuild on mismatch).
-    Eigen::SparseMatrix<double> Cp2 = nxr::operators::activeCovariantLaplacian(m, cl::CovariantCoupling::Product);
+    Eigen::SparseMatrix<double> Cp2 = nxr::operators::covariantLaplacian(m, nxr::geometry::ConnectionType::LeviCivita, {}, cl::CovariantCoupling::Product);
     EXPECT((Cp2 - Cp).norm() < 1e-12, "re-request of product coupling is stable");
 
     // Ambient is the default coupling (full 3D-frame embedded covariant).
-    Manifold md(V.data(), 12, F.data(), 20);
-    Eigen::SparseMatrix<double> Cdef = nxr::operators::activeCovariantLaplacian(md);   // no arg
-    Eigen::SparseMatrix<double> Camb = nxr::operators::activeCovariantLaplacian(md, cl::CovariantCoupling::Ambient);
+    const auto md = surfaceOf(V.data(), 12, F.data(), 20);
+    Eigen::SparseMatrix<double> Cdef = nxr::operators::covariantLaplacian(md);   // no arg
+    Eigen::SparseMatrix<double> Camb = nxr::operators::covariantLaplacian(md, nxr::geometry::ConnectionType::LeviCivita, {}, cl::CovariantCoupling::Ambient);
     EXPECT((Cdef - Camb).norm() < 1e-12, "default covariant() == Ambient");
 
     // Ambient must NOT build the connection Laplacian K (it ignores it) — the
     // intrinsic connection assembly is skipped for the 3D-frame view.
-    Manifold ma(V.data(), 12, F.data(), 20);
-    (void)nxr::operators::activeCovariantLaplacian(ma, cl::CovariantCoupling::Ambient);
+    const auto ma = surfaceOf(V.data(), 12, F.data(), 20);
+    (void)nxr::operators::covariantLaplacian(ma, nxr::geometry::ConnectionType::LeviCivita, {}, cl::CovariantCoupling::Ambient);
     // Product DOES build K (it puts the intrinsic connection on the tangent block).
-    Manifold mp(V.data(), 12, F.data(), 20);
-    (void)nxr::operators::activeCovariantLaplacian(mp, cl::CovariantCoupling::Product);
+    const auto mp = surfaceOf(V.data(), 12, F.data(), 20);
+    (void)nxr::operators::covariantLaplacian(mp, nxr::geometry::ConnectionType::LeviCivita, {}, cl::CovariantCoupling::Product);
 }
 
 static double minEigReal(const Eigen::SparseMatrix<double>& K) {
@@ -150,7 +147,7 @@ static void testOperatorsUnderIntrinsicDelaunay() {
     // intrinsic-Delaunay normalization makes the cotan operator PSD.
     std::vector<double>  V = {0,0,0,  2,0,0,  1,0.2,0,  1,-0.2,0};
     std::vector<int32_t> F = {0,2,1,  0,1,3};
-    Manifold mN(V.data(), 4, F.data(), 2, /*intrinsicDelaunay=*/true);
+    const auto mN = surfaceOf(V.data(), 4, F.data(), 2, /*intrinsicDelaunay=*/true);
     const auto& L = nxr::operators::cotanLaplacian(mN);   // sources from operatorGeometry()
     EXPECT(L.rows() == 4, "normalized cotan operator [4,4]");
     EXPECT(minEigReal(L) > -1e-9, "cotanLaplacian is PSD under intrinsicDelaunay");

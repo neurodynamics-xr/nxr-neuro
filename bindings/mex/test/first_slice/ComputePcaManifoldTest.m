@@ -111,12 +111,12 @@ classdef ComputePcaManifoldTest < SliceTestBase
             tc.verifyEqual(size(r.eigenvectors), [162 9]);   % the constant mode is gone
         end
 
-        function agreesWithTheKeptHandleCommands(tc)
+        function agreesWithTheSurfaceCommands(tc)
             [v, f] = icosphere(2);
             r = nxr.compute.operators.eigen(v, f, 8);
-            h = nxr_compute('create', v, f);
-            c = onCleanup(@() nxr_compute('destroy', h));
-            e = nxr_compute('solve', h, 8);
+            s = nxr_compute('geometry.surfaceArrays', v, f);
+            ops = nxr_compute('operators.assembleManifoldOperators', s);
+            e = nxr_compute('operators.eigen', ops.cotanLaplacian, ops.mass, 8);
             tc.verifyEqual(r.eigenvalues, e.eigenvalues(:), 'AbsTol', 1e-8);
         end
 

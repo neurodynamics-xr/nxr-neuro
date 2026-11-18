@@ -16,19 +16,19 @@
 #include "nxr/geometry/parametrization.h"
 #include "nxr/signal/surface_calculus.h"
 #include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/surface_arrays.h"
 #include "nxr/geometry/mesh.h"
 #include "nxr/geometry/curvature.h"
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/filters.h"
@@ -213,8 +213,9 @@ nb::tuple manifold_eigenmodes(const Array2<double>& vertices, const Array2<int32
   nxr::operators::EigenResult r;
   {
     nb::gil_scoped_release release;
-    nxr::geometry::Manifold m(vertices.data(), static_cast<int>(nV), f, static_cast<int>(nF), intrinsic_delaunay);
-    auto ops = nxr::operators::assembleManifoldOperators(m);
+    const nxr::geometry::SurfaceArrays surface =
+        nxr::geometry::surfaceArrays(vertices.data(), static_cast<int>(nV), f, static_cast<int>(nF), nxr::geometry::intrinsicOptions(intrinsic_delaunay));
+    auto ops = nxr::operators::assembleManifoldOperators(surface);
     r = nxr::operators::eigen(ops.cotanLaplacian, ops.mass, k, sigma ? *sigma : nxr::operators::kShiftLadder, normalize, remove_dc);
   }
   return nb::make_tuple(hand_over(std::move(r.eigenvalues)), hand_over(std::move(r.eigenvectors)), r.nConverged);

@@ -5,13 +5,11 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
@@ -176,9 +174,10 @@ Eigen::SparseMatrix<double> lowerToReal2N(
 } // namespace
 
 ConnectionLaplacian assembleConnectionLaplacian(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     const ConnectionLaplacianOptions& opts
 ) {
+    geometry::IntrinsicSurface gs(surface);
     if (opts.nSym <= 0) {
         throw Error(ErrorCode::InvalidInput,
                     "Connection Laplacian: nSym must be positive (got " +
@@ -186,22 +185,22 @@ ConnectionLaplacian assembleConnectionLaplacian(
                     "Common values: 1 (vector field), 2 (line field), 4 (cross field).");
     }
 
-    auto& geometry = m.geometry();
+    auto& geometry = gs.embedded();
 
     std::vector<ComplexTriplet> triplets;
     int N = 0;
     switch (opts.domain) {
         case ConnectionDomain::Vertex:
             // The intrinsic surface's cotan weights and transport (the signpost intrinsic Delaunay triangulation by default; geometry::MeshKind::Embedded: the input).
-            N = m.nV();
-            assembleVertexCL(m.intrinsicSurface(), opts.nSym, triplets);
+            N = surface.nV();
+            assembleVertexCL(gs, opts.nSym, triplets);
             break;
         case ConnectionDomain::Face:
-            N = m.nF();
+            N = surface.nF();
             assembleFaceCL(geometry, opts.nSym, triplets);
             break;
         case ConnectionDomain::EdgeCrouzeixRaviart:
-            N = m.nE();
+            N = static_cast<int>(gs.inputMesh().nEdges());
             assembleEdgeCRCL(geometry, opts.nSym, triplets);
             break;
     }
@@ -229,7 +228,7 @@ ConnectionLaplacian assembleConnectionLaplacian(
     // The vertex frame is geometry-central's gauge (geometry::IntrinsicSurface::tangentBasis): n the corner-angle-weighted normal, e1 the average of the outgoing
     // edges each rotated back by its own rescaled angle (angle 0 = the input's v.halfedge()), e2 = n × e1.
     if (opts.domain == ConnectionDomain::Vertex) {
-        const geometry::VertexFrames vf = geometry::vertexFrames(m);
+        const geometry::VertexFrames vf = geometry::vertexFrames(surface);
         result.frameE1 = vf.e1;
         result.frameE2 = vf.e2;
     } else if (opts.domain == ConnectionDomain::Face) {
@@ -279,12 +278,13 @@ ConnectionLaplacianFormat parseConnectionLaplacianFormat(const std::string& name
 }
 
 ConnectionLaplacian assembleTrivialConnectionLaplacian(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     const std::map<int, double>& singularityMap,
     const nxr::operators::DECOperators& dec,
-    nxr::operators::CholeskyCache& cache,
+    const nxr::operators::CholeskyFactor& exactFactor,
     const ConnectionLaplacianOptions& opts
 ) {
+    geometry::IntrinsicSurface gs(surface);
     if (opts.domain != ConnectionDomain::Vertex) {
         throw Error(ErrorCode::InvalidInput,
             "assembleTrivialConnectionLaplacian: only ConnectionDomain::Vertex "
@@ -300,11 +300,11 @@ ConnectionLaplacian assembleTrivialConnectionLaplacian(
     }
 
     Eigen::VectorXd phi =
-        nxr::operators::connection::computeTrivialConnection(m, dec, cache, singularityMap);
+        nxr::operators::connection::computeTrivialConnection(surface, dec, exactFactor, singularityMap);
 
-    auto& geometry = m.geometry();
-    SurfaceMesh& mesh = m.mesh();
-    int N = m.nV();
+    auto& geometry = gs.embedded();
+    SurfaceMesh& mesh = gs.inputMesh();
+    int N = surface.nV();
 
     geometry.requireVertexIndices();
     geometry.requireEdgeCotanWeights();
@@ -370,7 +370,8 @@ ConnectionLaplacian assembleTrivialConnectionLaplacian(
 }
 
 Eigen::SparseMatrix<std::complex<double>>
-assembleConnectionGradient(geometry::Manifold& m, int nSym) {
+assembleConnectionGradient(const geometry::SurfaceArrays& surface, int nSym) {
+    geometry::IntrinsicSurface gs(surface);
     if (nSym <= 0)
         throw Error(ErrorCode::InvalidInput,
                     "assembleConnectionGradient: nSym must be > 0",
@@ -378,9 +379,9 @@ assembleConnectionGradient(geometry::Manifold& m, int nSym) {
 
     // v1: Levi-Civita gauge only. The intrinsic surface's transport does not vary with the active gauge, so this gradient is gauge-independent and
     // squares to leviCivitaConnectionLaplacian.
-    auto& g = m.intrinsicSurface().geometry();
+    auto& g = gs.geometry();
     const int E = static_cast<int>(g.mesh.nEdges());
-    const int V = m.nV();
+    const int V = surface.nV();
     g.requireVertexIndices();
     g.requireTransportVectorsAlongHalfedge();
 

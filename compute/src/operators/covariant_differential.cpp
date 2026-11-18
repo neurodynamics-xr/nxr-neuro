@@ -5,7 +5,6 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
@@ -25,19 +24,19 @@ static Eigen::Matrix3d frameOf(const geometry::VertexFrames& vf, int v) {
     return Fv;
 }
 
-Eigen::Matrix3d frameTransport(geometry::Manifold& m, int i, int j) {
-    const int nV = m.nV();
+Eigen::Matrix3d frameTransport(const geometry::SurfaceArrays& surface, int i, int j) {
+    const int nV = surface.nV();
     if (i < 0 || i >= nV || j < 0 || j >= nV)
         throw Error(ErrorCode::InvalidInput,
             "frameTransport: vertex index out of range",
             "Expected 0 <= i,j < " + std::to_string(nV) + ".");
-    geometry::VertexFrames vf = geometry::vertexFrames(m);
+    geometry::VertexFrames vf = geometry::vertexFrames(surface);
     return frameOf(vf, j).transpose() * frameOf(vf, i);   // P_ij = Fj^T Fi
 }
 
-Eigen::MatrixXd vertexFrameMatrices(geometry::Manifold& m) {
-    geometry::VertexFrames vf = geometry::vertexFrames(m);
-    const int nV = m.nV();
+Eigen::MatrixXd vertexFrameMatrices(const geometry::SurfaceArrays& surface) {
+    geometry::VertexFrames vf = geometry::vertexFrames(surface);
+    const int nV = surface.nV();
     Eigen::MatrixXd out(nV, 9);
     for (int v = 0; v < nV; ++v) {
         Eigen::Matrix3d Fv = frameOf(vf, v);
@@ -48,38 +47,39 @@ Eigen::MatrixXd vertexFrameMatrices(geometry::Manifold& m) {
     return out;
 }
 
-Eigen::MatrixXd liftToWorld(geometry::Manifold& m, const Eigen::MatrixXd& Lloc) {
-    const int nV = m.nV();
+Eigen::MatrixXd liftToWorld(const geometry::SurfaceArrays& surface, const Eigen::MatrixXd& Lloc) {
+    const int nV = surface.nV();
     if (Lloc.rows() != nV || Lloc.cols() != 3)
         throw Error(ErrorCode::InvalidInput,
             "liftToWorld: field must be [nV, 3]",
             "Expected [" + std::to_string(nV) + ", 3].");
-    geometry::VertexFrames vf = geometry::vertexFrames(m);
+    geometry::VertexFrames vf = geometry::vertexFrames(surface);
     Eigen::MatrixXd out(nV, 3);
     for (int v = 0; v < nV; ++v)
         out.row(v) = (frameOf(vf, v) * Lloc.row(v).transpose()).transpose();   // Fv * local
     return out;
 }
 
-Eigen::MatrixXd liftToFrame(geometry::Manifold& m, const Eigen::MatrixXd& Lworld) {
-    const int nV = m.nV();
+Eigen::MatrixXd liftToFrame(const geometry::SurfaceArrays& surface, const Eigen::MatrixXd& Lworld) {
+    const int nV = surface.nV();
     if (Lworld.rows() != nV || Lworld.cols() != 3)
         throw Error(ErrorCode::InvalidInput,
             "liftToFrame: field must be [nV, 3]",
             "Expected [" + std::to_string(nV) + ", 3].");
-    geometry::VertexFrames vf = geometry::vertexFrames(m);
+    geometry::VertexFrames vf = geometry::vertexFrames(surface);
     Eigen::MatrixXd out(nV, 3);
     for (int v = 0; v < nV; ++v)
         out.row(v) = (frameOf(vf, v).transpose() * Lworld.row(v).transpose()).transpose();  // Fv^T * world
     return out;
 }
 
-Eigen::SparseMatrix<double> covariantGradient(geometry::Manifold& m) {
+Eigen::SparseMatrix<double> covariantGradient(const geometry::SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
     using namespace geometrycentral::surface;
-    geometry::VertexFrames vf = geometry::vertexFrames(m);
-    auto& mesh = m.mesh();
-    const int N = m.nV();
-    const int E = m.nE();
+    geometry::VertexFrames vf = geometry::vertexFrames(surface);
+    auto& mesh = gs.inputMesh();
+    const int N = surface.nV();
+    const int E = static_cast<int>(gs.inputMesh().nEdges());
 
     std::vector<Eigen::Triplet<double>> T;
     T.reserve(static_cast<size_t>(E) * 12);   // 3 (+I) + 9 (-P) per edge

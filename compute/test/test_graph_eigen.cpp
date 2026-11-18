@@ -9,22 +9,22 @@
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "mesh_helpers.h"
 #include <set>
+#include "surface_of.h"
 using namespace nxr::geometry;
 
 int main() {
     std::vector<double> V; std::vector<int32_t> F; icosphere(0, V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     std::cout << "\n=== graph Laplacian eigensolve on the icosahedron (5-regular, 12 vertices) ===\n";
     // oracle: L = D - A from the face list
     Eigen::MatrixXd L = Eigen::MatrixXd::Zero(12, 12); std::set<std::pair<int,int>> E;
@@ -52,7 +52,7 @@ int main() {
 
     // irregular graph: mass matters. level-1 icosphere has 12 degree-5 and 30 degree-6 vertices
     icosphere(1, V, F);
-    Manifold m1(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
+    const auto m1 = surfaceOf(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
     auto a = nxr::operators::eigenOperator(m1, idm, 20, nxr::operators::kShiftLadder, true, false, true);
     auto b = nxr::operators::eigenOperator(m1, dg, 20, nxr::operators::kShiftLadder, true, false, true);
     EXPECT(a.eigenvalues(0) < 1e-10 && b.eigenvalues(0) < 1e-10, "constant mode is the zero eigenvalue under both masses");

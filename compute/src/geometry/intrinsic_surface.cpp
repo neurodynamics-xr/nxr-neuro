@@ -1,5 +1,6 @@
 // nxr::geometry::IntrinsicSurface: see nxr/geometry/intrinsic_surface.h and docs/specs/2026-11-17-geometry-central-switch.md.
 #include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/surface_arrays.h"
 
 #include "nxr/core/errors.h"
 
@@ -51,6 +52,52 @@ private:
 using Embedded = MassServing<gcs::VertexPositionGeometry>;
 using Signpost = MassServing<gcs::SignpostIntrinsicTriangulation>;
 
+// The intrinsic triangulation rebuilt from its arrays: its lengths, and the gauge (halfedge vectors, cone angles) exactly as the signpost triangulation held
+// them when exported. Every other quantity is geometry-central's own, from the same mesh and lengths.
+class Rebuilt : public MassServing<gcs::EdgeLengthGeometry> {
+public:
+    Rebuilt(const std::vector<double>* mass, gcs::ManifoldSurfaceMesh& mesh, const gcs::EdgeData<double>& len, const IntrinsicTriangulation& t)
+        : MassServing<gcs::EdgeLengthGeometry>(mass, mesh, len), t_(t) {}
+protected:
+    void computeHalfedgeVectorsInVertex() override {
+        this->halfedgeVectorsInVertex = gcs::HalfedgeData<gc::Vector2>(this->mesh);
+        for (size_t h = 0; h < this->mesh.nHalfedges(); ++h)
+            this->halfedgeVectorsInVertex[h] = gc::Vector2{t_.halfedgeVectorInVertex[2 * h], t_.halfedgeVectorInVertex[2 * h + 1]};
+    }
+    void computeVertexAngleSums() override {
+        this->vertexAngleSums = gcs::VertexData<double>(this->mesh);
+        for (size_t v = 0; v < this->mesh.nVertices(); ++v) this->vertexAngleSums[v] = t_.vertexAngleSum[v];
+    }
+private:
+    const IntrinsicTriangulation& t_;
+};
+
+// geometry-central's mesh from its internal arrays (the constructor RichSurfaceMeshData uses; protected, reached through a subclass), and the arrays of a mesh
+// (through pointers to the protected members, formed in the subclass).
+struct RawMesh : gcs::ManifoldSurfaceMesh {
+    RawMesh(const std::vector<size_t>& next, const std::vector<size_t>& vertex, const std::vector<size_t>& face, const std::vector<size_t>& vHe,
+            const std::vector<size_t>& fHe, size_t loops)
+        : gcs::ManifoldSurfaceMesh(next, vertex, face, vHe, fHe, loops) {}
+    static const std::vector<size_t>& next(const gcs::SurfaceMesh& m) { return m.*(&RawMesh::heNextArr); }
+    static const std::vector<size_t>& vertex(const gcs::SurfaceMesh& m) { return m.*(&RawMesh::heVertexArr); }
+    static const std::vector<size_t>& face(const gcs::SurfaceMesh& m) { return m.*(&RawMesh::heFaceArr); }
+    static const std::vector<size_t>& vHe(const gcs::SurfaceMesh& m) { return m.*(&RawMesh::vHalfedgeArr); }
+    static const std::vector<size_t>& fHe(const gcs::SurfaceMesh& m) { return m.*(&RawMesh::fHalfedgeArr); }
+    static size_t facesFill(const gcs::SurfaceMesh& m) { return m.*(&RawMesh::nFacesFillCount); }
+    static size_t loopsFill(const gcs::SurfaceMesh& m) { return m.*(&RawMesh::nBoundaryLoopsFillCount); }
+};
+
+std::vector<int64_t> toI64(const std::vector<size_t>& a, size_t n) {
+    std::vector<int64_t> r(n);
+    for (size_t i = 0; i < n; ++i) r[i] = a[i] == gc::INVALID_IND ? -1 : static_cast<int64_t>(a[i]);
+    return r;
+}
+std::vector<size_t> toSize(const std::vector<int64_t>& a) {
+    std::vector<size_t> r(a.size());
+    for (size_t i = 0; i < a.size(); ++i) r[i] = a[i] < 0 ? gc::INVALID_IND : static_cast<size_t>(a[i]);
+    return r;
+}
+
 const char* massName(MassKind k) {
     switch (k) {
         case MassKind::InputMixedVoronoi: return "input-mixed-voronoi";
@@ -75,11 +122,19 @@ struct IntrinsicSurface::Impl {
     std::vector<double> mass;                                  // the input mixed-Voronoi mass (empty unless that option)
     std::unique_ptr<Embedded> embedded;
     std::unique_ptr<gcs::EdgeLengthGeometry> inputGeom;        // the mollified input (intrinsic mode only)
-    std::unique_ptr<Signpost> tri;                             // intrinsic mode only
+    std::unique_ptr<Signpost> tri;                             // intrinsic mode only, when constructed
+    std::unique_ptr<gcs::ManifoldSurfaceMesh> imesh;           // intrinsic mode only, when rebuilt from arrays: the triangulation's mesh
+    std::unique_ptr<Rebuilt> rtri;                             // ... and its geometry
+    const IntrinsicTriangulation* arrays = nullptr;            // the arrays rebuilt from (signposts)
     int nV = 0, nF = 0;
 
     gcs::IntrinsicGeometryInterface& input() { return inputGeom ? static_cast<gcs::IntrinsicGeometryInterface&>(*inputGeom) : *embedded; }
-    gcs::IntrinsicGeometryInterface& geom() { return tri ? static_cast<gcs::IntrinsicGeometryInterface&>(*tri) : *embedded; }
+    gcs::IntrinsicGeometryInterface& geom() {
+        if (tri) return *tri;
+        if (rtri) return *rtri;
+        return *embedded;
+    }
+    bool intrinsic() const { return tri || rtri; }
 };
 
 namespace {
@@ -191,6 +246,106 @@ IntrinsicSurface::IntrinsicSurface(const double* positions, int nV, const int32_
     P.rec.gaugeId = P.rec.gauge + ":" + o.surface + ":" + P.rec.fingerprint;
 }
 
+IntrinsicSurface::IntrinsicSurface(const SurfaceArrays& S) : p_(new Impl) {
+    Impl& P = *p_;
+    const IntrinsicTriangulation& T = S.triangulation;
+    P.opt = T.options; P.rec = T.record;
+    P.nV = S.nV(); P.nF = S.nF();
+    std::vector<std::vector<size_t>> polys(static_cast<size_t>(P.nF));
+    for (int f = 0; f < P.nF; ++f) {
+        for (int k = 0; k < 3; ++k) {
+            const int32_t v = S.faces(f, k);
+            if (v < 0 || v >= P.nV) throw Error(ErrorCode::InvalidInput, "IntrinsicSurface: a face index is outside [0, nV)");
+            polys[static_cast<size_t>(f)].push_back(static_cast<size_t>(v));
+        }
+    }
+    Eigen::Matrix<double, Eigen::Dynamic, 3> pos = S.positions;
+    try {
+        P.mesh.reset(new gcs::ManifoldSurfaceMesh(polys));
+    } catch (const std::exception& e) {
+        throw Error(ErrorCode::InvalidInput, std::string("IntrinsicSurface: the input is not an oriented manifold triangle mesh: ") + e.what());
+    }
+    P.mass = T.mass;
+    const bool mass = T.options.mass == MassKind::InputMixedVoronoi && !P.mass.empty();
+    if (!T.options.intrinsic) {
+        P.embedded.reset(new Embedded(mass ? &P.mass : nullptr, *P.mesh, pos));
+        return;
+    }
+    P.embedded.reset(new Embedded(nullptr, *P.mesh, pos));
+    if (T.inputEdgeLength.size() != P.mesh->nEdges() || T.vertexHalfedge.size() != static_cast<size_t>(P.nV))
+        throw Error(ErrorCode::InvalidInput, "IntrinsicSurface: the triangulation's arrays do not belong to this mesh");
+    gcs::EdgeData<double> inLen(*P.mesh);
+    for (size_t e = 0; e < P.mesh->nEdges(); ++e) inLen[e] = T.inputEdgeLength[e];
+    P.inputGeom.reset(new gcs::EdgeLengthGeometry(*P.mesh, inLen));
+    P.imesh.reset(new RawMesh(toSize(T.halfedgeNext), toSize(T.halfedgeVertex), toSize(T.halfedgeFace), toSize(T.vertexHalfedge), toSize(T.faceHalfedge),
+                              static_cast<size_t>(T.boundaryLoops)));
+    gcs::EdgeData<double> len(*P.imesh);
+    for (size_t e = 0; e < P.imesh->nEdges(); ++e) len[e] = T.edgeLength[e];
+    P.rtri.reset(new Rebuilt(mass ? &P.mass : nullptr, *P.imesh, len, T));
+    P.arrays = &T;
+}
+
+IntrinsicTriangulation IntrinsicSurface::triangulation() {
+    Impl& P = *p_;
+    IntrinsicTriangulation T;
+    T.options = P.opt; T.record = P.rec; T.mass = P.mass;
+    if (!P.intrinsic()) return T;
+    auto& in = P.input();
+    in.requireEdgeLengths();
+    T.inputEdgeLength.resize(P.mesh->nEdges());
+    for (size_t e = 0; e < P.mesh->nEdges(); ++e) T.inputEdgeLength[e] = in.edgeLengths[e];
+    gcs::ManifoldSurfaceMesh& M = mesh();
+    if (!M.isCompressed()) throw Error(ErrorCode::InvalidInput, "IntrinsicSurface::triangulation: the triangulation's mesh is not compressed");
+    const size_t nH = M.nHalfedges(), nE = M.nEdges(), nV = M.nVertices();
+    const size_t nFill = RawMesh::facesFill(M), nLoops = RawMesh::loopsFill(M);
+    T.halfedgeNext = toI64(RawMesh::next(M), nH);
+    T.halfedgeVertex = toI64(RawMesh::vertex(M), nH);
+    T.halfedgeFace = toI64(RawMesh::face(M), nH);
+    T.vertexHalfedge = toI64(RawMesh::vHe(M), nV);
+    const auto& fHe = RawMesh::fHe(M);
+    if (fHe.size() != nFill + nLoops) throw Error(ErrorCode::InvalidInput, "IntrinsicSurface::triangulation: the face buffer has spare capacity");
+    T.faceHalfedge = toI64(fHe, fHe.size());
+    T.boundaryLoops = static_cast<int64_t>(nLoops);
+    auto& g = geometry();
+    g.requireEdgeLengths(); g.requireVertexAngleSums(); g.requireHalfedgeVectorsInVertex();
+    T.edgeLength.resize(nE); T.vertexAngleSum.resize(nV); T.halfedgeVectorInVertex.resize(2 * nH); T.signpost.resize(nH);
+    for (size_t e = 0; e < nE; ++e) T.edgeLength[e] = g.edgeLengths[e];
+    for (size_t v = 0; v < nV; ++v) T.vertexAngleSum[v] = g.vertexAngleSums[v];
+    for (size_t h = 0; h < nH; ++h) {
+        T.halfedgeVectorInVertex[2 * h] = g.halfedgeVectorsInVertex[h].x;
+        T.halfedgeVectorInVertex[2 * h + 1] = g.halfedgeVectorsInVertex[h].y;
+        T.signpost[h] = P.tri ? P.tri->signpostAngle[h] : P.arrays->signpost[h];
+    }
+    g.unrequireHalfedgeVectorsInVertex(); g.unrequireVertexAngleSums(); g.unrequireEdgeLengths();
+    return T;
+}
+
+IntrinsicTriangulation intrinsicTriangulation(const double* positions, int nV, const int32_t* faces, int nF, const IntrinsicOptions& options) {
+    IntrinsicSurface s(positions, nV, faces, nF, options);
+    return s.triangulation();
+}
+
+IntrinsicOptions intrinsicOptions(bool intrinsicDelaunay, const DelaunayOptions& delaunay) {
+    IntrinsicOptions o;
+    o.intrinsic = intrinsicDelaunay;
+    o.mollify = delaunay.mollify;
+    o.flipEps = delaunay.flipEps;
+    o.mass = MassKind::InputMixedVoronoi;
+    return o;
+}
+
+SurfaceArrays surfaceArrays(const double* positions, int nV, const int32_t* faces, int nF, const IntrinsicOptions& options) {
+    SurfaceArrays s;
+    s.positions = Eigen::Map<const RowMat3>(positions, nV, 3);
+    s.faces = Eigen::Map<const FaceMat>(faces, nF, 3);
+    s.triangulation = intrinsicTriangulation(positions, nV, faces, nF, options);
+    return s;
+}
+
+SurfaceArrays surfaceArrays(const RowMat3& positions, const FaceMat& faces, const IntrinsicOptions& options) {
+    return surfaceArrays(positions.data(), static_cast<int>(positions.rows()), faces.data(), static_cast<int>(faces.rows()), options);
+}
+
 IntrinsicSurface::~IntrinsicSurface() = default;
 
 int IntrinsicSurface::nV() const { return p_->nV; }
@@ -201,7 +356,11 @@ gcs::ManifoldSurfaceMesh& IntrinsicSurface::inputMesh() { return *p_->mesh; }
 gcs::VertexPositionGeometry& IntrinsicSurface::embedded() { return *p_->embedded; }
 gcs::IntrinsicGeometryInterface& IntrinsicSurface::inputGeometry() { return p_->input(); }
 gcs::IntrinsicGeometryInterface& IntrinsicSurface::geometry() { return p_->geom(); }
-gcs::ManifoldSurfaceMesh& IntrinsicSurface::mesh() { return p_->tri ? *p_->tri->intrinsicMesh : *p_->mesh; }
+gcs::ManifoldSurfaceMesh& IntrinsicSurface::mesh() {
+    if (p_->tri) return *p_->tri->intrinsicMesh;
+    if (p_->imesh) return *p_->imesh;
+    return *p_->mesh;
+}
 
 Eigen::SparseMatrix<double> IntrinsicSurface::cotanLaplacian() {
     auto& g = geometry();
@@ -362,7 +521,7 @@ IntrinsicSurface::Complex IntrinsicSurface::complex() {
     c.edges.resize(2 * nE); c.length.resize(nE);
     c.angleSum.assign(static_cast<size_t>(p_->nV), 0.0);
     c.reference.resize(static_cast<size_t>(p_->nV));
-    const std::vector<double> inAngle = p_->tri ? std::vector<double>() : inputSignpostAngles();
+    const std::vector<double> inAngle = p_->intrinsic() ? std::vector<double>() : inputSignpostAngles();
     for (gcs::Edge e : M.edges()) {
         c.edges[2 * e.getIndex()] = static_cast<int32_t>(e.halfedge().vertex().getIndex());
         c.edges[2 * e.getIndex() + 1] = static_cast<int32_t>(e.halfedge().tipVertex().getIndex());
@@ -374,7 +533,7 @@ IntrinsicSurface::Complex IntrinsicSurface::complex() {
             const size_t h = 3 * f.getIndex() + static_cast<size_t>(k);
             c.faces[h] = static_cast<int32_t>(he.vertex().getIndex());
             c.faceEdges[h] = (he.edge().halfedge() == he ? 1 : -1) * static_cast<int32_t>(he.edge().getIndex() + 1);
-            c.angle[h] = p_->tri ? p_->tri->signpostAngle[he] : inAngle[he.getIndex()];
+            c.angle[h] = p_->tri ? p_->tri->signpostAngle[he] : p_->rtri ? p_->arrays->signpost[he.getIndex()] : inAngle[he.getIndex()];
             c.angleSum[he.vertex().getIndex()] += g.cornerAngles[he.corner()];
         }
     }

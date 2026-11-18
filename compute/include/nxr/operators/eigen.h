@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 #include "nxr/geometry/mesh.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 
@@ -175,7 +175,7 @@ struct EigenProblem {
 };
 
 // Build the (K, M, σ, blockSize) generalized eigenproblem for a named operator.
-EigenProblem eigenProblemFor(geometry::Manifold& m, const EigenOperatorSpec& spec);
+EigenProblem eigenProblemFor(const geometry::SurfaceArrays& surface, const EigenOperatorSpec& spec);
 
 // blockKron(M, b): expand a [n×n] sparse to [bn×bn] block-diagonal (kron(M, I_b),
 // entry (i,j,v) → (b·i+c, b·j+c, v) for c=0..b−1). Exposed for callers that build
@@ -189,7 +189,7 @@ Eigen::SparseMatrix<double> blockKron(const Eigen::SparseMatrix<double>& M, int 
 // (exact eigenvalues + multiplicities; small meshes / verification only — throws
 // EigensolveInvalidK if the dense size exceeds the cap unless the mesh is small).
 EigenResult eigenOperator(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     const EigenOperatorSpec& spec,
     int k,
     double sigma                       = kShiftLadder,
@@ -279,7 +279,7 @@ EigenResult reconstructDiracMultiplets(const EigenResult& r, const Eigen::Sparse
 // The k spin-Dirac eigenpairs nearest 0 as Ye et al. (dirac_eigen.m): on vertex spinors ψ, AᵀDM⁻¹DAψ = μ AᵀDAψ,
 // solved as AᵀDAψ = ν (AᵀDM⁻¹DA + ε AᵀMA) ψ for the k largest |ν|, μ = 1/ν. M = area ⊗ I₄. Returns μ ascending (signed),
 // ψ [4V×k] normalised to ψᵀ AᵀMA ψ = 1. A = covariant vertexToFace for the intrinsic kinds, plain for the extrinsic.
-EigenResult eigenSpin(geometry::Manifold& m, operators::spin::Kind kind, int k,
+EigenResult eigenSpin(const geometry::SurfaceArrays& surface, operators::spin::Kind kind, int k,
                       const CancellationToken& cancel = {}, const ProgressObserver& progress = {});
 
 
@@ -289,8 +289,8 @@ EigenResult eigenSpin(geometry::Manifold& m, operators::spin::Kind kind, int k,
  * Solve the scalar Poisson equation: K * φ = -M * (ρ - ρ̄)
  * where ρ̄ is the M-weighted mean of ρ.
  *
- * Uses cache.laplacian(K) for the LLT factor of (K + ε·I), so
- * repeated calls with the same cache skip the factorization step.
+ * Solves with the caller's factor of (K + ε·I) (operators::laplacianFactor(K)), so
+ * repeated calls with the same factor skip the factorization step.
  *
  * Agnostic in K and M: works on cotangent Laplacians + lumped mass
  * (mesh case), graph Laplacians + node-weight diagonals (graph case),
@@ -299,24 +299,24 @@ EigenResult eigenSpin(geometry::Manifold& m, operators::spin::Kind kind, int k,
  *
  * @param K           SPD stiffness matrix (Laplacian)
  * @param M           SPD mass / inner-product matrix (typically diagonal)
- * @param cache       factor cache (one per K)
+ * @param laplacianFactor  the factor of (K + εI), made once by the caller
  * @param densityMap  sparse density: index → density value
  * @return            harmonic potential φ
  */
 Eigen::VectorXd poisson(
     const Eigen::SparseMatrix<double>& K,
     const Eigen::SparseMatrix<double>& M,
-    operators::CholeskyCache& cache,
+    const nxr::operators::CholeskyFactor& laplacianFactor,
     const std::map<int, double>& densityMap
 );
 
 /** Convenience overload: forwards to (K, M) using ops.cotanLaplacian, ops.mass. */
 inline Eigen::VectorXd poisson(
     const operators::ManifoldOperators& ops,
-    nxr::operators::CholeskyCache& cache,
+    const nxr::operators::CholeskyFactor& laplacianFactor,
     const std::map<int, double>& densityMap
 ) {
-    return poisson(ops.cotanLaplacian, ops.mass, cache, densityMap);
+    return poisson(ops.cotanLaplacian, ops.mass, laplacianFactor, densityMap);
 }
 } // namespace nxr::operators
 #include "nxr/operators/laplacians.h"

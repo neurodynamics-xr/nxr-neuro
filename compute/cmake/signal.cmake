@@ -13,6 +13,7 @@ target_sources(nxr_compute PRIVATE
   src/signal/graphfilterbank.cpp
   src/signal/graphwavelet.cpp
   src/signal/intrinsic_forms.cpp
+  src/signal/hodge_decomposition.cpp
   src/signal/isolines.cpp
   src/signal/streamlines.cpp
   src/signal/jointfilterbank.cpp
@@ -151,6 +152,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_refactor_6b test/test_refactor_6b.cpp)
   target_link_libraries(test_refactor_6b PRIVATE nxr_compute)
   add_test(NAME test_refactor_6b COMMAND test_refactor_6b)
+  add_executable(test_isoline_methods test/test_isoline_methods.cpp)
+  target_link_libraries(test_isoline_methods PRIVATE nxr_compute)
+  add_test(NAME test_isoline_methods COMMAND test_isoline_methods)
   add_executable(test_pcg test/test_pcg.cpp)
   target_link_libraries(test_pcg PRIVATE nxr_compute)
   add_test(NAME test_pcg COMMAND test_pcg)

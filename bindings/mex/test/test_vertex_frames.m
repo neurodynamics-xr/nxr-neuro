@@ -16,9 +16,9 @@ clear nxr_compute   % drop any previously-loaded copy so the fresh build resolve
 
 [V, F] = local_icosahedron();
 nV = size(V, 1);
-h  = nxr_compute('create', V, F);
+S  = nxr_compute('geometry.surfaceArrays', V, F);
 
-vf = nxr_compute('vertexFrames', h);
+vf = nxr_compute('geometry.vertexFrames', S);
 
 assert(isequal(size(vf.e1),      [nV 3]), 'e1 must be nV x 3');
 assert(isequal(size(vf.e2),      [nV 3]), 'e2 must be nV x 3');
@@ -39,11 +39,10 @@ cr = cross(vf.e1, vf.e2, 2);
 assert(max(max(abs(cr - vf.normals))) < 1e-9, 'e1 x e2 must equal n (right-handed)');
 
 % Determinism
-vf2 = nxr_compute('vertexFrames', h);
+vf2 = nxr_compute('geometry.vertexFrames', S);
 assert(isequal(vf.e1, vf2.e1) && isequal(vf.e2, vf2.e2) && isequal(vf.normals, vf2.normals), ...
     'vertexFrames must be deterministic');
 
-nxr_compute('destroy', h);
 fprintf('PASSED: per-vertex frames [%d x 3], orthonormal, right-handed, deterministic.\n', nV);
 fprintf('ALL TESTS PASSED: test_vertex_frames\n');
 end

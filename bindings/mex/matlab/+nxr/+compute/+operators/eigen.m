@@ -4,7 +4,7 @@ function r = eigen(vertices, faces, k, opts)
 %   r = nxr.compute.operators.eigen(vertices, faces, k, normalize=true, remove_dc=true)
 %
 %   The k smallest eigenpairs of K phi = lambda M phi on a mesh (the cotangent Laplacian K and the mixed-Voronoi mass M of the operator mesh).
-%   (The pre-existing nxr_compute commands 'create' and 'solve' give the same modes on a kept mesh handle.)
+%   (The command 'operators.eigen' of nxr_compute takes K and M themselves; this function takes the mesh.)
 %
 %   Inputs
 %     vertices   [n_vertices x 3]  Positions (double; other types are converted).

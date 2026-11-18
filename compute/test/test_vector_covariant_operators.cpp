@@ -16,13 +16,12 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/geometry/parametrization.h"
@@ -36,6 +35,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "surface_of.h"
 
 using namespace nxr::operators::laplacian::connection;
 
@@ -144,7 +144,7 @@ static Eigen::SparseMatrix<double> kronI3(const Eigen::SparseMatrix<double>& L, 
 // Conjugate a LOCAL-frame component-major [3N×3N] operator into WORLD frame:
 // world_block(i,j) = F_i · local_block(i,j) · F_jᵀ, with F_v = [e1|e2|n] (cols).
 static Eigen::SparseMatrix<double> localToWorld(const Eigen::SparseMatrix<double>& A,
-                                                nxr::geometry::Manifold& m) {
+                                                const nxr::geometry::SurfaceArrays& m) {
     const int N = m.nV();
     nxr::geometry::VertexFrames vf = nxr::geometry::vertexFrames(m);
     std::vector<Eigen::Matrix3d> F(N);
@@ -185,7 +185,7 @@ static void test_cellD_extrinsic_weitzenbock() {
     std::vector<double>   V;
     std::vector<int32_t>  F;
     generateIcosphere(V, F);
-    Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+    const auto m = surfaceOf(V.data(), static_cast<int>(V.size()) / 3,
                F.data(), static_cast<int>(F.size()) / 3);
     const int N = m.nV();
 
@@ -251,11 +251,11 @@ static void test_cellD_extrinsic_weitzenbock() {
     // covariant transformed local→world. If maxAbsDiff ≈ 0 the algebraic Gauss
     // shortcut coincides with the geometric squared-Dirac construction.
     Eigen::SparseMatrix<double> prodLocal =
-        nxr::operators::activeCovariantLaplacian(m, 
-            nxr::operators::laplacian::connection::CovariantCoupling::Product);
+        nxr::operators::covariantLaplacian(m, 
+            nxr::geometry::ConnectionType::LeviCivita, {}, nxr::operators::laplacian::connection::CovariantCoupling::Product);
     Eigen::SparseMatrix<double> ambLocal =
-        nxr::operators::activeCovariantLaplacian(m, 
-            nxr::operators::laplacian::connection::CovariantCoupling::Ambient);
+        nxr::operators::covariantLaplacian(m, 
+            nxr::geometry::ConnectionType::LeviCivita, {}, nxr::operators::laplacian::connection::CovariantCoupling::Ambient);
     Eigen::SparseMatrix<double> prodWorld = localToWorld(prodLocal, m);
     Eigen::SparseMatrix<double> ambWorld  = localToWorld(ambLocal, m);
     // Sanity: ambient covariant in world == kron(I₃,cotanL).
@@ -276,7 +276,7 @@ static void test_cellA_squares_to() {
 
     for (int nSym : {1, 2}) {
         // Fresh Manifold per nSym to avoid any cached-state cross-contamination.
-        nxr::geometry::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+        const auto m = surfaceOf(V.data(), static_cast<int>(V.size()) / 3,
                                   F.data(), static_cast<int>(F.size()) / 3);
 
         // Assemble the gradient D: [E×V] complex
@@ -312,11 +312,11 @@ static void test_cellB_shape() {
     std::vector<int32_t>  F;
     generateIcosphere(V, F);
 
-    nxr::geometry::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+    const auto m = surfaceOf(V.data(), static_cast<int>(V.size()) / 3,
                               F.data(), static_cast<int>(F.size()) / 3);
 
     Eigen::SparseMatrix<std::complex<double>> D = assembleConnectionGradient(m, 1);
-    const int E  = static_cast<int>(m.nE());
+    const int E  = static_cast<int>(nxr::geometry::meshTopology(m).nE);
     const int Nv = static_cast<int>(m.nV());
 
     std::cout << "  Cell B shape: D is " << D.rows() << "×" << D.cols()
@@ -333,7 +333,7 @@ static void test_cellC_invalid_nsym() {
     std::vector<int32_t>  F;
     generateIcosphere(V, F);
 
-    nxr::geometry::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+    const auto m = surfaceOf(V.data(), static_cast<int>(V.size()) / 3,
                               F.data(), static_cast<int>(F.size()) / 3);
 
     bool threw = false;
@@ -352,11 +352,11 @@ static void test_cellA_facet_accessor() {
     std::vector<int32_t>  F;
     generateIcosphere(V, F);
 
-    nxr::geometry::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+    const auto m = surfaceOf(V.data(), static_cast<int>(V.size()) / 3,
                               F.data(), static_cast<int>(F.size()) / 3);
 
     const auto& G1 = nxr::operators::laplacian::connection::assembleConnectionGradient(m, 1);
-    CHECK(G1.rows() == m.nE() && G1.cols() == m.nV(),
+    CHECK(G1.rows() == nxr::geometry::meshTopology(m).nE && G1.cols() == m.nV(),
           "connectionGradient(1) shape [E×V]");
 
     // Second call must return the same object (pointer identity).
@@ -367,10 +367,10 @@ static void test_cellA_facet_accessor() {
 
     // nSym=2 must produce a different (cached) matrix.
     const auto& G2 = nxr::operators::laplacian::connection::assembleConnectionGradient(m, 2);
-    CHECK(G2.rows() == m.nE() && G2.cols() == m.nV(),
+    CHECK(G2.rows() == nxr::geometry::meshTopology(m).nE && G2.cols() == m.nV(),
           "connectionGradient(2) shape [E×V]");
     std::cout << "  Cell A2 facet accessor: OK (nV=" << m.nV()
-              << " nE=" << m.nE() << ")\n";
+              << " nE=" << nxr::geometry::meshTopology(m).nE << ")\n";
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────

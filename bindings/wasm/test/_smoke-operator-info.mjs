@@ -26,7 +26,7 @@ function require(cond, msg) {
 }
 
 // ── Test 1: laplaceBeltrami metadata ─────────────────────────
-const info = Module.operatorInfo('laplaceBeltrami')
+const info = Module['operators.operatorById']('laplaceBeltrami')
 require(info.bundle    === 'scalar', `bundle: expected 'scalar', got '${info.bundle}'`)
 require(info.order     === 'second', `order: expected 'second', got '${info.order}'`)
 require(info.role      === 'laplacian', `role: expected 'laplacian', got '${info.role}'`)
@@ -43,13 +43,13 @@ require(typeof info.relation     === 'string', 'relation is string')
 console.log(`  laplaceBeltrami ✓ (bundle=${info.bundle}, order=${info.order}, status=${info.status})`)
 
 // ── Test 2: extrinsicWeitzenbockLaplacian status = planned ────
-const ew = Module.operatorInfo('extrinsicWeitzenbockLaplacian')
+const ew = Module['operators.operatorById']('extrinsicWeitzenbockLaplacian')
 require(ew.status === 'planned', `Weitzenbock status: expected 'planned', got '${ew.status}'`)
 console.log(`  extrinsicWeitzenbockLaplacian ✓ (status=${ew.status})`)
 
 // ── Test 3: unknown id throws ─────────────────────────────────
 let threw = false
-try { Module.operatorInfo('doesNotExist') } catch { threw = true }
+try { Module['operators.operatorById']('doesNotExist') } catch { threw = true }
 require(threw, 'operatorInfo with unknown id should throw')
 console.log('  unknown id throws ✓')
 

@@ -13,6 +13,5 @@ function out = connectionLaplacian(mctx, options)
 %   Returns a struct with K_real (sparse; plus K_imag for the complex
 %   format), baseDim, outputDim, nSym, regularization, domain, format.
     if nargin < 2 || isempty(options), options = struct(); end
-    out = nxr.manifold.impl.withHandle(mctx, @(h) ...
-        nxr_compute('assembleConnectionLaplacian', h, options));
+    out = nxr_compute('operators.assembleConnectionLaplacian', mctx.surface, options);
 end

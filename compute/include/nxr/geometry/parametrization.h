@@ -29,7 +29,7 @@ namespace nxr::geometry::parametrization {
  *  dependency.
  *
  *  Throws if the mesh has no boundary. */
-Eigen::MatrixXd bff(Manifold& m);
+Eigen::MatrixXd bff(const SurfaceArrays& surface);
 } // namespace nxr::geometry::parametrization
 
 namespace nxr::geometry::parametrization::stripes {
@@ -55,7 +55,7 @@ struct StripePatternResult {
  *  field must be 2-RoSy (use `smoothVertex(m, 2)`
  *  or pass an existing line field). */
 StripePatternResult compute(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const Eigen::VectorXd& vertexFieldRaw,  // [nV * 2] in vertex tangent basis
     double uniformFrequency,
     bool connectOnSingularities = true
@@ -63,7 +63,7 @@ StripePatternResult compute(
 
 /** Stripe pattern with per-vertex target frequencies. */
 StripePatternResult computeFreq(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const Eigen::VectorXd& vertexFieldRaw,  // [nV * 2]
     const Eigen::VectorXd& frequencies,     // [nV]
     bool connectOnSingularities = true

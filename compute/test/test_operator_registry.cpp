@@ -13,13 +13,12 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/geometry/parametrization.h"
@@ -30,6 +29,7 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include "surface_of.h"
 
 using namespace nxr::geometry;
 using namespace nxr::operators::registry;
@@ -87,7 +87,7 @@ static void test_cross_link_identities() {
     makeIcosphere(V, F);
     int nV = static_cast<int>(V.size() / 3);
     int nF_ = static_cast<int>(F.size() / 3);
-    Manifold m(V.data(), nV, F.data(), nF_);
+    const auto m = surfaceOf(V.data(), nV, F.data(), nF_);
 
     // 1. graphLaplacian square_of d0 (exact):  d0^T d0 == graphL
     {
@@ -122,12 +122,12 @@ static void test_cross_link_identities() {
     //    scalar block (w-component) of D_int^T (diag(faceArea)⊗I4) D_int == cotanL
     {
         const Eigen::SparseMatrix<double>& Dint = nxr::operators::dirac::matrixIntrinsic(m); // [4F x 4V]
-        auto& geom = m.geometry();
+        auto& geom = gcOf(m).embedded();
         geom.requireFaceAreas();
         // Build W_F = diag(faceArea) ⊗ I4  [4F x 4F]
         std::vector<Eigen::Triplet<double>> T;
         T.reserve(nF_);
-        for (auto f : m.mesh().faces())
+        for (auto f : gcOf(m).inputMesh().faces())
             T.emplace_back(static_cast<int>(f.getIndex()),
                            static_cast<int>(f.getIndex()), geom.faceAreas[f]);
         Eigen::SparseMatrix<double> Af(nF_, nF_);
@@ -246,7 +246,7 @@ static void test_eigenproblem_uses_registry_mass() {
     makeIcosphere(V, F);
     int nV_ = static_cast<int>(V.size() / 3);
     int nF_ = static_cast<int>(F.size() / 3);
-    Manifold m(V.data(), nV_, F.data(), nF_);
+    const auto m = surfaceOf(V.data(), nV_, F.data(), nF_);
 
     // LaplacianCotan: registry says natural_mass == "massMixedVoronoi"
     {

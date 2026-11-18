@@ -40,7 +40,7 @@ export interface ConnectionLaplacianOptions {
 /** Connection Laplacian on a chosen domain.
  *  - For `format: 'real2N'`, `K` is a 2N×2N symmetric real COO matrix
  *    (each complex entry a + bi lowered to the 2×2 block [[a,-b],[b,a]]).
- *    Drops directly into `solveEigenmodesFromTriplets` with a
+ *    Drops directly into `operators.eigen` with a
  *    block-diagonal real mass matrix `blkdiag(M, M)`.
  *  - For `format: 'complex'`, `K` is an N×N complex Hermitian COO
  *    matrix with parallel `realData` / `imagData` value arrays. */
@@ -107,7 +107,7 @@ export interface EigenResult {
   nConverged:   number
 }
 
-/** Options for Manifold.eigs() — the named-operator eigensolve. */
+/** Options for `operators.eigenOperator` — the named-operator eigensolve. */
 export interface EigsOptions {
   /** Which operator to eigensolve. 'laplacian' pairs with `subtype`; 'cotan'/
    *  'graph' are convenience aliases; 'dirac'/'diracFace' are the [4·domain]
@@ -132,7 +132,7 @@ export interface EigsOptions {
   dense?:      boolean
 }
 
-/** Result of Manifold.eigs() — EigenResult plus the operator's block size
+/** Result of `operators.eigenOperator` — EigenResult plus the operator's block size
  *  (1 scalar / 4 Dirac), so consumers can reshape the n·k eigenvector buffer
  *  (n = blockSize · domainSize). */
 export interface EigsResult extends EigenResult {
@@ -256,181 +256,131 @@ export enum NormalType {
 }
 
 /**
- * Stateful compute context for one mesh. Holds the nxr::manifold::Manifold
- * in WASM linear memory plus cached operators / Cholesky factors /
- * eigenmodes. Call `delete()` when finished.
+ * A SURFACE is data: the object made once by `geometry.surfaceArrays` (positions, faces and the intrinsic Delaunay triangulation, the expensive step).
+ * Every surface function takes it as its first argument and rebuilds the library's SurfaceArrays from it; nothing is kept between calls. The triangulation's
+ * arrays are opaque: pass the object on, do not edit it.
  */
-export interface Manifold {
-  nV(): number
-  nE(): number
-  nF(): number
-
-  // Operators / geometry
-  /** Assemble cotangent stiffness + mass matrix.
-   *  @param variant — mass-matrix variant ("mixedVoronoi" default, "galerkin", "barycentric"). */
-  assembleManifoldOperators(variant?: MassMatrixVariant | ""): ManifoldOperators
-  assembleDECOperators():  DECOperators
-
-  /** Single named operator as COO sparse — parity with the MEX 'operators'
-   *  command (same matrices the internal solvers use). `connection` returns a
-   *  complex COO; `dec` returns `{ d0, d1 }`; `dirac`/`diracFace` take a numeric
-   *  tau ∈ [0,1]; the remaining families take no second argument. */
-  operators(family: "laplacian", subtype: "cotan" | "graph" | "covariant"): SparseMatrixCOO
-  operators(family: "laplacian", subtype: "connection"): SparseMatrixCOOComplex
-  operators(family: "mass", subtype: "mixedVoronoi" | "galerkin" | "barycentric"): SparseMatrixCOO
-  operators(family: "hodge", subtype: "h0" | "h1" | "h2" | "h1inv"): SparseMatrixCOO
-  operators(family: "dec"): { d0: SparseMatrixCOO; d1: SparseMatrixCOO }
-  operators(family: "gradient3D" | "diracD" | "diracFaceD" | "diracIntrinsicD" | "diracFaceIntrinsicD"): SparseMatrixCOO
-  operators(family: "dirac" | "diracFace", tau: number): SparseMatrixCOO
-
-  /** Named-operator eigensolve. Assembles the operator AND its natural
-   *  generalized mass C++-side (no JS-side ⊗I₄), then eigensolves via the shared
-   *  single-source-of-truth path. For the Dirac, `multiplets: true` reconstructs
-   *  exact 4-fold quaternionic multiplets (Spectra miscounts the degenerate
-   *  clusters); `dense: true` runs an exact dense generalized solve for small
-   *  meshes / verification. Eigenvectors are vMajor row-major, length `n·k`
-   *  (n = blockSize·domainSize). */
-  eigs(opts: EigsOptions): EigsResult
-
-  frames():     FaceFrames
-  normals(type?: NormalType): Float64Array
-
-  // Spectral
-  /** sigma omitted/NaN = the shift ladder; an explicit sigma is a fixed shift. */
-  solve(k: number, sigma?: number): EigenResult
-  normalize(U: Float64Array, rows: number, cols: number): Float64Array
-  removeDC(eig: EigenResult): EigenResult
-
-  /**
-   * One-shot precompute: returns the visualization-defaults pack
-   * (operators + DEC + eigenmodes + face frames) in one call.
-   * Cheaper than calling the four steps separately.
-   */
-  precompute(options?: { k?: number; sigma?: number }): PrecomputeResult
-
-  // Solvers
-  poisson(sourceVerts: Int32Array | number[], sourceValues: Float64Array | number[]): Float64Array
-  heat(sourceVerts: Int32Array | number[]): Float64Array
-  /** The flip-out geodesic, with each point's place on the mesh: `vertices`/`weights` are [nPoints × 3], row-major —
-   *  a vertex (one weight 1), an edge crossing (1−t, t) or a face point (barycentrics); `length` in mesh units. */
-  tracePath(vStart: number, vEnd: number): PolylineResult & { vertices: Int32Array; weights: Float64Array; length: number }
-  hodge(omega: Float64Array): HodgeResult
-
-  // Geometric
-  curvatures(): CurvatureResult
-  /** Throws if the mesh has no boundary (BFF requires open mesh). */
-  bff(): Float64Array
-  isoline(scalars: Float64Array, numLevels: number, minVal?: number, maxVal?: number): SegmentsResult
-  trivial(
-    singVerts:  Int32Array  | number[],
-    singValues: Float64Array | number[],
-  ): DirectionFieldResult
-  streamline(
-    faceField: Float64Array,
-    numSeeds?: number,
-    stepCoef?: number,
-    maxSteps?: number,
-  ): SegmentsResult
-
-  // Vector field
-  whitney(oneForm: Float64Array): Float64Array
-  gradient(scalar: Float64Array): Float64Array
-
-  // Time-varying generators (require eigenmodes computed first)
-  heatDiffusion(
-    sources:      Int32Array  | number[],
-    sourceValues: Float64Array | number[],
-    timesteps:    Float64Array | number[],
-    alpha?: number,
-  ): TimeSeriesField
-  dampedWave(
-    modeIndices: Int32Array  | number[],
-    amplitudes:  Float64Array | number[],
-    dampings:    Float64Array | number[],
-    phases:      Float64Array | number[],
-    timesteps:   Float64Array | number[],
-  ): TimeSeriesField
-  randomDecomposed1Form(
-    alphaStrength: number,
-    betaStrength:  number,
-    gammaStrength: number,
-    seed?: number,
-  ): Float64Array
-
-  // Vector heat method (Sharp, Soliman, Crane 2019)
-  /** Parallel-transport tangent vectors. sourceVectors is N*3 world-space. Returns V*3 row-major. */
-  parallel(
-    sourceVerts:   Int32Array  | number[],
-    sourceVectors: Float64Array | number[],
-  ): Float64Array
-  /** Smoothly extend a sparse scalar from the given source vertices to all V. */
-  extendScalar(
-    sourceVerts:  Int32Array  | number[],
-    sourceValues: Float64Array | number[],
-  ): Float64Array
-  /** Logarithmic map at one source vertex. */
-  logMap(
-    sourceVertex: number,
-    strategy?:    LogMapStrategy,
-  ): LogMapResult
-  /** Karcher mean of source vertices. Returns 3 floats (xyz). */
-  findCenter(
-    sourceVerts: Int32Array | number[],
-    p?:          number,
-  ): Float64Array
-
-  // Signed heat method (Feng & Crane 2024)
-  /** Signed geodesic distance from a curve given as ordered vertex indices. */
-  signedHeat(
-    curveVerts: Int32Array | number[],
-    isLoop:     boolean,
-    levelSet?:  SignedHeatLevelSet,
-  ): Float64Array
-
-  // Smooth direction fields (Knöppel-Crane)
-  /** Smoothest face-based direction field, lifted to F*3 world. nSym=4 → cross field. */
-  smoothFace(
-    nSym?:             number,
-    alignToCurvature?: boolean,
-  ): Float64Array
-  /** Smoothest vertex-based direction field. Use the returned `vertexFieldRaw`
-   *  as input to compute. nSym=2 typical for stripes. */
-  smoothVertex(
-    nSym?:             number,
-    alignToCurvature?: boolean,
-  ): SmoothVertexFieldResult
-
-  // Stripe patterns (Knöppel-Crane SIGGRAPH 2015)
-  /** Sinusoidal stripes aligned to a 2-RoSy field, returned as 3D line segments. */
-  compute(
-    vertexFieldRaw:           Float64Array,
-    uniformFrequency:         number,
-    connectOnSingularities?:  boolean,
-  ): SegmentsResult
-  /** Stripe pattern with a per-vertex frequency (length V). */
-  computeFreq(
-    vertexFieldRaw:           Float64Array,
-    frequencies:              Float64Array,
-    connectOnSingularities?:  boolean,
-  ): SegmentsResult
-
-  /** Release WASM heap memory; the context is invalid after delete(). */
-  delete(): void
+export interface Surface {
+  /** [3 nV] row-major */
+  positions: Float64Array
+  /** [3 nF], 0-based */
+  faces: Int32Array
+  triangulation: {
+    options: { intrinsic: boolean; mollify: number; flipEps: number; mass: string; surface: string }
+    record: {
+      mesh: string; mollify: number; epsilon: number; flipEps: number; flips: number; delaunay: boolean; mass: string
+      boundaryVertices: number; geometryCentral: string; fingerprint: string; gauge: string; gaugeId: string
+    }
+    mass: Float64Array
+    inputEdgeLength: Float64Array
+    edgeLength: Float64Array
+    signpost: Float64Array
+    vertexAngleSum: Float64Array
+    halfedgeVectorInVertex: Float64Array
+    /** geometry-central's own 0-based ids (-1 = none), as exact integers in a Float64Array */
+    halfedgeNext: Float64Array
+    halfedgeVertex: Float64Array
+    halfedgeFace: Float64Array
+    vertexHalfedge: Float64Array
+    faceHalfedge: Float64Array
+    boundaryLoops: number
+  }
 }
 
+export interface SurfaceOptions {
+  /** false = the named option "embedded" (the input as it is); default true (the intrinsic mollified Delaunay mesh) */
+  intrinsicDelaunay?: boolean
+  /** relative mollification margin (default 1e-6) */
+  mollify?: number
+  /** an edge is flipped while its cotangent weight is below -flipEps (default 1e-6) */
+  flipEps?: number
+  /** an id, recorded in the gauge identity */
+  surface?: string
+}
+
+type Ints = Int32Array | number[]
+type Floats = Float64Array | number[]
+
+export interface EigenOptions {
+  k: number
+  /** omitted/NaN = the shift ladder; an explicit sigma is a fixed shift */
+  sigma?: number
+  /** M-orthonormalize the eigenvectors (default false) */
+  normalize?: boolean
+  /** strip the null space (default false) */
+  removeDC?: boolean
+  cancelAddr?: number
+  progressAddr?: number
+  progressLen?: number
+}
+
+/**
+ * The module: the library's functions by their toolbox name, `<toolbox>.<function>` (`geometry.heat` calls `nxr::geometry::heat`). They take arrays and return
+ * arrays; nothing is kept between calls. An old name (`createContext`, `solve`, `heat`, ...) is refused with an error naming the new one.
+ */
 export interface NxrCompute {
   version(): string
-  /** Flat surface (legacy). Returns a Manifold with the historical
-   *  per-method names (solve, heat, …). */
-  createContext(
-    vertices: Float64Array | number[],
-    faces:    Int32Array  | number[],
-  ): Manifold
-  /** Six-group nested namespace `nxr.manifold.*` over the same compute
-   *  context. Internally constructs a single ContextWrapper. */
+
+  'geometry.surfaceArrays'(vertices: Float64Array | number[], faces: Int32Array | number[], options?: SurfaceOptions): Surface
+
+  'operators.assembleManifoldOperators'(surface: Surface, variant?: MassMatrixVariant | ""): ManifoldOperators
+  'operators.assembleDECOperators'(surface: Surface): DECOperators
+  'operators.assembleConnectionLaplacian'(surface: Surface, options?: ConnectionLaplacianOptions): ConnectionLaplacianResult
+  /** K phi = lambda M phi for K, M as COO sparse matrices (from `assembleManifoldOperators` or any other Laplacian). */
+  'operators.eigen'(K: SparseMatrixCOO, M: SparseMatrixCOO, options: EigenOptions): EigenResult
+  /** a named operator's eigenproblem, assembled C++-side on the surface */
+  'operators.eigenOperator'(surface: Surface, opts: EigsOptions): EigsResult
+  'operators.normalize'(U: Float64Array, rows: number, cols: number, M: SparseMatrixCOO): Float64Array
+  'operators.removeDC'(eig: EigenResult): EigenResult
+  'operators.poisson'(K: SparseMatrixCOO, M: SparseMatrixCOO, sourceVerts: Ints, sourceValues: Floats): Float64Array
+  'operators.gradient'(surface: Surface, scalar: Float64Array): Float64Array
+  'operators.trivial'(surface: Surface, singVerts: Ints, singValues: Floats): DirectionFieldResult
+  'operators.operatorById'(id: string): Record<string, unknown>
+  'operators.fieldById'(id: string): Record<string, unknown>
+
+  /** omega: a 1-form on the input mesh's edges */
+  'signal.hodge'(surface: Surface, omega: Float64Array): HodgeResult
+  'signal.isoline'(surface: Surface, scalars: Float64Array, numLevels?: number, minVal?: number, maxVal?: number): SegmentsResult
+  'signal.streamline'(surface: Surface, faceField: Float64Array, numSeeds?: number, stepCoef?: number, maxSteps?: number): SegmentsResult
+  'signal.whitney'(surface: Surface, oneForm: Float64Array): Float64Array
+
+  'geometry.curvatures'(surface: Surface): CurvatureResult
+  /** Boundary First Flattening: throws on closed meshes */
+  'geometry.bff'(surface: Surface): Float64Array
+  'geometry.frames'(surface: Surface): FaceFrames
+  'geometry.vertexFrames'(surface: Surface): FaceFrames
+  'geometry.normals'(surface: Surface, type?: NormalType): Float64Array
+  /** a vertex array gives one distance field; an Array of vertex arrays (the batch form, one factorization) gives an Array of them */
+  'geometry.heat'(surface: Surface, sources: Ints, options?: { tCoef?: number; mesh?: 'intrinsic' | 'input' }): Float64Array
+  'geometry.heat'(surface: Surface, sources: Ints[], options?: { tCoef?: number; mesh?: 'intrinsic' | 'input' }): Float64Array[]
+  'geometry.tracePath'(surface: Surface, vStart: number, vEnd: number): PolylineResult & { vertices: Int32Array; weights: Float64Array; length: number }
+  'geometry.exactDistance'(surface: Surface, vStart: number, vEnd: number): number
+  'geometry.parallel'(surface: Surface, sourceVerts: Ints, sourceVectors: Floats, tCoef?: number): Float64Array
+  'geometry.parallel'(surface: Surface, sourceVerts: Ints[], sourceVectors: Floats[], tCoef?: number): Float64Array[]
+  'geometry.extendScalar'(surface: Surface, sourceVerts: Ints, sourceValues: Floats, tCoef?: number): Float64Array
+  'geometry.logMap'(surface: Surface, sourceVertex: number, strategy?: LogMapStrategy, tCoef?: number): LogMapResult
+  'geometry.logMap'(surface: Surface, sourceVertices: Ints, strategy?: LogMapStrategy, tCoef?: number): LogMapResult[]
+  'geometry.findCenter'(surface: Surface, sourceVerts: Ints, p?: number, tCoef?: number): Float64Array
+  'geometry.signedHeat'(surface: Surface, curve: Ints, isLoop?: boolean, levelSet?: SignedHeatLevelSet, tCoef?: number): Float64Array
+  'geometry.signedHeat'(surface: Surface, curves: Ints[], isLoop?: boolean, levelSet?: SignedHeatLevelSet, tCoef?: number): Float64Array[]
+  'geometry.smoothFace'(surface: Surface, nSym?: number, alignToCurvature?: boolean): Float64Array
+  'geometry.smoothVertex'(surface: Surface, nSym?: number, alignToCurvature?: boolean): SmoothVertexFieldResult
+  /** Sinusoidal stripes aligned to a 2-RoSy field, returned as 3D line segments. */
+  'geometry.compute'(surface: Surface, vertexFieldRaw: Float64Array, uniformFrequency: number, connectOnSingularities?: boolean): SegmentsResult
+  /** Stripe pattern with a per-vertex frequency (length V). */
+  'geometry.computeFreq'(surface: Surface, vertexFieldRaw: Float64Array, frequencies: Float64Array, connectOnSingularities?: boolean): SegmentsResult
+
+  'synthesis.delta'(nV: number, sourceVerts: Ints, sourceValues: Floats): Float64Array
+  /** M: the mass (COO); eig: M-orthonormal modes (an eigensolve with normalize); u0: [nV] */
+  'synthesis.heatDiffusion'(M: SparseMatrixCOO, eig: EigenResult, u0: Float64Array, timesteps: Floats, alpha?: number): TimeSeriesField
+  'synthesis.dampedWave'(eig: EigenResult, modeIndices: Ints, amplitudes: Floats, dampings: Floats, phases: Floats, timesteps: Floats): TimeSeriesField
+  'synthesis.randomDecomposed1Form'(surface: Surface, alphaStrength: number, betaStrength: number, gammaStrength: number, seed?: number): Float64Array
+
+  /** Six-group nested namespace `nxr.manifold.*` over the surface data (made once). */
   createManifoldContext(
     vertices: Float64Array | number[],
     faces:    Int32Array  | number[],
+    options?: SurfaceOptions,
   ): ManifoldContext
   /** Functional form of the six-group namespace. Each leaf takes a
    *  ManifoldContext as its first argument. Identical behaviour to the
@@ -558,9 +508,8 @@ export interface InterpolateGroup {
   smoothVertex(nSym?: number, alignToCurvature?: boolean): SmoothVertexFieldResult
 }
 
-/** Stateful compute context exposed under the six-group nested
- *  namespace. Same underlying ContextWrapper as the flat surface; both
- *  may be used interchangeably during migration via `_flat`. */
+/** The context of the six-group nested namespace: a plain JS value holding the
+ *  surface data (`surface`). It owns no WASM memory; nothing is kept between calls. */
 export interface ManifoldContext {
   nV(): number
   nE(): number
@@ -573,10 +522,10 @@ export interface ManifoldContext {
   uv:          UvGroup
   interpolate: InterpolateGroup
 
-  /** Release WASM heap memory; the context is invalid after dispose(). */
+  /** The surface data (`geometry.surfaceArrays`): pass it to any flat function. */
+  surface: Surface
+  /** Nothing to free (the surface is a JS value); kept for API compatibility. */
   dispose(): void
-  /** Flat compatibility surface (same as `createContext()`'s return). */
-  _flat: Manifold
 }
 
 /** Functional form of the six-group namespace. Each leaf takes the

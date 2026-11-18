@@ -10,13 +10,12 @@
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
@@ -25,6 +24,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include "surface_of.h"
 using namespace nxr::geometry;
 using SM = Eigen::SparseMatrix<double>;
 
@@ -72,7 +72,7 @@ int main() {
         std::vector<double> P(pf.begin(), pf.end()); std::vector<int32_t> Fi(fu.begin(), fu.end());
         const int nV = (int)P.size() / 3, nF = (int)Fi.size() / 3;
         std::cout << "\n=== bunny-closed: " << nV << " V, " << nF << " F ===\n";
-        Manifold m(P.data(), nV, Fi.data(), nF);
+        const auto m = surfaceOf(P.data(), nV, Fi.data(), nF);
 
         // Crane's Dirac D (Gauss map) and the edge-vector Dirac: matrices
         EXPECT(rel(nxr::operators::dirac::matrix(m), coo(eb + "/exports/export/diracD", 4 * nF, 4 * nV)) < 1e-9, "diracD matrix == cortical-flow export (rel Frobenius " + num(rel(nxr::operators::dirac::matrix(m), coo(eb + "/exports/export/diracD", 4 * nF, 4 * nV))) + ")");
@@ -136,7 +136,7 @@ int main() {
             auto Pc = readBin<double>(xc + ".P.f64"); auto Fc = readBin<int32_t>(xc + ".F.i32");
             const int cV = (int)Pc.size() / 3, cF = (int)Fc.size() / 3;
             std::cout << "\n=== glued sub-0002 cortex: " << cV << " V, " << cF << " F ===\n";
-            Manifold g(Pc.data(), cV, Fc.data(), cF);
+            const auto g = surfaceOf(Pc.data(), cV, Fc.data(), cF);
             const double rc = rel(nxr::operators::dirac::matrixIntrinsic(g), coo(xc + ".crane", 4 * cF, 4 * cV));
             EXPECT(rc < 1e-9, "glued: diracIntrinsicD matrix (export crane) == export, rel " + num(rc));
             auto hy = nxr::operators::spin::assemble(g, nxr::operators::spin::Kind::IntrinsicHY);

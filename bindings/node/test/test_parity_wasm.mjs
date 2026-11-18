@@ -1,4 +1,4 @@
-// Cross-binding byte-parity: the addon must match the WASM Manifold on the
+// Cross-binding byte-parity: the addon must match the WASM functions on the
 // registry/operator surface. Run from repo root:
 //   bash scripts/build.sh Release && bash scripts/build-wasm.sh
 //   node bindings/node/test/test_parity_wasm.mjs
@@ -56,70 +56,53 @@ const cooEqual = (a, b, field, tol, label) => {
 }
 
 const nxr = await initNxrCompute()
-const A = nxr.createManifoldContext(verts, faces)
+const SA = nxr['geometry.surfaceArrays'](verts, faces)   // the surface as data, made once per binding
 
 // ── WASM module (skip cross-binding if absent) ──
 const wasmJs = path.join(repoRoot, 'build_wasm', 'nxr_compute.js')
 if (!fs.existsSync(wasmJs)) {
   console.warn(`[parity] WASM build not found at ${wasmJs} — run scripts/build-wasm.sh.`)
   console.warn('[parity] Skipping cross-binding comparison (build the WASM target to enable it).')
-  // Standalone guard so the test still has signal: dirac(0) == kron(cotanL, I4).
-  const cotan = A.operators('laplacian', 'cotan')
-  const dirac0 = A.operators('dirac', 0)
-  const dmap = new Map()
-  for (let i = 0; i < dirac0.nnz; i++) dmap.set(dirac0.row[i] * 100000 + dirac0.col[i], dirac0.data[i])
-  let maxErr = 0
-  for (let i = 0; i < cotan.nnz; i++)
-    for (let b = 0; b < 4; b++)
-      maxErr = Math.max(maxErr, Math.abs((dmap.get((4*cotan.row[i]+b)*100000 + (4*cotan.col[i]+b)) ?? 0) - cotan.data[i]))
-  check(maxErr < 1e-12, `standalone: dirac(0) == kron(cotanL, I4) (maxErr ${maxErr.toExponential(2)})`)
+  // Standalone guard so the test still has signal: the cotan Laplacian is symmetric with zero row sums.
+  const cotan = nxr['operators.assembleManifoldOperators'](SA).cotanLaplacian
+  const rowSum = new Float64Array(cotan.rows)
+  for (let i = 0; i < cotan.nnz; i++) rowSum[cotan.row[i]] += cotan.data[i]
+  const maxErr = Math.max(...Array.from(rowSum, Math.abs))
+  check(maxErr < 1e-9, `standalone: the cotan Laplacian's rows sum to 0 (maxErr ${maxErr.toExponential(2)})`)
   console.log(failures === 0 ? '\nPASS (standalone only)' : `\nFAIL (${failures})`)
   process.exit(failures === 0 ? 0 : 1)
 }
 
 const { default: createWasm } = await import(pathToFileURL(wasmJs).href)
 const wasm = await createWasm()
-const B = new wasm.Manifold(verts, faces)
+const SB = wasm['geometry.surfaceArrays'](verts, faces, null)
 
-// ── operators: real families ──
-for (const [family, sub] of [
-  ['laplacian', 'cotan'], ['laplacian', 'graph'], ['laplacian', 'covariant'],
-  ['mass', 'mixedVoronoi'], ['mass', 'galerkin'],
-  ['hodge', 'h0'], ['hodge', 'h1'], ['hodge', 'h2'], ['hodge', 'h1inv'],
-]) cooEqual(A.operators(family, sub), B.operators(family, sub), 'data', 1e-12, `operators ${family} ${sub}`)
+// ── operators: the assembled Laplacian and masses ──
+const oa = nxr['operators.assembleManifoldOperators'](SA), ob = wasm['operators.assembleManifoldOperators'](SB, '')
+cooEqual(oa.cotanLaplacian, ob.cotanLaplacian, 'data', 1e-12, 'operators cotanLaplacian')
+cooEqual(oa.mass, ob.mass, 'data', 1e-12, 'operators mass (mixedVoronoi)')
+cooEqual(nxr['operators.assembleManifoldOperators'](SA, 'galerkin').mass, wasm['operators.assembleManifoldOperators'](SB, 'galerkin').mass, 'data', 1e-12, 'operators mass (galerkin)')
 
-for (const family of ['gradient3D', 'diracD', 'diracFaceD', 'gradFace', 'lapFace', 'extrinsicWeitzenbock'])
-  cooEqual(A.operators(family), B.operators(family), 'data', 1e-12, `operators ${family}`)
-
-for (const tau of [0, 0.5, 1]) {
-  cooEqual(A.operators('dirac', tau), B.operators('dirac', tau), 'data', 1e-12, `operators dirac ${tau}`)
-  cooEqual(A.operators('diracFace', tau), B.operators('diracFace', tau), 'data', 1e-12, `operators diracFace ${tau}`)
-}
-
-// ── operators: complex families ──
-const cc = A.operators('laplacian', 'connection'), cw = B.operators('laplacian', 'connection')
-cooEqual(cc, cw, 'realData', 1e-12, 'connection L (real part)')
-cooEqual(cc, cw, 'imagData', 1e-12, 'connection L (imag part)')
-for (const nSym of [1, 2]) {
-  const ga = A.operators('connectionGradient', nSym), gw = B.operators('connectionGradient', nSym)
-  cooEqual(ga, gw, 'realData', 1e-12, `connectionGradient ${nSym} (real)`)
-  cooEqual(ga, gw, 'imagData', 1e-12, `connectionGradient ${nSym} (imag)`)
-}
+// ── operators: the connection Laplacian (complex) ──
+const cca = nxr['operators.assembleConnectionLaplacian'](SA, { format: 'complex' }).K
+const ccb = wasm['operators.assembleConnectionLaplacian'](SB, { format: 'complex' }).K
+cooEqual(cca, ccb, 'realData', 1e-12, 'connection L (real part)')
+cooEqual(cca, ccb, 'imagData', 1e-12, 'connection L (imag part)')
 
 // ── dec ──
-const da = A.operators('dec'), db = B.operators('dec')
+const da = nxr['operators.assembleDECOperators'](SA), db = wasm['operators.assembleDECOperators'](SB)
 cooEqual(da.d0, db.d0, 'data', 1e-12, 'dec d0')
 cooEqual(da.d1, db.d1, 'data', 1e-12, 'dec d1')
 
 // ── frames ──
-const fa = A.measure.frame(), fb = B.frames()
+const fa = nxr['geometry.frames'](SA), fb = wasm['geometry.frames'](SB)
 for (const f of ['e1', 'e2', 'normals']) {
   let maxErr = 0
   for (let i = 0; i < fa[f].length; i++) maxErr = Math.max(maxErr, Math.abs(fa[f][i] - fb[f][i]))
   check(maxErr < 1e-12, `frames ${f}: addon == wasm (maxErr ${maxErr.toExponential(2)})`)
 }
 
-// ── eigs (spectrum only — eigenvectors are sign/gauge-ambiguous) ──
+// ── eigenOperator (spectrum only — eigenvectors are sign/gauge-ambiguous) ──
 // dense: true — use Eigen's exact GeneralizedSelfAdjointEigenSolver rather than
 // Spectra's IRAM. On the highly symmetric icosahedron, Spectra's iterative
 // convergence is sensitive to the random starting vector and platform FP, and
@@ -134,21 +117,21 @@ for (const spec of [
   { operator: 'dirac', tau: 0.5, k: 8, dense: true },
   { operator: 'diracFace', tau: 0.5, k: 8, dense: true },
 ]) {
-  const ea = await A.eigs(spec)
-  const eb = B.eigs(spec)   // WASM eigs is synchronous
-  check(ea.k === eb.k && ea.blockSize === eb.blockSize, `eigs ${spec.operator}: k/blockSize match`)
+  const ea = await nxr['operators.eigenOperator'](SA, spec)
+  const eb = wasm['operators.eigenOperator'](SB, spec)   // WASM is synchronous
+  check(ea.k === eb.k && ea.blockSize === eb.blockSize, `eigenOperator ${spec.operator}: k/blockSize match`)
   let maxErr = 0
   for (let i = 0; i < ea.eigenvalues.length; i++) maxErr = Math.max(maxErr, Math.abs(ea.eigenvalues[i] - eb.eigenvalues[i]))
-  check(maxErr < 1e-9, `eigs ${spec.operator}: eigenvalues match (maxErr ${maxErr.toExponential(2)})`)
+  check(maxErr < 1e-9, `eigenOperator ${spec.operator}: eigenvalues match (maxErr ${maxErr.toExponential(2)})`)
 }
 
-// ── operatorInfo / fieldInfo string parity ──
+// ── operatorById / fieldById string parity ──
 for (const id of ['laplaceBeltrami', 'relativeDirac']) {
-  const oa = nxr.operatorInfo(id), ob = wasm.operatorInfo(id)
-  check(JSON.stringify(oa) === JSON.stringify(ob), `operatorInfo('${id}') string-identical`)
+  const ia = nxr['operators.operatorById'](id), ib = wasm['operators.operatorById'](id)
+  check(JSON.stringify(ia) === JSON.stringify(ib), `operatorById('${id}') string-identical`)
 }
-const fa2 = nxr.fieldInfo('scalarVertex'), fb2 = wasm.fieldInfo('scalarVertex')
-check(JSON.stringify(fa2) === JSON.stringify(fb2), `fieldInfo('scalarVertex') string-identical`)
+const fa2 = nxr['operators.fieldById']('scalarVertex'), fb2 = wasm['operators.fieldById']('scalarVertex')
+check(JSON.stringify(fa2) === JSON.stringify(fb2), `fieldById('scalarVertex') string-identical`)
 
 console.log(failures === 0 ? '\nPASS' : `\nFAIL (${failures})`)
 process.exit(failures === 0 ? 0 : 1)

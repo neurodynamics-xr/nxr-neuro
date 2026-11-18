@@ -3,7 +3,6 @@
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
@@ -18,30 +17,15 @@ namespace nxr::geometry {
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
 
-class SignedHeatSolverImpl {
-public:
-    SignedHeatSolverImpl(Manifold& c, double tCoef)
-        : m(c), solver(c.geometry(), tCoef) {}
-    Manifold& m;
-    geometrycentral::surface::SignedHeatSolver solver;
-};
-
-SignedHeatSolver::SignedHeatSolver(Manifold& m, double tCoef)
-    : impl_(std::make_unique<SignedHeatSolverImpl>(m, tCoef)) {}
-
-SignedHeatSolver::~SignedHeatSolver() = default;
-
-SignedHeatSolverImpl& SignedHeatSolver::impl() { return *impl_; }
-
-Eigen::VectorXd signedHeat(
-    SignedHeatSolver& solver,
+namespace {
+Eigen::VectorXd signedHeatOn(
+    geometrycentral::surface::SignedHeatSolver& solver,
+    ManifoldSurfaceMesh& mesh,
+    int nV,
     const std::vector<int>& curveVertices,
     bool isLoop,
     SignedHeatLevelSet levelSet
 ) {
-    auto& s = solver.impl();
-    auto& mesh = s.m.mesh();
-    int nV = s.m.nV();
 
     if (curveVertices.size() < 2) {
         throw Error(ErrorCode::InvalidInput,
@@ -74,7 +58,7 @@ Eigen::VectorXd signedHeat(
     }
 
     std::vector<Curve> curves{std::move(curve)};
-    VertexData<double> distances = s.solver.computeDistance(curves, opts);
+    VertexData<double> distances = solver.computeDistance(curves, opts);
 
     Eigen::VectorXd out(nV);
     for (Vertex v : mesh.vertices()) {
@@ -88,4 +72,19 @@ Eigen::VectorXd signedHeat(
     return out;
 }
 
-} // namespace nxr::geometry
+}  // namespace
+
+Eigen::MatrixXd signedHeat(const SurfaceArrays& surface, const std::vector<std::vector<int>>& curves, bool isLoop, SignedHeatLevelSet levelSet, double tCoef) {
+    IntrinsicSurface gs(surface);
+    geometrycentral::surface::SignedHeatSolver solver(gs.embedded(), tCoef);
+    Eigen::MatrixXd out(surface.nV(), static_cast<Eigen::Index>(curves.size()));
+    for (size_t j = 0; j < curves.size(); ++j)
+        out.col(static_cast<Eigen::Index>(j)) = signedHeatOn(solver, gs.inputMesh(), surface.nV(), curves[j], isLoop, levelSet);
+    return out;
+}
+
+Eigen::VectorXd signedHeat(const SurfaceArrays& surface, const std::vector<int>& curveVertices, bool isLoop, SignedHeatLevelSet levelSet, double tCoef) {
+    return signedHeat(surface, std::vector<std::vector<int>>{curveVertices}, isLoop, levelSet, tCoef).col(0);
+}
+
+}  // namespace nxr::geometry

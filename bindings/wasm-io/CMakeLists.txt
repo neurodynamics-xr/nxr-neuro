@@ -17,7 +17,7 @@ if(TARGET nxr_pipelines)   # compute, meeg and the pipelines: the command line's
   target_link_libraries(nxr_io_wasm PRIVATE nxr_pipelines)
   target_sources(nxr_io_wasm PRIVATE ${PROJECT_SOURCE_DIR}/cli/eigen_command.cpp ${PROJECT_SOURCE_DIR}/cli/meeg_command.cpp ${PROJECT_SOURCE_DIR}/cli/speedspectrum_command.cpp ${PROJECT_SOURCE_DIR}/cli/measure_command.cpp ${PROJECT_SOURCE_DIR}/cli/run_command.cpp)
   target_compile_definitions(nxr_io_wasm PRIVATE NXR_NEURO_WITH_PIPELINES)
-  # the GEOMETRY COMPUTE on a mesh in memory (the Manifold class: operators, eigenmodes, frames, geodesics, …) — the compute binding's Embind, in the same module
+  # the GEOMETRY COMPUTE on a mesh in memory (the toolbox functions `<toolbox>.<function>` on the surface as data: operators, eigenmodes, frames, geodesics, …) — the compute binding's Embind, in the same module
   target_sources(nxr_io_wasm PRIVATE ${PROJECT_SOURCE_DIR}/bindings/wasm/src/nxr_compute_wasm.cpp)
 else()
   target_link_libraries(nxr_io_wasm PRIVATE nxr_io)

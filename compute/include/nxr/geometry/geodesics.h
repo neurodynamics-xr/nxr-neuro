@@ -9,99 +9,40 @@
 #include <string>
 #include <vector>
 #include "nxr/geometry/mesh.h"
+#include "nxr/geometry/surface_arrays.h"
 
 namespace nxr::geometry {
 // ── Geodesic Distance (Heat Method) ──────────────────────────
 //
-// Stateful solver wrapping geometry-central's HeatMethodDistanceSolver,
-// matching the lifetime model of VectorHeatSolver / SignedHeatSolver.
-// The inner solver pre-factors both Cholesky systems (mean-curvature
-// flow `M + tA` and Laplacian `A`) at construction; subsequent
-// computeDistance() calls only do back-substitution.
-//
-// Without this caching we redo two factorizations on every call —
-// see commit history for the perf regression discovered when the
-// pre-cache version was constructing the solver inline. Bench
-// numbers in bench/REPORT.md document the warm/cold gap before the
-// fix landed.
+// geometry-central's HeatMethodDistanceSolver, built inside the call on the surface rebuilt from its arrays: it factors both systems (mean-curvature
+// flow `M + tA` and Laplacian `A`) once per call. A caller with many queries uses the BATCH form (all source sets in one call): one factorization,
+// every set back-substituted. Nothing is held between calls.
 
-class HeatGeodesicSolverImpl;
-// Which mesh the heat method runs on. Intrinsic (DEFAULT): the manifold's operator mesh, the intrinsic Delaunay triangulation, t = tCoef (mean intrinsic edge)^2 — the
+// Which mesh the heat method runs on. Intrinsic (DEFAULT): the operator mesh, the intrinsic Delaunay triangulation — the
 // Studio's HeatMethod (nxr/geometry/charts.h). Input: geometry-central's heat method on the input mesh (the former default), kept as the named option.
 enum class HeatMesh { Intrinsic, Input };
-class HeatGeodesicSolver {
-public:
-    explicit HeatGeodesicSolver(Manifold& m, double tCoef = 1.0, HeatMesh mesh = HeatMesh::Intrinsic);
-    ~HeatGeodesicSolver();
-    HeatGeodesicSolver(const HeatGeodesicSolver&) = delete;
-    HeatGeodesicSolver& operator=(const HeatGeodesicSolver&) = delete;
 
-    HeatGeodesicSolverImpl& impl();
-
-private:
-    std::unique_ptr<HeatGeodesicSolverImpl> impl_;
-};
-
-/**
- * Compute geodesic distances from source vertices via the heat method.
- * Reuses the pre-factored solver — first call pays the factor, subsequent
- * calls are back-substitution only.
- *
- * @param solver          stateful heat-geodesic solver
- * @param sourceVertices  list of source vertex indices
- * @return                per-vertex geodesic distances
- */
-Eigen::VectorXd heat(
-    HeatGeodesicSolver& solver,
-    const std::vector<int>& sourceVertices
-);
+/** Geodesic distances [nV] from a set of source vertices via the heat method. */
+Eigen::VectorXd heat(const SurfaceArrays& surface, const std::vector<int>& sourceVertices, double tCoef = 1.0, HeatMesh mesh = HeatMesh::Intrinsic);
+/** The batch form: column j [nV] = the distances from sourceSets[j], all on one solver. */
+Eigen::MatrixXd heat(const SurfaceArrays& surface, const std::vector<std::vector<int>>& sourceSets, double tCoef = 1.0, HeatMesh mesh = HeatMesh::Intrinsic);
 
 // ── Signed Heat Method (Feng & Crane 2024) ───────────────────
 //
-// Signed geodesic distance from a curve on the surface. Stateful
-// solver, same lifetime model as VectorHeatSolver. The curve is
-// expressed as a polyline of vertex indices; `isLoop` controls
-// whether the curve closes (last → first).
-//
-// Useful for region selection, flood fills, and morphological
-// operations on the mesh: positive distance one side of the
-// curve, negative the other. The level-set constraint keeps the
-// zero-set pinned exactly at the curve.
-
-class SignedHeatSolverImpl;
-class SignedHeatSolver {
-public:
-    explicit SignedHeatSolver(Manifold& m, double tCoef = 1.0);
-    ~SignedHeatSolver();
-    SignedHeatSolver(const SignedHeatSolver&) = delete;
-    SignedHeatSolver& operator=(const SignedHeatSolver&) = delete;
-
-    SignedHeatSolverImpl& impl();
-
-private:
-    std::unique_ptr<SignedHeatSolverImpl> impl_;
-};
-
+// Signed geodesic distance from a curve on the surface. The curve is a polyline of vertex indices; `isLoop` closes it (last → first).
+// Positive distance one side of the curve, negative the other; the level-set constraint keeps the zero-set pinned at the curve.
 enum class SignedHeatLevelSet {
     None = 0,        // unconstrained — curve may not lie exactly on the zero set
     ZeroSet = 1,     // pin the zero level set to the curve (default)
     Multiple = 2,    // pin each curve to its own level set
 };
 
-/** Signed geodesic distance from a curve to every vertex.
- *
- *  @param curveVertices  ordered vertex indices defining the curve polyline
- *  @param isLoop         if true, edge from last → first is included
- *  @param levelSet       which level-set constraint to enforce
- *  @return               [nV] signed distances (sign convention follows
- *                        the curve's orientation; flip the input order
- *                        to flip the sign) */
-Eigen::VectorXd signedHeat(
-    SignedHeatSolver& solver,
-    const std::vector<int>& curveVertices,
-    bool isLoop = true,
-    SignedHeatLevelSet levelSet = SignedHeatLevelSet::ZeroSet
-);
+/** Signed geodesic distance [nV] from a curve to every vertex (sign follows the curve's orientation; reverse the order to flip it). */
+Eigen::VectorXd signedHeat(const SurfaceArrays& surface, const std::vector<int>& curveVertices, bool isLoop = true,
+                           SignedHeatLevelSet levelSet = SignedHeatLevelSet::ZeroSet, double tCoef = 1.0);
+/** The batch form: column j = the signed distance from curves[j], all on one solver. */
+Eigen::MatrixXd signedHeat(const SurfaceArrays& surface, const std::vector<std::vector<int>>& curves, bool isLoop = true,
+                           SignedHeatLevelSet levelSet = SignedHeatLevelSet::ZeroSet, double tCoef = 1.0);
 } // namespace nxr::geometry
 
 namespace nxr::geometry::query {
@@ -120,7 +61,7 @@ namespace nxr::geometry::query {
  *  Differs from `heat` (heat method) which
  *  returns a scalar field on all vertices, not a path. */
 Eigen::MatrixXd tracePath(
-    Manifold& m,
+    const SurfaceArrays& surface,
     int vStart,
     int vEnd
 );
@@ -141,7 +82,7 @@ struct GeodesicPath {
 
 /** `tracePath`, answering where on the mesh each point lies. */
 GeodesicPath tracePathSurface(
-    Manifold& m,
+    const SurfaceArrays& surface,
     int vStart,
     int vEnd
 );
@@ -153,7 +94,7 @@ GeodesicPath tracePathSurface(
  *  homotopy class of its Dijkstra start), so its `length` is >= this;
  *  the heat method (`geometry::heat`) approximates it. */
 double exactDistance(
-    Manifold& m,
+    const SurfaceArrays& surface,
     int vStart,
     int vEnd
 );
@@ -165,7 +106,7 @@ double exactDistance(
 // much"). Three loci: a point, a polyline, a region of faces.
 
 struct PointLocus {
-    int vertex;  // vertex index in the owning Manifold
+    int vertex;  // vertex index of the surface
 };
 
 struct PolylineLocus {
@@ -178,12 +119,12 @@ struct RegionLocus {
 
 /** Trivial point query — echoes the input vertex after a range check.
  *  Throws Error(InvalidInput) on `v < 0 || v >= m.nV()`. */
-PointLocus point(Manifold& m, int v);
+PointLocus point(const SurfaceArrays& surface, int v);
 
 /** Polyline between two vertices via the edge-flip geodesic algorithm
  *  (Sharp & Crane 2020). Identical to `tracePath` but typed as a
  *  PolylineLocus so it pairs with `measure::line`. */
-PolylineLocus line(Manifold& m, int vStart, int vEnd);
+PolylineLocus line(const SurfaceArrays& surface, int vStart, int vEnd);
 
 /** Region of faces inside the geodesic ball of radius `level` around
  *  vertex `v`. A face is included iff all three of its vertices have
@@ -191,14 +132,11 @@ PolylineLocus line(Manifold& m, int vStart, int vEnd);
  *  slightly underestimates the true region area, but well-defined and
  *  free of barycentric interpolation.
  *
- *  Constructs a fresh `geometry::HeatGeodesicSolver` per call (pays one
- *  Cholesky factor). For repeated queries on the same mesh, callers
- *  that want the cached path should compute the heat-distance scalar
- *  field themselves via the cached solver on `Manifold` and then
- *  threshold it manually.
+ *  Runs the heat method once per call; for many regions, compute the
+ *  distances with the batch `geometry::heat` and threshold them.
  *
  *  Throws Error(InvalidInput) on `v` out of range or `level <= 0`. */
-RegionLocus area(Manifold& m, int v, double level);
+RegionLocus area(const SurfaceArrays& surface, int v, double level);
 } // namespace nxr::geometry::query
 
 namespace nxr::geometry::measure {
@@ -212,11 +150,11 @@ namespace nxr::geometry::measure {
 
 /** 3D position of vertex `v`, taken from the manifold's vertex
  *  positions. Throws Error(InvalidInput) on out-of-range `v`. */
-Eigen::Vector3d point(Manifold& m, int v);
+Eigen::Vector3d point(const SurfaceArrays& surface, int v);
 
 /** Polyline length along the edge-flip geodesic from `vStart` to `vEnd`.
  *  Equivalent to `line(query::line(m, vStart, vEnd))`. */
-double line(Manifold& m, int vStart, int vEnd);
+double line(const SurfaceArrays& surface, int vStart, int vEnd);
 
 /** Polyline length of a pre-computed `PolylineLocus`. Sum of Euclidean
  *  distances between consecutive points. Returns 0 for empty / single-
@@ -225,10 +163,10 @@ double line(const query::PolylineLocus& locus);
 
 /** Total face area of the geodesic-ball region of radius `level` around
  *  vertex `v`. Equivalent to `area(m, query::area(m, v, level))`. */
-double area(Manifold& m, int v, double level);
+double area(const SurfaceArrays& surface, int v, double level);
 
 /** Total face area of a pre-computed `RegionLocus`, summed from
  *  geometry-central's cached face areas. */
-double area(Manifold& m, const query::RegionLocus& locus);
+double area(const SurfaceArrays& surface, const query::RegionLocus& locus);
 } // namespace nxr::geometry::measure
 

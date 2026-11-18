@@ -15,9 +15,10 @@ using namespace geometrycentral::surface;
 
 // See VertexFrames in compute.h: geometry-central's gauge of the (mollified) input mesh, realised by the IntrinsicSurface (equal to `vertexTangentBasis`
 // when nothing was mollified), so it matches the tangent space the connection Laplacian and the transport use.
-VertexFrames vertexFrames(Manifold& m) {
-    const TangentBasis B = m.intrinsicSurface().tangentBasis();
-    const int nV = m.nV();
+VertexFrames vertexFrames(const SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
+    const TangentBasis B = gs.tangentBasis();
+    const int nV = surface.nV();
     VertexFrames out;
     out.e1.resize(nV, 3); out.e2.resize(nV, 3); out.normals.resize(nV, 3);
     for (int v = 0; v < nV; ++v)

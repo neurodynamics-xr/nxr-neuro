@@ -45,7 +45,7 @@ struct SmoothVertexFieldResult {
  *  representative; the other nSym-1 directions are obtained by
  *  rotating in the face tangent plane). */
 Eigen::MatrixXd smoothFace(
-    Manifold& m,
+    const SurfaceArrays& surface,
     int nSym = 4,
     bool alignToCurvature = false
 );
@@ -55,7 +55,7 @@ Eigen::MatrixXd smoothFace(
  *  Returns the raw [nV * 2] Vector2 form alongside [nV, 3] world
  *  vectors, since stripes consume the Vector2 form internally. */
 SmoothVertexFieldResult smoothVertex(
-    Manifold& m,
+    const SurfaceArrays& surface,
     int nSym = 2,
     bool alignToCurvature = false
 );

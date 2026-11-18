@@ -6,5 +6,5 @@ function h = hodge(mctx, omega)
 %   Returns a struct with exactPotential (α), coExactPotentialV (β),
 %   dAlpha, deltaBeta, gamma (each [nE x 1]) and the Whitney-interpolated
 %   face vector fields. By construction dAlpha + deltaBeta + gamma = omega.
-    h = nxr.manifold.impl.withHandle(mctx, @(hCtx) nxr_compute('hodge', hCtx, omega));
+    h = nxr_compute('signal.hodge', mctx.surface, omega);
 end

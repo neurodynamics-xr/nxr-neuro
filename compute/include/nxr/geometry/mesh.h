@@ -1,5 +1,5 @@
 #pragma once
-// Manifold, the mesh handle, and the light halfedge bundles (toolbox refactor P1: moved from compute.h, declarations unchanged).
+// The light halfedge bundles of a mesh (topology and per-element geometry), the connection choice, and the extrinsic Delaunay repair.
 #include <complex>
 #include <cstdint>
 #include <limits>
@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/surface_arrays.h"
 #include "nxr/core/errors.h"
 #include "nxr/core/cancellation.h"
 #include "nxr/core/progress.h"
@@ -30,116 +31,17 @@ using core::ErrorCode;
 using core::CancellationToken;
 using core::ProgressObserver;
 
-// Forward declarations for facets and geometry bundles.
-namespace facet {
-    class TopologyFacet;  class EmbeddedFacet;  class IntrinsicFacet;
-    class ExtrinsicFacet;
-}
-} // namespace nxr::geometry
-namespace nxr::geometry {
 struct MeshGeometry; struct MeshTopology;
 
 enum class ConnectionType { Euclidean, LeviCivita, Trivial };   // the choice of connection (G7: formerly GaugeType; "gauge" names only the tangent-space convention)
-using GaugeType [[deprecated("nxr::geometry::ConnectionType")]] = ConnectionType;   // one release
 
+// There is no surface object: a surface is its arrays (nxr/geometry/surface_arrays.h, the mesh and its intrinsic triangulation), and each function builds
+// geometry-central's objects from them inside (IntrinsicSurface(const SurfaceArrays&)). The connection a function uses is its argument.
 
-// ── Compute Context ──────────────────────────────────────────
-// Owns the geometry-central mesh and geometry objects.
-// All compute functions operate on a context, which can be created
-// once and reused across multiple calls.
-
-// Which mesh the operators (cotan Laplacian, masses, DEC, connection Laplacian, Hodge–Dirac) are built on.
-//   Intrinsic (DEFAULT): geometry-central's intrinsic mollified Delaunay (signpost) triangulation (nxr/geometry/intrinsic_surface.h), with the mixed-Voronoi mass of the mollified input.
-//   Embedded: the input triangulation as it is (no mollification, no flips) — a NAMED OPTION, never a silent default.
-enum class MeshKind { Intrinsic, Embedded };
-
-struct ManifoldOptions {
-    MeshKind                    mesh     = MeshKind::Intrinsic;
-    DelaunayOptions             delaunay = {};     // `mollify` and `flipEps`: named, recorded options (shared names with the Studio and nxr)
-};
-
-class Manifold {
-public:
-    // The operator mesh is the intrinsic mollified Delaunay mesh unless `options.mesh` is Embedded.
-    Manifold(const double* vertices, int nV, const int32_t* faces, int nF, const ManifoldOptions& options);
-    // The flag form: `intrinsicDelaunay` true (the DEFAULT) = MeshKind::Intrinsic, false = MeshKind::Embedded.
-    Manifold(const double* vertices, int nV,
-                   const int32_t* faces, int nF,
-                   bool intrinsicDelaunay = true,
-                   const DelaunayOptions& delaunay = {});
-    ~Manifold();
-
-    // Non-copyable
-    Manifold(const Manifold&) = delete;
-    Manifold& operator=(const Manifold&) = delete;
-
-    int nV() const;
-    int nE() const;
-    int nF() const;
-
-    // Access to underlying geometry-central objects (for advanced use).
-    // The mesh is a ManifoldSurfaceMesh — required for tangent-space-aware
-    // features (curvature principal directions, BFF parametrization,
-    // flip-out geodesics). Construction throws if the input is non-manifold;
-    // cortical surfaces from FreeSurfer satisfy the constraint.
-    geometrycentral::surface::ManifoldSurfaceMesh& mesh();
-    geometrycentral::surface::VertexPositionGeometry& geometry();
-
-    // True iff the operator mesh is the intrinsic mollified Delaunay mesh (the default).
-    bool isIntrinsicDelaunay() const;
-
-    // THE intrinsic surface (nxr/geometry/intrinsic_surface.h, geometry-central's signpost intrinsic Delaunay triangulation of the mollified input): every
-    // intrinsic operator (cotan Laplacian, masses, DEC, connection Laplacian, Hodge–Dirac) and every tangent quantity is built on it, in ONE gauge —
-    // geometry-central's. With MeshKind::Embedded it is the input as it is. geometry() is unchanged and still used for EXTRINSIC quantities.
-    // (`intrinsic()` below is the older data facet; it keeps its name.)
-    IntrinsicSurface& intrinsicSurface();
-    const ManifoldOptions& options() const;
-    // ── Geometry facets (additive; thin views over the accessors above) ──
-    // Each returns a lightweight view object; see include/nxr/facets.h.
-    facet::TopologyFacet  topology();
-    facet::EmbeddedFacet  embedded();
-    facet::IntrinsicFacet intrinsic();
-    facet::ExtrinsicFacet extrinsic();
-
-    // Raw-input aliases (facet-agnostic literal input, retained from ctor).
-    const Eigen::MatrixXd& vertexPositions() const;  // [nV,3]
-    const Eigen::MatrixXi& faces() const;            // [nF,3], 0-based
-
-    // Lazily-cached light per-element bundles backing the data facets.
-    const geometry::MeshGeometry& lightGeometry();   // geometry::meshGeometry(*this), cached
-    const geometry::MeshTopology& topologyData();    // geometry::meshTopology(*this), cached
-
-    // ── Gauge workflow ──
-    // Singularity-aware constructor (pattern 2): default active gauge = Trivial.
-    // Throws Error(InvalidInput) if Σ singularities != eulerCharacteristic().
-    Manifold(const double* vertices, int nV, const int32_t* faces, int nF,
-             const std::map<int,double>& singularities, bool intrinsicDelaunay = true,
-             const DelaunayOptions& delaunayOptions = {});
-
-    int eulerCharacteristic() const;                 // nV - nE + nF
-    ConnectionType activeConnectionType() const;
-    const std::map<int,double>& activeSingularities() const;
-    // Re-point the active/default gauge. Trivial validates Gauss-Bonnet.
-    void setConnection(ConnectionType type, const std::map<int,double>& singularities = {});
-    [[deprecated("setConnection")]] void setGauge(ConnectionType type, const std::map<int,double>& singularities = {}) { setConnection(type, singularities); }
-
-private:
-    std::unique_ptr<geometrycentral::surface::ManifoldSurfaceMesh>             mesh_;
-    std::unique_ptr<geometrycentral::surface::VertexPositionGeometry>         geometry_;
-    ManifoldOptions                          options_;
-    std::unique_ptr<IntrinsicSurface>        surface_;           // the one intrinsic construction (flips only when options_.mesh == Intrinsic)
-
-    Eigen::MatrixXd                          vertexPositions_;  // [nV,3] retained input
-    Eigen::MatrixXi                          faces_;            // [nF,3] retained input (0-based)
-    std::unique_ptr<geometry::MeshGeometry>  lightGeometryCache_;
-    std::unique_ptr<geometry::MeshTopology>  topologyDataCache_;
-
-    ConnectionType            activeConnectionType_    = ConnectionType::LeviCivita;
-    std::map<int,double> activeSingularities_;
-    // Validates Σ singularities == eulerCharacteristic(); throws on mismatch.
-    void validateSingularities_(const std::map<int,double>& s) const;
-
-};
+/** χ = nV − nE + nF of the input mesh. */
+int eulerCharacteristic(const SurfaceArrays& surface);
+/** The trivial connection's singularities must be given and sum to χ (Gauss–Bonnet); any other connection takes none. Throws Error(InvalidInput). */
+void checkSingularities(const SurfaceArrays& surface, ConnectionType type, const std::map<int,double>& singularities);
 
 // Extrinsic Delaunay edge-flip repair (geometry-central fixDelaunay).
 // Flips edges in place — same vertices (positions/count/indices), new faces.
@@ -194,7 +96,7 @@ struct MeshTopology {
 /** Extract the halfedge mesh topology into a plain struct-of-arrays.
  *  All indices are 0-based (geometry-central convention). -1 encodes
  *  geometry-central's INVALID_IND for "none / boundary" slots. */
-MeshTopology meshTopology(Manifold& m);
+MeshTopology meshTopology(const SurfaceArrays& surface);
 
 // ── Light per-element geometry bundle ────────────────────────
 //
@@ -235,10 +137,7 @@ struct MeshGeometry {
     Eigen::VectorXd  cornerScaledAngles;       // [nH]
 };
 
-MeshGeometry meshGeometry(Manifold& m);
-
-using RowMat3 = Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>;
-using FaceMat = Eigen::Matrix<std::int32_t, Eigen::Dynamic, 3, Eigen::RowMajor>;
+MeshGeometry meshGeometry(const SurfaceArrays& surface);
 
 /** Area [nF] of each face of a mesh (positions [nV x 3], faces [nF x 3]). */
 Eigen::VectorXd faceAreas(const RowMat3& positions, const FaceMat& faces);

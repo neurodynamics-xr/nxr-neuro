@@ -22,7 +22,7 @@ struct CurvatureResult {
     Eigen::MatrixXd principalDirMax; // [nV, 3] max principal direction lifted to 3D
 };
 
-CurvatureResult curvatures(Manifold& m);
+CurvatureResult curvatures(const SurfaceArrays& surface);
 // ── Curvature as a 2-RoSy complex + mean ─────────────────────
 //
 // The shape operator (3 real DOF) split into its trace and deviatoric
@@ -39,6 +39,6 @@ struct VertexCurvature2RoSy {
     Eigen::VectorXcd deviatoric;  // [nV] q
     Eigen::VectorXd  mean;        // [nV] H
 };
-VertexCurvature2RoSy vertexCurvature(Manifold& m);
+VertexCurvature2RoSy vertexCurvature(const SurfaceArrays& surface);
 } // namespace nxr::geometry
 

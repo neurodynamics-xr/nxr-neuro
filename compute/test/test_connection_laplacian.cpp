@@ -30,13 +30,12 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
@@ -45,6 +44,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include "surface_of.h"
 
 using namespace nxr::geometry;
 using namespace nxr::operators;
@@ -133,20 +133,20 @@ static double complexFrobeniusAntiHermitian(
 //   5. frameE1/E2 are orthonormal [nV,3] matrices (gauge for eigenvectors)
 //   6. Face domain throws Error(InvalidInput)
 //   7. nSym=0 throws Error(InvalidInput)
-static void testTrivialConnectionLaplacian(nxr::geometry::Manifold& m) {
+static void testTrivialConnectionLaplacian(const nxr::geometry::SurfaceArrays& m) {
     std::cout << "\n── trivial connection Laplacian ─────────────────────\n";
 
     // Gauss-Bonnet: two index-1 singularities → Σσ = 2 = χ(sphere)
     std::map<int, double> singMap = {{0, 1.0}, {1, 1.0}};
 
     auto dec = nxr::operators::assembleDECOperators(m);
-    nxr::operators::CholeskyCache cache;
+    const auto exact = nxr::operators::exactFormFactor(dec);   // the factor of (d0ᵀ⋆1d0 + εI), made once and passed in
 
     // ── Test 1: phi.size() == nEdges ─────────────────────────────────────
     {
         Eigen::VectorXd phi = nxr::operators::connection::computeTrivialConnection(
-            m, dec, cache, singMap);
-        check(phi.size() == m.nE(),
+            m, dec, *exact, singMap);
+        check(phi.size() == nxr::geometry::meshTopology(m).nE,
               "phi.size() == nEdges");
         std::cout << "    phi.norm() = " << phi.norm() << " (non-zero Poisson solve)\n";
     }
@@ -157,7 +157,7 @@ static void testTrivialConnectionLaplacian(nxr::geometry::Manifold& m) {
         opts.format = ConnectionLaplacianFormat::Complex;
         opts.nSym   = 1;
         auto cl = nxr::operators::laplacian::connection::assembleTrivialConnectionLaplacian(
-            m, singMap, dec, cache, opts);
+            m, singMap, dec, *exact, opts);
         check(cl.baseDim  == m.nV(), "TC complex: baseDim == nV");
         check(cl.outputDim == m.nV(), "TC complex: outputDim == nV");
         const double hermErr = complexFrobeniusAntiHermitian(cl.K_complex);
@@ -171,7 +171,7 @@ static void testTrivialConnectionLaplacian(nxr::geometry::Manifold& m) {
         opts.format = ConnectionLaplacianFormat::Real2N;
         opts.nSym   = 1;
         auto cl = nxr::operators::laplacian::connection::assembleTrivialConnectionLaplacian(
-            m, singMap, dec, cache, opts);
+            m, singMap, dec, *exact, opts);
         check(cl.outputDim == 2 * m.nV(), "TC real2N: outputDim == 2*nV");
         const double symErr = realFrobeniusAsymmetry(cl.K_real);
         check(symErr < 1e-10,
@@ -181,7 +181,7 @@ static void testTrivialConnectionLaplacian(nxr::geometry::Manifold& m) {
     // ── Test 4: Differs from Levi-Civita Laplacian ────────────────────────
     {
         // First verify phi is non-trivial (Poisson solve produced real corrections)
-        Eigen::VectorXd phi = computeTrivialConnection(m, dec, cache, singMap);
+        Eigen::VectorXd phi = computeTrivialConnection(m, dec, *exact, singMap);
         check(phi.norm() > 1e-6,
               "phi.norm() > 1e-6 (Poisson solve produced non-trivial connection)");
         std::cout << "    phi.norm() = " << phi.norm() << " (non-trivial)\n";
@@ -190,7 +190,7 @@ static void testTrivialConnectionLaplacian(nxr::geometry::Manifold& m) {
         ConnectionLaplacianOptions opts4;
         opts4.format = ConnectionLaplacianFormat::Complex;
         opts4.nSym   = 1;
-        auto tcl = assembleTrivialConnectionLaplacian(m, singMap, dec, cache, opts4);
+        auto tcl = assembleTrivialConnectionLaplacian(m, singMap, dec, *exact, opts4);
         auto lcl = assembleConnectionLaplacian(m, opts4);
         Eigen::SparseMatrix<std::complex<double>> diff = tcl.K_complex - lcl.K_complex;
         const double diffNorm = diff.norm();
@@ -205,7 +205,7 @@ static void testTrivialConnectionLaplacian(nxr::geometry::Manifold& m) {
         opts.format = ConnectionLaplacianFormat::Complex;
         opts.nSym   = 1;
         auto cl = nxr::operators::laplacian::connection::assembleTrivialConnectionLaplacian(
-            m, singMap, dec, cache, opts);
+            m, singMap, dec, *exact, opts);
         int N = cl.baseDim;
         check(cl.frameE1.rows() == N && cl.frameE1.cols() == 3,
               "TC frameE1 shape == [nV, 3]");
@@ -230,7 +230,7 @@ static void testTrivialConnectionLaplacian(nxr::geometry::Manifold& m) {
         bool threw = false;
         try {
             nxr::operators::laplacian::connection::assembleTrivialConnectionLaplacian(
-                m, singMap, dec, cache, opts);
+                m, singMap, dec, *exact, opts);
         } catch (const nxr::core::Error& e) {
             threw = (e.code() == nxr::core::ErrorCode::InvalidInput);
         }
@@ -244,7 +244,7 @@ static void testTrivialConnectionLaplacian(nxr::geometry::Manifold& m) {
         bool threw = false;
         try {
             nxr::operators::laplacian::connection::assembleTrivialConnectionLaplacian(
-                m, singMap, dec, cache, opts);
+                m, singMap, dec, *exact, opts);
         } catch (const nxr::core::Error& e) {
             threw = (e.code() == nxr::core::ErrorCode::InvalidInput);
         }
@@ -262,8 +262,8 @@ int main() {
     generateIcosphere(V, F);
     int nV = static_cast<int>(V.size() / 3);
     int nF = static_cast<int>(F.size() / 3);
-    nxr::geometry::Manifold m(V.data(), nV, F.data(), nF);
-    int nE = m.nE();
+    const auto m = surfaceOf(V.data(), nV, F.data(), nF);
+    int nE = nxr::geometry::meshTopology(m).nE;
 
     std::cout << "\nMesh: icosahedron, " << nV << " V, "
               << nE << " E, " << nF << " F\n";

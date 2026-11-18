@@ -26,7 +26,7 @@ function require(cond, msg) {
 }
 
 // ── Test 1: fieldInfo for tangentVertex ──────────────────────
-const fi = Module.fieldInfo('tangentVertex')
+const fi = Module['operators.fieldById']('tangentVertex')
 require(fi.bundle         === 'tangent',          `bundle: expected 'tangent', got '${fi.bundle}'`)
 require(fi.field_type     === 'complex',          `field_type: expected 'complex', got '${fi.field_type}'`)
 require(fi.representation === 'intrinsic_complex',`representation: expected 'intrinsic_complex', got '${fi.representation}'`)
@@ -40,14 +40,14 @@ require(typeof fi.notes   === 'string', 'notes is string')
 console.log(`  tangentVertex ✓ (bundle=${fi.bundle}, field_type=${fi.field_type}, representation=${fi.representation})`)
 
 // ── Test 2: operatorInfo now includes input_field / output_field ──
-const oi = Module.operatorInfo('laplaceBeltrami')
+const oi = Module['operators.operatorById']('laplaceBeltrami')
 require(oi.input_field  === 'scalarVertex', `operatorInfo input_field: expected 'scalarVertex', got '${oi.input_field}'`)
 require(oi.output_field === 'scalarVertex', `operatorInfo output_field: expected 'scalarVertex', got '${oi.output_field}'`)
 console.log(`  laplaceBeltrami field I/O ✓ (input=${oi.input_field}, output=${oi.output_field})`)
 
 // ── Test 3: unknown id throws ─────────────────────────────────
 let threw = false
-try { Module.fieldInfo('doesNotExist') } catch { threw = true }
+try { Module['operators.fieldById']('doesNotExist') } catch { threw = true }
 require(threw, 'fieldInfo with unknown id should throw')
 console.log('  unknown id throws ✓')
 

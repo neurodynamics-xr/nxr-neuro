@@ -15,19 +15,19 @@
 #include "nxr/geometry/transport.h"
 #include "nxr/signal/surface_calculus.h"
 #include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/surface_arrays.h"
 #include "nxr/geometry/mesh.h"
 #include "nxr/geometry/curvature.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/filters.h"
@@ -253,8 +253,8 @@ void manifoldEigenmodes(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   const bool hasSigma = !is_unset(prhs[4]);
   const double sigma = hasSigma ? get_scalar(prhs[4], "sigma") : 0.0;
   const bool normalize = get_bool(prhs[5], "normalize"), removeDc = get_bool(prhs[6], "remove_dc"), delaunay = get_bool(prhs[7], "intrinsic_delaunay");
-  nxr::geometry::Manifold m(xyz.data(), nV, tri.data(), nF, delaunay);
-  auto ops = nxr::operators::assembleManifoldOperators(m);
+  const nxr::geometry::SurfaceArrays surface = nxr::geometry::surfaceArrays(xyz.data(), nV, tri.data(), nF, nxr::geometry::intrinsicOptions(delaunay));
+  auto ops = nxr::operators::assembleManifoldOperators(surface);
   auto r = nxr::operators::eigen(ops.cotanLaplacian, ops.mass, k, hasSigma ? sigma : nxr::operators::kShiftLadder, normalize, removeDc);
   plhs[0] = give_vector(r.eigenvalues, false, false);
   plhs[1] = give(r.eigenvectors, false);
@@ -269,7 +269,51 @@ const char* const kRetiredCommands[][2] = {
     {"compute.pca.pca", "compute.stats.pca"},
     {"compute.pca.reconstruct", "compute.stats.reconstruct"},
     {"compute.manifold.eigenmodes", "compute.operators.eigen"},
+    // the commands of the former surface class, now the library's functions by toolbox name (array-based: the surface is the data of `geometry.surfaceArrays`)
+    {"assembleManifoldOperators", "operators.assembleManifoldOperators"},
+    {"solve", "operators.eigen"},
+    {"precompute", "operators.eigen"},
+    {"normalize", "operators.normalize"},
+    {"removeDC", "operators.removeDC"},
+    {"fixDelaunay", "geometry.fixDelaunay"},
+    {"parallel", "geometry.parallel"},
+    {"extendScalar", "geometry.extendScalar"},
+    {"logMap", "geometry.logMap"},
+    {"findCenter", "geometry.findCenter"},
+    {"signedHeat", "geometry.signedHeat"},
+    {"heat", "geometry.heat"},
+    {"smoothFace", "geometry.smoothFace"},
+    {"smoothVertex", "geometry.smoothVertex"},
+    {"compute", "geometry.compute"},
+    {"computeFreq", "geometry.computeFreq"},
+    {"assembleDECOperators", "operators.assembleDECOperators"},
+    {"assembleConnectionLaplacian", "operators.assembleConnectionLaplacian"},
+    {"trivialConnectionLaplacian", "operators.assembleTrivialConnectionLaplacian"},
+    {"frames", "geometry.frames"},
+    {"vertexFrames", "geometry.vertexFrames"},
+    {"normals", "geometry.normals"},
+    {"poisson", "operators.poisson"},
+    {"tracePath", "geometry.tracePath"},
+    {"hodge", "signal.hodge"},
+    {"curvatures", "geometry.curvatures"},
+    {"bff", "geometry.bff"},
+    {"isoline", "signal.isoline"},
+    {"directionField", "operators.trivial"},
+    {"trivial", "operators.trivial"},
+    {"streamline", "signal.streamline"},
+    {"whitney", "signal.whitney"},
+    {"gradient", "operators.gradient"},
+    {"heatDiffusion", "synthesis.heatDiffusion"},
+    {"dampedWave", "synthesis.dampedWave"},
+    {"randomDecomposed1Form", "synthesis.randomDecomposed1Form"},
+    {"frameTransport", "operators.frameTransport"},
+    {"liftToWorld", "operators.liftToWorld"},
+    {"liftToFrame", "operators.liftToFrame"},
+    {"operatorInfo", "operators.operatorById"},
+    {"fieldInfo", "operators.fieldById"},
 };
+// The context of the surface class is gone with the class (the surface is data, `geometry.surfaceArrays`, passed to each command): these commands are removed, not renamed.
+const char* const kRemovedContextCommands[] = {"create", "destroy", "topology", "geometry", "gauge", "bundle", "operators", "embedded", "intrinsic", "extrinsic", "facets"};
 // "compute.filter.<kind>" became "compute.signal.<kind>"
 bool retired(const std::string& cmd, std::string& renamed) {
   for (const auto& r : kRetiredCommands) if (cmd == r[0]) { renamed = r[1]; return true; }
@@ -320,6 +364,20 @@ bool dispatchFirstSlice(const std::string& cmd, int nlhs, mxArray** plhs, int nr
   }
   if (!known) throw SliceFailure{"nxr:unknownCommand", "Unknown command: \"" + cmd + "\"."};
   return true;
+}
+
+bool refusedCommand(const std::string& cmd, std::string& message) {
+  std::string renamed;
+  if (retired(cmd, renamed)) {
+    message = "The command \"" + cmd + "\" was renamed: use \"" + renamed + "\".";
+    return true;
+  }
+  for (const char* r : kRemovedContextCommands)
+    if (cmd == r) {
+      message = "The command \"" + cmd + "\" was removed with the surface class: the surface is now the data of \"geometry.surfaceArrays\" (nxr_compute('geometry.surfaceArrays', V, F)), passed as the first argument to each command.";
+      return true;
+    }
+  return false;
 }
 
 }  // namespace nxr::mex

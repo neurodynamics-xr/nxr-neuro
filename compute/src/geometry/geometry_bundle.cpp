@@ -4,7 +4,6 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
-#include "nxr/geometry/facets.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
@@ -20,10 +19,11 @@ using namespace geometrycentral::surface;
 // geometry-central corner ids are halfedge-based and may be sparse. On a
 // closed mesh nH == nC so the size is identical. Entries for halfedges that
 // have no interior corner (exterior halfedges) remain zero.
-MeshGeometry meshGeometry(Manifold& m) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
-    const int nV = m.nV(), nE = m.nE(), nF = m.nF();
+MeshGeometry meshGeometry(const SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    const int nV = surface.nV(), nE = static_cast<int>(gs.inputMesh().nEdges()), nF = surface.nF();
     const int nH = static_cast<int>(mesh.nHalfedges());
 
     geom.requireVertexDualAreas();
@@ -51,10 +51,10 @@ MeshGeometry meshGeometry(Manifold& m) {
         g.vertexDualAreas(i) = geom.vertexDualAreas[v];
         g.vertexAngleSums(i) = geom.vertexAngleSums[v];
     }
-    auto cv = vertexCurvature(m);
+    auto cv = vertexCurvature(surface);
     g.vertexCurvatureDeviatoric = cv.deviatoric;
     g.vertexMeanCurvature       = cv.mean;
-    g.vertexGrid                = vertexGrid(m);   // the frame the trivial gauge combs (geometry-central's); the LC connection Laplacian's gauge is Gauge.grid / vertexFrames
+    g.vertexGrid                = vertexGrid(surface);   // the frame the trivial gauge combs (geometry-central's); the LC connection Laplacian's gauge is Gauge.grid / vertexFrames
 
     // ── edge ──────────────────────────────────────────────────
     g.edgeLengths.resize(nE);
@@ -84,7 +84,7 @@ MeshGeometry meshGeometry(Manifold& m) {
         g.faceCentroids(i, 1) = c.y;
         g.faceCentroids(i, 2) = c.z;
     }
-    g.faceGrid = faceGrid(m);
+    g.faceGrid = faceGrid(surface);
 
     // ── halfedge ──────────────────────────────────────────────
     g.halfedgeCotanWeights.resize(nH);

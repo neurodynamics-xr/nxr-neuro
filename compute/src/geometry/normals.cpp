@@ -4,7 +4,6 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
-#include "nxr/geometry/facets.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
@@ -24,10 +23,11 @@ static Vector3 halfedgeVector(VertexPositionGeometry& geom, Halfedge h) {
     return tip - tail;
 }
 
-Eigen::MatrixXd normals(Manifold& m, NormalType type) {
-    auto& mesh = m.mesh();
-    auto& geometry = m.geometry();
-    int nV = m.nV();
+Eigen::MatrixXd normals(const SurfaceArrays& surface, NormalType type) {
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geometry = gs.embedded();
+    int nV = surface.nV();
 
     geometry.requireFaceNormals();
     geometry.requireFaceAreas();

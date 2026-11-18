@@ -10,22 +10,22 @@
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/synthesis/fields.h"
 #include "mesh_helpers.h"
 #include <algorithm>
+#include "surface_of.h"
 using namespace nxr::geometry;
 using nxr::operators::spin::Kind;
 
 int main() {
     std::vector<double> V; std::vector<int32_t> F; icosphere(3, V, F);
-    Manifold m(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
+    const auto m = surfaceOf(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
     const int nF = m.nF();
     std::cout << "\n=== spin::assemble on the unit icosphere (level 3, " << nF << " faces) ===\n";
     auto ex = nxr::operators::spin::assemble(m, Kind::Extrinsic), hy = nxr::operators::spin::assemble(m, Kind::IntrinsicHY), ye = nxr::operators::spin::assemble(m, Kind::IntrinsicYe);

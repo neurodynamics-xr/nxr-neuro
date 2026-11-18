@@ -7,6 +7,6 @@ function v = smoothFace(mctx, nSym, alignToCurvature)
 %   Returns F*3 world-space vectors (principal nSym-RoSy representative).
     if nargin < 2, nSym = 4;             end
     if nargin < 3, alignToCurvature = false; end
-    v = nxr_compute('smoothFace', mctx.V, mctx.F, ...
+    v = nxr_compute('geometry.smoothFace', mctx.surface, ...
                     int32(nSym), logical(alignToCurvature));
 end

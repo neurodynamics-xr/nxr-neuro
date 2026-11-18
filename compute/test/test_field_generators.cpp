@@ -28,13 +28,12 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
@@ -43,6 +42,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <vector>
+#include "surface_of.h"
 
 using namespace nxr::geometry;
 using namespace nxr::operators;
@@ -98,10 +98,10 @@ int main() {
     int nV = static_cast<int>(V.size() / 3);
     int nF = static_cast<int>(F.size() / 3);
 
-    Manifold m(V.data(), nV, F.data(), nF);
+    const auto m = surfaceOf(V.data(), nV, F.data(), nF);
     auto ops = assembleManifoldOperators(m);
     auto dec = assembleDECOperators(m);
-    int nE = m.nE();
+    int nE = nxr::geometry::meshTopology(m).nE;
 
     // ── 1. Delta ─────────────────────────────────────────────
     {
@@ -186,8 +186,8 @@ int main() {
                   << genErr << ") ✓" << std::endl;
 
         // 4b. Run hodge.
-        CholeskyCache cache;
-        auto result = hodge(m, dec, cache, omega);
+        auto coexact = coexactFormSolver(dec);
+        auto result = nxr::signal::hodge(m, dec, *exactFormFactor(dec), *coexact, omega);
 
         // 4c. Decomposition identity: ω == dα + δβ + γ algebraically.
         Eigen::VectorXd reconstructed =

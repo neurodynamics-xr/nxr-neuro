@@ -16,7 +16,7 @@ namespace nxr::geometry {
 // c = e1 + i·e2, built directly on the existing frame assembly so the
 // tangent basis matches everything else (connection Laplacian, transport).
 static Eigen::MatrixXcd gridOf(const VertexFrames& vf, int nV);
-Eigen::MatrixXcd vertexGrid(Manifold& m) { return gridOf(vertexFrames(m), m.nV()); }
+Eigen::MatrixXcd vertexGrid(const SurfaceArrays& surface) { return gridOf(vertexFrames(surface), surface.nV()); }
 
 static Eigen::MatrixXcd gridOf(const VertexFrames& vf, int nV) {
     Eigen::MatrixXcd c(nV, 3);
@@ -26,9 +26,9 @@ static Eigen::MatrixXcd gridOf(const VertexFrames& vf, int nV) {
     return c;
 }
 
-Eigen::MatrixXcd faceGrid(Manifold& m) {
-    FaceFrames ff = frames(m);
-    int nF = m.nF();
+Eigen::MatrixXcd faceGrid(const SurfaceArrays& surface) {
+    FaceFrames ff = frames(surface);
+    int nF = surface.nF();
     Eigen::MatrixXcd c(nF, 3);
     for (int f = 0; f < nF; ++f)
         for (int k = 0; k < 3; ++k)
@@ -41,10 +41,10 @@ Eigen::MatrixXcd faceGrid(Manifold& m) {
 // the existing curvatures() lift produces, projected back into the (e1,e2)
 // tangent basis. Going through the 3D direction makes this independent of
 // geometry-central's internal 2-RoSy power convention.
-VertexCurvature2RoSy vertexCurvature(Manifold& m) {
-    CurvatureResult cr = curvatures(m);
-    VertexFrames    vf = vertexFrames(m);
-    int nV = m.nV();
+VertexCurvature2RoSy vertexCurvature(const SurfaceArrays& surface) {
+    CurvatureResult cr = curvatures(surface);
+    VertexFrames    vf = vertexFrames(surface);
+    int nV = surface.nV();
 
     VertexCurvature2RoSy out;
     out.deviatoric.resize(nV);

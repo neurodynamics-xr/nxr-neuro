@@ -1,12 +1,10 @@
 /**
- * test_cholesky_cache.cpp — Verify the CholeskyCache contract.
+ * test_factorization.cpp — the factorizations are data products (nxr/operators/factorization.h), made once by the caller.
  *
- *   1. Cache hit returns the same factor reference (no rebuild).
- *   2. Cached solve is bit-for-bit identical to a freshly-built
- *      reference factor — this is the contract that lets us refactor
- *      Poisson / Hodge / direction-field with confidence.
- *   3. Repeat Hodge with the same ω gives identical output.
- *   4. Different ω gives different output (no stale state in cache).
+ *   2. Each factor's solve is bit-for-bit identical to a freshly-built reference factor (the solvers the former cache held) — the contract that
+ *      lets Poisson / Hodge / direction-field use them with confidence; the co-exact one is geometry-central's SquareSolver.
+ *   3. Repeat Hodge with the same ω and the same factors gives identical output.
+ *   4. Different ω gives different output.
  */
 
 #include "nxr/geometry/curvature.h"
@@ -19,13 +17,12 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
@@ -37,6 +34,7 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include "surface_of.h"
 
 using namespace nxr::geometry;
 using namespace nxr::operators;
@@ -85,7 +83,7 @@ static void buildIcosahedron(std::vector<double>& V, std::vector<int32_t>& F) {
 } while (0)
 
 int main() {
-    std::cout << "[test_cholesky_cache] starting" << std::endl;
+    std::cout << "[test_factorization] starting" << std::endl;
 
     std::vector<double> V;
     std::vector<int32_t> F;
@@ -93,33 +91,18 @@ int main() {
     int nV = static_cast<int>(V.size() / 3);
     int nF = static_cast<int>(F.size() / 3);
 
-    Manifold m(V.data(), nV, F.data(), nF);
+    const auto m = surfaceOf(V.data(), nV, F.data(), nF);
     auto ops = assembleManifoldOperators(m);
     auto dec = assembleDECOperators(m);
-
-    // ── 1. Cache hit returns same reference ──────────────────
-    {
-        CholeskyCache cache;
-        const auto& a = cache.laplacian(ops);
-        const auto& b = cache.laplacian(ops);
-        REQUIRE(&a == &b, "laplacian: cache hit must return same factor");
-
-        const auto& c = cache.hodgeExact(dec);
-        const auto& d = cache.hodgeExact(dec);
-        REQUIRE(&c == &d, "hodgeExact: cache hit must return same factor");
-
-        const auto& e = cache.hodgeCoExact(dec);
-        const auto& f_ = cache.hodgeCoExact(dec);
-        REQUIRE(&e == &f_, "hodgeCoExact: cache hit must return same factor");
-        std::cout << "  [1] cache hit returns same reference ✓" << std::endl;
-    }
 
     // ── 2. Cached solve == reference solve (bit-for-bit) ─────
     // Build the reference factor inline, exactly as the pre-cache
     // implementation did. The cached factor must produce identical
     // solves on identical RHS.
     {
-        CholeskyCache cache;
+        const auto laplacianF = laplacianFactor(ops.cotanLaplacian);
+        const auto exactF = exactFormFactor(dec);
+        const auto coexactS = coexactFormSolver(dec);
 
         // Reference for laplacian: SimplicialLLT(L + 1e-8 I)
         Eigen::SparseMatrix<double> Lref = ops.cotanLaplacian;
@@ -130,10 +113,10 @@ int main() {
 
         Eigen::VectorXd rhs = Eigen::VectorXd::LinSpaced(nV, -1.0, 1.0);
         Eigen::VectorXd refSol = refL.solve(rhs);
-        Eigen::VectorXd cacheSol = cache.laplacian(ops).solve(rhs);
+        Eigen::VectorXd cacheSol = laplacianF->solve(rhs);
         double dL = (refSol - cacheSol).cwiseAbs().maxCoeff();
-        REQUIRE(dL == 0.0, "laplacian cached solve must be bit-identical to reference");
-        std::cout << "  [2a] laplacian: cached solve bit-identical (max|diff|=0) ✓" << std::endl;
+        REQUIRE(dL == 0.0, "laplacian factor solve must be bit-identical to reference");
+        std::cout << "  [2a] laplacian: factor solve bit-identical (max|diff|=0) ✓" << std::endl;
 
         // Reference for hodgeExact: SimplicialLLT(d0ᵀ ★₁ d0 + 1e-8 I)
         Eigen::SparseMatrix<double> Aref =
@@ -144,10 +127,10 @@ int main() {
         REQUIRE(refA.info() == Eigen::Success, "reference A factor failed");
 
         Eigen::VectorXd refSolA = refA.solve(rhs);
-        Eigen::VectorXd cacheSolA = cache.hodgeExact(dec).solve(rhs);
+        Eigen::VectorXd cacheSolA = exactF->solve(rhs);
         double dA = (refSolA - cacheSolA).cwiseAbs().maxCoeff();
-        REQUIRE(dA == 0.0, "hodgeExact cached solve must be bit-identical to reference");
-        std::cout << "  [2b] hodgeExact: cached solve bit-identical (max|diff|=0) ✓" << std::endl;
+        REQUIRE(dA == 0.0, "hodgeExact factor solve must be bit-identical to reference");
+        std::cout << "  [2b] hodgeExact: factor solve bit-identical (max|diff|=0) ✓" << std::endl;
 
         // Reference for hodgeCoExact: SparseLU(d1 ★₁⁻¹ d1ᵀ + 1e-8 I)
         Eigen::SparseMatrix<double> Bref =
@@ -159,18 +142,19 @@ int main() {
 
         Eigen::VectorXd rhsF = Eigen::VectorXd::LinSpaced(nF, -1.0, 1.0);
         Eigen::VectorXd refSolB = refB.solve(rhsF);
-        Eigen::VectorXd cacheSolB = cache.hodgeCoExact(dec).solve(rhsF);
+        Eigen::VectorXd cacheSolB = coexactS->solve(rhsF);
         double dB = (refSolB - cacheSolB).cwiseAbs().maxCoeff();
-        REQUIRE(dB == 0.0, "hodgeCoExact cached solve must be bit-identical to reference");
-        std::cout << "  [2c] hodgeCoExact: cached solve bit-identical (max|diff|=0) ✓" << std::endl;
+        REQUIRE(dB == 0.0, "hodgeCoExact factor solve must be bit-identical to reference");
+        std::cout << "  [2c] hodgeCoExact: factor solve bit-identical (max|diff|=0) ✓" << std::endl;
     }
 
     // ── 3. Repeat Hodge with same ω — bit-identical output ───
     {
-        CholeskyCache cache;
-        auto omega = randomOmega(m.nE(), 7);
-        auto h1 = hodge(m, dec, cache, omega);
-        auto h2 = hodge(m, dec, cache, omega);
+        const auto exactF = exactFormFactor(dec);
+        const auto coexactS = coexactFormSolver(dec);
+        auto omega = randomOmega(nxr::geometry::meshTopology(m).nE, 7);
+        auto h1 = nxr::signal::hodge(m, dec, *exactF, *coexactS, omega);
+        auto h2 = nxr::signal::hodge(m, dec, *exactF, *coexactS, omega);
         double dAlpha = (h1.dAlpha - h2.dAlpha).cwiseAbs().maxCoeff();
         double dBeta  = (h1.deltaBeta - h2.deltaBeta).cwiseAbs().maxCoeff();
         double dGamma = (h1.gamma - h2.gamma).cwiseAbs().maxCoeff();
@@ -181,19 +165,19 @@ int main() {
     }
 
     // ── 4. Different ω — different output ────────────────────
-    // Sanity check that the cache isn't returning a stale solve.
     {
-        CholeskyCache cache;
-        auto omegaA = randomOmega(m.nE(), 7);
-        auto omegaB = randomOmega(m.nE(), 8);
-        auto hA = hodge(m, dec, cache, omegaA);
-        auto hB = hodge(m, dec, cache, omegaB);
+        const auto exactF = exactFormFactor(dec);
+        const auto coexactS = coexactFormSolver(dec);
+        auto omegaA = randomOmega(nxr::geometry::meshTopology(m).nE, 7);
+        auto omegaB = randomOmega(nxr::geometry::meshTopology(m).nE, 8);
+        auto hA = nxr::signal::hodge(m, dec, *exactF, *coexactS, omegaA);
+        auto hB = nxr::signal::hodge(m, dec, *exactF, *coexactS, omegaB);
         double diff = (hA.dAlpha - hB.dAlpha).norm();
         REQUIRE(diff > 1e-6, "different ω must yield different dα");
         std::cout << "  [4] different ω yields different output (||Δdα||="
                   << diff << ") ✓" << std::endl;
     }
 
-    std::cout << "[test_cholesky_cache] all assertions passed ✓" << std::endl;
+    std::cout << "[test_factorization] all assertions passed ✓" << std::endl;
     return 0;
 }

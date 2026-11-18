@@ -8,7 +8,7 @@
  *   • normalize
  *   • removeDC
  *   • CholeskyCache::laplacian(L)        — agnostic overload
- *   • poisson(L, M, cache, density) — agnostic overload
+ *   • poisson(L, M, factor, density) — agnostic overload
  *   • heatDiffusion(M, eig, …)   — agnostic overload
  *
  * Confirms that the convenience layer no longer requires a
@@ -20,19 +20,18 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
 #include "nxr/signal/surface_calculus.h"
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/mesh.h"
 #include "nxr/geometry/curvature.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
@@ -149,17 +148,15 @@ int main() {
     EXPECT(eig.k == k - 1);
     EXPECT(std::abs(eig.eigenvalues(0) - lambda1Expected) < 1e-6);
 
-    // ── 4. CholeskyCache::laplacian on raw sparse ──────────────
-    std::cout << "[4] CholeskyCache::laplacian(L) caches and reuses\n";
-    CholeskyCache cache;
-    const auto& f1 = cache.laplacian(g.L);
-    const auto& f2 = cache.laplacian(g.L);
-    EXPECT(&f1 == &f2);  // same factor returned
+    // ── 4. the factor of (L + εI) on a raw sparse matrix: a data product, made once ──
+    std::cout << "[4] laplacianFactor(L) factors a graph Laplacian\n";
+    const auto factor = laplacianFactor(g.L);
+    EXPECT(factor->info() == Eigen::Success);
 
-    // ── 5. poisson(L, M, cache, …) ────────────────────────
+    // ── 5. poisson(L, M, factor, …) ────────────────────────
     std::cout << "[5] poisson on graph Laplacian\n";
     std::map<int, double> density = { {0, 1.0}, {n - 1, -1.0} };
-    auto phi = nxr::operators::poisson(g.L, g.M, cache, density);
+    auto phi = nxr::operators::poisson(g.L, g.M, *factor, density);
     EXPECT(phi.size() == n);
 
     // M-weighted mean of phi should be ≈ 0. The Poisson formulation

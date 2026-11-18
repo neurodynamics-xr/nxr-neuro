@@ -4,7 +4,6 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
@@ -39,13 +38,14 @@ using namespace geometrycentral::surface;
 // if the halfedge traversal direction is opposite to the edge's canonical
 // direction).
 Eigen::MatrixXd whitney(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     const operators::DECOperators& /*dec*/,  // unused here; we use raw halfedge iteration
     const Eigen::VectorXd& oneForm
 ) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
-    int nF = m.nF();
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    int nF = surface.nF();
 
     geom.requireFaceNormals();
     geom.requireFaceAreas();
@@ -110,12 +110,13 @@ using namespace geometrycentral::surface;
 //   ∇u = (1 / 2A) [ u_i (N × e_jk) + u_j (N × e_ki) + u_k (N × e_ij) ]
 // where e_jk, e_ki, e_ij are edges OPPOSITE to vertex i, j, k respectively.
 Eigen::MatrixXd gradient(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     const Eigen::VectorXd& u
 ) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
-    int nF = m.nF();
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    int nF = surface.nF();
 
     geom.requireFaceNormals();
     geom.requireFaceAreas();

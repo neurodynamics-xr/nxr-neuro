@@ -54,12 +54,11 @@ M.reference.eigenvalues  = c.Eigenmodes.Values;
 
 % gradient + flip-out geodesic path have no functional-API leaf yet — drive
 % them through the raw MEX with a transient stateful handle (see explore_cortex).
-hctx = nxr_compute('create', V, F);
-guard = onCleanup(@() nxr_compute('destroy', hctx)); %#ok<NASGU>
-M.field.gradient_of_distance = nxr_compute('gradient', hctx, M.measure.distance);
+hctx = nxr_compute('geometry.surfaceArrays', V, F);   % the surface as data
+M.field.gradient_of_distance = nxr_compute('operators.gradient', hctx, M.measure.distance);
 vA = comps(1).vidx(1);  vB = comps(1).vidx(round(numel(comps(1).vidx)/2));
-M.query.tracePath = nxr_compute('tracePath', hctx, int32(vA), int32(vB));
-clear guard hctx;
+M.query.tracePath = nxr_compute('geometry.tracePath', hctx, int32(vA), int32(vB));
+clear hctx;
 
 % well-posed Poisson view: solve a ± dipole per hemisphere (each its own
 % manifold) and scatter back, so both hemispheres show a real dipole.

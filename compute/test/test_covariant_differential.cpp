@@ -7,13 +7,12 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "geometrycentral/surface/intrinsic_geometry_interface.h"
@@ -23,6 +22,7 @@
 #include "geometrycentral/surface/vertex_position_geometry.h"
 #include <cmath>
 #include <iostream>
+#include "surface_of.h"
 using namespace nxr::geometry;
 
 static int g_failures = 0;
@@ -42,7 +42,7 @@ static void icosphere(std::vector<double>& V, std::vector<int32_t>& F) {
 static void testFrameTransport() {
     std::cout << "\n=== covariant-differential: frame transport ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
     // orthogonality: P_ij^T P_ij = I (P is a product of rotations)
     Eigen::Matrix3d P = nxr::operators::differential::frameTransport(m, 0, 3);
@@ -70,7 +70,7 @@ static void testFrameTransport() {
 static void testLifts() {
     std::cout << "\n=== covariant-differential: lifts ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
     // round-trip: liftToFrame(liftToWorld(L)) == L
     Eigen::MatrixXd Lloc = Eigen::MatrixXd::Random(12, 3);
@@ -92,8 +92,8 @@ static void testLifts() {
 static void testCovariantGradient() {
     std::cout << "\n=== covariant-differential: covariant gradient G ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
-    const int N = m.nV(), E = m.nE();   // 12, 30
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
+    const int N = m.nV(), E = nxr::geometry::meshTopology(m).nE;   // 12, 30
 
     Eigen::SparseMatrix<double> G = nxr::operators::differential::covariantGradient(m);
     EXPECT(G.rows() == 3*E && G.cols() == 3*N, "G is [3E, 3N] = [90, 36]");
@@ -111,7 +111,7 @@ static void testCovariantGradient() {
     // CONSISTENCY: G^T W G == the existing Ambient covariant Laplacian (default LC gauge).
     // W is the edge cotan weight, replicated across the 3 component blocks.
     Eigen::VectorXd wEdge(E);   // (regular icosphere: no flips, so edge e is the input's edge e)
-    { auto& g = m.intrinsicSurface().geometry(); g.requireEdgeCotanWeights();
+    { auto& g = gcOf(m).geometry(); g.requireEdgeCotanWeights();
       for (geometrycentral::surface::Edge e : g.mesh.edges()) wEdge(static_cast<Eigen::Index>(e.getIndex())) = g.edgeCotanWeights[e]; }
     Eigen::VectorXd wDiag(3*E);
     for (int p = 0; p < 3; ++p) wDiag.segment(p*E, E) = wEdge;
@@ -123,7 +123,7 @@ static void testCovariantGradient() {
 
     namespace cl = nxr::operators::laplacian::connection;
     Eigen::SparseMatrix<double> Camb =
-        nxr::operators::activeCovariantLaplacian(m, cl::CovariantCoupling::Ambient);
+        nxr::operators::covariantLaplacian(m, nxr::geometry::ConnectionType::LeviCivita, {}, cl::CovariantCoupling::Ambient);
     EXPECT((Eigen::MatrixXd(GtWG) - Eigen::MatrixXd(Camb)).cwiseAbs().maxCoeff() < 1e-9,
            "G^T W G == Ambient covariant Laplacian (consistency)");
 
@@ -137,7 +137,7 @@ static void testCovariantGradient() {
 static void testSulcalWallTransport() {
     std::cout << "\n=== covariant-differential: sulcal-wall transport ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     Eigen::MatrixXd Fm = nxr::operators::differential::vertexFrameMatrices(m);
     auto frame = [&](int v) {
         Eigen::Matrix3d Fv;

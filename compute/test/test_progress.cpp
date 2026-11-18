@@ -21,13 +21,12 @@
 #include "nxr/geometry/mesh.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
@@ -36,6 +35,7 @@
 #include <cstdint>
 #include <iostream>
 #include <vector>
+#include "surface_of.h"
 
 namespace {
 
@@ -119,7 +119,7 @@ void test_SolveEigenmodesUpdatesProgress() {
     int nV = static_cast<int>(mesh.vertices.size() / 3);
     int nF = static_cast<int>(mesh.faces.size() / 3);
 
-    nxr::geometry::Manifold m(mesh.vertices.data(), nV, mesh.faces.data(), nF);
+    const auto m = surfaceOf(mesh.vertices.data(), nV, mesh.faces.data(), nF);
     auto ops = nxr::operators::assembleManifoldOperators(m);
 
     std::atomic<int32_t> iter{0}, total{0}, residual{0};

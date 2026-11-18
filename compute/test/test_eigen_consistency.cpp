@@ -17,13 +17,12 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "synthetic_meshes.h"
@@ -31,6 +30,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include "surface_of.h"
 
 using namespace nxr::geometry;
 using namespace nxr::operators;
@@ -71,12 +71,12 @@ static void runMesh(const std::string& name, const Mesh& mesh, int k, bool cutMu
     const double tol = 1e-10;
 
     // one-shot: what the one-shot command does
-    Manifold m1(mesh.V.data(), mesh.nV(), mesh.F.data(), mesh.nF());
+    const auto m1 = surfaceOf(mesh.V.data(), mesh.nV(), mesh.F.data(), mesh.nF());
     auto ops1 = nxr::operators::assembleManifoldOperators(m1);
     const EigenResult oneShot = eigen(ops1.cotanLaplacian, ops1.mass, k, kShiftLadder, /*normalize=*/true, /*removeDC=*/true);
 
     // step by step, on a fresh Manifold: assemble, solve, normalize, removeDC
-    Manifold m2(mesh.V.data(), mesh.nV(), mesh.F.data(), mesh.nF());
+    const auto m2 = surfaceOf(mesh.V.data(), mesh.nV(), mesh.F.data(), mesh.nF());
     auto ops2 = nxr::operators::assembleManifoldOperators(m2);
     EigenResult raw = eigen(ops2.cotanLaplacian, ops2.mass, k);
     raw.eigenvectors = normalize(raw.eigenvectors, ops2.mass);

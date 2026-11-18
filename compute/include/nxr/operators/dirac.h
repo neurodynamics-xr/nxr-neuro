@@ -29,15 +29,15 @@ namespace nxr::operators::dirac {
 // area-weighted Galerkin square is E = Dᵀ ⋆_F D (extrinsicBlock builds E from
 // THIS matrix, so the two never drift). Quaternion order [w,x,y,z]; row 4*f+c,
 // column 4*v+c. Geometry-only (vertex normals + face areas).
-Eigen::SparseMatrix<double> matrix(geometry::Manifold& m);
-Eigen::SparseMatrix<double> extrinsicBlock(geometry::Manifold& m);
+Eigen::SparseMatrix<double> matrix(const geometry::SurfaceArrays& surface);
+Eigen::SparseMatrix<double> extrinsicBlock(const geometry::SurfaceArrays& surface);
 // First-order (rectangular) INTRINSIC Dirac operator D_int : [4F×4V] — identical
 // block structure to matrix(), but built from the IMMERSION (vertex positions /
 // opposite edge vectors) instead of the Gauss map. This is the spin-connection /
 // tangent-frame-transport root; its area-weighted Galerkin square Dᵀ ⋆_F D equals
 // the intrinsic Dirac² (the cotan-Laplacian-scalar-part operator). Geometry-only
 // (vertex positions + face areas). Quaternion order [w,x,y,z].
-Eigen::SparseMatrix<double> matrixIntrinsic(geometry::Manifold& m);
+Eigen::SparseMatrix<double> matrixIntrinsic(const geometry::SurfaceArrays& surface);
 // Face-domain (Poincaré dual) first-order Dirac operator D̃ : [4V×4F] — maps a
 // quaternionic field on faces to one on vertices, from EXACT per-face normals
 // aggregated over vertex stars (the dual of matrix). Its Galerkin square is the
@@ -46,13 +46,13 @@ Eigen::SparseMatrix<double> matrixIntrinsic(geometry::Manifold& m);
 // [w,x,y,z]; row 4*v+c, column 4*f+c. Geometry-only (face normals + vertex dual
 // areas). Closed-mesh v1: both throw Error(InvalidInput) on an open boundary
 // (vertex stars must be closed) — exact on closed cortical hemispheres.
-Eigen::SparseMatrix<double> matrixFace(geometry::Manifold& m);
+Eigen::SparseMatrix<double> matrixFace(const geometry::SurfaceArrays& surface);
 
 // matrixFaceIntrinsic: INTRINSIC face-domain Dirac D̃_int [4V×4F] — the centroid
 // (immersion) dual of matrixFace (face centroids instead of the Gauss map), mirroring
 // how matrixIntrinsic relates to matrix. Geometry-only; closed-mesh v1.
-Eigen::SparseMatrix<double> matrixFaceIntrinsic(geometry::Manifold& m);
-Eigen::SparseMatrix<double> extrinsicBlockFace(geometry::Manifold& m);
+Eigen::SparseMatrix<double> matrixFaceIntrinsic(const geometry::SurfaceArrays& surface);
+Eigen::SparseMatrix<double> extrinsicBlockFace(const geometry::SurfaceArrays& surface);
 } // namespace nxr::operators::dirac
 
 namespace nxr::operators::hodgedirac {
@@ -82,7 +82,7 @@ struct HodgeDirac {
     geometry::IntrinsicSurface::Complex complex;
 };
 // Uses the geometry::Manifold's operator mesh when it is the intrinsic one built with these options, else builds its own by the same construction.
-HodgeDirac assemble(geometry::Manifold& m, double star1Floor = 0.0, double mollify = 1e-6, double flipEps = 1e-6);
+HodgeDirac assemble(const geometry::SurfaceArrays& surface, double star1Floor = 0.0, double mollify = 1e-6, double flipEps = 1e-6);
 Eigen::SparseMatrix<double> massMatrix(const HodgeDirac& h);   // diag(M)
 } // namespace nxr::operators::hodgedirac
 
@@ -100,9 +100,9 @@ struct SpinDirac {
     Eigen::VectorXd H;               // [F] integrated mean curvature per face
     Eigen::VectorXd area;            // [F]
 };
-SpinDirac assemble(geometry::Manifold& m, Kind kind);
+SpinDirac assemble(const geometry::SurfaceArrays& surface, Kind kind);
 // A (4F×4V): (Aψ)_f = Σ_{v∈f} p_fv ψ_v. covariant: p_fv = unit quaternion turning the area-weighted vertex normal onto the face's
 // (Ye et al. adj_vf_cov; for the intrinsic operators); else 1 (adj_vf; for the extrinsic).
-Eigen::SparseMatrix<double> vertexToFace(geometry::Manifold& m, bool covariant);
+Eigen::SparseMatrix<double> vertexToFace(const geometry::SurfaceArrays& surface, bool covariant);
 } // namespace nxr::operators::spin
 

@@ -16,5 +16,5 @@ function n = normal(mctx, type)
             ['numeric normal type %g is not supported; pass a name string ' ...
              '(angle|area|equal|sphere|mean|gauss)'], type);
     end
-    n = nxr.manifold.impl.withHandle(mctx, @(h) nxr_compute('normals', h, type));
+    n = nxr_compute('geometry.normals', mctx.surface, type);
 end

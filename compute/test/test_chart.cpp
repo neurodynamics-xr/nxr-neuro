@@ -13,8 +13,8 @@
 #include "mesh_helpers.h"
 #include "nxr/geometry/curvature.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/operators/cache.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/signal/surface_calculus.h"
 #include "nxr/geometry/charts.h"
@@ -25,7 +25,6 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
@@ -36,6 +35,7 @@
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vector_heat_method.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
+#include "surface_of.h"
 
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -181,9 +181,8 @@ int main() {
     }
 
     // (4) the geodesic default (geometry::heat) is the same solver on the same surface: exact again (it was 1e-4 against the port in G3)
-    nxr::geometry::Manifold m(V.data(), n, F.data(), static_cast<int>(F.size() / 3));
-    nxr::geometry::HeatGeodesicSolver sDefault(m), sInput(m, 1.0, nxr::geometry::HeatMesh::Input);
-    const VectorXd dDefault = nxr::geometry::heat(sDefault, {seed}), dInput = nxr::geometry::heat(sInput, {seed}), dChart = kit.heatDistance(seed);
+    const auto m = surfaceOf(V.data(), n, F.data(), static_cast<int>(F.size() / 3));
+    const VectorXd dDefault = nxr::geometry::heat(m, std::vector<int>{seed}), dInput = nxr::geometry::heat(m, std::vector<int>{seed}, 1.0, nxr::geometry::HeatMesh::Input), dChart = kit.heatDistance(seed);
     EXPECT((dDefault - dChart).cwiseAbs().maxCoeff() < 1e-10, "the geodesic default (geometry::heat) and the chart's heat distance are the same solver on the same surface (exact)");
     EXPECT(dInput.size() == dDefault.size() && (dInput - dDefault).cwiseAbs().maxCoeff() < 0.05, "HeatMesh::Input stays as the named option (geometry-central, input mesh)");
     std::cout << "  geodesic default vs chart: max |diff| " << sci((dDefault - dChart).cwiseAbs().maxCoeff()) << "; vs input-mesh option on the sphere: " << sci((dInput - dDefault).cwiseAbs().maxCoeff()) << "\n";

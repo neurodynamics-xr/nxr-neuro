@@ -8,21 +8,20 @@
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include <Eigen/Eigenvalues>
 #include <iostream>
 #include <vector>
 #include <complex>
+#include "surface_of.h"
 
-using nxr::geometry::Manifold;
 namespace ops = nxr::operators;
 namespace cl  = nxr::operators::laplacian::connection;
 
@@ -54,10 +53,10 @@ static void testRhombus() {
     std::vector<double>  V = {0,0,0,  2,0,0,  1,0.2,0,  1,-0.2,0};
     std::vector<int32_t> F = {0,2,1,  0,1,3};   // long-diagonal (0-1) split
 
-    Manifold mRaw(V.data(), 4, F.data(), 2, /*intrinsicDelaunay=*/false);
-    Manifold mN  (V.data(), 4, F.data(), 2, /*intrinsicDelaunay=*/true);
-    EXPECT(!mRaw.isIntrinsicDelaunay(), "raw not normalized");
-    EXPECT( mN.isIntrinsicDelaunay(),  "normalized flag set");
+    const auto mRaw = surfaceOf(V.data(), 4, F.data(), 2, /*intrinsicDelaunay=*/false);
+    const auto mN = surfaceOf(V.data(), 4, F.data(), 2, /*intrinsicDelaunay=*/true);
+    EXPECT(!mRaw.triangulation.intrinsic(), "raw not normalized");
+    EXPECT( mN.triangulation.intrinsic(),  "normalized flag set");
 
     auto Lraw = nxr::operators::assembleManifoldOperators(mRaw).cotanLaplacian;
     auto Ln   = nxr::operators::assembleManifoldOperators(mN).cotanLaplacian;
@@ -80,8 +79,8 @@ static void testIcosphereNoOp() {
     std::vector<int32_t> F = {0,11,5, 0,5,1, 0,1,7, 0,7,10, 0,10,11, 1,5,9, 5,11,4,
         11,10,2, 10,7,6, 7,1,8, 3,9,4, 3,4,2, 3,2,6, 3,6,8, 3,8,9, 4,9,5, 2,4,11,
         6,2,10, 8,6,7, 9,8,1};
-    Manifold mRaw(V.data(), 12, F.data(), 20, false);
-    Manifold mN  (V.data(), 12, F.data(), 20, true);
+    const auto mRaw = surfaceOf(V.data(), 12, F.data(), 20, false);
+    const auto mN = surfaceOf(V.data(), 12, F.data(), 20, true);
     auto Lraw = nxr::operators::assembleManifoldOperators(mRaw).cotanLaplacian;
     auto Ln   = nxr::operators::assembleManifoldOperators(mN).cotanLaplacian;
     double diff = (Eigen::MatrixXd(Lraw) - Eigen::MatrixXd(Ln)).cwiseAbs().maxCoeff();
@@ -92,8 +91,8 @@ static void testConnectionLaplacian() {
     std::cout << "\n=== intrinsicDelaunay: connection Laplacian ===\n";
     std::vector<double>  V = {0,0,0,  2,0,0,  1,0.2,0,  1,-0.2,0};
     std::vector<int32_t> F = {0,2,1,  0,1,3};
-    Manifold mRaw(V.data(), 4, F.data(), 2, false);
-    Manifold mN  (V.data(), 4, F.data(), 2, true);
+    const auto mRaw = surfaceOf(V.data(), 4, F.data(), 2, false);
+    const auto mN = surfaceOf(V.data(), 4, F.data(), 2, true);
 
     cl::ConnectionLaplacianOptions o;
     o.domain = cl::ConnectionDomain::Vertex; o.nSym = 1;
@@ -122,8 +121,8 @@ static void testConnectionLaplacianIcosphereNoOp() {
     std::vector<int32_t> F = {0,11,5, 0,5,1, 0,1,7, 0,7,10, 0,10,11, 1,5,9, 5,11,4,
         11,10,2, 10,7,6, 7,1,8, 3,9,4, 3,4,2, 3,2,6, 3,6,8, 3,8,9, 4,9,5, 2,4,11,
         6,2,10, 8,6,7, 9,8,1};
-    Manifold mRaw(V.data(), 12, F.data(), 20, false);
-    Manifold mN  (V.data(), 12, F.data(), 20, true);
+    const auto mRaw = surfaceOf(V.data(), 12, F.data(), 20, false);
+    const auto mN = surfaceOf(V.data(), 12, F.data(), 20, true);
 
     cl::ConnectionLaplacianOptions o;
     o.domain = cl::ConnectionDomain::Vertex; o.nSym = 1;

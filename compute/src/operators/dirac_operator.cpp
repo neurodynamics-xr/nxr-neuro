@@ -6,7 +6,6 @@
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
@@ -39,19 +38,20 @@ static Eigen::Matrix4d leftMulImag(const Eigen::Vector3d& v) {
     return L;
 }
 
-Eigen::SparseMatrix<double> matrix(geometry::Manifold& m) {
+Eigen::SparseMatrix<double> matrix(const geometry::SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
     using namespace geometrycentral::surface;
 
     // Gauss map: per-vertex unit normals from the embedded geometry. The Dirac
     // operator is genuinely extrinsic, so it always uses the TRUE embedding
     // (geometry()), independent of intrinsicDelaunay normalization.
-    geometry::VertexFrames vf = geometry::vertexFrames(m);   // vf.normals = N [nV,3]
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+    geometry::VertexFrames vf = geometry::vertexFrames(surface);   // vf.normals = N [nV,3]
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
     geom.requireFaceAreas();
 
-    const int N = m.nV();
-    const int Fn = m.nF();
+    const int N = surface.nV();
+    const int Fn = surface.nF();
 
     // Rectangular real first-order Dirac matrix D : 4F × 4V — maps a quaternionic
     // field on vertices to one on faces. Per face f=ijk, area A: for each cyclic
@@ -91,7 +91,8 @@ Eigen::SparseMatrix<double> matrix(geometry::Manifold& m) {
     return D;
 }
 
-Eigen::SparseMatrix<double> matrixIntrinsic(geometry::Manifold& m) {
+Eigen::SparseMatrix<double> matrixIntrinsic(const geometry::SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
     using namespace geometrycentral;
     using namespace geometrycentral::surface;
 
@@ -101,12 +102,12 @@ Eigen::SparseMatrix<double> matrixIntrinsic(geometry::Manifold& m) {
     // spin-connection / tangent-frame-transport root (Crane et al.); its area-
     // weighted Galerkin square Dᵀ ⋆_F D is the intrinsic Dirac² (scalar part = the
     // cotan Laplacian). Geometry-only (vertex positions + face areas).
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
     geom.requireFaceAreas();
 
-    const int N = m.nV();
-    const int Fn = m.nF();
+    const int N = surface.nV();
+    const int Fn = surface.nF();
 
     auto vec3 = [](const Vector3& u) { return Eigen::Vector3d(u.x, u.y, u.z); };
 
@@ -145,18 +146,19 @@ Eigen::SparseMatrix<double> matrixIntrinsic(geometry::Manifold& m) {
     return D;
 }
 
-Eigen::SparseMatrix<double> extrinsicBlock(geometry::Manifold& m) {
+Eigen::SparseMatrix<double> extrinsicBlock(const geometry::SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
     using namespace geometrycentral::surface;
 
     // First-order Dirac D : 4F × 4V — the single source of truth (also exposed
     // directly as operators().diracD()). E is its ⋆_F-weighted Galerkin square,
     // so the two never drift: built from the same triplets.
-    Eigen::SparseMatrix<double> D = matrix(m);
+    Eigen::SparseMatrix<double> D = matrix(surface);
 
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
     geom.requireFaceAreas();
-    const int Fn = m.nF();
+    const int Fn = surface.nF();
 
     // Face-area 2-form mass ⋆_F : 4F × 4F diagonal (A_f on each of the 4 rows).
     std::vector<Eigen::Triplet<double>> TW;
@@ -177,12 +179,13 @@ Eigen::SparseMatrix<double> extrinsicBlock(geometry::Manifold& m) {
     return E;
 }
 
-Eigen::SparseMatrix<double> matrixFace(geometry::Manifold& m) {
+Eigen::SparseMatrix<double> matrixFace(const geometry::SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
     using namespace geometrycentral;
     using namespace geometrycentral::surface;
 
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
 
     // Closed-mesh v1 (fail loud, CONTRIBUTING.md §6): a boundary vertex has an OPEN star,
     // so its cyclic difference (N_{k+1} − N_{k-1}) would wrap incorrectly across the
@@ -197,8 +200,8 @@ Eigen::SparseMatrix<double> matrixFace(geometry::Manifold& m) {
     geom.requireFaceNormals();        // EXACT per-face normals (the Gauss map at faces)
     geom.requireVertexDualAreas();    // ⋆_V measure
 
-    const int N  = m.nV();
-    const int Fn = m.nF();
+    const int N  = surface.nV();
+    const int Fn = surface.nF();
 
     auto vec3 = [](const Vector3& u) { return Eigen::Vector3d(u.x, u.y, u.z); };
 
@@ -240,7 +243,8 @@ Eigen::SparseMatrix<double> matrixFace(geometry::Manifold& m) {
     return D;
 }
 
-Eigen::SparseMatrix<double> matrixFaceIntrinsic(geometry::Manifold& m) {
+Eigen::SparseMatrix<double> matrixFaceIntrinsic(const geometry::SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
     using namespace geometrycentral;
     using namespace geometrycentral::surface;
 
@@ -249,16 +253,16 @@ Eigen::SparseMatrix<double> matrixFaceIntrinsic(geometry::Manifold& m) {
     // vertices (face CENTROIDS C) instead of the Gauss map (face normals N): the dual
     // mirror of how matrixIntrinsic uses vertex positions instead of normals. Geometry-
     // only (vertex positions + barycentric vertex dual areas). Closed-mesh v1.
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
     if (mesh.hasBoundary())
         throw Error(ErrorCode::InvalidInput,
             "dirac::matrixFaceIntrinsic: open boundary unsupported (closed-mesh v1)",
             "Vertex stars must be closed; pass a closed mesh (e.g. a FreeSurfer hemisphere).");
     geom.requireVertexDualAreas();
 
-    const int N  = m.nV();
-    const int Fn = m.nF();
+    const int N  = surface.nV();
+    const int Fn = surface.nF();
     auto vec3 = [](const Vector3& u) { return Eigen::Vector3d(u.x, u.y, u.z); };
 
     // dual immersion: per-face barycentric centroid
@@ -297,18 +301,19 @@ Eigen::SparseMatrix<double> matrixFaceIntrinsic(geometry::Manifold& m) {
     return D;
 }
 
-Eigen::SparseMatrix<double> extrinsicBlockFace(geometry::Manifold& m) {
+Eigen::SparseMatrix<double> extrinsicBlockFace(const geometry::SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
     using namespace geometrycentral::surface;
 
     // First-order face-domain Dirac D̃ : 4V × 4F — the single source of truth (also
     // exposed as operators().diracFaceD()). It throws on an open boundary, so Ẽ
     // inherits the closed-mesh-v1 guard. Ẽ is its ⋆_V-weighted Galerkin square.
-    Eigen::SparseMatrix<double> D = matrixFace(m);
+    Eigen::SparseMatrix<double> D = matrixFace(surface);
 
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
     geom.requireVertexDualAreas();
-    const int N = m.nV();
+    const int N = surface.nV();
 
     std::vector<Eigen::Triplet<double>> TW;
     TW.reserve(static_cast<size_t>(4) * N);

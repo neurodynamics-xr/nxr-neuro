@@ -14,10 +14,11 @@ namespace nxr::geometry {
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
 
-CurvatureResult curvatures(Manifold& m) {
-    auto& mesh = m.mesh();
-    auto& geometry = m.geometry();
-    int nV = m.nV();
+CurvatureResult curvatures(const SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geometry = gs.embedded();
+    int nV = surface.nV();
 
     CurvatureResult result;
     result.gaussian.resize(nV);

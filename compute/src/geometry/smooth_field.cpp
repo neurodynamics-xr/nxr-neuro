@@ -3,7 +3,6 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
-#include "nxr/geometry/facets.h"
 #include "nxr/synthesis/fields.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -41,16 +40,17 @@ Vector3 lift(const Vector2& t, const std::array<Vector3, 2>& basis) {
 } // namespace
 
 Eigen::MatrixXd smoothFace(
-    Manifold& m,
+    const SurfaceArrays& surface,
     int nSym,
     bool alignToCurvature
 ) {
+    geometry::IntrinsicSurface gs(surface);
     if (nSym < 1) {
         throw Error(ErrorCode::InvalidInput,
             "smoothFace: nSym must be >= 1");
     }
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
 
     geom.requireFaceTangentBasis();
 
@@ -63,7 +63,7 @@ Eigen::MatrixXd smoothFace(
         field = computeSmoothestFaceDirectionField(geom, nSym);
     }
 
-    int nF = m.nF();
+    int nF = surface.nF();
     Eigen::MatrixXd out(nF, 3);
     for (Face f : mesh.faces()) {
         int fi = static_cast<int>(f.getIndex());
@@ -78,16 +78,17 @@ Eigen::MatrixXd smoothFace(
 }
 
 SmoothVertexFieldResult smoothVertex(
-    Manifold& m,
+    const SurfaceArrays& surface,
     int nSym,
     bool alignToCurvature
 ) {
+    geometry::IntrinsicSurface gs(surface);
     if (nSym < 1) {
         throw Error(ErrorCode::InvalidInput,
             "smoothVertex: nSym must be >= 1");
     }
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
 
     geom.requireVertexTangentBasis();
 
@@ -100,7 +101,7 @@ SmoothVertexFieldResult smoothVertex(
         vfield = computeSmoothestVertexDirectionField(geom, nSym);
     }
 
-    int nV = m.nV();
+    int nV = surface.nV();
 
     SmoothVertexFieldResult out;
     out.nSym = nSym;
