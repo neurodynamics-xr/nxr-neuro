@@ -18,7 +18,7 @@
 
 #include "nxr/frames.h"
 
-namespace nxr::select {
+namespace nxr::select::track_crossings {
 
 using frames::Mat3;
 constexpr std::int32_t kBridge = -2;      // a vertex's `node` on the bridge; -1: on no tile (a vertex cut away)
@@ -67,4 +67,4 @@ struct Repeat {
 };
 Repeat repeat(const Pooled& a, const Pooled& b, int minCrossings = 10);
 
-}  // namespace nxr::select
+}  // namespace nxr::select::track_crossings

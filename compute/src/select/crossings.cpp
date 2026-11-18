@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace nxr::select {
+namespace nxr::select::track_crossings {
 
 namespace {
 // a k-d tree over the vertices: the nearest vertex of a point, the lowest index on a tie
@@ -151,4 +151,4 @@ Repeat repeat(const Pooled& a, const Pooled& b, int minCrossings) {
   return r;
 }
 
-}  // namespace nxr::select
+}  // namespace nxr::select::track_crossings
