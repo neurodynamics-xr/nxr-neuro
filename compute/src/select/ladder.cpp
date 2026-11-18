@@ -46,7 +46,7 @@ std::vector<std::pair<int, int>> tileAdjacency(const int32_t* faces, int nF, con
     return {s.begin(), s.end()};
 }
 
-LeviCivita leviCivita(geometry::ChartKit& kit, const geometry::Mat3& e1, const geometry::Mat3& e2, const VectorXd& gauge, const std::vector<int32_t>& node, int nodes, const std::vector<int>& centres) {
+LeviCivita leviCivita(const geometry::ChartKit& kit, const geometry::Mat3& e1, const geometry::Mat3& e2, const VectorXd& gauge, const std::vector<int32_t>& node, int nodes, const std::vector<int>& centres) {
     (void)e1; (void)e2;
     const int V = static_cast<int>(node.size());
     LeviCivita lc;
@@ -54,18 +54,23 @@ LeviCivita leviCivita(geometry::ChartKit& kit, const geometry::Mat3& e1, const g
     lc.rho = VectorXd::Constant(V, kNaN);
     lc.omega = Eigen::MatrixXd::Constant(nodes, nodes, kNaN);
     std::vector<VectorXd> ang(static_cast<size_t>(nodes));
+    // every centre's e1 is carried everywhere in ONE call (one vector heat solver): the unit vector headed at the centre's gauge angle of north
+    std::vector<int> ks, cs;
+    std::vector<double> headings;
     for (int k = 0; k < nodes; ++k) {
         const int c = centres[static_cast<size_t>(k)];
         if (c < 0 || !std::isfinite(gauge[c])) continue;
-        // e1 of the centre, carried everywhere: the unit vector headed at the centre's gauge angle of north
-        const VectorXd T = kit.transported(c, gauge[c]);
+        ks.push_back(k); cs.push_back(c); headings.push_back(gauge[c]);
+    }
+    geometry::transportedEach(kit, cs, headings, [&](std::size_t j, const VectorXd& T) {
+        const int k = ks[j], c = cs[j];
         VectorXd a(V);
         for (int i = 0; i < V; ++i) a[i] = std::atan2(T[2 * i + 1], T[2 * i]) - gauge[i];      // its angle from the vertex's own e1, towards e2 (= n x e1)
         const double at0 = a[c];
         for (int i = 0; i < V; ++i) a[i] = std::remainder(a[i] - at0, 2 * M_PI);              // the identity at its own source (nxr: the heat solution is smoothed there)
         ang[static_cast<size_t>(k)] = a;
         for (int i = 0; i < V; ++i) if (node[static_cast<size_t>(i)] == k) lc.rho[i] = a[i];
-    }
+    });
     for (int a = 0; a < nodes; ++a) {
         if (ang[static_cast<size_t>(a)].size() == 0) continue;
         for (int b = 0; b < nodes; ++b) {

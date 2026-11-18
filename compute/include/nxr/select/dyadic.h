@@ -120,7 +120,7 @@ std::vector<int> pieces(const int32_t* faces, int nF, int nV);
 //   tileCentres / tileAdjacency   a tile's centre (the vertex nearest its mass centroid), the tiles joined by a mesh edge (a tile's mass and every summary of a map over tiles is a MEASURE:
 //                     `nxr::measurement::reduce` over the dyadic grid's members, spec docs/specs/2026-11-17-consolidation.md)
 //
-// THE LEVI-CIVITA FORM (nxr `levi_civita`, `lc_resultant`) per level: each tile's centre has e1 carried (ChartKit::transported) to every vertex of the tile, the frame angle rho it arrives with is the
+// THE LEVI-CIVITA FORM (nxr `levi_civita`, `lc_resultant`) per level: each tile's centre has e1 carried (geometry::transportedEach, all centres in one call) to every vertex of the tile, the frame angle rho it arrives with is the
 //                   vertex's offset from the centre's frame, and a vector map is brought to the centre as (c1 + i c2) e^{-i rho} (`carriedToCentre`, pointwise); the tile's resultant is its SUM over the
 //                   tile's vertices (measure `sum` of `reduce`, weighted by the vertex areas). The connection between centres, Omega[a, b], is the same solves read at the other centres: a value over PAIRS of
 //                   tiles (a measurement over the product of the level with itself, the measure `levi_civita`).
@@ -147,8 +147,8 @@ struct LeviCivita {
     Eigen::VectorXd rho;                        // [V]
     Eigen::MatrixXd omega;                      // [nodes x nodes] (NaN across pieces and where a centre is missing)
 };
-/** `kit` the surface's charts; `e1`, `e2` the canonical frames (NaN at singular vertices); `gauge` frames::gaugeAngle(kit, e1). The transport is geometry::ChartKit::transported (geometry-central's vector heat method, in its gauge), calibrated to the identity at its source; rho is the angle of the transported e1 seen from each vertex's own e1, so it does not depend on the gauge. */
-LeviCivita leviCivita(geometry::ChartKit& kit, const geometry::Mat3& e1, const geometry::Mat3& e2, const Eigen::VectorXd& gauge, const std::vector<int32_t>& node, int nodes, const std::vector<int>& centres);
+/** `kit` the surface's charts; `e1`, `e2` the canonical frames (NaN at singular vertices); `gauge` frames::gaugeAngle(kit, e1). The transport is geometry::geometry::transportedEach (geometry-central's vector heat method, in its gauge), calibrated to the identity at its source; rho is the angle of the transported e1 seen from each vertex's own e1, so it does not depend on the gauge. */
+LeviCivita leviCivita(const geometry::ChartKit& kit, const geometry::Mat3& e1, const geometry::Mat3& e2, const Eigen::VectorXd& gauge, const std::vector<int32_t>& node, int nodes, const std::vector<int>& centres);
 /** Omega made ANTISYMMETRIC (nxr `joint.antisymmetric`, the same formula since nxr #68): the round trip a -> b -> a misses the identity by d = wrap(Omega_ab + Omega_ba), and half of d is
  *  taken from each direction, so Omega_ba = -Omega_ab. (Halving an angle on the circle, angle(e^{i Omega_ab} e^{-i Omega_ba}) / 2, is ambiguous by pi: it turned every |Omega| > 90 degrees by 180.) NaN stays NaN. */
 Eigen::MatrixXd antisymmetric(const Eigen::MatrixXd& omega);

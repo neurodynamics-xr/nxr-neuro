@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <numeric>
 
 #include "nxr/core/errors.h"
@@ -21,10 +22,8 @@ static constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 struct ChartKit::Impl {
     struct Comp {
         std::vector<int> verts;                                  // global indices, ascending
-        std::unique_ptr<geometry::IntrinsicSurface> surface;
+        geometry::SurfaceArrays surface;                         // the component's arrays (positions, faces, intrinsic triangulation): data, no object
         geometry::TangentBasis basis;                            // the gauge in 3D, [3 n] local
-        std::unique_ptr<gcs::HeatMethodDistanceSolver> heat;
-        std::unique_ptr<gcs::VectorHeatMethodSolver> vheat;
     };
     int nV = 0;
     std::vector<double> P;
@@ -34,14 +33,6 @@ struct ChartKit::Impl {
     Comp& of(int v) {
         if (v < 0 || v >= nV || compOf[static_cast<size_t>(v)] < 0) throw core::Error(core::ErrorCode::InvalidInput, "ChartKit: vertex " + std::to_string(v) + " is on no component");
         return comps[static_cast<size_t>(compOf[static_cast<size_t>(v)])];
-    }
-    gcs::HeatMethodDistanceSolver& heatOf(Comp& c) {
-        if (!c.heat) c.heat = std::make_unique<gcs::HeatMethodDistanceSolver>(c.surface->geometry());
-        return *c.heat;
-    }
-    gcs::VectorHeatMethodSolver& vectorHeatOf(Comp& c) {
-        if (!c.vheat) c.vheat = std::make_unique<gcs::VectorHeatMethodSolver>(c.surface->geometry());
-        return *c.vheat;
     }
 };
 
@@ -83,17 +74,49 @@ ChartKit::ChartKit(const double* positions, int nV, const int32_t* faces, int nF
         Impl::Comp& c = s.comps[ci];
         std::vector<double> Pc(3 * c.verts.size());
         for (size_t k = 0; k < c.verts.size(); ++k) for (int d = 0; d < 3; ++d) Pc[3 * k + static_cast<size_t>(d)] = positions[3 * static_cast<size_t>(c.verts[k]) + static_cast<size_t>(d)];
-        c.surface = std::make_unique<geometry::IntrinsicSurface>(Pc.data(), static_cast<int>(c.verts.size()), cf[ci].data(), static_cast<int>(cf[ci].size() / 3), o);
-        c.basis = c.surface->tangentBasis();
+        c.surface = geometry::surfaceArrays(Pc.data(), static_cast<int>(c.verts.size()), cf[ci].data(), static_cast<int>(cf[ci].size() / 3), o);
+        c.basis = geometry::IntrinsicSurface(c.surface).tangentBasis();
     }
 }
 ChartKit::~ChartKit() = default;
 int ChartKit::n() const { return p_->nV; }
 
-geometry::IntrinsicSurface& ChartKit::surfaceOf(int v) { return *p_->of(v).surface; }
+const geometry::SurfaceArrays& ChartKit::surfaceOf(int v) const { return const_cast<Impl&>(*p_).of(v).surface; }
+int ChartKit::components() const { return static_cast<int>(p_->comps.size()); }
+int ChartKit::componentOf(int v) const { return v >= 0 && v < p_->nV ? p_->compOf[static_cast<size_t>(v)] : -1; }
+const std::vector<int>& ChartKit::componentVertices(int c) const { return p_->comps.at(static_cast<size_t>(c)).verts; }
+const geometry::SurfaceArrays& ChartKit::componentSurface(int c) const { return p_->comps.at(static_cast<size_t>(c)).surface; }
 int ChartKit::localIndex(int v) const { return p_->local.at(static_cast<size_t>(v)); }
 
+// ── batch forms: one geometry-central solver per component per call, all anchors on it; nothing is held after the call ──
 namespace {
+struct ComponentSolvers {   // what a call builds for the components its anchors lie on; it lives for that call
+    const ChartKit& kit;
+    std::map<int, std::unique_ptr<geometry::IntrinsicSurface>> surf;
+    std::map<int, std::unique_ptr<gcs::HeatMethodDistanceSolver>> heat;
+    std::map<int, std::unique_ptr<gcs::VectorHeatMethodSolver>> vheat;
+    explicit ComponentSolvers(const ChartKit& k) : kit(k) {}
+    int componentOf(int v) const {
+        if (kit.componentOf(v) < 0) throw core::Error(core::ErrorCode::InvalidInput, "ChartKit: vertex " + std::to_string(v) + " is on no component");
+        return kit.componentOf(v);
+    }
+    geometry::IntrinsicSurface& surface(int c) {
+        auto& p = surf[c];
+        if (!p) p = std::make_unique<geometry::IntrinsicSurface>(kit.componentSurface(c));
+        return *p;
+    }
+    gcs::HeatMethodDistanceSolver& heatSolver(int c) {
+        auto& p = heat[c];
+        if (!p) p = std::make_unique<gcs::HeatMethodDistanceSolver>(surface(c).geometry());
+        return *p;
+    }
+    gcs::VectorHeatMethodSolver& vectorHeatSolver(int c) {
+        auto& p = vheat[c];
+        if (!p) p = std::make_unique<gcs::VectorHeatMethodSolver>(surface(c).geometry());
+        return *p;
+    }
+};
+
 // the distance of `sources` (local indices) over a component, as a local vector
 VectorXd solveDistance(gcs::HeatMethodDistanceSolver& h, geometry::IntrinsicSurface& surf, const std::vector<int>& sources) {
     std::vector<gcs::Vertex> src;
@@ -105,36 +128,83 @@ VectorXd solveDistance(gcs::HeatMethodDistanceSolver& h, geometry::IntrinsicSurf
 }
 }  // namespace
 
-VectorXd ChartKit::heatDistance(int v) {
-    Impl& s = *p_;
-    Impl::Comp& c = s.of(v);
-    const VectorXd d = solveDistance(s.heatOf(c), *c.surface, {s.local[static_cast<size_t>(v)]});
-    VectorXd out = VectorXd::Constant(s.nV, std::numeric_limits<double>::infinity());
-    for (size_t k = 0; k < c.verts.size(); ++k) out[c.verts[k]] = d[static_cast<Eigen::Index>(k)];
-    return out;
+void heatDistanceEach(const ChartKit& kit, const std::vector<int>& anchors, const std::function<void(std::size_t, const VectorXd&)>& visit) {
+    ComponentSolvers cs(kit);
+    for (std::size_t k = 0; k < anchors.size(); ++k) {
+        const int v = anchors[k], c = cs.componentOf(v);
+        const VectorXd d = solveDistance(cs.heatSolver(c), cs.surface(c), {kit.localIndex(v)});
+        VectorXd out = VectorXd::Constant(kit.n(), std::numeric_limits<double>::infinity());
+        const std::vector<int>& verts = kit.componentVertices(c);
+        for (size_t i = 0; i < verts.size(); ++i) out[verts[i]] = d[static_cast<Eigen::Index>(i)];
+        visit(k, out);
+    }
 }
 
-VectorXd ChartKit::heatDistance(const std::vector<int>& sources) {
-    Impl& s = *p_;
-    VectorXd out = VectorXd::Constant(s.nV, kNaN);
+VectorXd heatDistanceSet(const ChartKit& kit, const std::vector<int>& sources) {
+    VectorXd out = VectorXd::Constant(kit.n(), kNaN);
     if (sources.empty()) return out;
-    const int ci = s.compOf[static_cast<size_t>(sources[0])];
-    Impl::Comp& c = s.of(sources[0]);
+    ComponentSolvers cs(kit);
+    const int c = cs.componentOf(sources[0]);
     std::vector<int> loc;
-    for (int u : sources) if (s.compOf[static_cast<size_t>(u)] == ci) loc.push_back(s.local[static_cast<size_t>(u)]);
-    const VectorXd d = solveDistance(s.heatOf(c), *c.surface, loc);
-    for (size_t k = 0; k < c.verts.size(); ++k) out[c.verts[k]] = d[static_cast<Eigen::Index>(k)];
+    for (int u : sources) if (kit.componentOf(u) == c) loc.push_back(kit.localIndex(u));
+    const VectorXd d = solveDistance(cs.heatSolver(c), cs.surface(c), loc);
+    const std::vector<int>& verts = kit.componentVertices(c);
+    for (size_t i = 0; i < verts.size(); ++i) out[verts[i]] = d[static_cast<Eigen::Index>(i)];
     return out;
 }
 
-VectorXd ChartKit::transported(int v, double heading) {
-    Impl& s = *p_;
-    Impl::Comp& c = s.of(v);
-    const gcs::VertexData<gc::Vector2> x = s.vectorHeatOf(c).transportTangentVector(c.surface->mesh().vertex(static_cast<size_t>(s.local[static_cast<size_t>(v)])), gc::Vector2{std::cos(heading), std::sin(heading)});
-    VectorXd out = VectorXd::Constant(2 * s.nV, kNaN);
-    for (size_t k = 0; k < c.verts.size(); ++k) { out[2 * c.verts[k]] = x[k].x; out[2 * c.verts[k] + 1] = x[k].y; }
+void transportedEach(const ChartKit& kit, const std::vector<int>& anchors, const std::vector<double>& headings, const std::function<void(std::size_t, const VectorXd&)>& visit) {
+    if (headings.size() != anchors.size() && !headings.empty()) throw core::Error(core::ErrorCode::InvalidInput, "transported: one heading per anchor (or none: all 0)");
+    ComponentSolvers cs(kit);
+    for (std::size_t k = 0; k < anchors.size(); ++k) {
+        const int v = anchors[k], c = cs.componentOf(v);
+        const double heading = headings.empty() ? 0.0 : headings[k];
+        const gcs::VertexData<gc::Vector2> x = cs.vectorHeatSolver(c).transportTangentVector(cs.surface(c).mesh().vertex(static_cast<size_t>(kit.localIndex(v))), gc::Vector2{std::cos(heading), std::sin(heading)});
+        VectorXd out = VectorXd::Constant(2 * kit.n(), kNaN);
+        const std::vector<int>& verts = kit.componentVertices(c);
+        for (size_t i = 0; i < verts.size(); ++i) { out[2 * verts[i]] = x[i].x; out[2 * verts[i] + 1] = x[i].y; }
+        visit(k, out);
+    }
+}
+
+void logMapEach(const ChartKit& kit, const std::vector<int>& anchors, const std::function<void(std::size_t, const LogMap&)>& visit) {
+    ComponentSolvers cs(kit);
+    for (std::size_t k = 0; k < anchors.size(); ++k) {
+        const int v = anchors[k], c = cs.componentOf(v), i = kit.localIndex(v);
+        // theta is the angle of geometry-central's log map (VectorHeat strategy), in the source's gauge; r is the heat distance (the log map's own radius is a coarser estimate:
+        // about 8% on a 642-vertex sphere against 1% for the heat distance, G4)
+        const gcs::VertexData<gc::Vector2> z = cs.vectorHeatSolver(c).computeLogMap(cs.surface(c).mesh().vertex(static_cast<size_t>(i)), gcs::LogMapStrategy::VectorHeat);
+        const VectorXd d = solveDistance(cs.heatSolver(c), cs.surface(c), {i});
+        LogMap out{VectorXd::Constant(kit.n(), kNaN), VectorXd::Constant(kit.n(), kNaN)};
+        const std::vector<int>& verts = kit.componentVertices(c);
+        for (size_t j = 0; j < verts.size(); ++j) {
+            const int u = verts[j];
+            out.r[u] = d[static_cast<Eigen::Index>(j)];
+            out.theta[u] = static_cast<int>(j) == i ? 0.0 : std::atan2(z[j].y, z[j].x);
+        }
+        visit(k, out);
+    }
+}
+
+std::vector<std::vector<int>> discs(const ChartKit& kit, const std::vector<int>& anchors, const std::vector<double>& radii, double maxRadius) {
+    if (radii.size() != anchors.size()) throw core::Error(core::ErrorCode::InvalidInput, "discs: one radius per anchor");
+    for (double r : radii)
+        if (r > maxRadius) throw core::Error(core::ErrorCode::InvalidInput, "ChartKit::disc: radius " + std::to_string(r) + " is past the chart's validity radius " + std::to_string(maxRadius));
+    std::vector<std::vector<int>> out(anchors.size());
+    heatDistanceEach(kit, anchors, [&](std::size_t k, const VectorXd& d) {
+        for (int i = 0; i < kit.n(); ++i) if (d[i] <= radii[k]) out[k].push_back(i);
+    });
     return out;
 }
+std::vector<std::vector<int>> discs(const ChartKit& kit, const std::vector<int>& anchors, double radius, double maxRadius) {
+    return discs(kit, anchors, std::vector<double>(anchors.size(), radius), maxRadius);
+}
+
+// single-anchor forms: the batch with one anchor (one solver, dropped on return)
+VectorXd heatDistance(const ChartKit& kit, int v) { VectorXd r; heatDistanceEach(kit, {v}, [&](std::size_t, const VectorXd& d) { r = d; }); return r; }
+VectorXd transported(const ChartKit& kit, int v, double heading) { VectorXd r; transportedEach(kit, {v}, {heading}, [&](std::size_t, const VectorXd& x) { r = x; }); return r; }
+LogMap logMap(const ChartKit& kit, int v) { LogMap r; logMapEach(kit, {v}, [&](std::size_t, const LogMap& m) { r = m; }); return r; }
+std::vector<int> disc(const ChartKit& kit, int v, double radius, double maxRadius) { return discs(kit, {v}, radius, maxRadius)[0]; }
 
 Eigen::VectorXd ChartKit::gradient(const VectorXd& field) const {
     const Impl& s = *p_;
@@ -164,24 +234,7 @@ Eigen::VectorXd ChartKit::gradient(const VectorXd& field) const {
     return out;
 }
 
-LogMap ChartKit::logMap(int v) {
-    Impl& s = *p_;
-    Impl::Comp& c = s.of(v);
-    const int i = s.local[static_cast<size_t>(v)];
-    // theta is the angle of geometry-central's log map (VectorHeat strategy), in the source's gauge; r is the heat distance (the log map's own radius is a coarser estimate:
-    // about 8% on a 642-vertex sphere against 1% for the heat distance, G4)
-    const gcs::VertexData<gc::Vector2> z = s.vectorHeatOf(c).computeLogMap(c.surface->mesh().vertex(static_cast<size_t>(i)), gcs::LogMapStrategy::VectorHeat);
-    const VectorXd d = heatDistance(v);
-    LogMap out{VectorXd::Constant(s.nV, kNaN), VectorXd::Constant(s.nV, kNaN)};
-    for (size_t k = 0; k < c.verts.size(); ++k) {
-        const int u = c.verts[k];
-        out.r[u] = d[u];
-        out.theta[u] = static_cast<int>(k) == i ? 0.0 : std::atan2(z[k].y, z[k].x);
-    }
-    return out;
-}
-
-double ChartKit::gaugeHeading(int v, const double d[3]) {
+double ChartKit::gaugeHeading(int v, const double d[3]) const {
     Impl& s = *p_;
     Impl::Comp& c = s.of(v);
     const size_t o = 3 * static_cast<size_t>(s.local[static_cast<size_t>(v)]);
@@ -190,19 +243,11 @@ double ChartKit::gaugeHeading(int v, const double d[3]) {
     return std::hypot(x, y) > 1e-9 * std::hypot(d[0], d[1], d[2]) ? std::atan2(y, x) : kNaN;
 }
 
-void ChartKit::headingVector(int v, double psi, double out[3]) {
+void ChartKit::headingVector(int v, double psi, double out[3]) const {
     Impl& s = *p_;
     Impl::Comp& c = s.of(v);
     const size_t o = 3 * static_cast<size_t>(s.local[static_cast<size_t>(v)]);
     for (size_t k = 0; k < 3; ++k) out[k] = std::cos(psi) * c.basis.e1[o + k] + std::sin(psi) * c.basis.e2[o + k];
-}
-
-std::vector<int> ChartKit::disc(int v, double radius, double maxRadius) {
-    if (radius > maxRadius) throw core::Error(core::ErrorCode::InvalidInput, "ChartKit::disc: radius " + std::to_string(radius) + " is past the chart's validity radius " + std::to_string(maxRadius));
-    const VectorXd d = heatDistance(v);
-    std::vector<int> out;
-    for (int i = 0; i < p_->nV; ++i) if (d[i] <= radius) out.push_back(i);
-    return out;
 }
 
 Basis ChartKit::basis() const {

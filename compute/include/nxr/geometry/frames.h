@@ -61,7 +61,7 @@ Mat3 vertexNormals(const double* positions, int nV, const int32_t* faces, int nF
  *  normal to the surface. `direction` has one row per vertex of `surface`. The canonical frame's stored form is `gaugeAngle(surface, e1)`. */
 Eigen::VectorXd gaugeAngle(geometry::IntrinsicSurface& surface, const Mat3& direction);
 /** The same on a chart kit (one connected piece or more; `ChartKit::gaugeHeading` per vertex). */
-Eigen::VectorXd gaugeAngle(ChartKit& kit, const Mat3& direction);
+Eigen::VectorXd gaugeAngle(const ChartKit& kit, const Mat3& direction);
 // angle from north of a tangent vector field: frame.rotate(field, canonical_gauge_angle, 1), then arg: a pipeline step (spec 5.3), no longer here
 
 // ── anatomical frames ────────────────────────────────────────────────────────────────────────────────────

@@ -79,15 +79,19 @@ struct AnatomicalFrame { const geometry::Anatomical* anatomical; const geometry:
  *  of z at its vertices, grad z_f the face gradient of the hat functions (FaceOperators::grad), P_f = Im(conj(z_f) grad z_f) = |z|^2 grad arg z. For a wave a e^{-i k.x} P = -|a|^2 k and the pattern,
  *  Re[z e^{i phi}] with phi rising in time, travels along -P. Zero for ANY standing pattern (z real up to one phase).
  *  P_f lives in its face's plane, so it is never summed as a raw 3-D vector (across a sulcal wall such sums cancel): each face's P_f is read as an angle at each of its vertices in the disc (a third of the
- *  face's area each; ChartKit::gaugeHeading) and carried to the anchor's tangent plane by the vector heat transport (ChartKit::transported: angle at the anchor = angle at w - arg X_w), then summed there.
+ *  face's area each; ChartKit::gaugeHeading) and carried to the anchor's tangent plane by the vector heat transport (geometry::transportedEach: angle at the anchor = angle at w - arg X_w), then summed there.
  *  `direction` is atan2(-S.e2, -S.e1) of that sum in the anchor's gauge; with `anatomy` (the surface's anatomical frame and its reference e1, e2) `directionFromAnterior` is also reported, read through frames::anatomicalComponents / angleFromAnterior at the anchor.
- *  `maxRadius` the chart's validity radius (ChartKit::disc refuses a larger `radius`). A disc whose faces carry no |z| |grad z| has alignment 0. `faces` and `ops` are the mesh `kit` was made from. */
-PhaseGradient weightedPhaseGradient(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, geometry::ChartKit& kit, int anchor, double radius,
+ *  `maxRadius` the chart's validity radius (geometry::discs refuses a larger `radius`). A disc whose faces carry no |z| |grad z| has alignment 0. `faces` and `ops` are the mesh `kit` was made from. */
+PhaseGradient weightedPhaseGradient(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, const geometry::ChartKit& kit, int anchor, double radius,
                                     const AnatomicalFrame* anatomy = nullptr, double maxRadius = std::numeric_limits<double>::infinity());
 /** The same over a NEIGHBOURHOOD given as a selection: `disc` is the Elements form of a `distance` selection (centre vertex `anchor`, a radius) resolved by selection::resolve_distance, which always holds
  *  the centre; the disc is its member 0 (the one member of the resolved distance). The radius is not a parameter here: the neighbourhood is the selection. */
-PhaseGradient weightedPhaseGradient(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, geometry::ChartKit& kit, int anchor,
+PhaseGradient weightedPhaseGradient(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, const geometry::ChartKit& kit, int anchor,
                                     const selection::Elements& disc, const AnatomicalFrame* anatomy = nullptr);
+
+/** The same for many anchors in one call: one vector heat solver and one heat solver for all of them (the batch of `weightedPhaseGradient`; the same values, bit for bit). */
+std::vector<PhaseGradient> weightedPhaseGradients(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, const geometry::ChartKit& kit,
+                                                  const std::vector<int>& anchors, double radius, const AnatomicalFrame* anatomy = nullptr, double maxRadius = std::numeric_limits<double>::infinity());
 
 // ── THE PHASE GRADIENT OF A BAND from the sensor cross-spectrum (from meeg/wave.h): the spectral form of nxr's phase reader ──
 // PhaseReader.read_out: grad phi = Im(conj(z) grad z) / |z|^2, no unwrapping; velocity u = -omega grad phi / |grad phi|^2), averaged over the band's
