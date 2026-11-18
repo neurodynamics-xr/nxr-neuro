@@ -316,7 +316,8 @@ BandsPrepared bands_of(const ng::Types& in, const ng::Arrays* constants, const J
     // a dyadic level's Weyl band [4 pi 2^(l-1) / A, 4 pi 2^l / A), level 0 from 0, on the mean connected piece's area A (the grid's record)
     need(in.count("grid"), who + ": the grid (a surface's dyadic grid: its record names the depth, area and pieces) is not given");
     b.grid = true;
-    need(constants && constants->count("grid") && !constants->at("grid").meta.value("placeholder", false), who + ": the grid was not handed over");
+    if (!constants) return b;                                          // the plan (types only): the grid's record is read at the run, its levels are the members then
+    need(constants->count("grid") && !constants->at("grid").meta.value("placeholder", false), who + ": the grid was not handed over");
     const Json gp = constants->at("grid").meta.value("params", Json::object());
     need(gp.is_object() && gp.contains("depth") && gp.contains("area_m2") && gp.contains("pieces"), who + ": the grid records no depth, area or pieces");
     const double A = gp["area_m2"].get<double>() / std::max(1, gp["pieces"].get<int>());
