@@ -10,6 +10,7 @@
 #include "nxr/io/catalogue.h"
 #include "nxr/io/participants.h"
 #include "nxr/io/subject_package.h"
+#include "nxr/io/subject_reads.h"
 #include "nxr/io/task/task.h"
 
 using namespace nxr::io;
@@ -96,6 +97,14 @@ int main() {
     CHECK_EQ(rec.producer["bids"]["subject"].get<std::string>(), std::string("sub-02"));
     CHECK_EQ(rec.producer["origin"]["licence"].get<std::string>(), std::string("CC0"));
     CHECK(rec.producer.contains("link") == in_place);
+    {   // the electrodes are stored as the recording's channels manifold: points with a positions array, in the coordinate system the table names (what a head model finds)
+      const auto sid = p.db().one("SELECT id FROM subject LIMIT 1");
+      CHECK(sid.has_value());
+      const auto chm = manifold_with_geometry_named(p.db(), text(*sid, "id"), "task-rest_channels");
+      CHECK(chm.has_value());
+      CHECK_EQ(manifold_coordinate_system_name(p.db(), text(*chm, "id")), std::string("bids-captrak"));
+      CHECK(integer(*chm, "n_vertices") >= 6);
+    }
     for (const auto& r : out["recordings"]) if (r["subject"] == "sub-02") CHECK_EQ(r["events"].get<std::int64_t>(), static_cast<std::int64_t>(2));
   }
 

@@ -35,7 +35,7 @@ struct RecordingImport {
   bool redistributable = false;
   bool anonymize = false;               // drop the identifying header fields
   std::shared_ptr<const nxr::formats::RecordingHeader> header;   // the header to import instead of the reader's own (a BIDS import amends channel types, flags, positions and events); the samples are always the reader's
-  std::string montage;                  // a montage of the subject (a points manifold with its names labelling, as `montage create` stores it): the channels' names are matched to its labels exactly (its recorded aliases count, marked as such), the match is recorded in the recording's producer and listed in the result with the unmatched channels. Nothing is guessed. Empty: none
+  std::string montage;                  // a montage of the subject (a points manifold with its names labelling, as `create montage` stores it): the channels' names are matched to its labels exactly (its recorded aliases count, marked as such), the match is recorded in the recording's producer and listed in the result with the unmatched channels. Nothing is guessed. Empty: none
   bool in_place = false;                // link the file instead of copying its samples (needs `source_file`, one file)
   nxr::io::Json extra = nullptr;        // what the format adds to the producer record (transforms, digitisation, projectors), an object or null
   nxr::bst::Emit progress;

@@ -129,8 +129,8 @@ Chain chain_of(const nf::RecordingReader& reader) {
 }
 }  // namespace
 
-SensorPlacement place_sensors(const nf::RecordingReader& reader, const std::string& base, const std::string& acquisition) {
-  const nf::RecordingHeader& h = reader.header();
+SensorPlacement place_sensors(const nf::RecordingReader& reader, const std::string& base, const std::string& acquisition, const nf::RecordingHeader* header) {
+  const nf::RecordingHeader& h = header ? *header : reader.header();
   const std::size_t n = h.channels.size();
   SensorPlacement p;
   p.location.assign(n, std::nullopt);
@@ -146,8 +146,9 @@ SensorPlacement place_sensors(const nf::RecordingReader& reader, const std::stri
   const std::optional<double> to_m = metres_per(h.position_unit);
 
   // formats whose frame is their own, with no head to relate it to
-  if (frames.size() == 1 && (frames.begin()->first == "sphere" || frames.begin()->first == "eeglab")) {
-    const std::string key = frames.begin()->first == "sphere" ? "brainvision-sphere" : "eeglab";
+  const bool bids_frame = frames.size() == 1 && frames.begin()->first.rfind("bids-", 0) == 0;      // a BIDS electrodes table: the coordinate system it names, with no transform to a head
+  if (frames.size() == 1 && (frames.begin()->first == "sphere" || frames.begin()->first == "eeglab" || bids_frame)) {
+    const std::string key = bids_frame ? frames.begin()->first : frames.begin()->first == "sphere" ? "brainvision-sphere" : "eeglab";
     p.cs_key = key;
     const double s = to_m.value_or(1.0);
     for (std::size_t i = 0; i < n; ++i) {
@@ -159,8 +160,9 @@ SensorPlacement place_sensors(const nf::RecordingReader& reader, const std::stri
     sy.space = key;
     sy.name = key;
     if (to_m) sy.unit = "m";
-    sy.description = key == "eeglab" ? "EEGLAB's own axes: x toward the nose, y left, z up; the file's origin and unit"
-                                      : "BrainVision's coordinates: the electrodes on a sphere of the file's radius (a unit sphere unless it says otherwise)";
+    sy.description = bids_frame ? "the coordinate system the BIDS electrodes table names (its `space` entity and coordsystem file), in metres"
+              : key == "eeglab" ? "EEGLAB's own axes: x toward the nose, y left, z up; the file's origin and unit"
+                                : "BrainVision's coordinates: the electrodes on a sphere of the file's radius (a unit sphere unless it says otherwise)";
     sy.space_description = "a frame of its own: no transition relates it to the subject's head space, so its positions are not comparable to the anatomy";
     p.systems.push_back(sy);
     p.record["frame"] = key;
