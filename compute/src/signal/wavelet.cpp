@@ -119,13 +119,13 @@ std::vector<Block> Wt::drain(bool final) {
             const i64 g = sw + i;
             if (g >= 0 && g < n) w.row(i) = buf_.col(g - bufStart_).transpose();
         }
-        const MatrixXcd X = rfftColumns(w);
+        const MatrixXcd X = rfft(w);
         for (int m = 0; m < M; ++m) {
             const i64 Mm = pl.window * pl.q[m] / pl.p[m];
             const i64 nb = pl.b2[m] - pl.b1[m] + 1;
             MatrixXcd Y = MatrixXcd::Zero(Mm, channels_);
             for (i64 r = 0; r < nb; ++r) Y.row(r) = X.row(pl.b1[m] + r) * pl.gain[m](r);
-            const MatrixXcd y = fftColumns(Y, false);
+            const MatrixXcd y = ifft(Y);
             const i64 j0 = pl.margin * pl.q[m] / pl.p[m];
             i64 j1 = (pl.margin + pl.block) * pl.q[m] / pl.p[m];
             if (final) j1 = std::min<i64>(j1, j0 + (n + pl.margin - next_) * pl.q[m] / pl.p[m] + 1);   // instants with t < n + R
@@ -205,7 +205,7 @@ Eigen::MatrixXd Iwt::drain(bool final, std::int64_t n) {
                 const cd e(std::cos(ph), std::sin(ph));
                 for (int c = 0; c < channels_; ++c) a(j, c) = have_[m][c](k - start_[m]) * e;
             }
-            const MatrixXcd Y = fftColumns(a, true) * (static_cast<double>(pl.window) / static_cast<double>(Mm));   // = X g
+            const MatrixXcd Y = fft(a) * (static_cast<double>(pl.window) / static_cast<double>(Mm));   // = X g
             const i64 nb = pl.b2[m] - pl.b1[m] + 1;
             for (i64 r = 0; r < nb; ++r) {
                 const i64 b = pl.b1[m] + r;
@@ -215,7 +215,7 @@ Eigen::MatrixXd Iwt::drain(bool final, std::int64_t n) {
                 Xr.row(b) += Y.row(r) * (g / S);
             }
         }
-        const MatrixXd x = irfftColumns(Xr, static_cast<std::size_t>(pl.window));
+        const MatrixXd x = irfft(Xr, static_cast<std::size_t>(pl.window));
         i64 cnt = pl.block; if (final) cnt = std::min<i64>(cnt, n - next_);
         parts.push_back(x.middleRows(pl.margin, cnt).transpose());
         next_ += pl.block;

@@ -46,7 +46,7 @@ namespace nxr::signal::timefilterbank {
 using cd = std::complex<double>;
 using Gain1 = std::function<double(double)>;   // g(f), f in Hz (signed)
 
-enum class Family { Itersine, Meyer, Morlet, Morse, Amor, Bump };
+enum class Family { Itersine, Meyer, Morlet, Morse, Amor, Bump, PowerPartition };
 enum class Sides { Analytic, TwoSided };
 enum class EdgeBins { Drop, Single };
 enum class Padding { None, FastLen };          // None: the record is periodic (Rheome); FastLen: zero-padded to next_fast_len(2n), no wrap (the Studio pads to 2n)
@@ -63,6 +63,8 @@ struct Design {
     // Meyer, the Signal chain's BANDS instead of the frame: one member a band [lo, hi] Hz, the Studio's `meyerBand` (toolbox/wavelets/dyadicFrame.ts: sin of the
     // rise at lo, cos of the fall at hi, each over ±halfWidth octaves) times G; its edges may be closer than two half-widths (alpha, [8, 12]: then its peak is
     // below G). Not a frame (not tight). When given, `edges` is not used.
+    // Morlet with `bands`: the project's fixed-band rule, one member a band: a Gaussian, unit peak (times G), centred on (lo + hi)/2, FWHM = hi - lo; neighbouring bands overlap.
+    // PowerPartition (needs `bands`, adjacent and ascending): nxr's `band_gains`: squared gains sum to 1 inside [first low, last high] (a cos/sin crossover half an octave wide in log2 f), so band powers add to the broadband (Parseval).
     std::vector<std::pair<double, double>> bands;
     // Morlet · Morse · Amor · Bump: the member centres, Hz (required; see logCentres / cwtCentres)
     std::vector<double> centres; double cycles = 6;       // Morlet: width fc / cycles
@@ -86,6 +88,12 @@ struct TimeFilterbank {
     std::vector<std::pair<std::size_t, std::size_t>> support;  // first and last bin of each member's support on the grid (analytic: rfft bins)
     int size() const { return static_cast<int>(members.size()); }
 };
+
+/** The family named "morlet" | "power_partition" (the node parameter `shape`); throws std::invalid_argument naming both. */
+Family bandFamilyOf(const std::string& name);
+const char* bandFamilyName(Family family);
+/** [bands x freqs] amplitude gains at |f| (freqs in Hz, any sign) of the band shapes Morlet and PowerPartition (a function of the bands alone, no grid): the gains the bank gives its members, divided by G. */
+Eigen::MatrixXd bandGains(const Eigen::VectorXd& freqs, const std::vector<std::pair<double, double>>& bands, Family family);
 
 /** The record length the bank is designed on: n (None) or next_fast_len(2n) (FastLen). */
 std::size_t gridLength(std::size_t n, Padding padding);

@@ -14,6 +14,43 @@ namespace fb = nxr::signal::graphfilterbank;
 static constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 static constexpr double kPi = 3.14159265358979323846;
 
+Family bandFamilyOf(const std::string& name) {
+    if (name == "morlet") return Family::Morlet;
+    if (name == "power_partition") return Family::PowerPartition;
+    throw std::invalid_argument("the band shape is morlet or power_partition, not '" + name + "'");
+}
+const char* bandFamilyName(Family family) { return family == Family::PowerPartition ? "power_partition" : "morlet"; }
+
+MatrixXd bandGains(const VectorXd& freqs, const std::vector<std::pair<double, double>>& bands, Family family) {
+  if (family != Family::Morlet && family != Family::PowerPartition) throw std::invalid_argument("bandGains: the shapes are Morlet and PowerPartition");
+  const Eigen::Index nb = static_cast<Eigen::Index>(bands.size()), nf = freqs.size();
+  MatrixXd g = MatrixXd::Zero(nb, nf);
+  if (bands.empty()) return g;
+  for (const auto& b : bands) if (!(b.second > b.first) || !(b.first > 0)) throw std::invalid_argument("a band needs 0 < lo < hi");
+  if (family == Family::Morlet) {
+    for (Eigen::Index b = 0; b < nb; ++b)
+      for (Eigen::Index k = 0; k < nf; ++k) g(b, k) = freqs(k) == 0 ? 0.0 : fb::morletBand(std::abs(freqs(k)), bands[b].first, bands[b].second);
+    return g;
+  }
+  // nxr band_gains: edges in log2 f, a cos/sin crossover half an octave wide centred on each shared edge, the outer edges taper to zero the same way
+  std::vector<double> edges{bands[0].first};
+  for (const auto& b : bands) edges.push_back(b.second);
+  for (Eigen::Index b = 0; b + 1 < nb; ++b)
+    if (std::abs(bands[b].second - bands[b + 1].first) > 1e-12 * bands[b].second) throw std::invalid_argument("power_partition: the bands must be adjacent (each starts where the last ends)");
+  const double half = 0.25;
+  for (Eigen::Index k = 0; k < nf; ++k) {
+    const double f = std::abs(freqs(k));
+    if (!(f > 0)) continue;
+    const double lf = std::log2(std::max(f, 1e-12));
+    auto rise = [&](double e) { const double t = std::clamp((lf - (e - half)) / (2 * half), 0.0, 1.0); return std::sin(0.5 * M_PI * t); };
+    for (Eigen::Index b = 0; b < nb; ++b) {
+      const double up = rise(std::log2(edges[b])), r = rise(std::log2(edges[b + 1]));
+      g(b, k) = up * std::sqrt(std::clamp(1 - r * r, 0.0, 1.0));
+    }
+  }
+  return g;
+}
+
 std::size_t gridLength(std::size_t n, Padding padding) {
     if (n == 0) throw std::invalid_argument("timebank: an empty record");
     return padding == Padding::None ? n : next_fast_len(2 * n, true);
@@ -157,7 +194,32 @@ TimeFilterbank design(const Design& d, std::size_t nfft, double fs) {
         b.total = G * G;
         break;
     }
+    case Family::PowerPartition: {
+        if (d.bands.empty()) throw std::invalid_argument("timebank::design: PowerPartition needs bands");
+        const std::vector<std::pair<double, double>> bands = d.bands;
+        for (std::size_t k = 0; k < bands.size(); ++k) {
+            const Eigen::VectorXd probe = Eigen::VectorXd::Ones(1);
+            (void)bandGains(probe, std::vector<std::pair<double, double>>{bands[k]}, Family::PowerPartition);   // each band needs 0 < lo < hi
+        }
+        if (bands.size() > 1) (void)bandGains(Eigen::VectorXd::Ones(1), bands, Family::PowerPartition);          // adjacent, ascending
+        for (std::size_t k = 0; k < bands.size(); ++k) {
+            add(Role::Band, std::sqrt(bands[k].first * bands[k].second), bands[k].first, bands[k].second, [bands, k, sc](double af) {
+                if (!(af > 0)) return 0.0;
+                return sc * bandGains(Eigen::VectorXd::Constant(1, af), bands, Family::PowerPartition)(static_cast<Eigen::Index>(k), 0);
+            });
+        }
+        b.total = kNaN;
+        break;
+    }
     case Family::Morlet: case Family::Morse: case Family::Amor: case Family::Bump: {
+        if (d.family == Family::Morlet && !d.bands.empty()) {   // the fixed-band Morlet: one member a band
+            for (const auto& [lo, hi] : d.bands) {
+                if (!(lo > 0 && hi > lo)) throw std::invalid_argument("timebank::design: a band needs 0 < lo < hi");
+                add(Role::Band, 0.5 * (lo + hi), lo, hi, [sc, lo, hi](double af) { return sc * fb::morletBand(af, lo, hi); });
+            }
+            b.total = kNaN;
+            break;
+        }
         if (d.centres.empty()) throw std::invalid_argument("timebank::design: Morlet / Morse / Amor / Bump need centres (see logCentres, cwtCentres)");
         for (double fc : d.centres) {
             if (!(fc > 0)) throw std::invalid_argument("timebank::design: centres must be positive");
@@ -303,8 +365,8 @@ MatrixXcd spectrum(const TimeFilterbank& b, const MatrixXd& x) {
     if (static_cast<std::size_t>(x.rows()) > b.nfft) throw std::invalid_argument("timebank: the record is longer than the bank's grid");
     MatrixXd xp = MatrixXd::Zero(static_cast<Eigen::Index>(b.nfft), x.cols());
     xp.topRows(x.rows()) = x;
-    if (b.sides == Sides::Analytic) return rfftColumns(xp);
-    return fftColumns(xp.cast<cd>());
+    if (b.sides == Sides::Analytic) return rfft(xp);
+    return fft(xp.cast<cd>());
 }
 
 MatrixXcd spectrum(const TimeFilterbank& b, const MatrixXcd& x) {
@@ -314,7 +376,7 @@ MatrixXcd spectrum(const TimeFilterbank& b, const MatrixXcd& x) {
     if (static_cast<std::size_t>(x.rows()) > b.nfft) throw std::invalid_argument("timebank: the record is longer than the bank's grid");
     MatrixXcd xp = MatrixXcd::Zero(static_cast<Eigen::Index>(b.nfft), x.cols());
     xp.topRows(x.rows()) = x;
-    return fftColumns(xp);
+    return fft(xp);
 }
 
 MatrixXcd filterSpectrum(const TimeFilterbank& b, const VectorXd& g, const MatrixXcd& X) {
@@ -322,22 +384,22 @@ MatrixXcd filterSpectrum(const TimeFilterbank& b, const VectorXd& g, const Matri
     MatrixXcd Y = MatrixXcd::Zero(static_cast<Eigen::Index>(b.nfft), X.cols());
     for (Eigen::Index j = 0; j < X.cols(); ++j)
         for (Eigen::Index k = 0; k < X.rows(); ++k) Y(k, j) = X(k, j) * g(k);
-    return fftColumns(Y, false);
+    return ifft(Y);
 }
 
 MatrixXcd coefficientSpectrum(const TimeFilterbank& b, const MatrixXcd& W) {
-    MatrixXcd S = fftColumns(W, true);
+    MatrixXcd S = fft(W);
     return b.sides == Sides::Analytic ? MatrixXcd(S.topRows(static_cast<Eigen::Index>(rfftBins(b.nfft)))) : S;
 }
 
 MatrixXd inverseReal(const TimeFilterbank& b, const MatrixXcd& S, std::size_t n) {
     requireSides(b, Sides::Analytic, "inverseReal");
-    return irfftColumns(S, b.nfft).topRows(static_cast<Eigen::Index>(n));
+    return irfft(S, b.nfft).topRows(static_cast<Eigen::Index>(n));
 }
 
 MatrixXcd inverseComplex(const TimeFilterbank& b, const MatrixXcd& S, std::size_t n) {
     requireSides(b, Sides::TwoSided, "inverseComplex");
-    return fftColumns(S, false).topRows(static_cast<Eigen::Index>(n));
+    return ifft(S).topRows(static_cast<Eigen::Index>(n));
 }
 
 static Coefficients analyse(const TimeFilterbank& b, const MatrixXcd& X) {

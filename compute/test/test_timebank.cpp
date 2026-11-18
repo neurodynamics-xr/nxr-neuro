@@ -206,7 +206,7 @@ static void laws() {
                     MatrixXcd Z = MatrixXcd::Zero(Gm.rows(), x.cols());
                     for (int m = 0; m < b.size(); ++m) Z += (coefficientSpectrum(b, W[(size_t)m]).array().colwise() * Gm.col(m).cast<std::complex<double>>().array()).matrix();
                     MatrixXcd Zf = MatrixXcd::Zero((long)b.nfft, x.cols()); Zf.topRows(Z.rows()) = Z;
-                    const MatrixXd rec = ((2 / G) * fft::fftColumns(Zf, false).real()).topRows((Eigen::Index)n);
+                    const MatrixXd rec = ((2 / G) * fft::ifft(Zf).real()).topRows((Eigen::Index)n);
                     EXPECT(relErr(rec, x) < 1e-12, name + ": x = (2/gain²) Re ifft(Sum g W), DC and Nyquist not doubled " + sci(relErr(rec, x)));
                 }
             }
@@ -218,7 +218,7 @@ static void laws() {
         Design d = D(Family::Itersine, 2.0, Sides::Analytic); d.edgeBins = EdgeBins::Drop;
         const TimeFilterbank b = design(d, n, 100);
         const MatrixXd r = synthesis(b, analysis(b, x), n, nxr::signal::graphfilterbank::Synthesis::Tight);
-        MatrixXd lost = x; { MatrixXcd X = fft::rfftColumns(x); const std::complex<double> dc = X(0, 0), ny = X(X.rows() - 1, 0); X.setZero(); X(0, 0) = dc; X(X.rows() - 1, 0) = ny; lost = fft::irfftColumns(X, n); }
+        MatrixXd lost = x; { MatrixXcd X = fft::rfft(x); const std::complex<double> dc = X(0, 0), ny = X(X.rows() - 1, 0); X.setZero(); X(0, 0) = dc; X(X.rows() - 1, 0) = ny; lost = fft::irfft(X, n); }
         EXPECT(relErr(MatrixXd(x - r), lost) < 1e-12, "EdgeBins::Drop (Rheome): reconstruction misses exactly the DC and Nyquist content " + sci(relErr(MatrixXd(x - r), lost)));
     }
     // two-sided: tight over the whole axis, no factor 2; reconstructs a complex record exactly, at any gain

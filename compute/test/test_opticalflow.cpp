@@ -115,6 +115,23 @@ int main() {
         std::printf("  streaming vs all at once: step %.1e, readout %.1e, flow weights %.1e\n", e1, e2, e3);
         EXPECT(e1 < 1e-12 && e2 < 1e-12 && e3 < 1e-12, "the streaming steps equal the all-at-once versions");
     }
+    // (5) hilbert: the Spectral method is MATLAB's (a tone gives its quadrature); the Fir method gives the same where the whole filter lies inside the block, and depends on `halfLength` samples each side only
+    {
+        const int T = 2000; const double fs = 250.0;
+        MatrixXd x(2, T);
+        for (int t = 0; t < T; ++t) { x(0, t) = std::cos(2 * M_PI * 10.0 * t / fs); x(1, t) = std::cos(2 * M_PI * 23.0 * t / fs + 0.4); }
+        const Eigen::MatrixXcd sp = hilbert(x), fir = hilbert(x, HilbertMethod::Fir, 100);
+        double e = 0;
+        for (int r = 0; r < 2; ++r) for (int t = 100; t < T - 100; ++t) e = std::max(e, std::abs(sp(r, t) - fir(r, t)));
+        std::printf("  hilbert Fir vs Spectral inside the block: %.1e\n", e);
+        EXPECT(e < 5e-3, "the FIR Hilbert equals the spectral one inside the block");
+        EXPECT(std::abs(sp(0, 400) - std::exp(std::complex<double>(0, 2 * M_PI * 10.0 * 400 / fs))) < 1e-9, "the spectral Hilbert of a cosine is its complex exponential");
+        const Eigen::MatrixXcd piece = hilbert(MatrixXd(x.middleCols(500, 300)), HilbertMethod::Fir, 100);
+        double d = 0;
+        for (int t = 100; t < 200; ++t) d = std::max(d, std::abs(piece(0, t) - fir(0, 500 + t)));
+        EXPECT(d == 0, "the FIR Hilbert of a sample depends on its halo alone: any cut of the record gives it bit for bit");
+        EXPECT(piece(0, 50) == std::complex<double>(x(0, 550), 0.0), "inside the first halfLength samples the quadrature part is not computed (0)");
+    }
     std::cout << (g_failures ? "FAILED\n" : "ok\n");
     return g_failures ? 1 : 0;
 }

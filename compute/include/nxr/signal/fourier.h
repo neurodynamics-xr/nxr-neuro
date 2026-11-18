@@ -40,6 +40,9 @@ inline std::size_t rfftBins(std::size_t n) { return n / 2 + 1; }
 /** numpy.fft.fftfreq(n, d): 0, 1, ..., ceil(n/2)-1, -floor(n/2), ..., -1, all divided by n*d. */
 Eigen::VectorXd fftfreq(std::size_t n, double d = 1.0);
 
+/** numpy.fft.fftshift of a vector: the zero-frequency element moved to the centre ([0 .. n/2-1, -n/2 .. -1] becomes [-n/2 .. -1, 0 .. n/2-1]); a permutation, exact. */
+Eigen::VectorXd fftshift(const Eigen::VectorXd& x);
+
 /** numpy.fft.rfftfreq(n, d): 0, 1, ..., n/2, divided by n*d. */
 Eigen::VectorXd rfftfreq(std::size_t n, double d = 1.0);
 
@@ -47,19 +50,22 @@ Eigen::VectorXd rfftfreq(std::size_t n, double d = 1.0);
  *  real = true allows {2,3,5}, false allows {2,3,5,7,11}. */
 std::size_t next_fast_len(std::size_t n, bool real = true);
 
-// ── Eigen helpers: one signal per column of a column-major matrix, transformed down the columns ────────────────────────
+// ── Eigen forms: ONE function per transform with an `axis` argument ──────────────────────────────────────────────────
+// axis 0 transforms down the columns of a column-major matrix (one signal per column, time down the rows); axis 1 along its rows (one signal per row).
+// A vector is a single column. The row-major shape and axis of the raw c2c / r2c / c2r above are the general form.
 
-/** rfft of every column of a real [n x m] matrix → [n/2+1 x m]. */
-Eigen::MatrixXcd rfftColumns(const Eigen::MatrixXd& x, Norm norm = Norm::Backward);
-/** irfft of every column of a [n/2+1 x m] matrix → [n x m] (n is required). */
-Eigen::MatrixXd irfftColumns(const Eigen::MatrixXcd& X, std::size_t n, Norm norm = Norm::Backward);
-/** fft / ifft of every column of a complex [n x m] matrix. */
-Eigen::MatrixXcd fftColumns(const Eigen::MatrixXcd& x, bool forward = true, Norm norm = Norm::Backward);
+/** rfft (numpy.fft.rfft) of a real matrix along `axis`: the transformed axis has n/2+1 bins. */
+Eigen::MatrixXcd rfft(const Eigen::MatrixXd& x, int axis = 0, Norm norm = Norm::Backward);
+/** irfft (numpy.fft.irfft) along `axis` back to n real samples (n is required: n/2+1 bins fit 2m and 2m+1). */
+Eigen::MatrixXd irfft(const Eigen::MatrixXcd& X, std::size_t n, int axis = 0, Norm norm = Norm::Backward);
+/** fft / ifft (numpy.fft.fft / ifft) of a complex matrix along `axis`. */
+Eigen::MatrixXcd fft(const Eigen::MatrixXcd& x, int axis = 0, Norm norm = Norm::Backward);
+Eigen::MatrixXcd ifft(const Eigen::MatrixXcd& X, int axis = 0, Norm norm = Norm::Backward);
 
-/** rfft / irfft / fft / ifft of one vector. */
-Eigen::VectorXcd rfft(const Eigen::VectorXd& x, Norm norm = Norm::Backward);
-Eigen::VectorXd irfft(const Eigen::VectorXcd& X, std::size_t n, Norm norm = Norm::Backward);
-Eigen::VectorXcd fft(const Eigen::VectorXcd& x, Norm norm = Norm::Backward);
-Eigen::VectorXcd ifft(const Eigen::VectorXcd& X, Norm norm = Norm::Backward);
+/** A vector is a single column: the same functions, the norm as the second argument. */
+inline Eigen::MatrixXcd rfft(const Eigen::MatrixXd& x, Norm norm) { return rfft(x, 0, norm); }
+inline Eigen::MatrixXd irfft(const Eigen::MatrixXcd& X, std::size_t n, Norm norm) { return irfft(X, n, 0, norm); }
+inline Eigen::MatrixXcd fft(const Eigen::MatrixXcd& x, Norm norm) { return fft(x, 0, norm); }
+inline Eigen::MatrixXcd ifft(const Eigen::MatrixXcd& X, Norm norm) { return ifft(X, 0, norm); }
 
 }  // namespace nxr::signal

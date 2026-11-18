@@ -9,6 +9,7 @@
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/core/errors.h"
 #include "nxr/signal/fourier.h"
+#include "nxr/signal/filters.h"
 #include "nxr/signal/opticalflow_connection.h"
 
 namespace nxr::signal {
@@ -252,15 +253,36 @@ FlowReadout flowReadout(const MatrixXd& velocity, const RowMat3& positions, cons
     return r;
 }
 
-Eigen::MatrixXcd hilbertRows(const MatrixXd& X) {
+static Eigen::MatrixXcd hilbertSpectral(const MatrixXd& X) {
     const Eigen::Index n = X.cols();
-    Eigen::MatrixXcd F = fftColumns(Eigen::MatrixXcd(X.transpose().cast<std::complex<double>>()), true);   // [T x rows]
+    Eigen::MatrixXcd F = fft(Eigen::MatrixXcd(X.transpose().cast<std::complex<double>>()));   // [T x rows]
     VectorXd h = VectorXd::Zero(n);                                      // MATLAB hilbert
     h[0] = 1;
     if (n % 2 == 0) { h.segment(1, n / 2 - 1).setConstant(2); h[n / 2] = 1; }
     else h.segment(1, (n - 1) / 2).setConstant(2);
     for (Eigen::Index j = 0; j < F.cols(); ++j) F.col(j) = F.col(j).cwiseProduct(h.cast<std::complex<double>>());
-    return fftColumns(F, false).transpose();
+    return ifft(F).transpose();
+}
+
+static Eigen::MatrixXcd hilbertFir(const MatrixXd& X, std::size_t halfLength, double beta) {
+    if (halfLength < 1) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "hilbert: the FIR method needs halfLength >= 1");
+    const Eigen::Index L = static_cast<Eigen::Index>(halfLength), T = X.cols();
+    const VectorXd win = nxr::signal::filters::kaiser(2 * halfLength + 1, beta);
+    VectorXd h = VectorXd::Zero(2 * L + 1);                                  // h[L + k] multiplies x[t - k]
+    for (Eigen::Index k = -L; k <= L; ++k)
+        if (k % 2 != 0) h[L + k] = win[L + k] * 2.0 / (M_PI * static_cast<double>(k));
+    Eigen::MatrixXcd Z(X.rows(), T);
+    for (Eigen::Index r = 0; r < X.rows(); ++r)
+        for (Eigen::Index t = 0; t < T; ++t) {
+            double q = 0;
+            if (t >= L && t + L < T) for (Eigen::Index k = -L; k <= L; ++k) q += h[L + k] * X(r, t - k);
+            Z(r, t) = std::complex<double>(X(r, t), q);
+        }
+    return Z;
+}
+
+Eigen::MatrixXcd hilbert(const MatrixXd& X, HilbertMethod method, std::size_t halfLength, double beta) {
+    return method == HilbertMethod::Spectral ? hilbertSpectral(X) : hilbertFir(X, halfLength, beta);
 }
 
 std::int64_t hilbertHalo(double sfreq, double lowestHz, double cycles) {
@@ -270,7 +292,7 @@ std::int64_t hilbertHalo(double sfreq, double lowestHz, double cycles) {
 
 Eigen::MatrixXcd hilbertRowsOwn(const MatrixXd& block, Eigen::Index left, Eigen::Index own) {
     if (left < 0 || own < 1 || left + own > block.cols()) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "hilbertRowsOwn: the block holds " + std::to_string(block.cols()) + " columns, the own columns are [" + std::to_string(left) + ", " + std::to_string(left + own) + ")");
-    return hilbertRows(block).middleCols(left, own);
+    return hilbertSpectral(block).middleCols(left, own);
 }
 
 MatrixXd activation(const Eigen::MatrixXcd& Jin, ActivationMethod method, bool alreadyAnalytic) {
@@ -278,7 +300,7 @@ MatrixXd activation(const Eigen::MatrixXcd& Jin, ActivationMethod method, bool a
     Eigen::MatrixXcd J = Jin;
     if (method == ActivationMethod::Analytic && !alreadyAnalytic) {
         if (J.cols() < 8) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "activation: the analytic signal needs at least 8 frames");
-        J = hilbertRows(Jin.real());
+        J = hilbertSpectral(Jin.real());
     }
     const Eigen::Index V = J.rows() / 3;
     MatrixXd A(V, J.cols());

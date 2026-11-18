@@ -40,7 +40,7 @@ recording [channels x samples, streamed]
   --hodge flow weights (chunk, pointwise: the glued carry, then the modes)--> flow_modes [K x frames - 1] (a field on the eigen axis x the made line)
 ```
 - (a) The neighbourhood is explicit. The flow's activation is the amplitude of an ANALYTIC signal made by a band node with its own declared halo (the wavelet's margin; `timebank::haloOf`
-  for a Meyer band), never an FFT Hilbert over "the block passed in". Where a Hilbert of a real block is wanted, `flow::hilbertRowsOwn(block, left, own)` returns the own columns of a block that
+  for a Meyer band), never an FFT Hilbert over "the block passed in". Where a Hilbert of a real block is wanted, `signal::hilbertOwn(block, left, own)` returns the own columns of a block that
   carries a halo, and `flow::hilbertHalo(sfreq, lowestHz, cycles = 4)` is the halo a node declares (the Studio's `supportOf` / `fitLevelOf`: 4 cycles of the band's low edge). The result does not
   depend on the chunk size beyond the band's own response tail, which the halo bounds, and the planner reads the halo from the node instead of finding it in a chunk edge.
 - (c) Every reduction is a measurement over a selection: the leaf sums are `measure` over the product (leaves, frames), a JOINT grid (the Studio's D129: first factor = frames, radix rounded to
