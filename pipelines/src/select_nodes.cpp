@@ -412,7 +412,19 @@ ng::NodeSpec select_bands() {
 // eigenvalue band sets the dyadic spatial level by Weyl's law), computed in closed form here and recorded in the factor, never stored as a selection of its own.
 ng::Json factor_descriptor(const ng::Array& f, const std::string& who) {
   const Json prm = f.meta.contains("describe") && f.meta["describe"].is_object() && f.meta["describe"].contains("params") ? f.meta["describe"]["params"] : f.meta.value("params", Json::object());   // made in this run (describe) or stored (params)
-  if (prm.is_object() && prm.contains("grid")) return prm["grid"];
+  if (prm.is_object() && prm.contains("grid")) {
+    Json g = prm["grid"];
+    if (g.value("kind", std::string()) == "dyadic") {                         // a whole surface ladder: its surface (the name less " tiles"), piece area and pieces: a coupled level is resolved from them (Weyl's law, closed form)
+      const std::string nm = f.meta.value("name", std::string());
+      const auto at = nm.rfind(" tiles");
+      if (at != std::string::npos && !g.contains("surface")) g["surface"] = nm.substr(0, at);
+      if (prm.contains("area_m2") && !g.contains("area_m2")) g["area_m2"] = prm["area_m2"];
+      if (prm.contains("length_unit")) g["length_unit"] = prm["length_unit"];
+    } else if (g.value("kind", std::string()) == "time" && g.contains("samples") && !g.contains("size")) {   // a whole time ladder: its samples are its size
+      g["size"] = g["samples"];
+    }
+    return g;
+  }
   if (prm.is_object() && prm.contains("level") && prm.contains("tiles")) {
     std::string surface = prm.value("surface", f.meta.value("surface", std::string()));
     if (surface.empty()) {                                                  // `<surface> tiles L<l>`
@@ -463,28 +475,51 @@ ng::NodeSpec select_product() {
       d["id"] = c.at(k).meta.value("id", std::string());
       pp.factors.push_back(std::move(d));
     }
-    // COUPLED levels, in closed form
+    // COUPLED levels, in closed form. A factor's level is set by a BAND of the `bands` set (by name), or by a QUANTITY stated here: `band` (a frequency band, "8-16 Hz") for a time factor, `scale` (parts per hemisphere,
+    // a wavelength, an eigenvalue or an area) for a surface factor. The resolvers are select's: time_level_of_band, space_level_of_band, level_of_quantity.
     if (p["couple"].is_array()) {
-      need(c.count("bands") && !c.at("bands").meta.value("placeholder", false), "select.product: couple needs the band set (`bands`)");
-      const Json set = c.at("bands").meta.value("describe", Json::object());
+      const bool have_set = c.count("bands") && !c.at("bands").meta.value("placeholder", false);
+      const Json set = have_set ? c.at("bands").meta.value("describe", Json::object()) : Json::object();
       for (const auto& cp : p["couple"]) {
         const std::size_t fi = cp.value("factor", std::size_t(0));
         need(fi < pp.factors.size(), "select.product: couple names factor " + std::to_string(fi) + " of " + std::to_string(pp.factors.size()));
+        Json& f = pp.factors[fi];
+        if (cp.contains("scale")) {                                                    // a surface factor's level from a stated scale
+          need(f["kind"] == "dyadic", "select.product: `scale` couples a surface factor's level; factor " + std::to_string(fi) + " is of kind " + f["kind"].dump());
+          need(f.contains("area_m2") && f.contains("pieces") && f.contains("depth"), "select.product: couple on a surface needs the whole grid (its record: area, pieces and depth), not one level");
+          const int depth = f["depth"].get<int>();
+          const double A = f["area_m2"].get<double>() / std::max<std::int64_t>(1, f["pieces"].get<std::int64_t>());   // a piece's area: the Weyl level 0
+          nxr::selection::Selection grid;
+          for (int l = 0; l <= depth; ++l) { nxr::selection::Selection m; m.tile_area = A / std::ldexp(1.0, l); grid.members.push_back(m); }
+          Json sn = Json::object();
+          const std::string unit = f.value("length_unit", std::string("m"));
+          f["level"] = level_of_quantity(grid, cp["scale"], unit == "m" ? "m" : unit, "select.product", sn);
+          f["snapped"] = Json{{"scale", cp["scale"]}, {"snapped", sn}};
+          f["tiles"] = f["pieces"].get<std::int64_t>() << f["level"].get<int>();            // the tiles of a level: every piece's 2^level (`reduce` checks it against the surface's own level)
+          pp.coupled.push_back(Json{{"factor", fi}, {"scale", cp["scale"]}, {"level", f["level"]}});
+          continue;
+        }
+        need(cp.contains("band"), "select.product: a couple entry is {factor, band} or {factor, scale}");
+        double lo = 0, hi = 0;
+        std::string unit_of_band = "Hz";
         const Json* band = nullptr;
         for (const auto& m : set.value("lookup", Json::array())) if (cp["band"] == m["name"] || (cp["band"].is_number() && cp["band"] == m["code"])) band = &m;
-        need(band != nullptr, "select.product: the band " + cp["band"].dump() + " is not a member of the set");
-        Json& f = pp.factors[fi];
+        if (band) { lo = (*band)["lo"].get<double>(); hi = (*band)["hi"].get<double>(); unit_of_band = (*band)["unit"].get<std::string>(); }
+        else {
+          need(cp["band"].is_string() && !have_set, "select.product: the band " + cp["band"].dump() + " is not a member of the set");
+          std::tie(lo, hi) = hz_band(cp["band"], "select.product");
+        }
         if (f["kind"] == "time") {
-          need((*band)["unit"] == "Hz", "select.product: a time factor's level is set by a frequency band; " + cp["band"].dump() + " is in " + (*band)["unit"].dump());
-          const int k = nxr::select::time_level_of_band((*band)["lo"].get<double>(), (*band)["hi"].get<double>(), f["rate"].get<double>(), nxr::select::kJointCycles, static_cast<int>(std::floor(std::log2(static_cast<double>(f["size"].get<std::int64_t>())))));
+          need(unit_of_band == "Hz", "select.product: a time factor's level is set by a frequency band; " + cp["band"].dump() + " is in " + unit_of_band);
+          const int k = nxr::select::time_level_of_band(lo, hi, f["rate"].get<double>(), nxr::select::kJointCycles, static_cast<int>(std::floor(std::log2(static_cast<double>(f["size"].get<std::int64_t>())))));
           f["level"] = k;
           f["width"] = f["hop"] = std::int64_t(1) << k;
           f["count"] = (f["size"].get<std::int64_t>() - f.value("origin", std::int64_t(0)) + f["hop"].get<std::int64_t>() - 1) / f["hop"].get<std::int64_t>();
           f["snapped"] = Json{{"tile_s", static_cast<double>(f["width"].get<std::int64_t>()) / f["rate"].get<double>()}, {"band", cp["band"]}};
         } else if (f["kind"] == "dyadic") {
-          need((*band)["unit"] == "1/m2", "select.product: a surface factor's level is set by an eigenvalue band; " + cp["band"].dump() + " is in " + (*band)["unit"].dump());
+          need(band != nullptr && unit_of_band == "1/m2", "select.product: a surface factor's level is set by an eigenvalue band of the set, or by a `scale`; " + cp["band"].dump() + " is in " + unit_of_band);
           need(f.contains("piece_area_m2") && f.contains("depth"), "select.product: couple on a surface needs the whole grid (its record: piece area and depth), not one level");
-          f["level"] = nxr::select::space_level_of_band((*band)["lo"].get<double>(), (*band)["hi"].get<double>(), f["piece_area_m2"].get<double>(), f["depth"].get<int>());
+          f["level"] = nxr::select::space_level_of_band(lo, hi, f["piece_area_m2"].get<double>(), f["depth"].get<int>());
           f["snapped"] = Json{{"band", cp["band"]}};
         } else refuse("select.product: a factor of kind " + f["kind"].dump() + " has no level to couple");
         pp.coupled.push_back(Json{{"factor", fi}, {"band", cp["band"]}, {"level", f["level"]}});

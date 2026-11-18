@@ -213,9 +213,36 @@ Json describe_measures(const Json& measures, std::int64_t R, std::int64_t T, std
 //   elements  {kind: elements, size}                          each element its own member (the channels)
 //   span      {kind: span}                                    the run's span as ONE member
 //   product   {kind: product, factors: [descriptor, ...], layout: "product" | "joint", bits}   mixed radix, the FIRST factor fastest (Studio D100; D129 joint: first factor's radix 2^bits)
+// a STORED product's factors, as io keeps them (params.product: [{selection, members, level?}], the Studio's D100) read back as the descriptors the run's own product records: each factor's selection row says its grid
+// (a time grid, a surface ladder at the level named, the run's span, a set of elements)
+Json product_of_entries(const Json& entries, const ExecContext& c, const std::string& who) {
+  Json out = Json::array();
+  for (const auto& e : entries) {
+    const auto row = c.bound.selection(e.value("selection", std::string()));
+    need(row.has_value(), who + ": a factor of the stored product (" + e.dump() + ") is not among the subject's selections");
+    const Json fp = Json::parse(nxr::io::opt_text(*row, "params_json").value_or("{}"), nullptr, false);
+    const std::string nm = nxr::io::text(*row, "name");
+    Json d;
+    if (fp.is_object() && fp.contains("grid") && fp["grid"].is_object()) {
+      d = fp["grid"];
+      if (d.value("kind", std::string()) == "dyadic") {
+        const auto at = nm.rfind(" tiles");
+        need(at != std::string::npos && e.contains("level"), who + ": the surface factor " + nm + " of the stored product names no level");
+        d["surface"] = nm.substr(0, at); d["level"] = e["level"]; d["tiles"] = e["members"];
+      } else if (d.value("kind", std::string()) == "time" && !d.contains("size") && d.contains("samples")) d["size"] = d["samples"];
+    } else if (fp.is_object() && fp.value("kind", std::string()) == "elements") d = Json{{"kind", "elements"}, {"size", e.value("members", std::int64_t(0))}};
+    else if (fp.is_object() && fp.contains("level") && fp.contains("tiles")) d = Json{{"kind", "dyadic"}, {"surface", fp.value("surface", std::string())}, {"level", fp["level"]}, {"tiles", fp["tiles"]}};
+    else refuse(who + ": the factor " + nm + " of the stored product records no grid");
+    out.push_back(d);
+  }
+  return out;
+}
+
 Json descriptor_of(const Value& over, const ExecContext& c, const std::string& port, const std::string& who) {
   if (over.row) {
     const Json pj = Json::parse(nxr::io::opt_text(*over.row, "params_json").value_or("{}"), nullptr, false);
+    if (pj.is_object() && pj.contains("product") && pj["product"].is_array())
+      return Json{{"kind", "product"}, {"factors", product_of_entries(pj["product"], c, who)}, {"layout", pj.value("layout", std::string("product"))}, {"bits", pj.value("bits", 0)}};
     if (!(pj.is_object() && (pj.contains("grid") || pj.contains("product"))) && !nxr::io::is_null(*over.row, "array_path") && !nxr::io::is_null(*over.row, "n_members"))   // a set or partition: a member number per element
     {
       Json d = Json{{"kind", "labelled"}, {"array_path", nxr::io::text(*over.row, "array_path")}, {"members", nxr::io::integer(*over.row, "n_members")}};
@@ -260,6 +287,8 @@ Form form_of(const Json& d, std::int64_t line_samples, ExecContext& c, const std
   } else if (f.kind == "dyadic") {
     const nxr::pipelines::SurfaceInput S = c.bound.surface(d["surface"].get<std::string>(), true);
     const nxr::pipelines::SurfaceLevel L = c.bound.surface_level(S, d["level"].get<int>());
+    need(!d.contains("tiles") || !d["tiles"].is_number_integer() || d["tiles"].get<std::int64_t>() == L.nodes,
+         who + ": the surface factor's record says " + d.value("tiles", Json()).dump() + " tiles at level " + std::to_string(d["level"].get<int>()) + ", the surface's own level has " + std::to_string(L.nodes));
     f.member_of = L.tile;
     f.members = L.nodes;
     f.size = S.n_vertices();

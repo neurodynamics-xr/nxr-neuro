@@ -159,7 +159,7 @@ int main() {
     if (r.size() == 1) { Json c = r[0]; c.erase("prepared"); c.erase("run"); std::printf("%s\n", c.dump().substr(0, 2500).c_str()); }
     CHECK(r.size() == 1 && r[0]["stored"].size() >= 1 && r[0]["stored"][0]["output"] == "power");  // the statistic, then the fused operator the run stored
     if (r.size() != 1) continue;
-    const auto row = sub.db().read("statistic", r[0]["stored"][0]["id"].get<std::string>());   // the band power per vertex is a statistic (`estimate`, method sample)
+    const auto row = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::statistic, r[0]["stored"][0]["id"].get<std::string>());   // the band power per vertex is a statistic (`estimate`, method sample)
     const std::vector<float> got = read_floats((sub.folder() / (r[0]["stored"][0]["path"].get<std::string>())));
     const Eigen::MatrixXd Mop = sband.apply_glued(nxr::signal::formOfFreeColumns(id, Kfree, op));
     const std::vector<double> want = direct(Mop);

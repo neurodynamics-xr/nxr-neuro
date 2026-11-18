@@ -90,7 +90,7 @@ Signature s_analytic_frames() {
       .out("y", like("x").on({M, members_of_port("tiling")}).with_value(VT::complex))
       .refine([](Unified& u, const Json&) {
         const PortType& t = u.type("tiling");
-        if (!t.sel || (t.sel->type != "tiling" && t.sel->type != "spans")) u.fail("tiling", "is a " + (t.sel ? t.sel->type : std::string("?")) + " selection, not a frame tiling (a closed-form tiling of the time line)");
+        if (!t.sel || t.sel->type != "tiling") u.fail("tiling", "is a " + (t.sel ? t.sel->type : std::string("?")) + " selection, not a frame tiling (a closed-form tiling of the time line)");
         PortType& y = u.out.at("y");
         y.domain.factors.back() = members(id_of(u, "tiling"), u.type("x").domain.factors.back(), Role::frames);
         y.axis = Axis::frames;
