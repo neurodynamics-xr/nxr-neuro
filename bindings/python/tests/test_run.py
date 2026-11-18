@@ -41,7 +41,7 @@ def test_psd_is_the_pure_functions_result(dataset):
     assert x.shape == (CHANNELS, int(SECONDS * SFREQ)) and x.dtype == np.float32
     want = nn.compute.signal.psd(x, SFREQ, segment_samples=200, good=_good(x.shape[1]))     # scipy's set: hann (periodic), constant detrend, 50 % overlap, density
     assert 0 < want.segments_skipped < want.segments + want.segments_skipped
-    assert got.meta["producer"]["bad_segments"]["n_spans"] == 1
+    assert got.meta["producer"]["inputs"]["bad"]["name"] == "rest_bad_segments" and got.meta["producer"]["run"]["bad_samples"] > 0   # the bad spans: an input of the run, their samples left out
     np.testing.assert_allclose(got.values, want.psd, rtol=1e-6)
     # without the bad span left out: the plain PSD
     r2 = nn.run("psd", dataset, "S1", recording="rest", preset="scipy", segment_seconds=2.0, all=True, name="plain", bad_segments="ignore")
