@@ -56,8 +56,8 @@ producing identical numerics regardless of host language.
 - **Cancellation + progress contracts** per long-running call (atomic
   flag bridge usable from JS, MATLAB, WASM, and CLI).
 
-See **[docs/usage.md](docs/usage.md)** for the full API surface and
-**[docs/extensions.md](docs/extensions.md)** for design rationale.
+See **[docs/usage.md](../docs/archive/compute/usage.md) (historical)** for the full API surface and
+**[docs/extensions.md](../docs/archive/compute/extensions.md) (historical)** for design rationale.
 
 ---
 
@@ -136,7 +136,7 @@ mctx.dispose()    // free WASM heap
 ```
 
 For off-thread dispatch in a Web Worker, see
-[docs/wasm-web-worker.md](docs/wasm-web-worker.md).
+[docs/wasm-web-worker.md](../docs/archive/compute/wasm-web-worker.md) (historical).
 
 ### Node.js / Electron (N-API addon)
 

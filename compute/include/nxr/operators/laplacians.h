@@ -175,7 +175,7 @@ ConnectionLaplacian assembleTrivialConnectionLaplacian(
 // 3N×3N real symmetric sparse Laplacian on the full 3-frame
 // [a; b; c] = [Re z; Im z; normal], component-major block layout.
 // Two couplings: Product (blkdiag) and Ambient (frame-conjugate).
-// See spec docs/superpowers/specs/2026-06-08-vector-laplacian-3d-design.md §3–4.
+// See spec docs/archive/compute/superpowers/specs/2026-06-08-vector-laplacian-3d-design.md §3–4.
 
 // Coupling for the 3-frame covariant Laplacian (see covariant-laplacian spec).
 enum class CovariantCoupling {
