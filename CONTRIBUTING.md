@@ -120,13 +120,17 @@ Every ctest test has exactly one kind, listed in `tests/kinds.tsv` (`name<TAB>ki
 | kind | what it is for |
 |---|---|
 | `unit` | one function or class on data made in the test (`compute/`, `meeg/`, `io/`, `io/formats/`, the graph executor in `pipelines/graph/`) |
-| `golden` | a result against a stored reference: tests that read `*/test/golden`, and the `*golden*`, `*parity*` and `*_bits` tests |
+| `golden` | a result against a stored reference: tests that read `*/test/golden`, and the `*golden*` and `*parity*` tests |
 | `integration` | a pipeline or the command run end to end (`pipelines/` definition and runner tests, `cli_*`) |
 | `guard` | a rule of the repository checked on its sources (`layering_*`, `test_names_across_layers`, the `check_*.cmake` scripts) |
 
 - **Integration tests are small:** one synthetic subject, one chunk, one band, seconds. They check the wiring (the right nodes, in the right order, storing the right
   names); the maths lives in unit and golden tests. A test over about 5 s is also labelled `slow` (CI runs those on main only).
 - **A new test is added to `tests/kinds.tsv` with its kind.**
+- **A test checks behaviour:** values, shapes, refusals with their reason. Never the internal layout of a provenance record (`producer_json`, `params_json`
+  options), log text or private names; a binding test checks the binding (a call, its result, names and errors), not the library again.
+- **No refactor gates in the suite:** a comparison of new code against the old code it replaces (a golden recorded from the old code, the old function
+  copied into the test) is run during the refactor and removed with it; only references (scipy, MNE, nxr, Rheome, the Studio, Brainstorm) stay as goldens.
 - **Performance is measured in `bench/`** (`NXR_BUILD_BENCH`, off by default; `tools/bench.py` runs it and compares with a baseline), never in a test.
 - **A new pipeline:** one integration test, plus a unit test for each new node.
 - Select by kind: `tools/tests.py status --kind unit --fast REGEX` (`--kind` is repeatable, `--fast` leaves out `slow`).
