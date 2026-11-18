@@ -165,12 +165,19 @@ the work was done, whatever the change.
   record stays true and no green test runs twice.
 - **The full suite runs at the end of a development round, when the maintainers say so,** not during it. During development: `status`,
   then `run` on what the change reaches.
-- **Continuous integration** (`.github/workflows/ci.yml`): a pull request builds on Linux (compiled objects cached with ccache) and runs **only the
-  tests of the libraries its changes touch** and of what depends on them (each library's tests carry its label: `compute`, `meeg`, `io`,
-  `io_formats`, `pipelines`, `pipelines_graph`, `cli`), plus the layering checks; a change to a shared file (top-level CMake, `cmake/`, CI) runs everything;
-  a change to `tools/` runs the layering checks only (except `tools/gen_record_rows.py`, which io's `records_rows_current` test runs: it runs the io tests). **Documentation-only pull requests run nothing.** Tests labelled `slow` run only on main. The full suite (Linux and macOS,
-  slow tests included) runs on pushes to main, nightly, and when the maintainers ask for it at the end of a round. A test that takes minutes gets
-  `set_tests_properties(<test> PROPERTIES LABELS slow)` next to its `add_test`.
+- **Continuous integration** (`.github/workflows/ci.yml`; selection by `tools/ci_select.py`, build targets by `tools/tests.py targets`): CI builds only what it tests.
+  - **Pull requests (Linux) and pushes to main (Linux and macOS)** run the same scoped selection, slow tests left out (a push to main repeats its pull
+    request's selection, which already passed). A changed test source (`*/test/<name>.cpp`) selects only that test; a changed library source selects that
+    library's tests (every kind) plus the **integration** tests of the libraries that depend on it (not their unit or golden tests); the guards
+    (`^layering_`, kind `guard`) always run. Libraries (labels): `compute`, `meeg`, `io_formats`, `io`, `pipelines_graph`, `pipelines`, `cli`.
+    A shared file (top-level CMake, `cmake/`, the CI workflow) selects everything; a change to `tools/` selects the guards only (except `tools/gen_record_rows.py`,
+    which runs the io tests). Only the selected tests' executables are built (plus `nxr-neuro` for tests that call it); `all` is built only for a scope of all.
+    Documentation-only pull requests run nothing.
+  - **The full suite** (every test, slow ones included, Linux and macOS) runs **only nightly**, on version tags and on demand, and the nightly run first checks
+    whether main changed since the last successful nightly run and does nothing if not.
+  - **The bindings** (`matlab.yml`, `wheels.yml`, `wasm.yml`) run only when their binding changes (and on tags and on demand), build only the binding
+    target and the libraries it links, and have no nightly run.
+  - A test that takes minutes is `slow` in `tests/kinds.tsv`.
 
 - **Test only what the change touches.**
   - A small change runs the tests of the function it changed: the one test file, or `ctest -R <test>`, or `pytest file::test`.
