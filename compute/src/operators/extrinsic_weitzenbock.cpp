@@ -5,7 +5,6 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
@@ -41,13 +40,13 @@ namespace nxr::operators::differential {
 // dirac(1) = D_N; its imag block is the extrinsic curvature endomorphism W_ext,
 // which is identically zero on a flat/developable region (constant normals ⇒
 // D_N=0) and nonzero on curved regions.
-Eigen::SparseMatrix<double> assembleExtrinsicWeitzenbock(geometry::Manifold& m) {
-    const int N = m.nV();
+Eigen::SparseMatrix<double> assembleExtrinsicWeitzenbock(const geometry::SurfaceArrays& surface) {
+    const int N = surface.nV();
 
     // Squared immersion Dirac S = Δ₄ + D_N. Built through the public operators
     // facet so it shares the single-source-of-truth dirac assembly (and so the
     // τ=0 / τ=1 blocks are byte-identical to what dirac(τ) returns).
-    Eigen::SparseMatrix<double> S = nxr::operators::diracFamily(m, 0.0) + nxr::operators::diracFamily(m, 1.0);
+    Eigen::SparseMatrix<double> S = nxr::operators::diracFamily(surface, 0.0) + nxr::operators::diracFamily(surface, 1.0);
     S.makeCompressed();
 
     // Imaginary-block extraction: keep entries whose BOTH quaternion components

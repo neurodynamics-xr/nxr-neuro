@@ -3,7 +3,7 @@
 #include "nxr/geometry/curvature.h"
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
@@ -16,7 +16,7 @@ namespace nxr::operators {
 Eigen::VectorXd poisson(
     const Eigen::SparseMatrix<double>& K,
     const Eigen::SparseMatrix<double>& M,
-    CholeskyCache& cache,
+    const nxr::operators::CholeskyFactor& laplacianFactor,
     const std::map<int, double>& densityMap
 ) {
     int n = static_cast<int>(K.rows());
@@ -39,8 +39,8 @@ Eigen::VectorXd poisson(
     Eigen::VectorXd rhoBarVec = Eigen::VectorXd::Constant(n, rhoBar);
     Eigen::VectorXd rhs = M * (rhoBarVec - rho);
 
-    // 4. Solve (K + ε·I) · φ = rhs using the cached factor.
-    const auto& llt = cache.laplacian(K);
+    // 4. Solve (K + ε·I) · φ = rhs using the caller's factor.
+    const auto& llt = laplacianFactor;   // the factor of (K + εI), made by the caller (operators::laplacianFactor)
     Eigen::VectorXd phi = llt.solve(rhs);
     if (llt.info() != Eigen::Success) {
         std::cerr << "[poisson] Solve failed" << std::endl;

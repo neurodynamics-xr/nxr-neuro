@@ -7,13 +7,12 @@
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/geometry/parametrization.h"
@@ -22,6 +21,7 @@
 #include <Eigen/Eigenvalues>
 #include <cmath>
 #include <iostream>
+#include "surface_of.h"
 using namespace nxr::geometry;
 
 static int g_failures = 0;
@@ -47,7 +47,7 @@ static void flatPatch(std::vector<double>& V, std::vector<int32_t>& F) {
 static void testExtrinsicBlock() {
     std::cout << "\n=== dirac: extrinsic block E ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     const int N = m.nV();   // 12
 
     Eigen::SparseMatrix<double> E = nxr::operators::dirac::extrinsicBlock(m);
@@ -68,7 +68,7 @@ static void testExtrinsicBlock() {
 static void testFlatKernel() {
     std::cout << "\n=== dirac: flat-region kernel ===\n";
     std::vector<double> V; std::vector<int32_t> F; flatPatch(V, F);
-    Manifold m(V.data(), 7, F.data(), 6);
+    const auto m = surfaceOf(V.data(), 7, F.data(), 6);
     Eigen::SparseMatrix<double> E = nxr::operators::dirac::extrinsicBlock(m);
     // Flat: Gauss map constant ⇒ N_r − N_q ≡ 0 ⇒ D ≡ 0 ⇒ E ≡ 0 (entirely kernel).
     EXPECT(E.norm() < 1e-10, "E vanishes on a flat patch (pure kernel)");
@@ -91,7 +91,7 @@ static Eigen::SparseMatrix<double> kron4(const Eigen::SparseMatrix<double>& Lc) 
 static void testDiracFamily() {
     std::cout << "\n=== dirac: family L(τ) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     const int N = m.nV();
 
     // HEADLINE anchor: dirac(0) == cotanL ⊗ I₄ byte-for-byte.
@@ -135,7 +135,7 @@ static void testDiracFamily() {
 static void testDiracCache() {
     std::cout << "\n=== dirac: cache lifecycle ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
     nxr::operators::diracFamily(m, 0.5);                       // builds E
     // A second different-τ call reuses the cached E and still re-blends correctly.
@@ -151,7 +151,7 @@ static void testDiracCache() {
 static void testDiracEigenbasis() {
     std::cout << "\n=== dirac: eigenbasis ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
     Eigen::SparseMatrix<double> L = nxr::operators::diracFamily(m, 0.5);
     Eigen::SparseMatrix<double> B = kron4(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Galerkin));   // M_Galerkin ⊗ I₄
@@ -178,13 +178,13 @@ static void testDiracEigenbasis() {
 }
 
 // ⋆_F : 4F×4F diagonal of face areas (each repeated 4×) — the Galerkin measure.
-static Eigen::SparseMatrix<double> faceMass4(Manifold& m) {
+static Eigen::SparseMatrix<double> faceMass4(const nxr::geometry::SurfaceArrays& m) {
     using namespace geometrycentral::surface;
-    auto& geom = m.geometry();
+    auto& geom = gcOf(m).embedded();
     geom.requireFaceAreas();
     const int Fn = m.nF();
     std::vector<Eigen::Triplet<double>> T;
-    for (Face f : m.mesh().faces()) {
+    for (Face f : gcOf(m).inputMesh().faces()) {
         const int fi = static_cast<int>(f.getIndex());
         const double A = geom.faceAreas[f];
         for (int a = 0; a < 4; ++a) T.emplace_back(4 * fi + a, 4 * fi + a, A);
@@ -197,7 +197,7 @@ static Eigen::SparseMatrix<double> faceMass4(Manifold& m) {
 static void testDiracMatrixD() {
     std::cout << "\n=== dirac: first-order operator D ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     const int N = m.nV();    // 12
     const int Fn = m.nF();   // 20
 
@@ -227,7 +227,7 @@ static void testDiracMatrixD() {
 static void testDiracMatrixFlat() {
     std::cout << "\n=== dirac: first-order D on a flat patch ===\n";
     std::vector<double> V; std::vector<int32_t> F; flatPatch(V, F);
-    Manifold m(V.data(), 7, F.data(), 6);
+    const auto m = surfaceOf(V.data(), 7, F.data(), 6);
     // Flat: Gauss map constant ⇒ every N_r − N_q ≡ 0 ⇒ D ≡ 0 (pure kernel).
     EXPECT(nxr::operators::dirac::matrix(m).norm() < 1e-10, "D vanishes on a flat patch");
 }
@@ -235,7 +235,7 @@ static void testDiracMatrixFlat() {
 static void testDiracMatrixCache() {
     std::cout << "\n=== dirac: first-order D cache lifecycle ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
     nxr::operators::dirac::matrix(m);
     // Independent of the squared-form cache: building D must not build E.

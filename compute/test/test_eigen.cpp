@@ -17,13 +17,12 @@
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
@@ -31,6 +30,7 @@
 #include <iomanip>
 #include <vector>
 #include <cmath>
+#include "surface_of.h"
 
 using namespace nxr::geometry;
 using namespace nxr::operators;
@@ -86,8 +86,7 @@ int main() {
     std::cout << "\nTest mesh: icosahedron (" << nV << " V, " << nF << " F)" << std::endl;
 
     // ── Create compute context + factor cache ────────────────
-    nxr::geometry::Manifold m(vertices.data(), nV, faces.data(), nF);
-    nxr::operators::CholeskyCache cache;
+    const auto m = surfaceOf(vertices.data(), nV, faces.data(), nF);
 
     // ── Test 1: Operator assembly ────────────────────────────
     std::cout << "\n[Test 1] Operator Assembly" << std::endl;
@@ -126,7 +125,7 @@ int main() {
     std::map<int, double> densityMap;
     densityMap[0] = 1.0;   // source at vertex 0
     densityMap[3] = -1.0;  // sink at vertex 3 (opposite side of icosahedron)
-    auto phi = nxr::operators::poisson(ops, cache, densityMap);
+    auto phi = nxr::operators::poisson(ops, *nxr::operators::laplacianFactor(ops.cotanLaplacian), densityMap);
     std::cout << "  φ at source (v=0): " << phi(0) << std::endl;
     std::cout << "  φ at sink (v=3):   " << phi(3) << std::endl;
 
@@ -136,16 +135,16 @@ int main() {
     // calls. Mirrors the VectorHeatSolver / SignedHeatSolver pattern.
     std::cout << "\n[Test 7] Geodesic Distance" << std::endl;
     std::vector<int> sources = {0};
-    nxr::geometry::HeatGeodesicSolver heatGeo(m);
-    auto dists = nxr::geometry::heat(heatGeo, sources);
+    auto dists = nxr::geometry::heat(m, sources);
     std::cout << "  Distance at source (v=0): " << dists(0) << std::endl;
     std::cout << "  Distance at v=3:          " << dists(3) << std::endl;
     std::cout << "  Max distance:             " << dists.maxCoeff() << std::endl;
 
     // ── Test 8: Hodge decomposition ──────────────────────────
     std::cout << "\n[Test 8] Hodge Decomposition" << std::endl;
-    auto omega = nxr::synthesis::randomOmega(m.nE());
-    auto hodge = nxr::operators::hodge(m, dec, cache, omega);
+    auto omega = nxr::synthesis::randomOmega(nxr::geometry::meshTopology(m).nE);
+    auto coexact = nxr::operators::coexactFormSolver(dec);
+    auto hodge = nxr::signal::hodge(m, dec, *nxr::operators::exactFormFactor(dec), *coexact, omega);
     std::cout << "  ω norm:       " << omega.norm() << std::endl;
     std::cout << "  α norm:       " << hodge.exactPotential.norm() << std::endl;
     std::cout << "  β norm (V):   " << hodge.coExactPotentialV.norm() << std::endl;
@@ -186,7 +185,7 @@ int main() {
     std::map<int, double> singularities;
     singularities[0] = 1.0;
     singularities[3] = 1.0;  // Antipodal vertices on icosahedron, sum = 2 = χ
-    auto dirField = nxr::operators::connection::trivial(m, dec, cache, singularities);
+    auto dirField = nxr::operators::connection::trivial(m, dec, *nxr::operators::exactFormFactor(dec), singularities);
     std::cout << "  χ = " << dirField.eulerCharacteristic << std::endl;
     std::cout << "  Gauss-Bonnet: " << (dirField.gaussBonnetSatisfied ? "OK" : "FAIL") << std::endl;
     std::cout << "  Direction at face 0: (" << dirField.directionVectors(0, 0) << ", "

@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 #include "nxr/geometry/mesh.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 
 namespace nxr::operators {
@@ -27,7 +27,7 @@ namespace nxr::operators {
 // metric-free exterior derivative. Pure topology — independent of vertex
 // positions. Symmetric PSD; diagonal = vertex degree,
 // off-diagonal = −1 for adjacent vertices, 0 otherwise.
-Eigen::SparseMatrix<double> graphLaplacian(geometry::Manifold& m);
+Eigen::SparseMatrix<double> graphLaplacian(const geometry::SurfaceArrays& surface);
 } // namespace nxr::operators
 
 namespace nxr::operators::laplacian::connection {
@@ -117,7 +117,7 @@ struct ConnectionLaplacian {
  *  for nRoSy energy minimization; revisit if a more principled face
  *  weight emerges upstream. */
 ConnectionLaplacian assembleConnectionLaplacian(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     const ConnectionLaplacianOptions& opts = {}
 );
 
@@ -129,7 +129,7 @@ ConnectionLaplacian assembleConnectionLaplacian(
  *
  *  Throws Error(InvalidInput) for nSym <= 0. */
 Eigen::SparseMatrix<std::complex<double>>
-assembleConnectionGradient(geometry::Manifold& m, int nSym = 1);
+assembleConnectionGradient(const geometry::SurfaceArrays& surface, int nSym = 1);
 
 /** String → enum helpers for binding shells (WASM, addon).
  *  Domain accepts "vertex", "face", "edge". Format accepts "real2N"
@@ -163,10 +163,10 @@ ConnectionLaplacianFormat parseConnectionLaplacianFormat(const std::string& name
  * assembleConnectionLaplacian.
  */
 ConnectionLaplacian assembleTrivialConnectionLaplacian(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     const std::map<int, double>& singularityMap,
     const operators::DECOperators& dec,
-    operators::CholeskyCache& cache,
+    const nxr::operators::CholeskyFactor& exactFactor,
     const ConnectionLaplacianOptions& opts = {}
 );
 
@@ -250,22 +250,22 @@ namespace nxr::operators::differential {
 
 // 3x3 transport of a frame-local vector from vertex i's frame to vertex j's frame,
 // P_ij = Fj^T Fi. Flat => exact for ANY pair (i, j) (adjacent or not). 0-based indices.
-Eigen::Matrix3d frameTransport(geometry::Manifold& m, int i, int j);
+Eigen::Matrix3d frameTransport(const geometry::SurfaceArrays& surface, int i, int j);
 
 // Per-vertex frames Fv stacked as [nV, 9], row v = Fv flattened ROW-major
 // (Fv(0,0),Fv(0,1),Fv(0,2), Fv(1,0),...). Columns of Fv are [e1 | e2 | n].
-Eigen::MatrixXd vertexFrameMatrices(geometry::Manifold& m);
+Eigen::MatrixXd vertexFrameMatrices(const geometry::SurfaceArrays& surface);
 
 // Lift a frame-local field to world (Cartesian): world[v] = Fv * Lloc[v]. [nV,3] -> [nV,3].
-Eigen::MatrixXd liftToWorld(geometry::Manifold& m, const Eigen::MatrixXd& Lloc);
+Eigen::MatrixXd liftToWorld(const geometry::SurfaceArrays& surface, const Eigen::MatrixXd& Lloc);
 
 // Express a world (Cartesian) field in frames: Lloc[v] = Fv^T * Lworld[v]. [nV,3] -> [nV,3].
-Eigen::MatrixXd liftToFrame(geometry::Manifold& m, const Eigen::MatrixXd& Lworld);
+Eigen::MatrixXd liftToFrame(const geometry::SurfaceArrays& surface, const Eigen::MatrixXd& Lworld);
 
 // Covariant gradient operator G : 3N -> 3E (component-major [a;b;c] blocks). For each
 // oriented edge e: i->j, the covariant difference is delta_e = L_j - P_ij L_i. G has a +I3
 // block at vertex j and a -P_ij block at vertex i. A Cartesian-constant field has G*L = 0.
-Eigen::SparseMatrix<double> covariantGradient(geometry::Manifold& m);
+Eigen::SparseMatrix<double> covariantGradient(const geometry::SurfaceArrays& surface);
 
 // Extrinsic vector Weitzenböck Δ₃ + W_extrinsic on the ambient (ℝ³) bundle, a
 // [3V×3V] real symmetric sparse matrix in WORLD-frame component-major layout
@@ -283,5 +283,5 @@ Eigen::SparseMatrix<double> covariantGradient(geometry::Manifold& m);
 // nonzero on curved regions. Like the first-order Dirac, S annihilates GLOBALLY-
 // constant world fields (D kills constant quaternions), so W_ext is detected as a
 // nonzero MATRIX difference from the flat anchor, not as a constant-field response.
-Eigen::SparseMatrix<double> assembleExtrinsicWeitzenbock(geometry::Manifold& m);
+Eigen::SparseMatrix<double> assembleExtrinsicWeitzenbock(const geometry::SurfaceArrays& surface);
 } // namespace nxr::operators::differential

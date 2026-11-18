@@ -6,13 +6,12 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
 #include "nxr/operators/dirac.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/signal/surface_calculus.h"
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/mesh.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
@@ -23,6 +22,7 @@
 #include "geometrycentral/surface/vertex_position_geometry.h"
 #include <cmath>
 #include <iostream>
+#include "surface_of.h"
 using namespace nxr::geometry;
 
 static int g_failures = 0;
@@ -54,7 +54,7 @@ static Eigen::SparseMatrix<double> kronOracle(const Eigen::SparseMatrix<double>&
 static void testBlockKronAndProblem() {
     std::cout << "\n=== eigenProblemFor: assembly ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     const int N = m.nV(), Fn = m.nF();
 
     // blockKron == kron(M, I_b).
@@ -79,7 +79,7 @@ static void testBlockKronAndProblem() {
 static void testCotanMatchesDirect() {
     std::cout << "\n=== eigenOperator(cotan): the shift ladder vs the dense solve (and the old fixed σ = -1e-8) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
     /* THE DEFAULT (no σ) is the scale-aware shift ladder; the truth is the dense generalized solve */
     nxr::operators::EigenResult a = nxr::operators::eigenOperator(m, {nxr::operators::EigenOperator::LaplacianCotan}, 6);
@@ -109,7 +109,7 @@ static double maxMultipletSpread(const Eigen::VectorXd& ev) {
 static void testDiracMultipletsAndDense() {
     std::cout << "\n=== eigenOperator(dirac): ℍ-reconstruction vs dense ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
     nxr::operators::EigenProblem p = nxr::operators::eigenProblemFor(m, {nxr::operators::EigenOperator::Dirac, 0.5});
 
@@ -139,7 +139,7 @@ static void testDiracMultipletsAndDense() {
 static void testDiracFaceEigensolve() {
     std::cout << "\n=== eigenOperator(diracFace) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
     nxr::operators::EigenResult rec = nxr::operators::eigenOperator(
         m, {nxr::operators::EigenOperator::DiracFace, 0.5}, 8,

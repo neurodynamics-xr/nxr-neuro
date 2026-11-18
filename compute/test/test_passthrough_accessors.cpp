@@ -16,19 +16,18 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
 #include "nxr/signal/surface_calculus.h"
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/mesh.h"
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
@@ -37,6 +36,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <vector>
+#include "surface_of.h"
 
 using namespace nxr::geometry;
 using namespace nxr::operators;
@@ -99,7 +99,7 @@ int main() {
     const int nF = static_cast<int>(F.size() / 3);
     std::cout << "  mesh: " << nV << " vertices, " << nF << " faces" << std::endl;
 
-    Manifold m(V.data(), nV, F.data(), nF);
+    const auto m = surfaceOf(V.data(), nV, F.data(), nF);
 
     // ── 1. Bit-identical to assembleDECOperators ────────────────
     {

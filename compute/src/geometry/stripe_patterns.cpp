@@ -3,7 +3,6 @@
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
 
@@ -23,12 +22,13 @@ using namespace geometrycentral::surface;
 namespace {
 
 StripePatternResult buildStripeResult(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const VertexData<Vector2>& field,
     const VertexData<double>& freqs,
     bool connectOnSingularities
 ) {
-    auto& geom = m.geometry();
+    geometry::IntrinsicSurface gs(surface);
+    auto& geom = gs.embedded();
 
     // The convenience overload returns 3D polyline segments directly;
     // skip the per-corner phase intermediate that's only needed if you
@@ -75,29 +75,31 @@ VertexData<Vector2> unpackVertexField(SurfaceMesh& mesh,
 } // namespace
 
 StripePatternResult compute(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const Eigen::VectorXd& vertexFieldRaw,
     double uniformFrequency,
     bool connectOnSingularities
 ) {
+    geometry::IntrinsicSurface gs(surface);
     if (uniformFrequency <= 0) {
         throw Error(ErrorCode::InvalidInput,
             "uniformFrequency must be > 0");
     }
-    auto& mesh = m.mesh();
+    auto& mesh = gs.inputMesh();
     auto field = unpackVertexField(mesh, vertexFieldRaw);
     VertexData<double> freqs(mesh, uniformFrequency);
-    return buildStripeResult(m, field, freqs, connectOnSingularities);
+    return buildStripeResult(surface, field, freqs, connectOnSingularities);
 }
 
 StripePatternResult computeFreq(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const Eigen::VectorXd& vertexFieldRaw,
     const Eigen::VectorXd& frequencies,
     bool connectOnSingularities
 ) {
-    auto& mesh = m.mesh();
-    int nV = m.nV();
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    int nV = surface.nV();
     if (frequencies.size() != nV) {
         throw Error(ErrorCode::InvalidInput,
             "frequencies length must match nV");
@@ -107,7 +109,7 @@ StripePatternResult computeFreq(
     for (Vertex v : mesh.vertices()) {
         freqs[v] = frequencies(static_cast<int>(v.getIndex()));
     }
-    return buildStripeResult(m, field, freqs, connectOnSingularities);
+    return buildStripeResult(surface, field, freqs, connectOnSingularities);
 }
 
 } // namespace nxr::geometry::parametrization::stripes

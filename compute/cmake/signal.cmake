@@ -11,6 +11,7 @@ target_sources(nxr_compute PRIVATE
   src/signal/fourier.cpp
   src/signal/graphfilterbank.cpp
   src/signal/intrinsic_forms.cpp
+  src/signal/hodge_decomposition.cpp
   src/signal/isolines.cpp
   src/signal/streamlines.cpp
   src/signal/jointfilterbank.cpp

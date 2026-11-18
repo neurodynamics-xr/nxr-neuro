@@ -4,13 +4,11 @@
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
@@ -183,6 +181,23 @@ Eigen::MatrixXf dampedWave(
     }
 
     return output;
+}
+
+} // namespace nxr::synthesis
+
+#include <random>
+
+namespace nxr::synthesis {
+
+Eigen::VectorXd randomOmega(int nE, unsigned int seed) {
+    std::mt19937 gen(seed);
+    std::uniform_real_distribution<double> dist(-1.0, 1.0);
+
+    Eigen::VectorXd omega(nE);
+    for (int i = 0; i < nE; i++) {
+        omega(i) = dist(gen);
+    }
+    return omega;
 }
 
 } // namespace nxr::synthesis

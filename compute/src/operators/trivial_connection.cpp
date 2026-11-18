@@ -26,7 +26,7 @@
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/mesh.h"
 #include "nxr/operators/trivial_connection.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -42,7 +42,7 @@ namespace nxr::operators::connection {
 
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
-using geometry::Manifold;
+using geometry::SurfaceArrays;
 
 // ─────────────────────────────────────────────────────────────
 // Helper: 2D orthonormal basis on a face from its normal and
@@ -96,14 +96,15 @@ static double transportNoRotation(
 // ─────────────────────────────────────────────────────────────
 
 Eigen::VectorXd computeTrivialConnection(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const operators::DECOperators& dec,
-    operators::CholeskyCache& cache,
+    const nxr::operators::CholeskyFactor& exactFactor,
     const std::map<int, double>& singularityMap
 ) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
-    int nV = m.nV();
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    int nV = surface.nV();
 
     geom.requireVertexGaussianCurvatures();
 
@@ -117,7 +118,7 @@ Eigen::VectorXd computeTrivialConnection(
         rhs(i) = -K + 2.0 * M_PI * sigma;
     }
 
-    const auto& llt = cache.hodgeExact(dec);
+    const auto& llt = exactFactor;
     Eigen::VectorXd betaTilde = llt.solve(rhs);
     return dec.hodge1 * (dec.d0 * betaTilde);
 }
@@ -129,13 +130,14 @@ Eigen::VectorXd computeTrivialConnection(
 // ─────────────────────────────────────────────────────────────
 
 static Eigen::VectorXd propagateAngles(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const Eigen::VectorXd& phi,   // connection 1-form on edges
     const operators::DECOperators& /*dec*/
 ) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
-    int nF = m.nF();
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    int nF = surface.nF();
 
     Eigen::VectorXd alpha = Eigen::VectorXd::Zero(nF);
     std::vector<bool> visited(nF, false);
@@ -184,12 +186,13 @@ static Eigen::VectorXd propagateAngles(
 // ─────────────────────────────────────────────────────────────
 
 static Eigen::VectorXd propagateAnglesVertex(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const Eigen::VectorXd& phi
 ) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
-    int nV = m.nV();
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    int nV = surface.nV();
 
     geom.requireVertexIndices();
     geom.requireEdgeIndices();
@@ -241,12 +244,13 @@ static Eigen::VectorXd propagateAnglesVertex(
 // ─────────────────────────────────────────────────────────────
 
 static Eigen::MatrixXd buildFaceVectorsFromAngles(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const Eigen::VectorXd& alpha
 ) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
-    int nF = m.nF();
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    int nF = surface.nF();
 
     Eigen::MatrixXd out(nF, 3);
     for (Face f : mesh.faces()) {
@@ -268,12 +272,13 @@ static Eigen::MatrixXd buildFaceVectorsFromAngles(
 // ─────────────────────────────────────────────────────────────
 
 static Eigen::MatrixXd buildVertexVectorsFromAngles(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const Eigen::VectorXd& alpha
 ) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
-    int nV = m.nV();
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    int nV = surface.nV();
 
     geom.requireVertexTangentBasis();
 
@@ -294,22 +299,23 @@ static Eigen::MatrixXd buildVertexVectorsFromAngles(
 // ─────────────────────────────────────────────────────────────
 
 DirectionFieldResult trivial(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const operators::DECOperators& dec,
-    operators::CholeskyCache& cache,
+    const nxr::operators::CholeskyFactor& exactFactor,
     const std::map<int, double>& singularityMap
 ) {
+    geometry::IntrinsicSurface gs(surface);
     DirectionFieldResult result;
     result.eulerCharacteristic = 0.0;
     result.gaussBonnetSatisfied = false;
 
     // 1. Trivial connection φ = δβ
-    result.connections = computeTrivialConnection(m, dec, cache, singularityMap);
+    result.connections = computeTrivialConnection(surface, dec, exactFactor, singularityMap);
 
     // 2. Euler characteristic from Gauss-Bonnet (curvatures already cached)
-    auto& geom = m.geometry();
+    auto& geom = gs.embedded();
     double totalK = 0.0;
-    for (Vertex v : m.mesh().vertices())
+    for (Vertex v : gs.inputMesh().vertices())
         totalK += geom.vertexGaussianCurvatures[v];
     result.eulerCharacteristic = totalK / (2.0 * M_PI);
 
@@ -320,22 +326,22 @@ DirectionFieldResult trivial(
         std::abs(sumSing - result.eulerCharacteristic) < 1e-3;
 
     // 4. Propagate angles via dual spanning tree
-    Eigen::VectorXd alpha = propagateAngles(m, result.connections, dec);
+    Eigen::VectorXd alpha = propagateAngles(surface, result.connections, dec);
 
     // 5. Build direction field vectors
-    result.directionVectors = buildFaceVectorsFromAngles(m, alpha);
+    result.directionVectors = buildFaceVectorsFromAngles(surface, alpha);
 
     // 6. Orthogonal field: rotate by 90° on each face (α + π/2)
     Eigen::VectorXd alphaOrth = alpha.array() + M_PI / 2.0;
-    result.orthogonalVectors = buildFaceVectorsFromAngles(m, alphaOrth);
+    result.orthogonalVectors = buildFaceVectorsFromAngles(surface, alphaOrth);
 
     // 7. Propagate angles on primal graph → per-vertex angles
-    Eigen::VectorXd alphaV = propagateAnglesVertex(m, result.connections);
+    Eigen::VectorXd alphaV = propagateAnglesVertex(surface, result.connections);
 
     // 8. Build vertex direction field vectors
-    result.vertexVectors = buildVertexVectorsFromAngles(m, alphaV);
+    result.vertexVectors = buildVertexVectorsFromAngles(surface, alphaV);
     Eigen::VectorXd alphaVOrth = alphaV.array() + M_PI / 2.0;
-    result.vertexOrthogonalVectors = buildVertexVectorsFromAngles(m, alphaVOrth);
+    result.vertexOrthogonalVectors = buildVertexVectorsFromAngles(surface, alphaVOrth);
 
     std::cout << "[direction_field] χ=" << result.eulerCharacteristic
               << ", Σσ=" << sumSing

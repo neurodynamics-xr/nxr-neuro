@@ -4,7 +4,6 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
@@ -28,15 +27,16 @@ using namespace geometrycentral::surface;
 // Contour lines of a per-vertex scalar field (the Studio's isoline.ts, now on geometry-central's marching triangles: the segments are the same
 // edge crossings, in the order of the curves rather than of the faces).
 IsolineResult isoline(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     const Eigen::VectorXd& scalarField,
     int numLevels,
     double minValue,
     double maxValue
 ) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
-    int nV = m.nV();
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    int nV = surface.nV();
 
     IsolineResult result;
     result.segmentCount = 0;

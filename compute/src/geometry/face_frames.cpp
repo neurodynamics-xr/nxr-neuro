@@ -4,7 +4,6 @@
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
 #include "nxr/synthesis/fields.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -25,13 +24,14 @@ using namespace geometrycentral::surface;
 // Convention matches direction_field.cpp::faceOrthonormalBasis, so
 // tangent vectors transported via the trivial-connection direction
 // field are interpretable in the same coordinate system.
-FaceFrames frames(Manifold& m) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+FaceFrames frames(const SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
 
     geom.requireFaceNormals();
 
-    int nF = m.nF();
+    int nF = surface.nF();
     FaceFrames out;
     out.e1.resize(nF, 3);
     out.e2.resize(nF, 3);

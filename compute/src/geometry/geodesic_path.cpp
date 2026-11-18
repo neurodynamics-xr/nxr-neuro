@@ -4,7 +4,6 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
 #include "nxr/signal/surface_calculus.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -30,11 +29,12 @@ using namespace geometrycentral::surface;
 //    a geodesic).
 // 3. getPathPolyline3D() expands the intrinsic edge sequence into
 //    a 3D polyline lying on the original mesh.
-GeodesicPath tracePathSurface(Manifold& m, int vStart, int vEnd) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+GeodesicPath tracePathSurface(const SurfaceArrays& surface, int vStart, int vEnd) {
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
 
-    int nV = m.nV();
+    int nV = surface.nV();
     if (vStart < 0 || vStart >= nV || vEnd < 0 || vEnd >= nV) {
         throw Error(ErrorCode::InvalidInput,
             "tracePath: vertex index out of range (nV=" + std::to_string(nV) + ")");
@@ -121,8 +121,8 @@ GeodesicPath tracePathSurface(Manifold& m, int vStart, int vEnd) {
     return out;
 }
 
-Eigen::MatrixXd tracePath(Manifold& m, int vStart, int vEnd) {
-    return tracePathSurface(m, vStart, vEnd).positions;
+Eigen::MatrixXd tracePath(const SurfaceArrays& surface, int vStart, int vEnd) {
+    return tracePathSurface(surface, vStart, vEnd).positions;
 }
 
 // The exact polyhedral geodesic distance between two vertices: the
@@ -130,10 +130,11 @@ Eigen::MatrixXd tracePath(Manifold& m, int vStart, int vEnd) {
 // geometry-central's GeodesicAlgorithmExact, Kirsanov's implementation),
 // propagated from vStart only until vEnd is covered. The flip-out path
 // (tracePathSurface) is locally shortest, so its length is >= this.
-double exactDistance(Manifold& m, int vStart, int vEnd) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
-    int nV = m.nV();
+double exactDistance(const SurfaceArrays& surface, int vStart, int vEnd) {
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    int nV = surface.nV();
     if (vStart < 0 || vStart >= nV || vEnd < 0 || vEnd >= nV) {
         throw Error(ErrorCode::InvalidInput,
             "exactDistance: vertex index out of range (nV=" + std::to_string(nV) + ")");

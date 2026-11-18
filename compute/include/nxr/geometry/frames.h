@@ -138,7 +138,7 @@ enum class NormalType {
 
 /** Compute per-vertex normals using a given estimator.
  *  Returns [nV * 3] flat array (row-major). */
-Eigen::MatrixXd normals(Manifold& m, NormalType type);
+Eigen::MatrixXd normals(const SurfaceArrays& surface, NormalType type);
 
 // ── Face Frames ──────────────────────────────────────────────
 
@@ -163,7 +163,7 @@ struct FaceFrames {
     Eigen::MatrixXd normals;  // [nF, 3] — face normals
 };
 
-FaceFrames frames(Manifold& m);
+FaceFrames frames(const SurfaceArrays& surface);
 
 /* Per-vertex orthonormal tangent frame = geometry-central's gauge of the (mollified) input mesh (IntrinsicSurface::tangentBasis; equal to its
  * `vertexTangentBasis` when nothing was mollified): the 3D realization of the per-vertex tangent space in which the vertex connection-Laplacian's complex
@@ -179,7 +179,7 @@ struct VertexFrames {
     Eigen::MatrixXd normals;  // [nV, 3] — vertex normals (area-weighted)
 };
 
-VertexFrames vertexFrames(Manifold& m);
+VertexFrames vertexFrames(const SurfaceArrays& surface);
 
 // ── Complex frame ("grid") ───────────────────────────────────
 //
@@ -188,7 +188,7 @@ VertexFrames vertexFrames(Manifold& m);
 // normal is recovered as real(c) × imag(c) and is not stored
 // separately. This is the representation Brainstorm's Geometry.*.grid
 // fields use; see the bundle design spec §5.1.
-Eigen::MatrixXcd vertexGrid(Manifold& m);   // [nV, 3] complex, from vertexFrames (geometry-central's gauge: what the Levi-Civita connection Laplacian's coordinates decode against)
-Eigen::MatrixXcd faceGrid(Manifold& m);     // [nF, 3] complex
+Eigen::MatrixXcd vertexGrid(const SurfaceArrays& surface);   // [nV, 3] complex, from vertexFrames (geometry-central's gauge: what the Levi-Civita connection Laplacian's coordinates decode against)
+Eigen::MatrixXcd faceGrid(const SurfaceArrays& surface);     // [nF, 3] complex
 } // namespace nxr::geometry
 

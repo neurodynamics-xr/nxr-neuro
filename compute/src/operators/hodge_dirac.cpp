@@ -7,13 +7,11 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "geometrycentral/surface/intrinsic_geometry_interface.h"
@@ -25,22 +23,24 @@
 namespace nxr::operators::hodgedirac {
 
 // The Hodge–Dirac's triangulation is THE one intrinsic construction (nxr/geometry/intrinsic_surface.h, on geometry-central): the input's edge lengths, mollified
-// (`mollify`), the mixed-Voronoi mass of the mollified input (⋆0), flipped to Delaunay (`flipEps`). The geometry::Manifold's intrinsic surface is used when it is
-// the intrinsic one built with these very options; otherwise the same construction is run on the geometry::Manifold's input. d0, d1, ⋆1 and ⋆2 are
+// (`mollify`), the mixed-Voronoi mass of the mollified input (⋆0), flipped to Delaunay (`flipEps`). The surface's own triangulation is used when it is
+// the intrinsic one made with these very options; otherwise the same construction is run on the surface's input mesh. d0, d1, ⋆1 and ⋆2 are
 // geometry-central's DEC operators of that triangulation.
-HodgeDirac assemble(geometry::Manifold& m, double star1Floor, double mollify, double flipEps) {
+HodgeDirac assemble(const geometry::SurfaceArrays& surface, double star1Floor, double mollify, double flipEps) {
+    geometry::IntrinsicSurface gs(surface);
     std::unique_ptr<geometry::IntrinsicSurface> own;
-    geometry::IntrinsicSurface* sp = &m.intrinsicSurface();
-    if (!(m.isIntrinsicDelaunay() && m.options().delaunay.mollify == mollify && m.options().delaunay.flipEps == flipEps)) {
-        const Eigen::MatrixXd& Pm = m.vertexPositions();
-        const Eigen::MatrixXi& Fm = m.faces();
-        std::vector<double> P(static_cast<size_t>(3 * m.nV()));
+    geometry::IntrinsicSurface* sp = &gs;
+    const geometry::IntrinsicOptions& to = surface.triangulation.options;
+    if (!(surface.triangulation.intrinsic() && to.mollify == mollify && to.flipEps == flipEps && to.mass == geometry::MassKind::InputMixedVoronoi)) {
+        const geometry::RowMat3& Pm = surface.positions;
+        const geometry::FaceMat& Fm = surface.faces;
+        std::vector<double> P(static_cast<size_t>(3 * surface.nV()));
         std::vector<int32_t> F(static_cast<size_t>(3 * Fm.rows()));
-        for (int i = 0; i < m.nV(); ++i) for (int k = 0; k < 3; ++k) P[static_cast<size_t>(3 * i + k)] = Pm(i, k);
+        for (int i = 0; i < surface.nV(); ++i) for (int k = 0; k < 3; ++k) P[static_cast<size_t>(3 * i + k)] = Pm(i, k);
         for (int f = 0; f < Fm.rows(); ++f) for (int k = 0; k < 3; ++k) F[static_cast<size_t>(3 * f + k)] = Fm(f, k);
         geometry::IntrinsicOptions o;
         o.intrinsic = true; o.mollify = mollify; o.flipEps = flipEps;
-        own = std::make_unique<geometry::IntrinsicSurface>(P.data(), m.nV(), F.data(), static_cast<int>(Fm.rows()), o);
+        own = std::make_unique<geometry::IntrinsicSurface>(P.data(), surface.nV(), F.data(), static_cast<int>(Fm.rows()), o);
         sp = own.get();
     }
     geometry::IntrinsicSurface& surf = *sp;

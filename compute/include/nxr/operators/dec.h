@@ -105,11 +105,11 @@ struct ManifoldOperators {
 
 /** Assemble operators from a context, on the geometry::Manifold's operator mesh (nxr/geometry/intrinsic_surface.h). Default mass variant is MixedVoronoi. */
 ManifoldOperators assembleManifoldOperators(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     MassMatrixVariant variant = MassMatrixVariant::MixedVoronoi);
 
 /** The mass matrix of a variant on the geometry::Manifold's operator mesh (diagonal for MixedVoronoi and Barycentric). */
-Eigen::SparseMatrix<double> vertexMass(geometry::Manifold& m, MassMatrixVariant variant = MassMatrixVariant::MixedVoronoi);
+Eigen::SparseMatrix<double> vertexMass(const geometry::SurfaceArrays& surface, MassMatrixVariant variant = MassMatrixVariant::MixedVoronoi);
 
 /** String → enum helper for binding shells (WASM, addon, MEX).
  *  Accepts "mixedVoronoi", "galerkin" and "barycentric" ("lumped" is retired: no alias). Throws
@@ -143,12 +143,12 @@ struct DecMatrices {
     Eigen::SparseMatrix<double> d0, d1, hodge0, hodge1, hodge2, hodge1Inverse;
 };
 /** The cotangent Laplacian of the operator mesh (positive semidefinite), by value. */
-Eigen::SparseMatrix<double> cotanLaplacian(geometry::Manifold& m);
+Eigen::SparseMatrix<double> cotanLaplacian(const geometry::SurfaceArrays& surface);
 /** The DEC matrices of the operator mesh, by value. */
-DecMatrices decMatrices(geometry::Manifold& m);
+DecMatrices decMatrices(const geometry::SurfaceArrays& surface);
 /** The DEC of the INPUT mesh (geometry-central's embedded one): for what is indexed by the input's edges and faces (a 1-form on the input's edges, Whitney
  *  interpolation on its faces, the trivial connection, the face Dirac). */
-DECOperators embeddedDEC(geometry::Manifold& m);
+DECOperators embeddedDEC(const geometry::SurfaceArrays& surface);
 
 // The stand-alone DEC FOLLOWS THE MESH OPTION: on the geometry::Manifold's operator mesh (the intrinsic mollified Delaunay mesh by default,
 // the input with geometry::MeshKind::Embedded), so that d0ᵀ ⋆1 d0 == the cotan Laplacian (`cotanLaplacian(m)`) and ⋆0 == the mass of the
@@ -156,17 +156,17 @@ DECOperators embeddedDEC(geometry::Manifold& m);
 // (a cocircular edge gives ⋆1 = 0 and hodge1Inverse is then singular; the floored ⋆1 of the Hodge–Dirac pencil is `star1Floor` in
 // nxr::operators::hodgedirac::assemble). Edges and faces are the operator mesh's (the flipped faces under the intrinsic option; edge e keeps its index through
 // the flips), vertices are the input's. What is indexed by the INPUT's edges and faces uses `embeddedDEC(m)`.
-DECOperators assembleDECOperators(geometry::Manifold& m);
+DECOperators assembleDECOperators(const geometry::SurfaceArrays& surface);
 
 // The operator mesh's DEC matrices one at a time, by value (each call assembles; hold the result, or the bundle from assembleDECOperators).
-Eigen::SparseMatrix<double> d0(geometry::Manifold& m);
-Eigen::SparseMatrix<double> d1(geometry::Manifold& m);
-Eigen::SparseMatrix<double> hodge0(geometry::Manifold& m);
-Eigen::SparseMatrix<double> hodge1(geometry::Manifold& m);
-Eigen::SparseMatrix<double> hodge2(geometry::Manifold& m);
-Eigen::SparseMatrix<double> hodge1Inverse(geometry::Manifold& m);
+Eigen::SparseMatrix<double> d0(const geometry::SurfaceArrays& surface);
+Eigen::SparseMatrix<double> d1(const geometry::SurfaceArrays& surface);
+Eigen::SparseMatrix<double> hodge0(const geometry::SurfaceArrays& surface);
+Eigen::SparseMatrix<double> hodge1(const geometry::SurfaceArrays& surface);
+Eigen::SparseMatrix<double> hodge2(const geometry::SurfaceArrays& surface);
+Eigen::SparseMatrix<double> hodge1Inverse(const geometry::SurfaceArrays& surface);
 // A/3 per vertex on the operator mesh (variant-independent), by value.
-Eigen::VectorXd             vertexDualAreas(geometry::Manifold& m);
+Eigen::VectorXd             vertexDualAreas(const geometry::SurfaceArrays& surface);
 } // namespace nxr::operators
 
 namespace nxr::operators::facegrad {
@@ -179,11 +179,11 @@ namespace nxr::operators::facegrad {
 // = the outward in-plane edge normal). Σ_k l_k = 0 ⇒ constants annihilated and
 // the self term vanishes; output is tangent to each face. Closed-mesh v1 (every
 // face has exactly 3 edge-neighbors): throws Error(InvalidInput) on a boundary.
-Eigen::SparseMatrix<double> gradient(geometry::Manifold& m);
+Eigen::SparseMatrix<double> gradient(const geometry::SurfaceArrays& surface);
 // laplacian: the face Laplacian K̃ = gradientᵀ ⋆_F gradient [F×F] (⋆_F = face
 // areas), built from THE SAME gradient so the two never drift. Symmetric PSD;
 // kernel = constants (genus-0). The dual of the cotan Laplacian.
-Eigen::SparseMatrix<double> laplacian(geometry::Manifold& m);
+Eigen::SparseMatrix<double> laplacian(const geometry::SurfaceArrays& surface);
 } // namespace nxr::operators::facegrad
 
 namespace nxr::operators {
@@ -191,7 +191,7 @@ namespace nxr::operators {
  *  For triangle (vi, vj, vk): ∇u = (1 / 2A) Σ (uₖ - uᵢ) (N × eⱼᵢ)
  *  Returns [nF, 3] matrix. */
 Eigen::MatrixXd gradient(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     const Eigen::VectorXd& scalarField
 );
 } // namespace nxr::operators

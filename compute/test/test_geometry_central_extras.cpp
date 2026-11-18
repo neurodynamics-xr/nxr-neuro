@@ -2,8 +2,8 @@
  * test_geometry_central_extras.cpp — smoke for the geometry-central
  * extras shipped in this PR:
  *
- *   1. VectorHeatSolver (transport / extendScalar / logMap / findCenter)
- *   2. SignedHeatSolver (signed geodesic distance from a curve)
+ *   1. the vector heat method (transport / extendScalar / logMap / findCenter)
+ *   2. the signed heat method (signed geodesic distance from a curve)
  *   3. smoothFace / smoothVertex (NRoSy)
  *   4. compute
  *
@@ -23,13 +23,12 @@
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
@@ -40,6 +39,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <vector>
+#include "surface_of.h"
 
 using namespace nxr::geometry;
 using namespace nxr::operators;
@@ -85,15 +85,14 @@ static void buildIcosahedron(std::vector<double>& V, std::vector<int32_t>& F) {
     };
 }
 
-static void testVectorHeat(Manifold& m) {
+static void testVectorHeat(const nxr::geometry::SurfaceArrays& m) {
     std::cout << "[vhm] starting" << std::endl;
-    VectorHeatSolver vhm(m);
     int nV = m.nV();
 
     // Transport one tangent vector from vertex 0. Expect non-zero output everywhere.
     Eigen::MatrixXd src(1, 3);
     src << 1.0, 0.0, 0.0;
-    auto transported = parallel(vhm, {0}, src);
+    auto transported = parallel(m, std::vector<int>{0}, src);
     REQUIRE(transported.rows() == nV, "transported has nV rows");
     REQUIRE(transported.cols() == 3,  "transported has 3 cols");
     double maxNorm = 0.0;
@@ -103,14 +102,14 @@ static void testVectorHeat(Manifold& m) {
     REQUIRE(maxNorm > 1e-6, "transport produced non-trivial vectors");
 
     // Extend a scalar (1.0 at vertex 0, 0.0 at vertex 6 — antipodes-ish).
-    auto extended = extendScalar(vhm, {0, 6}, (Eigen::VectorXd(2) << 1.0, 0.0).finished());
+    auto extended = extendScalar(m, {0, 6}, (Eigen::VectorXd(2) << 1.0, 0.0).finished());
     REQUIRE(extended.size() == nV, "extended has nV entries");
     // Source values reproduced (heat-method approximation, so loose tol).
     REQUIRE(std::abs(extended(0) - 1.0) < 0.5, "vertex 0 near 1.0");
     REQUIRE(std::abs(extended(6) - 0.0) < 0.5, "vertex 6 near 0.0");
 
     // Log map at vertex 0. Norm of (logX, logY) should be ~ geodesic distance.
-    auto logmap = logMap(vhm, 0);
+    auto logmap = logMap(m, 0);
     REQUIRE(logmap.logCoords.rows() == nV, "logCoords has nV rows");
     REQUIRE(logmap.logCoords.cols() == 2,  "logCoords has 2 cols");
     REQUIRE(logmap.logCoords.row(0).norm() < 1e-6, "log map at source is ~0");
@@ -119,7 +118,7 @@ static void testVectorHeat(Manifold& m) {
     REQUIRE(std::abs(logmap.sourceE2.norm() - 1.0) < 1e-6, "sourceE2 unit");
 
     // findCenter of three nearby vertices: must be a finite 3D point.
-    Eigen::Vector3d c = findCenter(vhm, {0, 1, 5});
+    Eigen::Vector3d c = findCenter(m, {0, 1, 5});
     REQUIRE(std::isfinite(c.x()) && std::isfinite(c.y()) && std::isfinite(c.z()),
             "center is finite");
     // Icosahedron is unit-radius, so center should sit roughly on the surface.
@@ -127,13 +126,12 @@ static void testVectorHeat(Manifold& m) {
     std::cout << "[vhm] PASS" << std::endl;
 }
 
-static void testSignedHeat(Manifold& m) {
+static void testSignedHeat(const nxr::geometry::SurfaceArrays& m) {
     std::cout << "[shm] starting" << std::endl;
-    SignedHeatSolver shs(m);
     int nV = m.nV();
 
     // Loop around the "north" pole of the icosahedron (vertex 0).
-    auto sd = signedHeat(shs, {11, 5, 1, 7, 10}, true);
+    auto sd = signedHeat(m, std::vector<int>{11, 5, 1, 7, 10}, true);
     REQUIRE(sd.size() == nV, "signed distance has nV entries");
     // Should have both signs (curve splits the surface in two).
     REQUIRE(sd.minCoeff() < 0.0 && sd.maxCoeff() > 0.0,
@@ -141,7 +139,7 @@ static void testSignedHeat(Manifold& m) {
     std::cout << "[shm] PASS" << std::endl;
 }
 
-static void testSmoothFields(Manifold& m) {
+static void testSmoothFields(const nxr::geometry::SurfaceArrays& m) {
     std::cout << "[field] starting" << std::endl;
     int nF = m.nF();
     int nV = m.nV();
@@ -160,7 +158,7 @@ static void testSmoothFields(Manifold& m) {
     std::cout << "[field] PASS" << std::endl;
 }
 
-static void testStripes(Manifold& m) {
+static void testStripes(const nxr::geometry::SurfaceArrays& m) {
     std::cout << "[stripes] starting" << std::endl;
     auto vfield = smoothVertex(m, 2);
     auto stripes = compute(m, vfield.vertexFieldRaw, 8.0);
@@ -177,7 +175,7 @@ int main() {
     buildIcosahedron(V, F);
     int nV = static_cast<int>(V.size() / 3);
     int nF = static_cast<int>(F.size() / 3);
-    Manifold m(V.data(), nV, F.data(), nF);
+    const auto m = surfaceOf(V.data(), nV, F.data(), nF);
 
     testVectorHeat(m);
     testSignedHeat(m);

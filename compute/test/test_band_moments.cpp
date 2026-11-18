@@ -11,15 +11,14 @@
 #include "mesh_helpers.h"
 #include "nxr/geometry/curvature.h"
 #include "nxr/geometry/frames.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/mesh.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
@@ -29,6 +28,7 @@
 #include "nxr/signal/surface_calculus.h"
 #include "nxr/geometry/parametrization.h"
 #include "nxr/signal/graphfilterbank.h"
+#include "surface_of.h"
 
 namespace fb = nxr::signal::graphfilterbank;
 using C = std::complex<double>;
@@ -40,7 +40,7 @@ int main() {
   icosphere(2, V, F, 0.05);
   for (std::size_t i = 0; i < V.size(); i += 3) V[i] *= 1.4;                         // an ellipsoid: uneven vertex areas
   const int n = static_cast<int>(V.size() / 3);
-  nxr::geometry::Manifold m(V.data(), n, F.data(), static_cast<int>(F.size() / 3), true);
+  const auto m = surfaceOf(V.data(), n, F.data(), static_cast<int>(F.size() / 3), true);
   const Eigen::SparseMatrix<double> K = nxr::operators::cotanLaplacian(m), M = nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi);
   // the full eigenbasis, mass-orthonormal (dense: a small mesh)
   const Eigen::MatrixXd Kd(K), Md(M);

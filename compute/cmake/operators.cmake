@@ -3,7 +3,7 @@
 
 target_sources(nxr_compute PRIVATE
   src/operators/assembled.cpp
-  src/operators/cholesky_cache.cpp
+  src/operators/factorization.cpp
   src/operators/connection_laplacian.cpp
   src/operators/covariant_differential.cpp
   src/operators/covariant_laplacian.cpp
@@ -14,7 +14,6 @@ target_sources(nxr_compute PRIVATE
   src/operators/face_gradient.cpp
   src/operators/field_registry.cpp
   src/operators/graph_laplacian.cpp
-  src/operators/hodge.cpp
   src/operators/hodge_dirac.cpp
   src/operators/hodge_weights.cpp
   src/operators/magnetic.cpp
@@ -53,9 +52,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_eigen_consistency test/test_eigen_consistency.cpp)
   target_link_libraries(test_eigen_consistency PRIVATE nxr_compute)
   add_test(NAME test_eigen_consistency COMMAND test_eigen_consistency)
-  add_executable(test_cholesky_cache test/test_cholesky_cache.cpp)
-  target_link_libraries(test_cholesky_cache PRIVATE nxr_compute)
-  add_test(NAME test_cholesky_cache COMMAND test_cholesky_cache)
+  add_executable(test_factorization test/test_factorization.cpp)
+  target_link_libraries(test_factorization PRIVATE nxr_compute)
+  add_test(NAME test_factorization COMMAND test_factorization)
   add_executable(test_mass_variants test/test_mass_variants.cpp)
   target_link_libraries(test_mass_variants PRIVATE nxr_compute)
   add_test(NAME test_mass_variants COMMAND test_mass_variants)

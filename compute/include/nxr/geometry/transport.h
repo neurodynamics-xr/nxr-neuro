@@ -49,43 +49,17 @@ struct Compared {
 Compared compare(const std::vector<Eigen::MatrixXcd>& T, const std::vector<Eigen::Matrix3d>& R, const Eigen::VectorXd& Tuu, const Eigen::VectorXd& Tvv);
 
 }  // namespace nxr::geometry
-#include "nxr/geometry/mesh.h"
-
+#include "nxr/geometry/surface_arrays.h"
 namespace nxr::geometry::transport {
 
 // ── Vector Heat Method (Sharp, Soliman, Crane 2019) ──────────
 //
-// Stateful solver around a single (Laplacian, vector heat, Poisson)
-// factor triple. Owned by the binding shell's per-mesh holder
-// (ContextHolder / ContextWrapper) and lazily constructed on first
-// use, mirroring operators::CholeskyCache's lifetime model.
+// Each function builds geometry-central's VectorHeatMethodSolver on the surface (rebuilt from its arrays) and drops it on return: nothing is held
+// between calls. A caller with many queries uses the BATCH form (many source sets or source vertices in one call): one solver, its factorizations made
+// once, every query back-substituted.
 //
-// The solver is opaque to JS — three free functions below operate
-// on a long-lived solver passed by reference. The shells expose
-// these as methods on their stateful context wrapper so the
-// internal `VectorHeatMethodSolver*` never crosses the boundary.
-//
-// All tangent-vector inputs/outputs are V × 3 world-space vectors.
-// Internally we project to / lift from each vertex's intrinsic
-// tangent basis (geometry-central's `vertexTangentBasis`). This
-// is a §11 layout extension: V × 2 tangent-frame data is lifted
-// to V × 3 at the C++/JS boundary so callers never see Vector2.
-
-class VectorHeatSolverImpl;
-class VectorHeatSolver {
-public:
-    explicit VectorHeatSolver(Manifold& m, double tCoef = 1.0);
-    ~VectorHeatSolver();
-    VectorHeatSolver(const VectorHeatSolver&) = delete;
-    VectorHeatSolver& operator=(const VectorHeatSolver&) = delete;
-
-    // Internal — bindings should not call these directly.
-    VectorHeatSolverImpl& impl();
-    Manifold& m();
-
-private:
-    std::unique_ptr<VectorHeatSolverImpl> impl_;
-};
+// All tangent-vector inputs/outputs are V × 3 world-space vectors. Internally we project to / lift from each vertex's intrinsic tangent basis (the
+// gauge, IntrinsicSurface::tangentBasis): callers never see Vector2.
 
 /** Parallel-transport tangent vectors from a sparse set of sources
  *  to every vertex via the vector heat method.
@@ -100,9 +74,17 @@ private:
  *
  *  @return [nV, 3] row-major world-space tangent vectors. */
 Eigen::MatrixXd parallel(
-    VectorHeatSolver& solver,
+    const SurfaceArrays& surface,
     const std::vector<int>& sourceVertices,
-    const Eigen::MatrixXd& sourceVectors  // [nSources, 3]
+    const Eigen::MatrixXd& sourceVectors,  // [nSources, 3]
+    double tCoef = 1.0
+);
+/** The batch form: one transport per (source set, vector set), on one solver. */
+std::vector<Eigen::MatrixXd> parallel(
+    const SurfaceArrays& surface,
+    const std::vector<std::vector<int>>& sourceVertices,
+    const std::vector<Eigen::MatrixXd>& sourceVectors,
+    double tCoef = 1.0
 );
 
 /** Extend a sparse scalar field from the given source vertices to
@@ -112,9 +94,10 @@ Eigen::MatrixXd parallel(
  *
  *  @return [nV] per-vertex scalars. */
 Eigen::VectorXd extendScalar(
-    VectorHeatSolver& solver,
+    const SurfaceArrays& surface,
     const std::vector<int>& sourceVertices,
-    const Eigen::VectorXd& sourceValues   // [nSources]
+    const Eigen::VectorXd& sourceValues,  // [nSources]
+    double tCoef = 1.0
 );
 
 /** Logarithmic map at a source vertex: per-vertex 2D coordinates
@@ -150,18 +133,27 @@ enum class LogMapStrategy {
 };
 
 LogMapResult logMap(
-    VectorHeatSolver& solver,
+    const SurfaceArrays& surface,
     int sourceVertex,
-    LogMapStrategy strategy = LogMapStrategy::AffineLocal
+    LogMapStrategy strategy = LogMapStrategy::AffineLocal,
+    double tCoef = 1.0
+);
+/** The batch form: the log map at each source vertex, on one solver (AffineLocal factors once for all of them). */
+std::vector<LogMapResult> logMap(
+    const SurfaceArrays& surface,
+    const std::vector<int>& sourceVertices,
+    LogMapStrategy strategy = LogMapStrategy::AffineLocal,
+    double tCoef = 1.0
 );
 
 /** Karcher mean / surface center of a set of source vertices.
  *  Returns the 3D world position of the SurfacePoint that
  *  minimizes ∑ d(p, source_i)^p (default p=2 → Karcher mean). */
 Eigen::Vector3d findCenter(
-    VectorHeatSolver& solver,
+    const SurfaceArrays& surface,
     const std::vector<int>& sourceVertices,
-    int p = 2
+    int p = 2,
+    double tCoef = 1.0
 );
 } // namespace nxr::geometry::transport
 

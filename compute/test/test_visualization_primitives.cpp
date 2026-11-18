@@ -21,13 +21,12 @@
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
@@ -40,6 +39,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <vector>
+#include "surface_of.h"
 
 using namespace nxr::geometry;
 using namespace nxr::operators;
@@ -126,7 +126,7 @@ int main() try {
         int nV = static_cast<int>(V.size() / 3);
         int nF = static_cast<int>(F.size() / 3);
 
-        Manifold m(V.data(), nV, F.data(), nF);
+        const auto m = surfaceOf(V.data(), nV, F.data(), nF);
         auto ff = frames(m);
 
         REQUIRE(ff.e1.rows()      == nF, "e1 row count");
@@ -168,7 +168,7 @@ int main() try {
         int nV = static_cast<int>(V.size() / 3);
         int nF = static_cast<int>(F.size() / 3);
 
-        Manifold m(V.data(), nV, F.data(), nF);
+        const auto m = surfaceOf(V.data(), nV, F.data(), nF);
 
         // First sanity: adjacent vertices (0 → 1, share an edge).
         std::cout << "  [2a] tracing 0→1 (adjacent)..." << std::endl;
@@ -240,7 +240,7 @@ int main() try {
         int nF = static_cast<int>(F.size() / 3);
         std::cout << "  grid: nV=" << nV << " nF=" << nF << std::endl;
 
-        Manifold m(V.data(), nV, F.data(), nF);
+        const auto m = surfaceOf(V.data(), nV, F.data(), nF);
         auto uvs = bff(m);
 
         REQUIRE(uvs.rows() == nV, "UV row count");
@@ -264,7 +264,7 @@ int main() try {
         // Closed mesh: should error with a clear message.
         std::vector<double> Vico; std::vector<int32_t> Fico;
         buildIcosahedron(Vico, Fico);
-        Manifold ctxClosed(Vico.data(), 12, Fico.data(), 20);
+        const auto ctxClosed = surfaceOf(Vico.data(), 12, Fico.data(), 20);
         bool threw = false;
         try {
             (void)bff(ctxClosed);

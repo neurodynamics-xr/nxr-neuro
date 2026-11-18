@@ -10,19 +10,19 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "mesh_helpers.h"
 #include "nxr/operators/registry/operator_registry.h"
 #include <Eigen/Eigenvalues>
 #include <algorithm>
+#include "surface_of.h"
 using namespace nxr::geometry;
 using nxr::operators::hodgedirac::HodgeDirac;
 
@@ -31,7 +31,7 @@ static Eigen::MatrixXd dense(const Eigen::SparseMatrix<double>& S) { return Eige
 static void testStructure() {
     std::cout << "\n=== hodgedirac::assemble: structure on the unit icosphere (level 2) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(2, V, F);
-    Manifold m(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
+    const auto m = surfaceOf(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
     HodgeDirac h = nxr::operators::hodgedirac::assemble(m);
     EXPECT(h.nV == 162 && h.nE == 480 && h.nF == 320 && h.K.rows() == 962, "V,E,F = 162,480,320; N = 962");
     EXPECT((h.K - Eigen::SparseMatrix<double>(h.K.transpose())).norm() < 1e-14, "K symmetric");
@@ -50,7 +50,7 @@ static void testStructure() {
 static void testSpectrumAndSplit() {
     std::cout << "\n=== dense pencil: +-mu symmetry, zero modes, D^2 = Hodge Laplacians, the split ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(2, V, F);
-    Manifold m(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
+    const auto m = surfaceOf(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
     HodgeDirac h = nxr::operators::hodgedirac::assemble(m);
     Eigen::MatrixXd Kd = dense(h.K), Md = dense(nxr::operators::hodgedirac::massMatrix(h));
     Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> es(Kd, Md);
@@ -90,7 +90,7 @@ static void testSpectrumAndSplit() {
 static void testSlicingAndShift() {
     std::cout << "\n=== spectrum slicing and the explicit-shift indefinite solve (level 3, 642 vertices) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(3, V, F);
-    Manifold m(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
+    const auto m = surfaceOf(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
     HodgeDirac h = nxr::operators::hodgedirac::assemble(m);
     Eigen::SparseMatrix<double> L0 = h.d0.transpose() * h.star1.asDiagonal() * h.d0, M0(h.nV, h.nV);
     M0 = h.star0.asDiagonal();
@@ -173,7 +173,7 @@ static void testRemoveDCAndRegistry() {
 static void testReferenceMethod() {
     std::cout << "\n=== the reference method (nxr, Rheome) and its named options (level 3, 642 vertices) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(3, V, F);
-    Manifold m(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
+    const auto m = surfaceOf(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
     HodgeDirac h = nxr::operators::hodgedirac::assemble(m);
     EXPECT(h.star1Clamped == 0, "no *1 floor by default (nxr), clamped " + std::to_string(h.star1Clamped));
     const int count = 100;

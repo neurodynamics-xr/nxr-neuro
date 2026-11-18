@@ -14,7 +14,7 @@ namespace nxr::signal {
 
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
-using geometry::Manifold;
+using geometry::SurfaceArrays;
 
 namespace {
 // ─────────────────────────────────────────────────────────────
@@ -100,27 +100,28 @@ IntersectResult lineIntersectsEdge2D(
 } // namespace (anonymous)
 
 StreamlineResult streamline(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     const Eigen::MatrixXd& faceField,
     int numSeeds,
     double stepCoef,
     int maxSteps
 ) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
 
     geom.requireFaceNormals();
     geom.requireEdgeLengths();
 
     // Mean edge length
     double meanEdge = 0.0;
-    int nE = m.nE();
+    int nE = static_cast<int>(gs.inputMesh().nEdges());
     for (Edge e : mesh.edges()) meanEdge += geom.edgeLengths[e];
     meanEdge /= std::max(1, nE);
     double stepSize = meanEdge * stepCoef;
 
     // Seed faces — quasi-uniform across mesh
-    int nF = m.nF();
+    int nF = surface.nF();
     int seedStep = std::max(1, nF / (numSeeds * numSeeds));
 
     std::vector<double> outPts;  // flat [x,y,z, x,y,z, ...] endpoint pairs

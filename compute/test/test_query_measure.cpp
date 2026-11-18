@@ -25,19 +25,19 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/synthesis/fields.h"
 
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <vector>
+#include "surface_of.h"
 
 using namespace nxr::geometry;
 
@@ -78,7 +78,7 @@ int main() {
     const int nV = static_cast<int>(V.size() / 3);
     const int nF = static_cast<int>(F.size() / 3);
 
-    Manifold m(V.data(), nV, F.data(), nF);
+    const auto m = surfaceOf(V.data(), nV, F.data(), nF);
     auto ops = nxr::operators::assembleManifoldOperators(m);
     const double totalArea = ops.totalArea;
     std::cout << "  mesh: " << nV << " V, " << nF << " F, total area " << totalArea << std::endl;

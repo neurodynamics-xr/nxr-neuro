@@ -6,9 +6,7 @@ target_sources(nxr_compute PRIVATE
   src/geometry/curvatures.cpp
   src/geometry/face_areas.cpp
   src/geometry/face_frames.cpp
-  src/geometry/facets.cpp
   src/geometry/frames.cpp
-  src/geometry/manifold.cpp
   src/geometry/geodesic.cpp
   src/geometry/geodesic_path.cpp
   src/geometry/geometry_bundle.cpp
@@ -55,12 +53,15 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_surface_arrays test/test_surface_arrays.cpp)
   target_link_libraries(test_surface_arrays PRIVATE nxr_compute)
   add_test(NAME test_surface_arrays COMMAND test_surface_arrays)
+  add_executable(test_factor_solvers test/test_factor_solvers.cpp)
+  target_link_libraries(test_factor_solvers PRIVATE nxr_compute)
+  add_test(NAME test_factor_solvers COMMAND test_factor_solvers)
   add_executable(test_intrinsic_delaunay test/test_intrinsic_delaunay.cpp)
   target_link_libraries(test_intrinsic_delaunay PRIVATE nxr_compute)
   add_test(NAME test_intrinsic_delaunay COMMAND test_intrinsic_delaunay)
-  add_executable(test_facets test/test_facets.cpp)
-  target_link_libraries(test_facets PRIVATE nxr_compute)
-  add_test(NAME test_facets COMMAND test_facets)
+  add_executable(test_mesh_bundles test/test_mesh_bundles.cpp)
+  target_link_libraries(test_mesh_bundles PRIVATE nxr_compute)
+  add_test(NAME test_mesh_bundles COMMAND test_mesh_bundles)
   add_executable(test_gauge_workflow test/test_gauge_workflow.cpp)
   target_link_libraries(test_gauge_workflow PRIVATE nxr_compute)
   add_test(NAME test_gauge_workflow COMMAND test_gauge_workflow)

@@ -30,9 +30,10 @@ using namespace geometrycentral::surface;
 //
 // For closed meshes the caller must cut the surface to a disc
 // topology first; this function throws otherwise.
-Eigen::MatrixXd bff(Manifold& m) {
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+Eigen::MatrixXd bff(const SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
 
     if (mesh.nBoundaryLoops() == 0) {
         throw Error(ErrorCode::OpenMeshRequired,
@@ -42,7 +43,7 @@ Eigen::MatrixXd bff(Manifold& m) {
 
     VertexData<Vector2> uvs = parameterizeBFF(mesh, geom);
 
-    int nV = m.nV();
+    int nV = surface.nV();
     Eigen::MatrixXd out(nV, 2);
     for (Vertex v : mesh.vertices()) {
         int idx = static_cast<int>(v.getIndex());

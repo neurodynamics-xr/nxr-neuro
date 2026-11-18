@@ -19,7 +19,7 @@ namespace nxr::signal {
  *  Formula: V(f) = (N × (a + b + c)) / (6A)
  *  Returns [nF, 3] matrix (row-major vectors). */
 Eigen::MatrixXd whitney(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     const operators::DECOperators& dec,
     const Eigen::VectorXd& oneForm
 );
@@ -36,7 +36,7 @@ struct IsolineResult {
  *  numLevels evenly-spaced contour values in [minValue, maxValue].
  *  If minValue == maxValue, auto-detects range from the data. */
 IsolineResult isoline(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     const Eigen::VectorXd& scalarField,
     int numLevels = 20,
     double minValue = 0.0,
@@ -61,7 +61,7 @@ struct StreamlineResult {
  * @param maxSteps   max integration steps per streamline
  */
 StreamlineResult streamline(
-    geometry::Manifold& m,
+    const geometry::SurfaceArrays& surface,
     const Eigen::MatrixXd& faceField,
     int numSeeds = 15,
     double stepCoef = 0.15,

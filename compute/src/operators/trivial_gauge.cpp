@@ -1,7 +1,7 @@
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/mesh.h"
 #include "nxr/operators/trivial_connection.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -17,7 +17,7 @@ namespace nxr::operators::connection {
 
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
-using geometry::Manifold;
+using geometry::SurfaceArrays;
 
 // ── Face-basis helpers — copied from direction_field.cpp (keep in sync) ──
 // Same conventions as faceOrthonormalBasis / transportNoRotation there, so
@@ -78,24 +78,25 @@ static double gaugeFaceTransport(
 //   real(rotation .* grid) == the trivial parallel field, and the combed
 //   frame is rotation .* grid.
 GaugeRotations integrateTrivialGaugeRotations(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const nxr::operators::DECOperators& dec,
-    nxr::operators::CholeskyCache& cache,
+    const nxr::operators::CholeskyFactor& exactFactor,
     const std::map<int, double>& singularityMap)
 {
+    geometry::IntrinsicSurface gs(surface);
     // 1. Solve for φ (per-edge trivial-connection 1-form, length nE).
     //    Sign convention: φ(e) is positive in the direction of e.halfedge().
-    Eigen::VectorXd phi = computeTrivialConnection(m, dec, cache, singularityMap);
+    Eigen::VectorXd phi = computeTrivialConnection(surface, dec, exactFactor, singularityMap);
 
-    auto& mesh = m.mesh();
-    auto& geom = m.geometry();
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
 
     geom.requireVertexIndices();
     geom.requireEdgeIndices();
     geom.requireTransportVectorsAlongHalfedge();
 
-    int nV = m.nV();
-    int nF = m.nF();
+    int nV = surface.nV();
+    int nF = surface.nF();
     GaugeRotations out;
     out.vertex.resize(nV);
     out.vertex.setZero();   // unvisited components (disconnected mesh) → 0+0i, not garbage

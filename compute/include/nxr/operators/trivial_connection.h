@@ -6,12 +6,12 @@
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include "nxr/geometry/mesh.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 
 namespace nxr::operators::connection {
 
-using geometry::Manifold;
+using geometry::SurfaceArrays;
 
 // ── Direction Field Design (Trivial Connections) ─────────────
 
@@ -29,7 +29,7 @@ struct DirectionFieldResult {
  * Compute the trivial connection 1-form φ = δβ (per-edge rotation angles).
  *
  * Solves the Poisson system A β = -K + 2π σ where:
- *   A   = d0ᵀ ★₁ d0 (cotangent Laplacian, via operators::CholeskyCache::hodgeExact)
+ *   A   = d0ᵀ ★₁ d0 (cotangent Laplacian, its factor made by operators::exactFormFactor)
  *   K   = per-vertex Gaussian curvature (angle defect)
  *   σ   = singularity index at each vertex (0 for non-singular)
  *
@@ -45,9 +45,9 @@ struct DirectionFieldResult {
  *   e.g. nSym=4 cross field on sphere: two vertices with σ=0.5.
  */
 Eigen::VectorXd computeTrivialConnection(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const operators::DECOperators& dec,
-    operators::CholeskyCache& cache,
+    const nxr::operators::CholeskyFactor& exactFactor,
     const std::map<int, double>& singularityMap
 );
 
@@ -87,9 +87,9 @@ struct GaugeRotations {
     Eigen::VectorXcd face;     // [nF] combing rotation, |r_f| = 1
 };
 GaugeRotations integrateTrivialGaugeRotations(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const operators::DECOperators& dec,
-    operators::CholeskyCache& cache,
+    const nxr::operators::CholeskyFactor& exactFactor,
     const std::map<int, double>& singularityMap);
 
 /**
@@ -103,9 +103,9 @@ GaugeRotations integrateTrivialGaugeRotations(
  * direction and orthogonal vector fields on faces.
  */
 DirectionFieldResult trivial(
-    Manifold& m,
+    const SurfaceArrays& surface,
     const operators::DECOperators& dec,
-    operators::CholeskyCache& cache,
+    const nxr::operators::CholeskyFactor& exactFactor,
     const std::map<int, double>& singularityMap
 );
 

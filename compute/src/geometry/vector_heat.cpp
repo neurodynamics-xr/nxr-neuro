@@ -5,7 +5,6 @@
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/geometry/transport.h"
-#include "nxr/geometry/facets.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
@@ -25,38 +24,30 @@ namespace nxr::geometry::transport {
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
 
-// ── Solver impl (PIMPL) ───────────────────────────────────
+// ── The solver, built inside each call ────────────────────
 //
-// Owns the geometry-central VectorHeatMethodSolver plus a
-// reference to the Manifold so wrappers can resolve
-// vertex / face indices and reach the embedded geometry for
-// tangent-basis lifting.
+// geometry-central's VectorHeatMethodSolver on the surface rebuilt from its arrays; it lives for one call, which may answer many queries (the batch
+// forms below). geometry-central keeps its own factorizations inside the solver.
 
-class VectorHeatSolverImpl {
-public:
+namespace {
+struct Solver {
     // The solver lives on the INTRINSIC Delaunay triangulation (geometry-central's gauge, the one every tangent operator uses); its vertices carry the
     // input's indices. `basis` is the 3D realisation of that gauge (IntrinsicSurface::tangentBasis).
-    VectorHeatSolverImpl(Manifold& c, double tCoef)
-        : m(c), tCoef(tCoef), solver(c.intrinsicSurface().geometry(), tCoef), basis(c.intrinsicSurface().tangentBasis()) {}
-    Manifold& m;
+    Solver(const SurfaceArrays& surface, double tCoef)
+        : gs(surface), nV(surface.nV()), tCoef(tCoef), solver(gs.geometry(), tCoef), basis(gs.tangentBasis()) {}
+    IntrinsicSurface gs;
+    int nV;
     double tCoef;
     VectorHeatMethodSolver solver;
     TangentBasis basis;
-    std::unique_ptr<VectorHeatMethodSolver> inputSolver;   // findCenter only: it returns a point of the INPUT mesh, so it runs there
-    Vertex vertex(int i) { return m.intrinsicSurface().mesh().vertex(static_cast<size_t>(i)); }
+    Vertex vertex(int i) { return gs.mesh().vertex(static_cast<size_t>(i)); }
     std::array<Vector3, 2> frame(int i) const {
         const size_t k = 3 * static_cast<size_t>(i);
         return {Vector3{basis.e1[k], basis.e1[k + 1], basis.e1[k + 2]}, Vector3{basis.e2[k], basis.e2[k + 1], basis.e2[k + 2]}};
     }
 };
 
-VectorHeatSolver::VectorHeatSolver(Manifold& m, double tCoef)
-    : impl_(std::make_unique<VectorHeatSolverImpl>(m, tCoef)) {}
-
-VectorHeatSolver::~VectorHeatSolver() = default;
-
-VectorHeatSolverImpl& VectorHeatSolver::impl()  { return *impl_; }
-Manifold&       VectorHeatSolver::m()   { return impl_->m; }
+}  // namespace
 
 // ── Helpers ───────────────────────────────────────────────
 
@@ -87,13 +78,12 @@ Vector3 tangentToWorld(const Vector2& t,
 
 // ── Tangent vector transport ──────────────────────────────
 
-Eigen::MatrixXd parallel(
-    VectorHeatSolver& solver,
+static Eigen::MatrixXd parallelOn(
+    Solver& s,
     const std::vector<int>& sourceVertices,
     const Eigen::MatrixXd& sourceVectors
 ) {
-    auto& s = solver.impl();
-    int nV = s.m.nV();
+    int nV = s.nV;
 
     if (static_cast<int>(sourceVertices.size()) != sourceVectors.rows()) {
         throw Error(ErrorCode::InvalidInput,
@@ -131,13 +121,12 @@ Eigen::MatrixXd parallel(
 
 // ── Scalar extension ──────────────────────────────────────
 
-Eigen::VectorXd extendScalar(
-    VectorHeatSolver& solver,
+static Eigen::VectorXd extendScalarOn(
+    Solver& s,
     const std::vector<int>& sourceVertices,
     const Eigen::VectorXd& sourceValues
 ) {
-    auto& s = solver.impl();
-    int nV = s.m.nV();
+    int nV = s.nV;
 
     if (static_cast<int>(sourceVertices.size()) != sourceValues.size()) {
         throw Error(ErrorCode::InvalidInput,
@@ -162,13 +151,12 @@ Eigen::VectorXd extendScalar(
 
 // ── Log map ───────────────────────────────────────────────
 
-LogMapResult logMap(
-    VectorHeatSolver& solver,
+static LogMapResult logMapOn(
+    Solver& s,
     int sourceVertex,
     LogMapStrategy strategy
 ) {
-    auto& s = solver.impl();
-    int nV = s.m.nV();
+    int nV = s.nV;
     checkVertexInRange(sourceVertex, nV);
 
     Vertex src = s.vertex(sourceVertex);
@@ -205,14 +193,15 @@ LogMapResult logMap(
 // ── Karcher mean / find center ────────────────────────────
 
 Eigen::Vector3d findCenter(
-    VectorHeatSolver& solver,
+    const SurfaceArrays& surface,
     const std::vector<int>& sourceVertices,
-    int p
+    int p,
+    double tCoef
 ) {
-    auto& s = solver.impl();
-    auto& mesh = s.m.mesh();
-    auto& geom = s.m.geometry();
-    int nV = s.m.nV();
+    IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    int nV = surface.nV();
 
     if (sourceVertices.empty()) {
         throw Error(ErrorCode::InvalidInput,
@@ -226,16 +215,9 @@ Eigen::Vector3d findCenter(
         srcs.push_back(mesh.vertex(static_cast<size_t>(idx)));
     }
 
-    // findCenter requires a ManifoldSurfaceMesh — Manifold stores
-    // exactly that, but the base reference is SurfaceMesh. Cast down.
-    auto* manifold = dynamic_cast<ManifoldSurfaceMesh*>(&mesh);
-    if (!manifold) {
-        throw Error(ErrorCode::NonManifold,
-            "findCenter requires a manifold surface mesh");
-    }
-
-    if (!s.inputSolver) s.inputSolver = std::make_unique<VectorHeatMethodSolver>(geom, s.tCoef);
-    SurfacePoint center = findCenter(*manifold, geom, *s.inputSolver, srcs, p);
+    // findCenter returns a point of the INPUT mesh, so its solver runs there
+    VectorHeatMethodSolver inputSolver(geom, tCoef);
+    SurfacePoint center = geometrycentral::surface::findCenter(mesh, geom, inputSolver, srcs, p);
 
     // Resolve SurfacePoint to a 3D world position via barycentric blend.
     Vector3 pos = center.interpolate(geom.inputVertexPositions);
@@ -244,4 +226,39 @@ Eigen::Vector3d findCenter(
     return out;
 }
 
-} // namespace nxr::geometry::transport
+// ── The public forms: one solver per call, every query of the call on it ──
+
+Eigen::MatrixXd parallel(const SurfaceArrays& surface, const std::vector<int>& sourceVertices, const Eigen::MatrixXd& sourceVectors, double tCoef) {
+    Solver s(surface, tCoef);
+    return parallelOn(s, sourceVertices, sourceVectors);
+}
+
+std::vector<Eigen::MatrixXd> parallel(const SurfaceArrays& surface, const std::vector<std::vector<int>>& sourceVertices,
+                                      const std::vector<Eigen::MatrixXd>& sourceVectors, double tCoef) {
+    if (sourceVertices.size() != sourceVectors.size()) throw Error(ErrorCode::InvalidInput, "parallel: one vector set per source set");
+    Solver s(surface, tCoef);
+    std::vector<Eigen::MatrixXd> out;
+    out.reserve(sourceVertices.size());
+    for (size_t i = 0; i < sourceVertices.size(); ++i) out.push_back(parallelOn(s, sourceVertices[i], sourceVectors[i]));
+    return out;
+}
+
+Eigen::VectorXd extendScalar(const SurfaceArrays& surface, const std::vector<int>& sourceVertices, const Eigen::VectorXd& sourceValues, double tCoef) {
+    Solver s(surface, tCoef);
+    return extendScalarOn(s, sourceVertices, sourceValues);
+}
+
+LogMapResult logMap(const SurfaceArrays& surface, int sourceVertex, LogMapStrategy strategy, double tCoef) {
+    Solver s(surface, tCoef);
+    return logMapOn(s, sourceVertex, strategy);
+}
+
+std::vector<LogMapResult> logMap(const SurfaceArrays& surface, const std::vector<int>& sourceVertices, LogMapStrategy strategy, double tCoef) {
+    Solver s(surface, tCoef);
+    std::vector<LogMapResult> out;
+    out.reserve(sourceVertices.size());
+    for (int v : sourceVertices) out.push_back(logMapOn(s, v, strategy));
+    return out;
+}
+
+}  // namespace nxr::geometry::transport

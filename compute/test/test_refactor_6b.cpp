@@ -22,6 +22,7 @@
 #include "nxr/signal/forms.h"
 #include "nxr/signal/opticalflow_connection.h"
 #include "nxr/signal/phase_gradient.h"
+#include "surface_of.h"
 
 // REFERENCE (row 20): opticalflow_connection.cpp's assembleFaceGradient before the merge.
 static std::vector<float> oldFlowFaceGradient(const float* position, const int32_t* index, int nF) {
@@ -51,9 +52,9 @@ static std::vector<float> oldFlowFaceGradient(const float* position, const int32
 
 
 // REFERENCE (row 18): the isoline of signal/isolines.cpp before the switch to marching triangles (the Studio's isoline.ts port).
-static std::vector<double> oldIsoline(nxr::geometry::Manifold& m, const Eigen::VectorXd& field, int numLevels, double lo, double hi) {
+static std::vector<double> oldIsoline(const nxr::geometry::SurfaceArrays& m, const Eigen::VectorXd& field, int numLevels, double lo, double hi) {
     using namespace geometrycentral; using namespace geometrycentral::surface;
-    auto& mesh = m.mesh(); auto& geom = m.geometry();
+    auto& mesh = gcOf(m).inputMesh(); auto& geom = gcOf(m).embedded();
     const double spacing = (hi - lo) / numLevels;
     std::vector<double> pts;
     for (Face f : mesh.faces()) {
@@ -102,7 +103,7 @@ int main() {
 
     std::cout << "=== row 18: isoline on geometry-central's marching triangles ===\n";
     {
-        nxr::geometry::Manifold m(V.data(), nV, F.data(), nF);
+        const auto m = surfaceOf(V.data(), nV, F.data(), nF);
         Eigen::VectorXd field(nV);
         for (int i = 0; i < nV; ++i) field[i] = std::sin(4 * V[3 * i]) + 0.7 * V[3 * i + 1] * V[3 * i + 2] + 0.01 * nd(gen);
         const int levels = 9;

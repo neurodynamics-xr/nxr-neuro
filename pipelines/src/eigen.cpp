@@ -20,13 +20,12 @@
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
@@ -62,9 +61,9 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
   // exactly as nxr and the Studio prepare a surface; `mollify` and `flip_eps` are the named options
   nxr::geometry::DelaunayOptions dopt;
   dopt.mollify = method.mollify; dopt.flipEps = method.flip_eps;
-  nxr::geometry::Manifold m(vertices.data(), nV, faces.data(), nF, /*intrinsicDelaunay=*/true, dopt);
+  const nxr::geometry::SurfaceArrays surface = nxr::geometry::surfaceArrays(vertices.data(), nV, faces.data(), nF, nxr::geometry::intrinsicOptions(true, dopt));
   const nxr::operators::hodgedirac::HodgeDirac hd =
-      nxr::operators::hodgedirac::assemble(m, method.star1_floor.value_or(0.0), method.mollify, method.flip_eps);
+      nxr::operators::hodgedirac::assemble(surface, method.star1_floor.value_or(0.0), method.mollify, method.flip_eps);
   const int nE = hd.nE;
   const std::int64_t clamped = hd.star1Clamped;
 
