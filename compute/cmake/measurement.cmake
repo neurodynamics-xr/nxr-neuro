@@ -2,6 +2,7 @@
 # Paths are relative to compute/.
 
 target_sources(nxr_compute PRIVATE
+  src/measurement/band_energy.cpp
   src/measurement/congruence_norms.cpp
   src/measurement/measurement_estimate.cpp
   src/measurement/measurement_measures.cpp

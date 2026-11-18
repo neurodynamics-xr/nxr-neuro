@@ -177,7 +177,7 @@ Eigen::VectorXd chebyshevCoefficients(const Gain& g, double lmax, int order);
 /** The series Σ c_k T_k(2λ/lmax − 1) at λ (Clenshaw). */
 double chebyshevEval(const Eigen::VectorXd& c, double lmax, double lambda);
 
-// ── analysis and synthesis ───────────────────────────────────────────────────────────────────────────────────────────────
+// ── coefficients and synthesis weights (the transforms are gwt / igwt: nxr/signal/graphwavelet.h) ──
 
 /** One [n × nT] block per member. Trailing time/trial columns pass through untouched. */
 using Coefficients = std::vector<Eigen::MatrixXd>;
@@ -185,49 +185,10 @@ using CoefficientsC = std::vector<Eigen::MatrixXcd>;
 /** Synthesis weights: the canonical Dual g/S (exact wherever the bank covers) or the Tight g (the frame operator: A·f). */
 enum class Synthesis { Dual, Tight };
 
-/** W_m = Φ g_m(Λ) Φᵀ B F. */
-Coefficients analysis(const GraphFilterbank& bank, const EigenTransform& t, const Eigen::MatrixXd& F);
-CoefficientsC analysis(const GraphFilterbank& bank, const EigenTransform& t, const Eigen::MatrixXcd& F);
-/** W_m = g_m(M⁻¹L) F, by the series. */
-Coefficients analysis(const GraphFilterbank& bank, const ChebyshevOperator& t, const Eigen::MatrixXd& F);
-CoefficientsC analysis(const GraphFilterbank& bank, const ChebyshevOperator& t, const Eigen::MatrixXcd& F);
-
-/** ONE member's band: W_m alone (the spatial band of a level: member l of `weyl` is the level l's band), without the other members' cost. Throws on a member outside the bank. */
-Eigen::MatrixXd analysisMember(const GraphFilterbank& bank, int member, const EigenTransform& t, const Eigen::MatrixXd& F);
-Eigen::MatrixXd analysisMember(const GraphFilterbank& bank, int member, const ChebyshevOperator& t, const Eigen::MatrixXd& F);
 /** How well the series of degree `order` stands for the gain g on [0, λmax]: the largest |g(λ) − Σ c_k T_k| over `samples` points. A narrow band at a fine level of a
  *  large mesh needs a high order (the gain is nearly a spike on [0, λmax]): the caller checks this before trusting a polynomial band. */
 double chebyshevError(const Gain& g, double lmax, int order, int samples = 4096);
 
-/** F = Σ_m w_m(L) W_m (exact eigenbasis). */
-Eigen::MatrixXd igwt(const GraphFilterbank& bank, const EigenTransform& t, const Coefficients& W, Synthesis mode = Synthesis::Dual);
-Eigen::MatrixXcd igwt(const GraphFilterbank& bank, const EigenTransform& t, const CoefficientsC& W, Synthesis mode = Synthesis::Dual);
-/** F = Σ_m w_m(M⁻¹L) W_m; the dual weights g/S are themselves expanded in Chebyshev series (S must stay positive on [0, λmax]). */
-Eigen::MatrixXd igwt(const GraphFilterbank& bank, const ChebyshevOperator& t, const Coefficients& W, Synthesis mode = Synthesis::Dual);
-Eigen::MatrixXcd igwt(const GraphFilterbank& bank, const ChebyshevOperator& t, const CoefficientsC& W, Synthesis mode = Synthesis::Dual);
-
-/** Energy per vertex (and time column), summed over members: Σ_m |W_m|² → [n × nT]  (Rheome scaleSpectrum). */
-Eigen::MatrixXd scaleEnergy(const Coefficients& W);
-/** Energy per member, summed over vertices: [M × nT]  (Rheome vertexSpectrum). */
-Eigen::MatrixXd memberEnergy(const Coefficients& W);
-/** The same, AREA-WEIGHTED: Σ_v w_v |W_m(v)|², `weights` [n] the vertex areas (the mass's diagonal). With the mass the eigenbasis is orthonormal for, it
- *  equals the band's power in mode coefficients, Σ_k g_m(λ_k)² |c_k|² (Parseval), so a tight bank's members add up to the field's power; the unweighted
- *  sum (above, Rheome's reference) counts a densely meshed region more. A complex field's |W|². */
-Eigen::MatrixXd memberEnergy(const Coefficients& W, const Eigen::VectorXd& weights);
-Eigen::MatrixXd memberEnergy(const CoefficientsC& W);
-Eigen::MatrixXd memberEnergy(const CoefficientsC& W, const Eigen::VectorXd& weights);
-
-// ── second moments across bands ──────────────────────────────────────────────────────────────────────────────────────────
-/** A SECOND-MOMENT matrix in mode coefficients (a cross-spectrum, a covariance: C [K × K], Hermitian; e.g. K_Φ S K_Φᵀ with K_Φ = forward(t, kernel)) seen
- *  through every member of a bank: the band's matrix C_m = G_m C G_m, G_m = diag g_m(λ_k), and its power P_m = tr C_m = Σ_k g_m(λ_k)² C_kk. The spatial
- *  band power of a STATISTIC, as memberEnergy is of a field: the same number when C = c cᴴ for a field's coefficients c (with the area weights). Measures
- *  of a band beyond its power (a coherency, the lag content ‖Im C_m‖ / ‖C_m‖) are read from C_m; this function computes none of them. */
-struct BandMoments {
-    Eigen::VectorXd power;                     // [M] P_m (real)
-    std::vector<Eigen::MatrixXcd> matrices;    // [M] C_m, each [K × K]: only when asked (`withMatrices`)
-};
-BandMoments bandMoments(const GraphFilterbank& bank, const Eigen::VectorXd& lambda, const Eigen::MatrixXcd& C, bool withMatrices = false);
-/** The power alone, from the diagonal of C (each mode's power, [K]): P_m = Σ_k g_m(λ_k)² p_k. */
-Eigen::VectorXd bandPower(const GraphFilterbank& bank, const Eigen::VectorXd& lambda, const Eigen::VectorXd& modePower);
+// THE ENERGIES (scaleEnergy, memberEnergy, bandMoments, bandPower) are measurements: nxr/measurement/band_energy.h.
 
 }  // namespace nxr::signal::graphfilterbank

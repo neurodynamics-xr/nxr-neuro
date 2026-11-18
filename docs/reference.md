@@ -681,7 +681,7 @@ partition, axes **[pair (1), frequency]**, the frequency on a SIGNED closed-form
 has every Welch option, `sides: two`, and `input` = the operator, its id, its rows and the band it was made for (the operator's own `band`); its unit is the operator's output squared per Hz.
 It is told from the sensor PSD by its axes (`pair` × a signed frequency). The reference is nxr's `nxr.timefreq.psd` of a complex series (scipy.signal.welch, `return_onesided=False`, f ascending): parity
 to 1e-16 on synthetic signals (`compute/test/golden/gen_rotary_welch_golden.py`), a forward pair peaking at +f and a backward pair at −f (`test_welch`); the stored statistic, the chunk-width
-independence to the last bit and the mirror (fy negated gives P(−f)) are in `test_psd_pipeline`; the graph is `signal.linear_map` (a pointwise linear map) then `signal.complex_psd` (an accumulate node), the operator handed to the node as its matrix and channels by the runner.
+independence to the last bit and the mirror (fy negated gives P(−f)) are in `test_psd_pipeline`; the graph is `signal.linear_map` (a pointwise linear map) then `signal.psd` (a complex series) (an accumulate node), the operator handed to the node as its matrix and channels by the runner.
 
 ## Source maps: band power, quadrature, Hodge power (`pipelines/include/nxr/pipelines/meeg.h`)
 
@@ -738,7 +738,7 @@ from lo to hi inclusive).
   it is a sensor quantity, and every source reading of it carries the kernel's spread and orientation bias; the band's bins are averaged, so the shape of
   the cross-spectrum within the band is not kept.
   **`--estimator analytic`** (spec `docs/specs/2026-11-13-cycle-pattern.md`, stage 1, as amended 2026-11-13: the time tiles): a cross-spectrum PER WINDOW,
-  for what repeats across a rhythm's cycles. Per band, the band's analytic signal (the Studio's Meyer band, `timebank::analysisOfBlock`, gain 2: Re z is the
+  for what repeats across a rhythm's cycles. Per band, the band's analytic signal (the Studio's Meyer band, `signal::wtBlock`, gain 2: Re z is the
   band-passed signal) read chunk by chunk with the band's halo, decimated by the constant-Q ladder's stride (`selection::constantq::strideFor` at the band's low edge, a
   power of two leaving ≥ 24 samples a cycle; alpha at 1200 Hz: 4, so 300 Hz; the samples kept are its multiples on the recording's line; not a filter: a band
   reaching the decimated Nyquist rate is refused), and Σ z zᴴ per TILE of the window level (`partition::crossSpectrum`, m = line sample >> level). The level
@@ -953,7 +953,7 @@ its band, the baseline is a statistic, an event is a connected run of tiles abov
 
       map → spatial_band → measure (per tile) → summarize (baseline) → sign → detect_regions → measure (per patch) → summarize (across patches)
 
-  - **spatial_band** (`nxr::signal::graphfilterbank::analysisMember`): the Weyl band of the level, member `l` of `weyl(mean piece area, l + 1)`. The pairing is by construction and is
+  - **spatial_band** (`nxr::signal::gwt(bank, member, ...)`): the Weyl band of the level, member `l` of `weyl(mean piece area, l + 1)`. The pairing is by construction and is
     checked on every run: the member's λ range equals the level's `lambda_min … lambda_max` in the ladder's record (a ladder made with another area is refused). Meyer
     edges ± 1/3 octave. The transform is EIGENMODE FIRST, CHEBYSHEV SECOND (below: *The spatial band's transform*); `--transform auto` is the default. The series (`chebyshev`, or the announced fallback) is a
     Chebyshev series in the cotangent pencil of the intrinsic Delaunay mesh (the degree is the smallest of 40, 80, … 5120 whose series is within `--tolerance` 0.01 of the band's gain, else the run is refused,
@@ -1631,7 +1631,7 @@ Heat, Itersine, the Meyer octave frame `weyl`/`dyadic`) gives each band; these m
   over vertices) or `memberEnergy(W, areas)`, AREA-WEIGHTED: with the mass the eigenbasis is orthonormal for, it equals the band's power in mode
   coefficients (Parseval), so a tight bank's bands add up to the field's power. Complex fields too (|W|²).
 - **A second-moment statistic** (a cross-spectrum, a covariance, in mode coefficients: e.g. K_Φ S K_Φᵀ with K_Φ = `forward(t, kernel)`):
-  `bandMoments(bank, λ, C, withMatrices)` gives each band's power P_m = Σ_k g_m(λ_k)² C_kk and, on request, its matrix C_m = G_m C G_m; `bandPower(bank, λ,
+  `nxr::measurement::bandMoments(gains, C, withMatrices)` gives each band's power P_m = Σ_k g_m(λ_k)² C_kk and, on request, its matrix C_m = G_m C G_m; `bandPower(bank, λ,
   diag C)` the power alone. Anything else of a band (a coherency, the lag content ‖Im C_m‖ / ‖C_m‖) is read from C_m.
 - **Tested** (`test_band_moments`, an ellipsoid with its full eigenbasis): the band power of c cᴴ equals the area-weighted energy of the filtered field to
   1e-14 (Meyer and MexHat); the Meyer frame's bands add up to tr C; a pattern with no lags gives real band matrices, a travelling one does not.
@@ -1672,7 +1672,7 @@ summed over a tile by `nxr::measurement::reduce` (measure sum), the tile's area 
 pairs at a distance, a filterbank band's matrix).
 - `lagStatistics(S, P_u, P_v, n)`: per pair the lag θ, the coherence |γ|, the lag's standard error se(θ) ≈ √((1 − |γ|²) / (2n|γ|²)) (Bendat & Piersol) and
   |θ| / se; option `debias` for |γ|² at small n.
-- `timebank::equivalentBandwidth(bank, member)` (the statistical bandwidth (∫g²)² / ∫g⁴) and `independentEstimates(bank, member, samples)`, n = B·T: the
+- `timefilterbank::equivalentBandwidth(bank, member) (= nxr::stats::statisticalBandwidth of g²)` (the statistical bandwidth (∫g²)² / ∫g⁴) and `independentEstimates(bank, member, samples)`, n = B·T: the
   number of independent complex estimates a band gives over a window. **Checked against a simulation** (`test_lag`: two channels one sample apart through
   the Meyer alpha band, 500 trials of 4 s): the spread of the estimated lag equals se with n = B·T (ratio 1.10); n = 2BT would understate the noise by √2.
 - `holonomy(edges, θ, faces)`: per face the wrapped sum of its edge lags: 0 where the lags close (they come from one phase map, vortices included),
@@ -1681,7 +1681,7 @@ pairs at a distance, a filterbank band's matrix).
   lags summarised over distance bins by the measurement system.
 - `circularShift(Z, shifts)`: each channel's coefficients rotated in time: its spectrum kept, the lags between channels destroyed: the surrogate of a null.
 
-## A band's coefficients on a chunk: the filterbank transform of a haloed block (`nxr::signal::timefilterbank::analysisOfBlock`, `haloOf`)
+## A band's coefficients on a chunk: the filterbank transform of a haloed block (`nxr::signal::wtBlock`, `haloOf`)
 
 **Why.** The FFT route to a band's complex signal: the chunk (with its halo, from io's chunk service) Fourier transformed, the band's gain put on the bins,
 transformed back; any number of members at once, so a time–frequency cross-spectrum or an average over frequencies is the same call. The bank is the

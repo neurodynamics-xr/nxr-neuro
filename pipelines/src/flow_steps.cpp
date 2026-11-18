@@ -100,7 +100,7 @@ ng::Block block_of(const Eigen::MatrixXcd& A) {
 std::int64_t ceil_div(std::int64_t a, std::int64_t b) { return a >= 0 ? (a + b - 1) / b : -((-a) / b); }
 
 // ── the member's filter bank (timebank.member_analytic) ────────────────────────────────────────────────────────────
-struct BankChoice { tb::TimeFilterbank bank; nxr::signal::Options wo; int member = 0; double centre = 0; };
+struct BankChoice { tb::TimeFilterbank bank; nxr::signal::WtOptions wo; int member = 0; double centre = 0; };
 
 tb::Family family_of(const std::string& f, const char* who) {
   if (f == "itersine") return tb::Family::Itersine;
@@ -139,13 +139,13 @@ BankChoice choose_bank(const Json& p, double sfreq, int channels, const char* wh
 }
 
 struct MemberPrepared {
-  nxr::signal::Wt wt;                 // the template: its plan; a block copies it (no state is held between blocks)
+  nxr::signal::WtLayout layout;       // the bank's lattice and margin (a function of the bank and the options; no state is held between blocks)
   int member = 0;
   std::int64_t p = 1, q = 1, P = 1, margin = 0;
   std::int64_t channels = 0, n_samples = 0;
   std::vector<std::int32_t> picked;
   double rate = 0, centre = 0;
-  MemberPrepared(const BankChoice& c, int ch) : wt(c.bank, ch, c.wo) {}
+  MemberPrepared(const BankChoice& c) : layout(nxr::signal::wtLayout(c.bank, c.wo)) {}
 };
 
 ng::NodeSpec member_analytic() {
@@ -171,7 +171,7 @@ ng::NodeSpec member_analytic() {
   n.traits = ng::node_traits(ng::TimeBehaviour::windowed, ng::Precision::float64, ng::OutputPrecision::follows_input,
                              "each block (own samples and halo) is filtered in double (nxr::signal, overlap-save) and the frames inside the own samples are handed on in float32",
                              "the halo is the filter's margin (tolerance-bound) plus the lattice period on each side; the record's ends are zero padded");
-  n.matches = "Rheome timebank.analysisOwnRate / @timefilterbank wt (the coefficients at the member's own rate); compute nxr::signal::Wt";
+  n.matches = "Rheome timebank.analysisOwnRate / @timefilterbank wt (the coefficients at the member's own rate); compute nxr::signal::wt(layout, ...)";
   n.description = "one filter-bank member's analytic coefficients of the recording's channels at the member's own rate (frames on the lattice g p/q samples), a retiming node";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = need_port(in, "x", "signal.member_analytic");
@@ -179,8 +179,7 @@ ng::NodeSpec member_analytic() {
     if (x.value != ng::ValueType::real) ng::refuse("signal.member_analytic: x is a real recording");
     if (!in.count("channels_of")) ng::refuse("signal.member_analytic: channels_of (the kernel) names the channels kept");
     const BankChoice c = choose_bank(p, *x.sfreq, 0, "signal.member_analytic");
-    const nxr::signal::Wt w(c.bank, 1, c.wo);
-    const nxr::signal::Plan& plan = w.plan();
+    const nxr::signal::WtLayout plan = nxr::signal::wtLayout(c.bank, c.wo);
     ng::Planned out;
     ng::PortType z = x;
     z.value = ng::ValueType::complex;
@@ -199,8 +198,8 @@ ng::NodeSpec member_analytic() {
     const std::vector<std::int32_t> chans = constant(constants, "channels_of", "signal.member_analytic").meta.value("channels", std::vector<std::int32_t>());
     if (chans.empty()) ng::refuse("signal.member_analytic: the kernel names no channel");
     const BankChoice c = choose_bank(p, fs, static_cast<int>(chans.size()), "signal.member_analytic");
-    MemberPrepared m(c, static_cast<int>(chans.size()));
-    const nxr::signal::Plan& plan = m.wt.plan();
+    MemberPrepared m(c);
+    const nxr::signal::WtLayout& plan = m.layout;
     m.member = c.member; m.p = plan.p[c.member]; m.q = plan.q[c.member]; m.P = plan.P; m.margin = plan.margin;
     m.channels = static_cast<std::int64_t>(chans.size()); m.picked = chans; m.rate = plan.rate[c.member]; m.centre = c.centre;
     return std::any(std::move(m));
@@ -221,18 +220,15 @@ ng::NodeSpec member_analytic() {
       if (ch < 0 || ch >= b.rows) ng::refuse("signal.member_analytic: a channel of the kernel is outside the recording's channels");
       for (std::int64_t t = 0; t < width; ++t) X(i, t) = b.re[static_cast<std::size_t>(ch * b.width + skip + t)];
     }
-    nxr::signal::Wt w = m.wt;                                                         // a copy of the template: no state is shared between blocks
-    std::vector<nxr::signal::Block> got = w.add(X);
-    std::vector<nxr::signal::Block> rest = w.finish();
-    // the frames g (global) with at.first <= g p/q < at.first + at.n; local instant k = g - a_feed q / p (a_feed is a multiple of p: P is a multiple of every p)
+    const std::vector<nxr::signal::Block> got = nxr::signal::wt(m.layout, X, {m.member}, a_feed);   // the block from sample a_feed of the recording: the coefficients for t in [-margin, width + margin) of it, the lattice and phase the recording's
+    // the frames g (global) with at.first <= g p/q < at.first + at.n; the block's coefficients carry their global frame number (a_feed is a multiple of P)
     const std::int64_t g0 = ceil_div(at.first * m.q, m.p), g1 = ceil_div((at.first + at.n) * m.q, m.p);
-    const std::int64_t offset = a_feed / m.p * m.q;
     Eigen::MatrixXcd Z = Eigen::MatrixXcd::Constant(m.channels, std::max<std::int64_t>(0, g1 - g0), std::complex<double>(0, 0));
     std::vector<char> have(static_cast<std::size_t>(std::max<std::int64_t>(0, g1 - g0)), 0);
-    for (const auto* blocks : {&got, &rest}) {
-      const nxr::signal::Block& mb = (*blocks)[static_cast<std::size_t>(m.member)];
+    {
+      const nxr::signal::Block& mb = got[static_cast<std::size_t>(m.member)];
       for (Eigen::Index r = 0; r < mb.coef.rows(); ++r) {
-        const std::int64_t g = mb.first + r + offset;
+        const std::int64_t g = mb.first + r;
         if (g < g0 || g >= g1) continue;
         Z.col(g - g0) = mb.coef.row(r).transpose();
         have[static_cast<std::size_t>(g - g0)] = 1;

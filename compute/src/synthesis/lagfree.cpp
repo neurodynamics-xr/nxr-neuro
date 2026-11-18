@@ -1,5 +1,6 @@
 // nxr::synthesis — the lag-free surrogates (synthesis/lagfree.h).
 #include "nxr/synthesis/lagfree.h"
+#include "nxr/stats/bandwidth.h"
 
 #include "nxr/core/algebra.h"
 #include <algorithm>
@@ -127,11 +128,11 @@ Eigen::VectorXd interpolateTileSeries(const std::vector<double>& v, std::int64_t
 
 double effectiveBandwidth(const Eigen::VectorXd& freq, const Eigen::VectorXd& psd, const Eigen::VectorXd& gain) {
   if (freq.size() < 2 || freq.size() != psd.size() || (gain.size() != 0 && gain.size() != psd.size())) throw std::invalid_argument("effectiveBandwidth: freq, psd (and gain) of one length >= 2");
-  double s1 = 0, s2 = 0;
-  for (Eigen::Index i = 0; i < psd.size(); ++i) { const double p = psd[i] * (gain.size() ? gain[i] * gain[i] : 1.0); s1 += p; s2 += p * p; }
-  if (!(s2 > 0)) throw std::invalid_argument("effectiveBandwidth: the spectrum holds no power");
+  Eigen::VectorXd p(psd.size());
+  for (Eigen::Index i = 0; i < psd.size(); ++i) p[i] = psd[i] * (gain.size() ? gain[i] * gain[i] : 1.0);
   const double df = (freq[freq.size() - 1] - freq[0]) / static_cast<double>(freq.size() - 1);
-  return s1 * s1 * df / s2;
+  try { return nxr::stats::statisticalBandwidth(p, df, nxr::stats::Rule::Sum); }
+  catch (const std::invalid_argument&) { throw std::invalid_argument("effectiveBandwidth: the spectrum holds no power"); }
 }
 
 Eigen::MatrixXcd lagfreeSecondMomentDraw(const Eigen::MatrixXd& ReQ0, double dof, std::uint64_t seed, std::uint64_t draw) {

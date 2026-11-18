@@ -38,7 +38,7 @@ steps:
     over: recording
     do:
       - {node: signal.linear_map, in: {x: recording, operator: plane}, out: z}
-      - {node: signal.complex_psd, in: {z: z, exclude: bad}, with: {segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: psd}
+      - {node: signal.psd, in: {x: z, exclude: bad}, with: {segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: psd}
 
 outputs:
   psd:

@@ -49,6 +49,7 @@
 #include "nxr/stats/summary.h"
 #include "nxr/signal/phase_gradient.h"
 #include "nxr/signal/timefilterbank.h"
+#include "nxr/signal/wavelet.h"
 #include "nxr/select/risefall.h"
 #include "nxr/select/dyadic.h"
 #include "nxr/pipelines/input.h"
@@ -830,7 +831,7 @@ void bind_execution(std::vector<StepSpec>& r) {
         tb::Design design(a.shape, 2.0, tb::Sides::Analytic);
         design.bands = a.bank;
         design.edgeBins = tb::EdgeBins::Drop;
-        const tb::Coefficients coefficients = tb::analysis(tb::design(design, static_cast<std::size_t>(block.rows()), a.sfreq), block);   // per band: [samples x channels]
+        const tb::Coefficients coefficients = nxr::signal::wt(tb::design(design, static_cast<std::size_t>(block.rows()), a.sfreq), block);   // per band: [samples x channels]
         const std::int64_t kl = std::min(keep, b.left), kr = std::min(keep, b.right), w = b.own() + kl + kr, c0 = b.left - kl;
         Block y{NB * M, w, kl, kr, std::vector<float>(static_cast<std::size_t>(NB * M * w)), std::vector<float>(static_cast<std::size_t>(NB * M * w))};
         for (std::int64_t bi = 0; bi < NB; ++bi) {
@@ -1508,7 +1509,7 @@ const std::map<std::string, std::string>& retired_steps() {
       {"surrogate.lagfree_pairs", "synthesis.lagfree_pairs"},
       {"timebank.analytic_bands", "signal.analytic_bands"},
       {"timebank.member_analytic", "signal.member_analytic"},
-      {"welch.complex_psd", "signal.complex_psd"},
+      {"welch.complex_psd", "signal.psd"},
       {"welch.cross_spectrum", "signal.xpsd"},
       {"welch.mode_cross_spectra", "signal.mode_cross_spectra"},
       {"welch.psd", "signal.psd"},

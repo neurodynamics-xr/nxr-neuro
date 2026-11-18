@@ -1,4 +1,4 @@
-// nxr-pipelines — the Welch nodes (welch.psd, signal.linear_map, welch.complex_psd) registered in nxr::graph::registry(); idempotent. See src/welch_steps.cpp.
+// nxr-pipelines — the Welch nodes (welch.psd, signal.linear_map, signal.psd of a complex series) registered in nxr::graph::registry(); idempotent. See src/welch_steps.cpp.
 #pragma once
 
 namespace nxr::pipelines::graph {

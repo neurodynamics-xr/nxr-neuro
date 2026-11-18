@@ -4,6 +4,7 @@
 //     power-partition bank on the whole record in one block (parity up to nxr's float32); the frame of a sample is the golden's (the frame grid is a selection, its tiles one of the inputs);
 //   - the result does not depend on the block size or on how the record is cut into blocks (sums add, maxima merge);
 //   - the power partition's band powers add to the broadband power; the Morlet shape chunked with a halo matches the same filter over the whole record.
+#include "nxr/signal/wavelet.h"
 #include <cmath>
 #include <limits>
 #include <fstream>
@@ -37,7 +38,7 @@ Eigen::MatrixXcd bandAnalytic(const Spec& s, const Bands& bands, tb::Family fami
   tb::Design d(family, 2.0, tb::Sides::Analytic);
   d.bands = bands;
   d.edgeBins = tb::EdgeBins::Drop;
-  return tb::analysis(tb::design(d, static_cast<std::size_t>(s.block.rows()), s.sfreq), s.block)[b];
+  return nxr::signal::wt(tb::design(d, static_cast<std::size_t>(s.block.rows()), s.sfreq), s.block)[b];
 }
 // The broadband analytic signal: positive frequencies doubled, the rest 0 (the plain FFT Hilbert).
 Eigen::MatrixXcd analyticBroadband(const Spec& s) {

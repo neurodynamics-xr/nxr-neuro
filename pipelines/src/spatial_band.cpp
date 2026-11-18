@@ -10,6 +10,7 @@
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/select/dyadic.h"
+#include "nxr/signal/graphwavelet.h"
 #include "nxr/pipelines/task.h"
 #include "nxr/signal/riesz.h"
 #include "nxr/signal/phase_gradient.h"
@@ -157,7 +158,7 @@ SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const 
       for (Eigen::Index k = 0; k < gv0->size(); ++k) (*gv0)(k) = gain(T->lambda(k));
       out.apply = [T, gv0](const Eigen::MatrixXd& F) { return Eigen::MatrixXd(T->phi * (gv0->asDiagonal() * (T->phi.transpose() * (T->mass * F)))); };
     } else {
-      out.apply = [bank, l, T](const Eigen::MatrixXd& F) { return fb::analysisMember(bank, l, *T, F); };
+      out.apply = [bank, l, T](const Eigen::MatrixXd& F) { return nxr::signal::gwt(bank, l, *T, F); };
     }
     if (opt.riesz) {
       const auto G = std::make_shared<nxr::signal::Gradient>(riesz_gradient(S, {}));
@@ -183,7 +184,7 @@ SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const 
   auto op = std::make_shared<fb::ChebyshevOperator>(Lap, M, lmax, order);
   out.info["order"] = order; out.info["series_error"] = err; out.info["lambda_top"] = lmax;
   if (is_hat(opt)) out.apply = [gain, op](const Eigen::MatrixXd& F) { return op->apply(gain, F); };
-  else out.apply = [bank, l, op](const Eigen::MatrixXd& F) { return fb::analysisMember(bank, l, *op, F); };
+  else out.apply = [bank, l, op](const Eigen::MatrixXd& F) { return nxr::signal::gwt(bank, l, *op, F); };
   if (opt.riesz) {
     // the series of g/√λ: it must follow ITS gain within the tolerance (a scaling member's gain is not 0 at λ = 0: g/√λ is singular and no series follows it, refused)
     const fb::Gain gR = nxr::signal::rieszGain(gain);

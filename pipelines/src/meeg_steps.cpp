@@ -33,6 +33,7 @@
 #include "nxr/measurement/reduce.h"
 #include "nxr/pipelines/spectral_record.h"
 #include "nxr/signal/timefilterbank.h"
+#include "nxr/signal/wavelet.h"
 #include "nxr/meeg/inverse.h"
 #include "nxr/meeg/forward.h"
 #include "nxr/meeg/sphere.h"
@@ -660,7 +661,7 @@ ng::NodeSpec analytic_bands() {
                   {"channel_types", Json::array({"MEG", "MEG MAG", "MEG GRAD", "EEG", "SEEG", "ECOG"}), "the channel types kept when channels_of is absent (good channels only)", "-", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::windowed, ng::Precision::float64, ng::OutputPrecision::follows_input, "the block is transformed in double; the output block follows the input (float32 blocks)",
                              "the halo is the length of the narrowest band's response (nxr::signal::timefilterbank::haloOf), samples on each side");
-  n.matches = "the Studio's Signal chain meyerBand (toolbox/wavelets/dyadicFrame.ts); compute nxr::signal::timefilterbank::analysisOfBlock";
+  n.matches = "the Studio's Signal chain meyerBand (toolbox/wavelets/dyadicFrame.ts); compute nxr::signal::wtBlock";
   n.description = "the analytic signal of each band (Meyer bands), with the halo the narrowest band needs";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = streamed(in, "x", "signal.analytic_bands");
@@ -695,7 +696,7 @@ ng::NodeSpec analytic_bands() {
     Eigen::MatrixXd block(M, b.width);
     for (std::int64_t i = 0; i < M; ++i) block.row(i) = all.row(a.channels[static_cast<std::size_t>(i)]).cast<double>();
     const std::int64_t left = b.left - keep, own = b.own() + 2 * keep;
-    const auto t = nxr::signal::timefilterbank::analysisOfBlock(a.design, block, a.sfreq, static_cast<std::size_t>(left), static_cast<std::size_t>(own));
+    const auto t = nxr::signal::wtBlock(a.design, block, a.sfreq, static_cast<std::size_t>(left), static_cast<std::size_t>(own));
     const std::int64_t B = static_cast<std::int64_t>(t.own.size());
     ng::Block z;
     z.rows = B * M; z.width = own; z.left = keep; z.right = keep;
