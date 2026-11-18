@@ -212,7 +212,7 @@ Signature s_reduce_members() {
         const PortType& x = u.type("x");
         const PortType& ev = u.type("over");
         if (x.domain.factors.empty() || !member_like(x.domain.factors.back())) u.fail("x", "must be a measurement over a grid's members (a tile level)");
-        if (!ev.sel || ev.sel->type != "spans") u.fail("over", "must be a spans selection");
+        if (!ev.sel || (ev.sel->type != "spans" && ev.sel->type != "set")) u.fail("over", "must be a spans selection, or the set of events `select.events.regions` found on the cells");
         const std::string over = partition_id(x.domain.factors.back());
         if (!ev.sel->detected_over.empty() && ev.sel->detected_over != over)
           u.fail("over", "were detected on the members of `" + ev.sel->detected_over + "`; x is measured over `" + over + "`. Reduce a measurement over the grid the events were found on (or detect them on x's).");
@@ -434,7 +434,7 @@ Signature s_burst_stages() {
 
 Signature s_cell_extent() {
   return sig(Move::detect)
-      .in("x", measurement_any().because("The extent is found on a measurement over a joint partition."))
+      .in("x", measurement_any().because("The extent is found on a measurement over a product of a surface grid and a time grid (the cells)."))
       .in("baseline", statistic_any())
       .in("events", selection_any())
       .out("labels", make_of(PortClass::selection))
@@ -442,7 +442,7 @@ Signature s_cell_extent() {
         const PortType& x = u.type("x");
         const PortType& b = u.type("baseline");
         const PortType& ev = u.type("events");
-        if (x.domain.factors.empty() || !is_joint_members(x.domain.factors[0])) u.fail("x", "must be a measurement over a joint partition");
+        if (x.domain.factors.empty() || !is_members(x.domain.factors[0])) u.fail("x", "must be a measurement over a product of a surface grid and a time grid (the cells)");
         if (!b.of || !same(b.of->on, x.domain)) u.fail("baseline", "is not a statistic of x");
         if (!ev.sel || ev.sel->type != "spans") u.fail("events", "must be spans");
         PortType& l = u.out.at("labels");

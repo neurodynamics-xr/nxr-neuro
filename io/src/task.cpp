@@ -563,6 +563,7 @@ ArrayView view_of(const Values& v, const std::string& what) {
   std::int64_t n = 1;
   for (const auto d : v.shape) n *= d;
   const int filled = !v.f32.empty() + !v.f64.empty() + !v.i32.empty() + !v.u8.empty();
+  if (filled == 0 && n == 0) return view(v.f64, v.shape);                    // no member at all (a run that found no event): an empty array of its shape
   if (filled != 1) throw Error(code::invalid_argument, what + ": values in one of float32, float64, int32 or uint8");
   if (n != v.size()) throw Error(code::invalid_argument, what + ": " + std::to_string(v.size()) + " values for the shape of " + std::to_string(n));
   if (!v.f32.empty()) return view(v.f32, v.shape);

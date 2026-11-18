@@ -252,7 +252,15 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
       tu.in = n.in_types;
       tu.in_names = n.in;
       tu.made_by = made_by;
-      for (std::size_t i = 0; i < spec.signature->outputs.size() && i < u.out.size(); ++i) tu.out_names[spec.signature->outputs[i].first] = u.out[i];
+      {                                                                 // the names given, in the order of the outputs the use makes (a node that makes a part of its outputs by a parameter: outputs_for)
+        const std::vector<std::string> only = spec.outputs_for ? spec.outputs_for(n.params) : std::vector<std::string>();
+        std::size_t k = 0;
+        for (std::size_t i = 0; i < spec.signature->outputs.size() && k < u.out.size(); ++i) {
+          const std::string& port = spec.signature->outputs[i].first;
+          if (spec.outputs_for && std::find(only.begin(), only.end(), port) == only.end()) continue;
+          tu.out_names[port] = u.out[k++];
+        }
+      }
       Types made_types;
       try { made_types = type_use(u.node, *spec.signature, tu, n.params); } catch (const TypeRefusal& e) { refuse(e.what()); }
       for (auto& [port, mt] : made_types) {

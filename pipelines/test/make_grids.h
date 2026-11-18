@@ -38,6 +38,18 @@ inline std::vector<nxr::io::Json> make_time_grids(nxr::io::DatasetWriter& ds, nx
   return nxr::pipelines::run_shipped(ds, sub, "select_time_grid", set, false);
 }
 
+/** the per-SAMPLE cells `global_bursts` fits the bursts' edges on: the line's one-sample time grid (a tile of one sample: the duration is 1 / rate s) and its product with the surface's grid at `scale` (a quantity, e.g.
+ *  "parts 16"), named "<recording> <surface> samples product" */
+inline void make_sample_product(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const std::string& recording, const std::string& surface, double sfreq, const std::string& scale) {
+  char dur[64];
+  std::snprintf(dur, sizeof dur, "%.12g s", 1.0 / sfreq);
+  const auto g = make_time_grids(ds, sub, "tiles", nxr::io::Json{{"duration", dur}, {"recording", recording}});
+  std::string grid;
+  for (const auto& r : g) for (const auto& x : r["stored"]) if (x["output"] == "grid") grid = x["name"].get<std::string>();
+  nxr::pipelines::run_shipped(ds, sub, "select_product", nxr::io::Json{{"recording", recording}, {"surface", surface}, {"time_grid", grid}, {"name", recording + " " + surface + " samples product"},
+                                                                       {"couple", nxr::io::Json::array({nxr::io::Json{{"factor", 0}, {"scale", scale}}})}}, false);
+}
+
 /** the frames of `recording` for a band (a quantity, "8-12 Hz"), the frame density the definition's default (36 frames a cycle of the band's centre) unless `frames_per_cycle` is given */
 inline std::vector<nxr::io::Json> make_frames(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const std::string& recording, const std::string& band, std::optional<double> frames_per_cycle = std::nullopt) {
   nxr::io::Json set = nxr::io::Json{{"recording", recording}, {"rule", "frames"}, {"band", band}};

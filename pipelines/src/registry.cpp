@@ -470,7 +470,7 @@ std::vector<StepSpec> build() {
                "`durations` seconds (the default: margin, smooth, tau_max) | cycles (nxr `burst_stages`' own: margin_cycles 10, smooth_cycles 1, tau_max_cycles 10 of the band's centre; the seconds parameters are then not used)",
                [](const Values& ins, const Json& p, const PlanContext&) {
                  const Value &x = ins.at("x"), &ev = ins.at("events");
-                 need(x.cls == "series" && x.time, "risefall: x must be the sample series of the run (`collect`)");
+                 need((x.cls == "series" && x.time) || (x.cls == "measurement" && x.facts.value("merged_by", std::string()) == "max"), "risefall: x must be the sample series of the run (`collect`, or the largest tile's mean per sample: `roll_up` with merge max of a product of the surface level and the one-sample time grid)");
                  need(ev.cls == "spans" && ev.facts.contains("detect") && ev.facts.contains("over"), "risefall: events must be the spans `detect_spans` made");
                  try { nxr::select::parseModel(p["model"].is_string() ? p["model"].get<std::string>() : std::string("?")); } catch (const std::invalid_argument& e) { refuse(std::string("risefall: ") + e.what()); }
                  need(p["durations"] == "seconds" || p["durations"] == "cycles", "risefall: durations " + p["durations"].dump() + ": seconds (margin, smooth, tau_max) or cycles (margin_cycles, smooth_cycles, tau_max_cycles of the band's centre)");
@@ -553,7 +553,7 @@ std::vector<StepSpec> build() {
                  y.unit.reset();
                  return Values{{"y", y}};
                }});
-  r.push_back({"measurement.summarize", "after", {"x"}, {}, {"y"}, Json{{"summaries", Json::array({"median", "mad"})}, {"combine", "each"}, {"ddof", 1}, {"measure", nullptr}},
+  r.push_back({"measurement.summarize", "after", {"x"}, {}, {"y"}, Json{{"summaries", Json::array({"median", "mad"})}, {"combine", "each"}, {"ddof", 1}, {"measure", nullptr}, {"by_factor", nullptr}},
                "a statistic across a partition's members; the summaries of compute nxr::stats (numpy median and linear percentile, Rheome's robust SD, MATLAB's sd, kurtosis, skewness)",
                "a measurement of the run summarised over its partition's members into a STATISTIC (field -> selection/measurement -> statistic): per row (each), pooled, or of the mean over rows",
                [](const Values& ins, const Json& p, const PlanContext&) {
@@ -577,6 +577,12 @@ std::vector<StepSpec> build() {
                  }
                  y.facts["summaries"] = p["summaries"];
                  y.facts["combine"] = p["combine"];
+                 if (!p["by_factor"].is_null()) {                // a measurement over a PRODUCT summarised across the other factors, one row per member of factor `by_factor` (a baseline per spatial tile across the time tiles)
+                   need(p["by_factor"].is_number_integer() && p["by_factor"].get<int>() >= 0, "summarize: by_factor is the number of a factor of x's product (0 = the first, the fastest)");
+                   need(x.facts.contains("over") && x.facts["over"].contains("selection_id") && !x.facts["over"]["selection_id"].is_null(), "summarize: by_factor needs x over a stored product selection");
+                   need(p["combine"] == "each", "summarize: by_factor gives a row per member of the factor: combine each");
+                   y.facts["by_factor"] = p["by_factor"];
+                 }
                  return Values{{"y", y}};
                }});
   r.push_back({"fit_gate", "after", {"events", "fit_r2"}, {}, {"spans"}, Json{{"min_r2", 0.7}},
@@ -637,8 +643,8 @@ std::vector<StepSpec> build() {
                  }
                  need(p["merge_s"].get<double>() >= 0 && p["min_s"].get<double>() >= 0, "detect_spans: merge_s and min_s are at least 0");
                  need(p["max_s"].is_null() || (p["max_s"].is_number() && p["max_s"].get<double>() >= p["min_s"].get<double>()), "detect_spans: max_s is null (no limit) or at least min_s");
-                 need(!(x.facts.contains("reduced") && x.facts["reduced"].value("groups", std::string()) == "per_hemisphere" && p["combine"] == "mean"),
-                      "detect_spans: x is a trace per hemisphere (per_hemisphere): combine each finds the events of each hemisphere; the mean over the hemispheres is not a per-hemisphere detection");
+                 need(!(x.facts.value("rolled_to", std::string()) == "pieces" && p["combine"] == "mean"),
+                      "detect_spans: x is a trace per piece (rolled to pieces): combine each finds the events of each hemisphere; the mean over the hemispheres is not a per-hemisphere detection");
                  if (ins.count("baseline")) {   // the thresholds' ingredients from a stored statistic (summarize: median and mad, on the same rows)
                    const Value& b = ins.at("baseline");
                    need(b.cls == "statistic" && b.facts.contains("summaries"), "detect_spans: baseline must be a statistic made by `summarize`");
@@ -1277,7 +1283,8 @@ void bind_execution(std::vector<StepSpec>& r) {
     const Json& p = std::any_cast<const Json&>(st);
     const Array &x = ins.at("x"), &ev = ins.at("events");
     const std::int64_t R = x.rows, E = ev.rows;
-    const double fs = x.meta["rate"].get<double>(), origin = x.meta["origin"].get<double>(), first = static_cast<double>(x.meta["first_sample"].get<std::int64_t>());
+    need(x.meta.value("window_samples", std::int64_t(1)) == 1, "risefall: x must be a series at the recording's rate (a time grid of one sample), not tiles of " + std::to_string(x.meta.value("window_samples", std::int64_t(1))) + " samples");
+    const double fs = x.meta["rate"].get<double>(), origin = x.meta["origin"].get<double>(), first = static_cast<double>(x.meta.value("first_sample", std::int64_t(0)));
     const double tw = ev.meta["tiles_of"]["width_s"].get<double>(), t_origin = ev.meta["tiles_of"]["origin"].get<double>();
     const double offset = origin + first / fs;                 // the series' first sample's time on the recording's clock
     nxr::select::Options o;
@@ -1314,11 +1321,12 @@ void bind_execution(std::vector<StepSpec>& r) {
     }
     // the count row an event's measures share: the samples over the event's tiles (as measure_events', one row a Selection and recording)
     std::map<std::int64_t, double> tile_count;
-    for (const auto& c : ev.meta["tiles_of"]["counts"]) tile_count[c[0].get<std::int64_t>()] = c[1].get<double>();
+    if (ev.meta["tiles_of"].contains("counts")) for (const auto& c : ev.meta["tiles_of"]["counts"]) tile_count[c[0].get<std::int64_t>()] = c[1].get<double>();
+    const double nominal = static_cast<double>(ev.meta["tiles_of"].value("window_samples", std::int64_t(0)));
     Json counts = Json::array();
     for (std::int64_t e = 0; e < E; ++e) {
       double n = 0;
-      for (std::int64_t t = static_cast<std::int64_t>(ev.data[static_cast<std::size_t>(e * 4)]); t < static_cast<std::int64_t>(ev.data[static_cast<std::size_t>(e * 4 + 1)]); ++t) n += tile_count[t];
+      for (std::int64_t t = static_cast<std::int64_t>(ev.data[static_cast<std::size_t>(e * 4)]); t < static_cast<std::int64_t>(ev.data[static_cast<std::size_t>(e * 4 + 1)]); ++t) n += tile_count.count(t) ? tile_count[t] : nominal;
       counts.push_back(Json::array({e, n}));
     }
     Arrays res;
@@ -1328,6 +1336,7 @@ void bind_execution(std::vector<StepSpec>& r) {
                     {"window_samples", ev.meta["tiles_of"].value("window_samples", std::int64_t(0))}, {"width_s", tw}, {"origin", t_origin}, {"tile_level", ev.meta["tiles_of"]},
                     {"risefall", Json{{"model", p["model"]}, {"margin", o.margin}, {"smooth", o.smooth}, {"tau_max", o.tauMax}, {"durations", durations}, {"min_r2", p["min_r2"]}, {"ok", ok}, {"at_bound", bound}, {"below_min_r2", below},
                                       {"series_rate", fs}, {"fits", fits}, {"reference", "Rheome +detect/risefall.m"}}}};
+      y.meta["describe"] = Json{{"measures", Json::array({Json{{"measure", n}}})}, {"shape", Json::array({R, E, 1})}, {"values_f32", false}};
       res[n] = std::move(y);
     }
     return res;
