@@ -135,7 +135,7 @@ if(NXR_NEURO_BUILD_TESTS)
   endif()
   add_test(NAME test_face COMMAND test_face)
   add_executable(test_readonly_readers test/test_readonly_readers.cpp)   # a reader never writes (#144): a schema-50 dataset and a package without `origin` read byte for byte unchanged; only a writable open migrates
-  target_link_libraries(test_readonly_readers PRIVATE nxr_pipelines)
+  target_link_libraries(test_readonly_readers PRIVATE nxr_pipelines nxr_io_testing)
   target_include_directories(test_readonly_readers PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
   if(NXR_NEURO_BUILD_CLI)
     add_dependencies(test_readonly_readers nxr-neuro)

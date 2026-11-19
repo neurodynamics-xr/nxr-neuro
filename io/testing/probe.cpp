@@ -44,4 +44,25 @@ std::vector<std::string> Probe::integrity() const {
 
 void Probe::tamper(const std::string& sql) const { db_->exec_script(sql); }
 
+bool Probe::read_only() const { return db_->read_only(); }
+
+void rewrite_as_schema_50(const std::filesystem::path& file) {
+  Database d = Database::open(file);
+  d.execute("PRAGMA foreign_keys = OFF");
+  d.exec_script("DROP TABLE IF EXISTS key_digest; DROP TABLE IF EXISTS subject_entry; DROP TABLE IF EXISTS template_reference; DROP TABLE IF EXISTS selection_factor; DROP VIEW IF EXISTS statistic_attributes; DROP TABLE IF EXISTS statistic;");
+  d.with_writable_schema([&] {
+    d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE name = 'subject'", {Value(std::string("'group', 'registration')")), Value(std::string("'group')"))});
+    d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'view'", {Value(std::string("'schema_version', 54")), Value(std::string("'schema_version', 50"))});
+    d.execute("PRAGMA schema_version = " + std::to_string(integer(*d.one("PRAGMA schema_version"), "schema_version") + 1));
+  });
+  d.execute("DELETE FROM meta WHERE key LIKE 'schema_migrated:%'");
+  d.execute("PRAGMA user_version = 50");
+  d.close();
+}
+
+int user_version_of(const std::filesystem::path& file) {
+  Database r = Database::open(file, false, "", true);
+  return static_cast<int>(integer(*r.one("PRAGMA user_version"), "user_version"));
+}
+
 }  // namespace nxr::io::testing

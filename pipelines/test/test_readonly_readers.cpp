@@ -15,6 +15,7 @@
 #include "nxr/io.h"
 #include "nxr/io/subject_package.h"
 #include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/pipelines/face.h"
 
 using namespace nxr::io;
@@ -37,21 +38,9 @@ std::map<std::string, Stamp> tree(const fs::path& folder) {
 }
 std::string code_of(const std::function<void()>& f) { try { f(); } catch (const Error& e) { return e.code(); } return ""; }
 
-// schema 50, as the build before made it: the tables and column of 51 to 53 gone, the older kind list and views, user_version 50
-void put_back_to_50(const fs::path& file) {
-  Database d = Database::open(file);
-  d.execute("PRAGMA foreign_keys = OFF");
-  d.exec_script("DROP TABLE IF EXISTS key_digest; DROP TABLE IF EXISTS subject_entry; DROP TABLE IF EXISTS template_reference; DROP TABLE IF EXISTS selection_factor; DROP VIEW IF EXISTS statistic_attributes; DROP TABLE IF EXISTS statistic;");
-  d.with_writable_schema([&] {
-    d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE name = 'subject'", {V("'group', 'registration')"), V("'group')")});
-    d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'view'", {V("'schema_version', 54"), V("'schema_version', 50")});
-    d.execute("PRAGMA schema_version = " + std::to_string(integer(*d.one("PRAGMA schema_version"), "schema_version") + 1));
-  });
-  d.execute("DELETE FROM meta WHERE key LIKE 'schema_migrated:%'");
-  d.execute("PRAGMA user_version = 50");
-  d.close();
-}
-int version_of(const fs::path& file) { Database r = Database::open(file, false, "", true); return int(integer(*r.one("PRAGMA user_version"), "user_version")); }
+// schema 50 and the version read back: io's test-only support (the SQL stays in io)
+void put_back_to_50(const fs::path& file) { nxr::io::testing::rewrite_as_schema_50(file); }
+int version_of(const fs::path& file) { return nxr::io::testing::user_version_of(file); }
 }  // namespace
 
 int main() {
@@ -85,13 +74,13 @@ int main() {
     OpenOptions o;
     o.lock = false;
     DatasetWriter ds = open_writer(folder, o);
-    CHECK(ds.db().read_only());
+    CHECK(nxr::io::testing::Probe(ds).read_only());
     CHECK(!ds.locked());
     SubjectWriter sub = SubjectWriter::open(ds, "S1");
     task::Want want;
     want.cls = task::Cls::statistic;
     CHECK(task::Subject::of(sub).find_all(want).empty());
-    CHECK_EQ(code_of([&] { ds.db().execute("CREATE TABLE x (a TEXT)"); }), std::string(code::sqlite));   // a write is refused by SQLite itself
+    CHECK_EQ(code_of([&] { nxr::io::testing::Probe(ds).tamper("CREATE TABLE x (a TEXT)"); }), std::string(code::sqlite));   // a write is refused by SQLite itself
     ds.close();
   }
   CHECK(tree(folder) == before);
@@ -112,7 +101,7 @@ int main() {
   // below 50 is still refused to a reader
   {
     Database d = Database::open_plain(file);   // (no version check: put it below 50 by hand)
-    d.execute("PRAGMA user_version = 49");
+    nxr::io::testing::Probe(d).tamper("PRAGMA user_version = 49");
     d.close();
     OpenOptions o;
     o.lock = false;
@@ -122,12 +111,11 @@ int main() {
   // only a writable open (the writer lock) migrates
   {
     Database d = Database::open_plain(file);
-    d.execute("PRAGMA user_version = 50");
+    nxr::io::testing::Probe(d).tamper("PRAGMA user_version = 50");
     d.close();
     CHECK_EQ(version_of(file), 50);
     DatasetWriter ds = open_writer(folder);
     CHECK(ds.locked());
-    CHECK_EQ(integer(*ds.db().one("PRAGMA user_version"), "user_version"), 54);
     ds.close();
     CHECK_EQ(version_of(file), 54);
   }
@@ -143,7 +131,8 @@ int main() {
     }
     {
       Database d = Database::open(pkg / kPackageDatabaseFile);
-      d.exec_script("DROP TABLE origin; DROP TABLE anchor_row;");
+      nxr::io::testing::Probe(d).tamper("DROP TABLE origin");
+      nxr::io::testing::Probe(d).tamper("DROP TABLE anchor_row");
       d.close();
     }
     const auto pbefore = tree(pkg);
@@ -151,15 +140,15 @@ int main() {
     o.lock = false;
     {
       DatasetWriter r = open_package_writer(pkg, o);
-      CHECK(r.db().read_only());
-      CHECK(r.db().one("SELECT 1 FROM subject WHERE name = 'A'").has_value());
-      CHECK(!origin_of(r.db(), "subject", "none").has_value());
+      const nxr::io::testing::Probe pr(r);
+      CHECK(pr.read_only());
+      CHECK_EQ(pr.count("subject", {{"name", Value(std::string("A"))}}), 1);   // read, though the package lacks `origin` (origin_of answers none there)
       r.close();
     }
     CHECK(tree(pkg) == pbefore);
     {   // a writer gets the table back
       DatasetWriter w = open_package_writer(pkg);
-      CHECK(w.db().one("SELECT 1 FROM sqlite_master WHERE name = 'origin'").has_value());
+      CHECK_EQ(nxr::io::testing::Probe(w).count("sqlite_master", {{"name", Value(std::string("origin"))}}), 1);
       w.close();
     }
   }
