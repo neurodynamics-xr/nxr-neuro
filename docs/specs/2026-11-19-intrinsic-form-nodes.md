@@ -15,8 +15,8 @@ intrinsic edges), `projectOneForm` / `synthesizeOneForm`, `exactPotential`, `coe
 - The typed graph's `ManifoldKind` is `points, line, surface, volume, curve, graph, members`: there is **no edge or face kind**. A stored cell complex (the `complex` manifold `eigen solve`
   writes) is typed today as `points` (`kind_of_manifold`, `pipelines/src/step_nodes.cpp`), which says nothing true about edges or faces.
 - Existing practice moves edge and face quantities to the vertices before any reduction (`vertexOutflow`, `vertexCirculation`; the measures `outflow`, `circulation`).
-- Reductions are measurements over partitions; ratios of reductions are derived at read (the shares of the phase split are now `timing_share`, `rotation_share`, `residual_share`,
-  `timing_inconsistency`, derived from the sums `phase_lag_energy`, `timing_energy`, `rotation_energy`, `timing_misfit_energy`).
+- Reductions are measurements over partitions; ratios of reductions are derived at read (the shares of the phase split are now `exact_share`, `coexact_share`, `residual_share`,
+  `exact_misfit_share`, derived from the sums `one_form_energy`, `exact_energy`, `coexact_energy`, `exact_misfit_energy`).
 - One name per quantity; the discretisation is the operator the caller passes; a node's options default to the reference.
 
 Hence: **1-forms and 2-forms stay inside nodes. Ports carry vertex fields (scalar or vector3) and, where a node gives them, mode coefficients on a line with role `modes`.**
@@ -33,15 +33,15 @@ x  complex field on a surface, streamed [V (x3) x samples]
 │     per block: vertex_gradient: phaseCurrent(Z, components, G, N)                                    (the reference, the default)
 │                intrinsic_edges: sharp(c, Σ_components phaseCurrent(c, z_component))                  (the edge 1-form, back at the vertices)
 │
-└── signal.phase_split {modes: the eigenmode package (eigenvectors operator)}                              → potential   scalar vertex field (rad)
+└── signal.phase_split {one_form: phase_gradient | phase_current, modes: the package}                            → potential   scalar vertex field (rad)
       constants (prepare, once): the package's intrinsic complex and its Modes (P, X2, mu, kind)          → stream      scalar vertex field (rad)
-      per block, per column: w = phaseGradient(c, x); s = splitPhase(c, modes, w);                        → propagation vector3 vertex field (rad per length unit)
-                             vertexEnergy(c, [w, s.exact, s.coexact, w − s.exact])                       → phase_lag_energy, timing_energy, rotation_energy, timing_misfit_energy
+      per block, per column: w = phaseGradient(c, x) [one_form: phase_gradient, default] | phaseCurrent(c, x); s = splitPhase(c, modes, w);                        → propagation vector3 vertex field (rad per length unit)
+                             vertexEnergy(c, [w, s.exact, s.coexact, w − s.exact])                       → one_form_energy, exact_energy, coexact_energy, exact_misfit_energy
                                                                                                              scalar vertex fields (rad²)
       (optional, later) coefficients: s.coef on a made line with role `modes`                             → coefficients [K x samples]
 
 each energy ── measurement.reduce {measures: [<its measure>]} over a partition ──> stored sums, OF x
-                                     timing_share, rotation_share, residual_share, timing_inconsistency: derived at read from those sums
+                                     exact_share, coexact_share, residual_share, exact_misfit_share: derived at read from those sums
 ```
 
 Placement in the four parts:
@@ -63,6 +63,10 @@ option `discretisation` of that form (default `vertex_gradient`), never a new no
 This needs no type change: the edges live inside the node.
 
 ### 3.2 `signal.phase_split`
+
+Decided 2026-11-19 (PI, on #140): the outputs are named by the mathematics (exact: curl-free; coexact: divergence-free), the physical reading lives in the reference. The parameter `one_form: phase_gradient | phase_current`
+(default `phase_gradient`, the reference) chooses the 1-form that is split; it is a step parameter (provenance, cache key), other values are refused. The provenance record holds `boundary`
+(`none` | `neumann_potential_dirichlet_stream`: Neumann potential and Dirichlet stream function on an open surface), a fact of the method, not an option. The phase-wrap limit is stated in the reference only.
 
 A new node (no existing node computes it). Its input `modes` is the eigenmode package bound by the runner as it is for a spatial band (`runner.cpp`, the `hodge` constant: P, mu,
 kind, positions and faces of the surface the modes are solved on). The field must be on that surface: on a two-piece cortex, the glued surface (the kernel applied with `glued`, as
@@ -93,8 +97,8 @@ refusals), `test_hodge_power` (the node through the runner on a solved package),
 Synthetic only (an icosphere, a disc), each node through the graph's dispatch point as `pipelines/test/test_member_analytic.cpp` does:
 - phase current: on a fine disc, `discretisation: intrinsic_edges` agrees with `vertex_gradient` to the discretisation error, and equals `sharp(c, phaseCurrent(c, z))` exactly;
   the result does not depend on the chunk size;
-- phase split: on a sphere with its modes solved in the test, a pure exact field gives `timing_energy` = `phase_lag_energy` summed over every member of a partition and
-  `rotation_energy` ≈ 0; the derived shares from `measurement.reduce` sums equal the whole-complex ratios; a field on another triangulation is refused.
+- phase split: on a sphere with its modes solved in the test, a pure exact field gives `exact_energy` = `one_form_energy` summed over every member of a partition and
+  `coexact_energy` ≈ 0; the derived shares from `measurement.reduce` sums equal the whole-complex ratios; a field on another triangulation is refused.
 
 ## 6. Not decided here
 

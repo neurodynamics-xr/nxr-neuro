@@ -176,14 +176,14 @@ int main() {
             const double E = wr.dot(c2.star1.asDiagonal() * wr), Eex = sr.exact.dot(c2.star1.asDiagonal() * sr.exact), Eco = sr.coexact.dot(c2.star1.asDiagonal() * sr.coexact);
             EXPECT(ev.rows() == n2 && std::abs(ev.col(0).sum() - E) < 1e-10 * E && std::abs(ev.col(1).sum() - Eex) < 1e-10 * E, "vertexEnergy: the vertices' values sum to the ⋆1 energy");
             const auto& reg = nxr::measurement::Registry::standard();
-            auto over = [&](const Eigen::VectorXd& sums) { return [sums](const std::string& n) { return n == "phase_lag_energy" ? sums(0) : n == "timing_energy" ? sums(1) : n == "rotation_energy" ? sums(2) : sums(3); }; };
+            auto over = [&](const Eigen::VectorXd& sums) { return [sums](const std::string& n) { return n == "one_form_energy" ? sums(0) : n == "exact_energy" ? sums(1) : n == "coexact_energy" ? sums(2) : sums(3); }; };
             const Eigen::VectorXd whole = ev.colwise().sum().transpose();
-            const double ts = reg.derive("timing_share", over(whole)), rs = reg.derive("rotation_share", over(whole)), res = reg.derive("residual_share", over(whole));
+            const double ts = reg.derive("exact_share", over(whole)), rs = reg.derive("coexact_share", over(whole)), res = reg.derive("residual_share", over(whole));
             EXPECT(std::abs(ts - Eex / E) < 1e-12 && std::abs(rs - Eco / E) < 1e-12 && std::abs(ts + rs + res - 1) < 1e-9 && res > 0, "timing, rotation and residual shares derived from the sums");
             double num = 0, den = 0;                                                     // vertex 0's inconsistency over its edges, as splitPhase gave it
             for (int e = 0; e < c2.nE; ++e) if (c2.edges[2 * e] == 0 || c2.edges[2 * e + 1] == 0) { num += c2.star1(e) * std::pow(wr(e) - sr.exact(e), 2); den += c2.star1(e) * wr(e) * wr(e); }
-            EXPECT(std::abs(reg.derive("timing_inconsistency", over(ev.row(0).transpose())) - num / den) < 1e-12, "timing_inconsistency on one vertex = the share over its edges");
-            EXPECT(std::isnan(reg.derive("timing_share", over(Eigen::VectorXd::Zero(4)))), "no energy: no share (NaN)");
+            EXPECT(std::abs(reg.derive("exact_misfit_share", over(ev.row(0).transpose())) - num / den) < 1e-12, "exact_misfit_share on one vertex = the share over its edges");
+            EXPECT(std::isnan(reg.derive("exact_share", over(Eigen::VectorXd::Zero(4)))), "no energy: no share (NaN)");
         }
         Eigen::MatrixXcd z(n2, 2);
         for (int v = 0; v < n2; ++v) {

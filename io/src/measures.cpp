@@ -62,10 +62,10 @@ double measure_formula(const std::string& name, const std::map<std::string, doub
     return n > 1 ? (s2 - n) / (n * (n - 1)) : kNaN;
   }
   // the split of a phase 1-form (nxr::signal::splitPhase): shares of its ⋆1 energy, ratios of the members' sums of vertexEnergy (never a sum of ratios)
-  if (name == "timing_share") return ratio(g("timing_energy"), g("phase_lag_energy"));
-  if (name == "rotation_share") return ratio(g("rotation_energy"), g("phase_lag_energy"));
-  if (name == "residual_share") return g("phase_lag_energy") > 0 ? std::max(0.0, 1.0 - (g("timing_energy") + g("rotation_energy")) / g("phase_lag_energy")) : kNaN;
-  if (name == "timing_inconsistency") return ratio(g("timing_misfit_energy"), g("phase_lag_energy"));
+  if (name == "exact_share") return ratio(g("exact_energy"), g("one_form_energy"));
+  if (name == "coexact_share") return ratio(g("coexact_energy"), g("one_form_energy"));
+  if (name == "residual_share") return g("one_form_energy") > 0 ? std::max(0.0, 1.0 - (g("exact_energy") + g("coexact_energy")) / g("one_form_energy")) : kNaN;
+  if (name == "exact_misfit_share") return ratio(g("exact_misfit_energy"), g("one_form_energy"));
   if (name == "variance") return g("mean_square") - g("mean") * g("mean");
   if (name == "sd") return std::sqrt(std::max(0.0, g("mean_square") - g("mean") * g("mean")));
   if (name == "rms") return std::sqrt(std::max(0.0, g("mean_square")));

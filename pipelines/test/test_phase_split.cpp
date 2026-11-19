@@ -72,10 +72,11 @@ int main() {
   ng::PortType pk; pk.cls = ng::PortClass::operator_;
   in["package"] = pk;
   const ng::Planned planned = node.plan(in, Json::object());
-  CHECK(planned.out.size() == 7 && planned.out.at("propagation").value == ng::ValueType::vector3 && planned.out.at("timing_energy").value == ng::ValueType::real);
+  CHECK(planned.out.size() == 7 && planned.out.at("propagation").value == ng::ValueType::vector3 && planned.out.at("exact_energy").value == ng::ValueType::real);
   ng::Arrays constants{{"package", package(md, cx.nF)}};
   ng::Shared shared;
-  ng::NodeCall prep = ng::NodeCall::prepare(in, constants, Json::object(), shared);
+  const Json no_params = Json::object();   // the call holds pointers: named values outlive it
+  ng::NodeCall prep = ng::NodeCall::prepare(in, constants, no_params, shared);
   ng::dispatch(node, prep);
 
   // a travelling wave round the z axis with a slow drift, plus a rotating component: T samples
@@ -87,7 +88,7 @@ int main() {
       Z(v, t) = std::polar(1.0 + 0.3 * pz, 2.0 * pz - 0.4 * t + 0.3 * std::sin(3.0 * px + py + 0.2 * t));
     }
   Eigen::MatrixXd pot(nV, T), str(nV, T), prop(3 * nV, T), en(nV, 4 * T);   // the direct computation (below, on the float32 samples the node reads)
-  const char* const names[] = {"potential", "stream", "propagation", "phase_lag_energy", "timing_energy", "rotation_energy", "timing_misfit_energy"};
+  const char* const names[] = {"potential", "stream", "propagation", "one_form_energy", "exact_energy", "coexact_energy", "exact_misfit_energy"};
   auto direct = [&](int o) -> Eigen::MatrixXd { return o == 0 ? pot : o == 1 ? str : o == 2 ? prop : Eigen::MatrixXd(en.middleCols((o - 3) * T, T)); };
 
   // run the node on blocks of `own` samples with one sample of halo each side, keep 0 (the halo is dropped) and gather the own columns
@@ -154,13 +155,43 @@ int main() {
       all += E0(v, t); all_t += Ex(v, t);
     }
     for (int k = 0; k < 2; ++k) {
-      auto g = [&](const std::string& n) { return n == "phase_lag_energy" ? total[k] : n == "timing_energy" ? tim[k] : n == "rotation_energy" ? rot[k] : mis[k]; };
-      const double ts = reg.derive("timing_share", g), ti = reg.derive("timing_inconsistency", g);
+      auto g = [&](const std::string& n) { return n == "one_form_energy" ? total[k] : n == "exact_energy" ? tim[k] : n == "coexact_energy" ? rot[k] : mis[k]; };
+      const double ts = reg.derive("exact_share", g), ti = reg.derive("exact_misfit_share", g);
       CHECK(std::abs(ts - tim[k] / total[k]) < 1e-12 && std::abs(ti - mis[k] / total[k]) < 1e-12 && ts > 0);   // over a tile the parts are not orthogonal (their cross terms do not cancel): a share may pass 1 there
     }
     const double whole_share = all_t / all;
     std::printf("  timing share over the sphere %.4f; per hemisphere %.4f %.4f\n", whole_share, tim[0] / total[0], tim[1] / total[1]);
     CHECK(whole_share > 0.5 && whole_share <= 1.0 + 1e-6);
+  }
+
+  // the parameter one_form: phase_current splits Im(conj(z_tail) z_tip) instead of the phase step (the node equals the compute functions); the record holds the choice and the boundary
+  {
+    Json params = Json::object(); params["one_form"] = "phase_current";
+    ng::NodeCall pc = ng::NodeCall::prepare(in, constants, params, shared);
+    ng::dispatch(node, pc);
+    ng::NodeCall rc = ng::NodeCall::record(pc.made), rg = ng::NodeCall::record(prep.made);
+    ng::dispatch(node, rc); ng::dispatch(node, rg);
+    const Json rec = rc.made_json;
+    CHECK(rec.value("one_form", "") == "phase_current" && rec.value("boundary", "") == "none");
+    CHECK(rg.made_json.value("one_form", "") == "phase_gradient");
+    ng::Block b; b.rows = nV; b.width = T; b.re.resize(static_cast<std::size_t>(nV * T)); b.im.resize(b.re.size());
+    for (int v = 0; v < nV; ++v) for (int c = 0; c < T; ++c) { b.re[static_cast<std::size_t>(v * T + c)] = static_cast<float>(Z(v, c).real()); b.im[static_cast<std::size_t>(v * T + c)] = static_cast<float>(Z(v, c).imag()); }
+    const ng::Blocks blocks{{"x", b}};
+    const ng::Place place{0, T, nullptr};
+    ng::NodeCall call = ng::NodeCall::chunk(pc.made, blocks, 0, place);
+    ng::dispatch(node, call);
+    const Eigen::MatrixXd J = nxr::signal::phaseCurrent(cx, Z);
+    const Eigen::MatrixXd Ej = nxr::signal::vertexEnergy(cx, J);
+    const ng::Block& y = call.made_blocks.at("one_form_energy");
+    double worst_j = 0, apart = 0;
+    for (int v = 0; v < nV; ++v) for (int t = 0; t < T; ++t) {
+      worst_j = std::max(worst_j, std::abs(y.re[static_cast<std::size_t>(v * y.width + y.left + t)] - Ej(v, t)) / std::max(1e-12, Ej.cwiseAbs().maxCoeff()));
+      apart = std::max(apart, std::abs(Ej(v, t) - whole[3](v, t)));
+    }
+    std::printf("  phase_current: node vs compute %.2e; the energy differs from the phase step's by %.2e\n", worst_j, apart);
+    CHECK(worst_j < 1e-5 && apart > 1e-6);
+    Json bad_form = Json::object(); bad_form["one_form"] = "phase_lag";
+    CHECK(refused([&] { ng::NodeCall p = ng::NodeCall::prepare(in, constants, bad_form, shared); ng::dispatch(node, p); }));
   }
 
   // refusals
@@ -169,9 +200,9 @@ int main() {
     CHECK(refused([&] { node.plan(bad, Json::object()); }));
     ng::Arrays no_forms{{"package", package(md, cx.nF)}};
     no_forms["package"].meta.erase("forms2");
-    CHECK(refused([&] { ng::NodeCall p = ng::NodeCall::prepare(in, no_forms, Json::object(), shared); ng::dispatch(node, p); }));
+    CHECK(refused([&] { ng::NodeCall p = ng::NodeCall::prepare(in, no_forms, no_params, shared); ng::dispatch(node, p); }));
     ng::Arrays other{{"package", package(md, cx.nF + 3)}};
-    CHECK(refused([&] { ng::NodeCall p = ng::NodeCall::prepare(in, other, Json::object(), shared); ng::dispatch(node, p); }));
+    CHECK(refused([&] { ng::NodeCall p = ng::NodeCall::prepare(in, other, no_params, shared); ng::dispatch(node, p); }));
     ng::Block b; b.rows = nV - 1; b.width = 1; b.re.assign(static_cast<std::size_t>(nV - 1), 1.0f); b.im = b.re;
     const ng::Blocks blocks{{"x", b}};
     const ng::Place place{0, 1, nullptr};

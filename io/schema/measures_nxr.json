@@ -931,47 +931,47 @@
   },
   {
    "code": 1063,
-   "name": "phase_lag_energy",
+   "name": "one_form_energy",
    "merge": "sum",
    "form": "edge_1form",
    "unit": null,
    "weight": null,
    "span": "levels",
    "derived_from": null,
-   "description": "the ⋆1 energy Σ_e ⋆1_e w_e² of a phase 1-form w (each intrinsic edge's lag, rad) over a member: the sum of nxr::signal::vertexEnergy (each edge's ⋆1 w² half at each end). The denominator of the phase split's shares (rad²)"
+   "description": "the ⋆1 energy Σ_e ⋆1_e w_e² of a 1-form w on the intrinsic edges (the one the Hodge split took: a phase step, rad, or a phase current) over a member: the sum of nxr::signal::vertexEnergy (each edge's ⋆1 w² half at each end). The denominator of the split's shares"
   },
   {
    "code": 1064,
-   "name": "timing_energy",
+   "name": "exact_energy",
    "merge": "sum",
    "form": "edge_1form",
    "unit": null,
    "weight": null,
    "span": "levels",
    "derived_from": null,
-   "description": "the ⋆1 energy of the EXACT part of a phase 1-form (the timing part, d of a potential: one order of arrival; nxr::signal::splitPhase) over a member: the sum of vertexEnergy of the exact part (rad²)"
+   "description": "the ⋆1 energy of the EXACT (curl-free) part of a 1-form (d of a potential; nxr::signal::splitPhase) over a member: the sum of vertexEnergy of the exact part (rad²)"
   },
   {
    "code": 1065,
-   "name": "rotation_energy",
+   "name": "coexact_energy",
    "merge": "sum",
    "form": "edge_1form",
    "unit": null,
    "weight": null,
    "span": "levels",
    "derived_from": null,
-   "description": "the ⋆1 energy of the COEXACT part of a phase 1-form (the lags that circulate round loops; nxr::signal::splitPhase) over a member: the sum of vertexEnergy of the coexact part (rad²)"
+   "description": "the ⋆1 energy of the COEXACT (divergence-free) part of a 1-form (nxr::signal::splitPhase) over a member: the sum of vertexEnergy of the coexact part (rad²)"
   },
   {
    "code": 1066,
-   "name": "timing_misfit_energy",
+   "name": "exact_misfit_energy",
    "merge": "sum",
    "form": "edge_1form",
    "unit": null,
    "weight": null,
    "span": "levels",
    "derived_from": null,
-   "description": "the ⋆1 energy of what the timing part leaves of a phase 1-form, w − exact (the coexact part and what lies outside the modes) over a member: the sum of vertexEnergy of w − exact (rad²)"
+   "description": "the ⋆1 energy of what the exact part leaves of a 1-form, w − exact (the coexact part and what lies outside the modes) over a member: the sum of vertexEnergy of w − exact (rad²)"
   },
   {
    "code": 1116,
@@ -1131,31 +1131,31 @@
   },
   {
    "code": 1129,
-   "name": "timing_share",
+   "name": "exact_share",
    "merge": "derived",
    "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
    "derived_from": [
-    "timing_energy",
-    "phase_lag_energy"
+    "exact_energy",
+    "one_form_energy"
    ],
-   "description": "the share of a phase 1-form's ⋆1 energy its exact (timing) part holds over a member: timing_energy / phase_lag_energy. A RATIO of sums, derived at read (NaN where the member has no energy). The parts are ⋆1-orthogonal over the whole complex only: over a tile their cross terms remain, so a tile's share may pass 1"
+   "description": "the share of a 1-form's ⋆1 energy its exact (curl-free) part holds over a member: exact_energy / one_form_energy. A RATIO of sums, derived at read (NaN where the member has no energy). The parts are ⋆1-orthogonal over the whole complex only: over a tile their cross terms remain, so a tile's share may pass 1"
   },
   {
    "code": 1130,
-   "name": "rotation_share",
+   "name": "coexact_share",
    "merge": "derived",
    "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
    "derived_from": [
-    "rotation_energy",
-    "phase_lag_energy"
+    "coexact_energy",
+    "one_form_energy"
    ],
-   "description": "the share of a phase 1-form's ⋆1 energy its coexact (rotation) part holds over a member: rotation_energy / phase_lag_energy. A RATIO of sums, derived at read (over a tile, as timing_share, it may pass 1: the cross terms of the parts remain)"
+   "description": "the share of a 1-form's ⋆1 energy its coexact (divergence-free) part holds over a member: coexact_energy / one_form_energy. A RATIO of sums, derived at read (over a tile, as exact_share, it may pass 1: the cross terms of the parts remain)"
   },
   {
    "code": 1131,
@@ -1166,25 +1166,25 @@
    "weight": null,
    "span": null,
    "derived_from": [
-    "phase_lag_energy",
-    "timing_energy",
-    "rotation_energy"
+    "one_form_energy",
+    "exact_energy",
+    "coexact_energy"
    ],
-   "description": "the share of a phase 1-form's ⋆1 energy outside the modes over a member: max(0, 1 − (timing_energy + rotation_energy) / phase_lag_energy) (the parts are ⋆1-orthogonal over the whole complex; over a tile the parts' cross terms make it approximate, hence the floor at 0). Derived at read"
+   "description": "the share of a 1-form's ⋆1 energy outside the modes over a member: max(0, 1 − (exact_energy + coexact_energy) / one_form_energy) (the parts are ⋆1-orthogonal over the whole complex; over a tile the parts' cross terms make it approximate, hence the floor at 0). Derived at read"
   },
   {
    "code": 1132,
-   "name": "timing_inconsistency",
+   "name": "exact_misfit_share",
    "merge": "derived",
    "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
    "derived_from": [
-    "timing_misfit_energy",
-    "phase_lag_energy"
+    "exact_misfit_energy",
+    "one_form_energy"
    ],
-   "description": "the share of a phase 1-form's ⋆1 energy no timing map explains over a member: timing_misfit_energy / phase_lag_energy (0: one order of arrival explains every lag; on a single vertex, the share over its edges). A RATIO of sums, derived at read"
+   "description": "the share of a 1-form's ⋆1 energy its exact part leaves over a member: exact_misfit_energy / one_form_energy (0: a potential explains the whole form; on a single vertex, the share over its edges). A RATIO of sums, derived at read"
   }
  ]
 }

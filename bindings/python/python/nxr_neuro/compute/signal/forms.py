@@ -174,8 +174,7 @@ def synthesizeTwoForm(complex: dict, modes: dict, coef) -> np.ndarray:
 
 
 def exactPotential(modes: dict, coef) -> np.ndarray:
-    """The exact part's potential: Phi = sum_exact c_k P_k / mu_k at the vertices, whose d0 is exactly the exact part of synthesizeOneForm(coef). For a
-    phase 1-form, a timing map (rad; time = Phi / omega). [K(, m)] -> [nV(, m)]."""
+    """The exact part's potential: Phi = sum_exact c_k P_k / mu_k at the vertices, whose d0 is exactly the exact part of synthesizeOneForm(coef). [K(, m)] -> [nV(, m)]."""
     a, single = _columns(coef)
     return _shaped(_core.signal_exactPotential(modes, a), single)
 
@@ -188,11 +187,11 @@ def coexactStream(complex: dict, modes: dict, coef) -> np.ndarray:
 
 
 def splitPhase(complex: dict, modes: dict, w) -> dict:
-    """The split of a phase 1-form w [nE] by the modes, POINTWISE parts only: ``coef`` [K]; ``exact``, ``coexact`` [nE] (the timing and rotation parts;
-    the residual outside the modes is w - exact - coexact); ``potential`` [nV] (exactPotential), ``stream`` [nV] (coexactStream), ``propagation`` [nV, 3]
-    (-grad potential, sharpened). The shares of the *1 energy and the inconsistency are ratios of reductions: sum ``vertexEnergy`` of w, of ``exact``,
-    of ``coexact`` and of w - exact over a partition's members (the measures phase_lag_energy, timing_energy, rotation_energy, timing_misfit_energy);
-    timing_share, rotation_share, residual_share and timing_inconsistency are the derived measures read from those sums."""
+    """The Hodge split of a 1-form w [nE] on the intrinsic edges by the modes, POINTWISE parts only: ``coef`` [K]; ``exact``, ``coexact`` [nE] (the curl-free
+    and divergence-free parts; on an open surface the potential is Neumann and the stream function Dirichlet, on a closed one there is no boundary; the residual outside the modes is w - exact - coexact); ``potential`` [nV] (exactPotential), ``stream`` [nV] (coexactStream), ``propagation`` [nV, 3]
+    (-grad potential, sharpened). The shares of the *1 energy and the misfit are ratios of reductions: sum ``vertexEnergy`` of w, of ``exact``,
+    of ``coexact`` and of w - exact over a partition's members (the measures one_form_energy, exact_energy, coexact_energy, exact_misfit_energy);
+    exact_share, coexact_share, residual_share and exact_misfit_share are the derived measures read from those sums."""
     out = _core.signal_splitPhase(_ic(complex), modes, np.asarray(w, dtype=np.float64).ravel())
     out["propagation"] = np.asarray(out["propagation"]).reshape(-1, 3)
     return out
