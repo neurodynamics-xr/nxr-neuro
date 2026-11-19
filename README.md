@@ -27,7 +27,7 @@ the instrument cannot resolve; it does not claim more than it measures.
 | `bindings/` | | MATLAB MEX, Node and WebAssembly bindings of `compute` |
 
 The architecture is strict and documented in [ARCHITECTURE.md](ARCHITECTURE.md): data loading, preparation and type checks, a graph of pure functions, and
-read-back, with reductions done only through partition measurements. Every verb and method is described in [docs/reference.md](docs/reference.md); the
+read-back, with reductions done only through partition measurements. Every verb and method is described in [the documentation](#documentation); the
 designs behind them are in [docs/specs/](docs/specs/).
 
 ## Build
@@ -102,8 +102,16 @@ Recordings are streamed one chunk at a time with bounded memory whatever the ran
 
 In a terminal the output is readable (a progress bar on stderr, a result line, what was stored); with `--json`, or when stdout is not a terminal, it is JSON lines, one per event,
 unchanged. `--quiet` prints only the result line; colour only in a terminal and never with `NO_COLOR`. Man pages and shell completion for bash, zsh and fish are built with the command
-(`nxr-neuro completion bash|zsh|fish`). The old spellings of the pipelines (`psd compute`, `compute psd`, `run DEFINITION --set NAME=VALUE`, ...) are refused with the new spelling named; the other old two-word spellings (`dataset list`, `convert subject`, ...) are refused with the new one named too (nxr-neuro is unreleased: no deprecation period). [docs/reference.md](docs/reference.md) lists every
-command, its reference method, what it stores and what it cannot resolve; the grammar is in [docs/specs/2026-11-16-command-line.md](docs/specs/2026-11-16-command-line.md).
+(`nxr-neuro completion bash|zsh|fish`). The old spellings of the pipelines (`psd compute`, `compute psd`, `run DEFINITION --set NAME=VALUE`, ...) are refused with the new spelling named; the other old two-word spellings (`dataset list`, `convert subject`, ...) are refused with the new one named too (nxr-neuro is unreleased: no deprecation period). `nxr-neuro <verb> --help` describes every command, [docs/pipelines/](docs/pipelines/README.md) every pipeline and [docs/reference.md](docs/reference.md) every method (its reference, what it stores, what it cannot resolve); the grammar is in [docs/specs/2026-11-16-command-line.md](docs/specs/2026-11-16-command-line.md).
+
+## Documentation
+
+- [docs/guide.md](docs/guide.md): the user's guide: install, the dataset, run a pipeline, read results, in the command line, Python and MATLAB.
+- Tutorials, on synthetic data: [the power spectrum of a recording](docs/tutorials/01-psd.md), [from a recording to the cortex](docs/tutorials/02-source-map.md), [bursts of a band](docs/tutorials/03-bursts.md).
+- [docs/pipelines/](docs/pipelines/README.md): every pipeline, one page each (inputs, parameters with meaning, default and unit, presets, the chain of nodes, outputs), generated from the definitions by `tools/gen_docs.py`.
+- [docs/nodes.md](docs/nodes.md): every node and its ports, generated from the node registry.
+- [docs/reference.md](docs/reference.md): the methods: why each is measured, the reference it follows, what it stores and what it cannot resolve.
+- [ARCHITECTURE.md](ARCHITECTURE.md): the layers and the rules that are never broken; [CONTRIBUTING.md](CONTRIBUTING.md): how to add a method, build, test and contribute; [docs/specs/](docs/specs/): the designs.
 
 ## Contributing
 

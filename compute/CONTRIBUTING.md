@@ -97,7 +97,7 @@ When implementing or debugging, consult these files:
 
 The MEX binding exposes four commands that hand Brainstorm a halfedge-mesh
 coordinate system for MEG leadfield analysis (design:
-`docs/superpowers/specs/2026-06-08-topology-geometry-gauge-bundle-design.md`):
+`../docs/archive/compute/superpowers/specs/2026-06-08-topology-geometry-gauge-bundle-design.md`):
 
 | MEX command | Returns |
 |---|---|
@@ -131,7 +131,7 @@ build `M⊗I₄` and there is one boundary crossing (results only).
 `solveEigenmodesFromTriplets` remains the bring-your-own-matrix escape hatch.
 Covariant (component-major, `kron(I₃,M)`) and the complex connection Laplacian
 (needs the real2N embedding) are deferred. Design:
-`docs/superpowers/specs/2026-06-15-operator-eigensolve-design.md`.
+`../docs/archive/compute/superpowers/specs/2026-06-15-operator-eigensolve-design.md`.
 
 **Covariant differential operators (`nxr::manifold::differential`).** Artifact-free
 transport + differentiation of a 3-vector cortical field (e.g. a leadfield) expressed in
@@ -148,7 +148,7 @@ Use `G` as a **gradient** (first-order); its degenerate Ambient spectrum is irre
 question — only transport/gradients are canonical and parameter-free here. (The *extrinsic*
 relative-Dirac spectral family — a different, Gauss-map-based construction — IS implemented;
 see "Extrinsic Dirac operator" below.) Design:
-`docs/superpowers/specs/2026-06-10-cortical-covariant-differential-operators-design.md`.
+`../docs/archive/compute/superpowers/specs/2026-06-10-cortical-covariant-differential-operators-design.md`.
 
 Library backing (all in `nxr::manifold`): `geometry::vertexGrid`/`faceGrid`,
 `geometry::vertexCurvature`, `geometry::meshTopology`, `geometry::meshGeometry`,
@@ -161,7 +161,7 @@ in `bindings/mex/test/test_bundle.m`).
 **Operators surface (opt-in).** Passing `opts.operators = true` to any of the
 four commands attaches an `.operators` sub-struct of live native MATLAB sparse
 operators to each surface (design:
-`docs/superpowers/specs/2026-06-08-operators-surface-design.md`). Each surface
+`../docs/archive/compute/superpowers/specs/2026-06-08-operators-surface-design.md`). Each surface
 owns the operators whose highest ingredient is that surface — the
 `operators.laplacian` through-line is graph → cotan → connection:
 `Topology.operators` = `laplacian` (graph `D−A` = `d0ᵀd0`, via
@@ -172,7 +172,7 @@ for euclidean/levi-civita, trivial for trivial — native **complex** sparse,
 `nSym=1`) + `covariantLaplacian` (the 3-frame covariant Laplacian, `3N×3N` real
 sparse on `[a;b;c] = [Re z; Im z; normal]`; `coupling ∈ {product, ambient}`,
 default `ambient` — `ambient`'s world-coords form is `kron(I₃, cotanLaplacian)`;
-design: `docs/superpowers/specs/2026-06-08-vector-laplacian-3d-design.md`). Light
+design: `../docs/archive/compute/superpowers/specs/2026-06-08-vector-laplacian-3d-design.md`). Light
 by default (no flag ⇒ byte-identical, no `.operators` field). `MeshData` and
 `Gauge.face.rotation` remain deferred.
 
@@ -199,7 +199,7 @@ is exposed as a separate cached operator: `E = DᵀW_F D` is its area-weighted
 Galerkin square (so `dirac(1)` and `diracD` never drift — same triplets), and `D`
 annihilates constant quaternionic fields (the first-order analogue of "Δ kills
 constants"). Designs:
-`docs/superpowers/specs/2026-06-10-extrinsic-dirac-operator-design.md`. Boundary
+`../docs/archive/compute/superpowers/specs/2026-06-10-extrinsic-dirac-operator-design.md`. Boundary
 conditions (infinite potential well) and the cross-surface canonical
 representative remain deferred (single closed cortex, v1).
 
@@ -222,7 +222,7 @@ multiplicities). `diracFace(0)` byte-matches `K̃⊗I₄`. The first-order recta
 `operators … diracFaceD`) is likewise exposed as a separate cached operator:
 `Ẽ = D̃ᵀW_V D̃` is its `⋆_V`-weighted Galerkin square (`diracFace(1) == diracFaceD`
 square), and `D̃` kills constant face-quaternionic fields. Design:
-`docs/superpowers/specs/2026-06-10-face-domain-dirac-operator-design.md`. Closed-mesh
+`../docs/archive/compute/superpowers/specs/2026-06-10-face-domain-dirac-operator-design.md`. Closed-mesh
 v1: both `Ẽ` and `D̃` **throw** on an open boundary (open vertex stars; fail-loud) —
 the infinite-potential-well boundary treatment is deferred.
 
@@ -256,7 +256,7 @@ argument (`vertexConnectionLaplacian(surface, type, singularities)`, `covariantL
 **Operator registry (C++).** `include/nxr/operator_registry.h` /
 `src/operator_registry.cpp` are the single source of truth for *operator
 identity + metadata* (design:
-`docs/superpowers/specs/2026-06-25-operator-registry-metadata-design.md`). Each
+`../docs/archive/compute/superpowers/specs/2026-06-25-operator-registry-metadata-design.md`). Each
 operator is one `OperatorVariant` keyed by a stable curated `id` string
 (`laplaceBeltrami`, `leviCivitaConnectionLaplacian`, `trivialConnectionLaplacian`,
 `flatCovariantLaplacian`, `relativeDirac`, `intrinsicDirac`, …) carrying a human
@@ -288,7 +288,7 @@ Dirac) is catalogued as `status: planned` — metadata only, build is a follow-o
 **Field registry (C++) — the dual of the operator registry.**
 `include/nxr/field_registry.h` / `src/field_registry.cpp` are the single source of
 truth for *field identity + metadata* — the type system for the DATA operators act
-on (design: `docs/superpowers/specs/2026-06-25-field-type-system-design.md`). Each
+on (design: `../docs/archive/compute/superpowers/specs/2026-06-25-field-type-system-design.md`). Each
 field is one `FieldVariant` keyed by a curated `id` (`scalarVertex`, `oneFormEdge`,
 `twoFormFace`, `tangentVertex`, `ambientVertexWorld`/`Local`, `ambientEdge`,
 `ambientFaceWorld`, `immersionVertex`/`Face`) carrying a `FieldDescriptor` over
@@ -316,7 +316,7 @@ and `operatorInfo` now surfaces each operator's `input_field`/`output_field`.
 **Vector-bundle covariant operators (the two filled cells).** The vector/tangent
 side of the intrinsic/extrinsic/flat grid is now complete, matching the spinor
 bundle's intrinsic/extrinsic Diracs (design:
-`docs/superpowers/specs/2026-06-25-vector-covariant-operators-design.md`).
+`../docs/archive/compute/superpowers/specs/2026-06-25-vector-covariant-operators-design.md`).
 **`connectionGradient`** (`operators().connectionGradient(nSym)`; MEX/WASM
 `operators 'connectionGradient' nSym`) is the **first-order Levi-Civita covariant
 gradient `d^∇`** — a complex `[E×V]` operator, the clean √ of the connection
@@ -489,7 +489,7 @@ state, not a missed optimization.
    AsyncWorker only if profiling shows they freeze the UI on real
    meshes. The WASM binding has no AsyncWorker analogue — consumers
    that need off-thread WASM dispatch must host the module in a
-   Web Worker (see `docs/wasm-web-worker.md` for the recipe +
+   Web Worker (see `../docs/archive/compute/wasm-web-worker.md` (historical) for the recipe +
    `bindings/wasm/js/nxr_compute_wasm.worker.template.mjs`).
 
 8. **Solver instances live inside a library call, never in a binding.**
@@ -501,7 +501,7 @@ state, not a missed optimization.
    of source sets gives one column per set) and builds ONE solver for the
    call. The bindings are array-based and keep nothing between calls, so
    a binding never holds a solver or a result cache. See
-   `docs/integration-lessons.md` §A.
+   `../docs/archive/compute/integration-lessons.md` (historical) §A.
 
 9. **No result caches in the bindings.**
    Some geometry-central algorithms (e.g.
@@ -510,7 +510,7 @@ state, not a missed optimization.
    factorizes internally. A caller that repeats a call with the same
    parameters keeps the result itself; the library and its bindings
    do not cache it (the former binding-level result caches went with
-   the context design). See `docs/integration-lessons.md` §C.
+   the context design). See `../docs/archive/compute/integration-lessons.md` (historical) §C.
 
 10. **Eigensolve K ceiling on browser/WASM.** `solveEigenmodes` throws
     `EigensolveInvalidK` for `k > 1000`. Spectra's Krylov basis size
@@ -536,18 +536,18 @@ state, not a missed optimization.
 
 ## Common pitfalls — quick reference
 
-Read `docs/integration-lessons.md` for the full retrospective from
+Read `../docs/archive/compute/integration-lessons.md` (historical) for the full retrospective from
 the May-2026 bench round. Quick callouts that bit us already:
 
 - **Inline solver construction.** `HeatMethodDistanceSolver(geom)` /
   `VectorHeatMethodSolver(geom)` / `SignedHeatSolver(geom)` MUST be
   built once and held alive. Constructing per call discards both
   Cholesky factors every time. Pattern A in
-  `docs/integration-lessons.md`.
+  `../docs/archive/compute/integration-lessons.md` (historical).
 - **Stateless free-function results.** geometry-central's smooth-
   direction-field functions don't have a Solver class. Cache the
   OUTPUT in the binding, keyed by parameters. Don't try to extract
-  the internal factor. Pattern C in `docs/integration-lessons.md`.
+  the internal factor. Pattern C in `../docs/archive/compute/integration-lessons.md` (historical).
 - **Spectra shift-invert factor is per-call by design.** Methods
   that bundle an eigensolve (e.g. `precompute({k})`) will look like
   they're "no caching" in bench output even when everything else IS
@@ -714,4 +714,4 @@ correctness program.
 `solve::eigenSpin`, `EigenOperator::{HodgeDirac,SpinExtrinsic,SpinIntrinsicHY,SpinIntrinsicYe}`, `EigenOperatorSpec::graphDegreeMass`; registry ids
 `hodgeDirac`, `spin*Dirac`, `graphLaplacianDegreeMass`; `eigs({operator: 'hodgeDirac'|'spinExtrinsic'|'spinIntrinsicHY'|'spinIntrinsicYe'})` in the
 Node and WASM bindings. nxr-cortical-flow is the reference where implementations differ; parity: `test/test_cf_parity.cpp`
-(`NXR_CF_FIXTURES`, `NXR_CF_CORTEX=1`). Map, parity table and limits: `docs/eigenmode-solvers.md`.
+(`NXR_CF_FIXTURES`, `NXR_CF_CORTEX=1`). Map, parity table and limits: `../docs/archive/compute/eigenmode-solvers.md` (historical).
