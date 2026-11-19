@@ -141,3 +141,32 @@ def heat(surface: dict, sources, t_coef: float = 1.0, mesh: str = "intrinsic") -
         sets, single = [[int(v) for v in sources]], True
     D = _core.geometry_heat(_contiguous(surface), sets, float(t_coef), str(mesh))
     return D[:, 0] if single else D
+
+
+def logMap(surface: dict, source, strategy: str = "affine_local", t_coef: float = 1.0):
+    """The log map at a source vertex: the geodesic polar coordinates of every vertex in the source's tangent plane (geometry-central's vector heat
+    method, on the operator mesh, the intrinsic Delaunay triangulation).
+
+    Parameters
+    ----------
+    source : int, or a sequence of int
+        One source vertex (one result), or several (a list of results, solved on one solver: the factorisation is shared).
+    strategy : str
+        "affine_local" (the default: the affine heat method, prefactored), "affine_adaptive" (no prefactoring, the most accurate near the source),
+        or "vector_heat" (the original vector heat method).
+    t_coef : float
+        The diffusion time as a multiple of the squared mean edge length (default 1).
+
+    Returns
+    -------
+    dict (or a list of them)
+        ``logCoords`` [nV, 2] (x, y) in the source's tangent plane: the norm is the geodesic distance from the source, atan2(y, x) the direction;
+        ``sourceE1``, ``sourceE2`` [3] the plane's frame in R^3 (the gauge of `vertexFrames`); ``sourceNormal`` [3] = e1 x e2. A point near the source is
+        approximately source + x e1 + y e2.
+    """
+    single = np.isscalar(source)
+    srcs = [int(source)] if single else [int(v) for v in source]
+    out = _core.geometry_logMap(_contiguous(surface), srcs, str(strategy), float(t_coef))
+    for r in out:
+        r["sourceNormal"] = np.cross(r["sourceE1"], r["sourceE2"])
+    return out[0] if single else out

@@ -227,3 +227,24 @@ def test_phase_current_one_quantity_two_discretisations():
     e = ic["edges"]
     np.testing.assert_allclose(S.phaseGradient(ic, z), (v[e[:, 1]] - v[e[:, 0]]) @ [3.0, -1.5, 0.0], atol=1e-10)
     np.testing.assert_allclose(g[:, :2], np.tile([3.0, -1.5], (len(v), 1)), rtol=0.03)   # the vertex (P1) discretisation is approximate; the edge one exact
+
+
+def test_log_map(sphere):
+    # on the unit sphere the log map's norm is the geodesic distance (the heat distance's, to its accuracy) and the frame is orthonormal and tangent
+    v, _, s = sphere
+    r = G.logMap(s, 0)
+    d = np.linalg.norm(r["logCoords"], axis=1)
+    assert r["logCoords"].shape == (len(v), 2) and d[0] < 1e-9
+    true = np.arccos(np.clip(v @ v[0], -1, 1))
+    near = true < 1.0
+    np.testing.assert_allclose(d[near], true[near], atol=0.03)
+    e1, e2, n = r["sourceE1"], r["sourceE2"], r["sourceNormal"]
+    np.testing.assert_allclose([e1 @ e1, e2 @ e2, e1 @ e2, e1 @ v[0]], [1, 1, 0, 0], atol=1e-9)
+    assert n @ v[0] > 0.99
+    # near the source the coordinates point the right way: source + x e1 + y e2 ~ the vertex
+    k = np.argsort(np.where(near, true, np.inf))[1:6]
+    approx = v[0] + r["logCoords"][k, :1] * e1 + r["logCoords"][k, 1:] * e2
+    assert np.abs(approx - v[k]).max() < 0.05
+    both = G.logMap(s, [0, 5])
+    assert len(both) == 2
+    np.testing.assert_allclose(both[0]["logCoords"], r["logCoords"], atol=1e-10)

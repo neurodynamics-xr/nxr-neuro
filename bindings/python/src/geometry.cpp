@@ -13,6 +13,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/mesh.h"
+#include "nxr/geometry/transport.h"
 #include "surface.h"
 
 namespace nxrpy {
@@ -115,6 +116,34 @@ Eigen::MatrixXd heat(const nb::dict& surface, const std::vector<std::vector<int>
   return geom::heat(s, source_sets, t_coef, hm);
 }
 
+namespace tr = nxr::geometry::transport;
+
+tr::LogMapStrategy log_map_strategy(const std::string& s) {
+  if (s == "affine_local") return tr::LogMapStrategy::AffineLocal;
+  if (s == "affine_adaptive") return tr::LogMapStrategy::AffineAdaptive;
+  if (s == "vector_heat") return tr::LogMapStrategy::VectorHeat;
+  throw std::invalid_argument("strategy '" + s + "' is not one of affine_local, affine_adaptive, vector_heat");
+}
+
+nb::list log_map(const nb::dict& surface, const std::vector<int>& sources, const std::string& strategy, double t_coef) {
+  const geom::SurfaceArrays s = surface_in(surface);
+  const tr::LogMapStrategy st = log_map_strategy(strategy);
+  std::vector<tr::LogMapResult> rs;
+  {
+    nb::gil_scoped_release release;
+    rs = tr::logMap(s, sources, st, t_coef);   // the batch form: one solver for every source
+  }
+  nb::list out;
+  for (auto& r : rs) {
+    nb::dict d;
+    d["logCoords"] = std::move(r.logCoords);
+    d["sourceE1"] = Eigen::VectorXd(r.sourceE1);
+    d["sourceE2"] = Eigen::VectorXd(r.sourceE2);
+    out.append(d);
+  }
+  return out;
+}
+
 }  // namespace
 
 void bind_geometry(nb::module_& m) {
@@ -125,6 +154,7 @@ void bind_geometry(nb::module_& m) {
   m.def("geometry_eulerCharacteristic", &euler_characteristic, arg("surface"));
   m.def("geometry_vertexFrames", &vertex_frames, arg("surface"));
   m.def("geometry_frames", &face_frames, arg("surface"));
+  m.def("geometry_logMap", &log_map, arg("surface"), arg("sources"), arg("strategy"), arg("t_coef"));
   m.def("geometry_heat", &heat, arg("surface"), arg("source_sets"), arg("t_coef"), arg("mesh"));
 }
 

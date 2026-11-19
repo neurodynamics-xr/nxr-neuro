@@ -185,6 +185,7 @@ python	geometry_eulerCharacteristic	nxr::geometry::eulerCharacteristic	ok
 python	geometry_vertexFrames	nxr::geometry::vertexFrames	ok
 python	geometry_frames	nxr::geometry::frames	ok
 python	geometry_heat	nxr::geometry::heat	ok
+python	geometry_logMap	nxr::geometry::transport::logMap	ok
 python	operators_assembleManifoldOperators	nxr::operators::assembleManifoldOperators	ok
 python	operators_assembleDECOperators	nxr::operators::assembleDECOperators	ok
 python	operators_assemble	nxr::operators::hodgedirac::assemble	ok
