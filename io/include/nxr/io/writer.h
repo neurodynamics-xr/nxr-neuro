@@ -52,6 +52,9 @@ struct CreateOptions {
 struct OpenOptions {
   bool lock = true;                      // false: a READER, no lock and no recovery
   std::optional<bool> recover;           // default: whether THIS process took the lock (a borrowed lock recovers nothing)
+  // A READER opens SQLite read-only (SQLITE_OPEN_READONLY): it never migrates an older schema (50 to 53 is read as it is), never makes a table or a view and never writes `meta`.
+  // Default: true for a reader (lock = false), false for a writer. Only a writable open, under the writer lock, migrates.
+  std::optional<bool> read_only;
 };
 
 // An open dataset: its database, the datastore root its paths are under, and its row. Closing (or destroying) releases the writer lock.

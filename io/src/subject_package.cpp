@@ -653,11 +653,13 @@ DatasetWriter open_package_writer(const fs::path& folder_in, const OpenOptions& 
       if (const auto nw = database_not_writable(folder / kPackageDatabaseFile))
         throw Error(code::not_writable, nw->second.string() + ": not writable (" + nw->first + ") — copy the package somewhere writable");
     }
-    db.emplace(Database::open(folder / kPackageDatabaseFile));
+    const bool read_only = opt.read_only.value_or(!opt.lock);
+    db.emplace(Database::open(folder / kPackageDatabaseFile, false, "nxr-convert", read_only));
     check_versions(*db, folder);
-    if (read_package_record(*db).release.is_object())
+    // a released package is frozen to a writer; a reader reads it
+    if (!read_only && read_package_record(*db).release.is_object())
       throw Error(code::not_writable, folder.string() + ": a released package is frozen: a change is a new version (a new package)");
-    db->exec_script(kPackageTables);   // a package made before a table of the package format existed gets it
+    if (!read_only) db->exec_script(kPackageTables);   // a package made before a table of the package format existed gets it (a reader reads it as it is: origin_of answers none)
   } catch (...) {
     db.reset();
     held.release();
@@ -700,6 +702,7 @@ void set_origin(Database& db, const std::string& table, const std::string& id, c
 }
 
 std::optional<OriginRecord> origin_of(const Database& db, const std::string& table, const std::string& id) {
+  if (!has_table(db, "origin")) return std::nullopt;   // a package made before the table (opened to read, it is not added)
   const auto r = db.one("SELECT * FROM origin WHERE table_name = ? AND row_id = ?", {table, id});
   if (!r) return std::nullopt;
   return OriginRecord{text(*r, "source"), text(*r, "licence"), text(*r, "attribution"), integer(*r, "redistributable") != 0};
