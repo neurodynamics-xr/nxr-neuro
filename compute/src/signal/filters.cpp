@@ -391,26 +391,13 @@ MatrixXd filter(const MatrixXd& w, const FilterOptions& options, const VectorXd&
 
 // ── whole-record verbs ──────────────────────────────────────────────────────────────────────────────────────────
 
-// The record in at most two windows, as the former streaming filter drained it: the first `n - lookAhead` samples (when that is at least the minimum block) with the record's end still ahead, then the
-// rest with the record's end reached (a window of the last lookBehind samples before it as the halo).
+// A whole array is one window: no halo, both ends the record's.
 static MatrixXd runWhole(const MatrixXd& x, const FilterOptions& o) {
     if (x.rows() < 1) bad("at least one channel");
     VectorXd mean;
     if (o.removeMean) mean = x.rowwise().mean();
-    const Design d = design(o);
-    const std::int64_t n = x.cols(), minBlock = static_cast<std::int64_t>(std::max<std::size_t>(d.lookAhead, 1024));
-    const std::int64_t need = n - static_cast<std::int64_t>(d.lookAhead);
-    MatrixXd out(x.rows(), n);
-    if (n == 0) return out;
-    std::int64_t done = 0;
-    if (need >= minBlock) {
-        out.leftCols(need) = filter(x, o, d, mean, 0, static_cast<std::size_t>(need), true, false);
-        done = need;
-    }
-    const std::int64_t ws = std::max<std::int64_t>(0, done - static_cast<std::int64_t>(d.lookBehind));
-    const MatrixXd win = x.middleCols(ws, n - ws);
-    out.middleCols(done, n - done) = filter(win, o, d, mean, static_cast<std::size_t>(done - ws), static_cast<std::size_t>(n - done), ws == 0, true);
-    return out;
+    if (x.cols() == 0) return MatrixXd(x.rows(), 0);
+    return filter(x, o, design(o), mean, 0, static_cast<std::size_t>(x.cols()), true, true);
 }
 
 MatrixXd lowpass(const MatrixXd& x, double upperEdge, FilterOptions o) { o.kind = Kind::Lowpass; o.upperEdge = upperEdge; return runWhole(x, o); }
