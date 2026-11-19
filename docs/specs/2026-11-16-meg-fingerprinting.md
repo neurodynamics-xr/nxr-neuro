@@ -1,12 +1,40 @@
 # MEG brain fingerprinting: telling people apart from their source spectra (spec, 2026-11-16)
 
-Status: **proposed; no code yet.** It needs `sourcepsd` to keep its bins (section 3.1), the subject-centred dataset module's cohort selection and group
+Status: **proposed; no code yet; amended 2026-11-19 (the published method is the default).** It needs `sourcepsd` to keep its bins (section 3.1), the subject-centred dataset module's cohort selection and group
 packages (`2026-11-16-subject-centred-datasets.md`, sections 3.1 and 5), and the verb-first command line (`2026-11-16-command-line.md`).
 
 **The method:** da Silva Castanheira, Orozco Perez et al. 2021, *Brief segments of neurophysiological activity enable individual differentiation*,
 Nat Commun 12:5713 (code: github.com/neurohazardous/megFingerprinting, notebooks `4_PSD_fingerprinting_*`), after the connectome fingerprinting of
-Finn et al. 2015 (Nat Neurosci 18:1664) and Amico & Goñi 2018 (Sci Rep 8:8254). **The reference for the default** is the maintainers' earlier
-implementation of it (a per-subject stage and a numpy cohort stage, section 6), whose departures from the papers are listed in section 6.2.
+Finn et al. 2015 (Nat Neurosci 18:1664) and Amico & Goñi 2018 (Sci Rep 8:8254). ~~**The reference for the default** is the maintainers' earlier
+implementation of it (a per-subject stage and a numpy cohort stage, section 6), whose departures from the papers are listed in section 6.2.~~
+Superseded by the amendment below.
+
+## Amendment (2026-11-19): the published method is the default, with no departure
+
+**The reference for every default is the published method**: da Silva Castanheira J\*, Orozco Perez HD\*, Mišić B, Baillet S (2021) *Brief
+segments of neurophysiological activity enable individual differentiation*, Nature Communications 12:5713 (\* equal contribution), as implemented
+in its authors' release (github.com/neurohazardous/megFingerprinting, v1.0.0, commit 06fdba8): the preprocessing and source scripts
+`2_prerprocessing_PSD.m`, `2_preprocessing_AEC_ortho.m` and the fingerprinting notebooks `4_PSD_fingerprinting_*`, `4_AEC_fingerprinting_*`.
+The identification statistics follow Finn et al. 2015 and Amico & Goñi 2018, as the paper does.
+
+This amendment replaces section 6.1 and turns section 6.2 around:
+- **Every column "papers" of section 6.2 is the default.** The pipeline reproduces the published method end to end: the sensor preprocessing
+  (notch, high-pass, the SSP projectors for heart, eyes, saccades and muscle), the per-band LCMV beamformer with its covariances, the region
+  signal as the first principal component of each region's sources before the spectrum, the frequency range and bins, no normalisation, the
+  two halves of the recording, and the notebooks' estimators. Where nxr-neuro lacks a step, the step is built (to the reference) before the
+  pipeline is complete; nothing is substituted.
+- **The earlier implementation's choices** (region mean after the spectrum, 1–150 Hz, relative normalisation, epoch-based halves, the caller's
+  kernel, a full SVD) are kept, if at all, only as named options, never as defaults.
+- **Parity:** each step is held equal to the reference by a golden test on synthetic data, the goldens made by running the authors' code (and
+  Brainstorm where the authors call it) through generators committed beside them. Where the authors' code depends on a choice it does not state
+  (a Brainstorm default, the Brainstorm version, a library's default solver), the choice is written down here with the version it was taken from.
+- **Licence:** the authors' code is GPL-3. nxr-neuro writes every step from the paper and the code's documented behaviour; the authors' code is
+  run only to make goldens and is never copied.
+- **Citation and attribution:** the paper, its authors and the release are cited in the pipeline's README section, in the header of its
+  definition, and in every stored result's provenance (`producer_json.references`), so a result carries the method's citation with it.
+
+The step-by-step specification of the published method (each step, its exact parameters, where it comes from in the authors' code, and what
+nxr-neuro has or must build for it) is section 11.
 
 ## 1. Why
 
@@ -311,3 +339,82 @@ stage refuses its mixed lines.
 10. **Uncertainty:** store bootstrap or permutation intervals for accuracy and self-identifiability (as statistics over resampled members), or leave
     inference outside the tool?
 11. **The PCA's circularity:** add a cross-validated option (fit the components without the member scored), as a named option beside the papers'?
+
+## 11. The published method, step by step (amendment 2026-11-19)
+
+Sources: the paper's Methods (p. 8–9) and the authors' release v1.0.0: `2_prerprocessing_PSD.m` (PSD), `2_preprocessing_AEC_ortho.m` (AEC),
+`4_*_fingerprinting_*.ipynb` (cells cited for `4_PSD_fingerprinting_within_session`). The paper states: **Brainstorm version Oct-12-2018, MATLAB
+2017b, Brainstorm's default parameters unless stated, the 2016 version of the source estimation processes**. Every Brainstorm default below is
+therefore that release's, and its goldens are made with that release.
+
+Status: **have** (in nxr-neuro, held to Brainstorm by a golden) · **partial** · **need** (to build, to the reference) · **open** (the reference is
+ambiguous; a maintainer's decision, section 12).
+
+### 11.1 Per subject: preprocessing (sensor level)
+
+| # | step | the reference (parameters) | nxr-neuro |
+|---|---|---|---|
+| 1 | anatomy and source space | the subject's cortex at 15 000 vertices with the Desikan–Killiany atlas (68 regions); sensors aligned to the head points (`process_headpoints_refine`, defaults) | partial: surfaces and atlases import; no refinement of the registration (need, or import a refined registration) |
+| 2 | run selection and CTF format | the resting run; `process_ctf_convert` to continuous; CTF 3rd-order gradient compensation as recorded | partial: compensation imported, not applied by a node |
+| 3 | line noise | `process_notch`, 60–600 Hz (60 Hz and 10 harmonics), Brainstorm's default notch of that release (`cutoffW`, IIR version) | have (`signal.filter`, notch; Brainstorm golden), parameters to confirm against the 2018 release |
+| 4 | high-pass | `process_bandpass` 0.3 Hz, no low-pass, `mirror=0`, the release's default filter (`ver`, `attenuation`) | have (Brainstorm golden), version to confirm |
+| 5 | ECG and EOG events | `process_evt_detect_ecg` (channel ECG), `process_evt_detect_eog` (VEOG), default thresholds; `process_evt_remove_simult` (remove cardiac within 0.25 s of blink) | need |
+| 6 | ECG and EOG projectors | `process_ssp_ecg`, `process_ssp_eog`, MEG, first component | need (projectors import and apply on load: have) |
+| 7 | saccade and muscle projectors | `process_evt_detect_badsegment` (MEG, threshold 3, low and high bands); `process_ssp` 1–7 Hz on the saccade events; `process_ssp` 40–400 Hz on the whole recording; first component each | need |
+| 8 | empty room | the recording nearest in date; continuous; the same notch and high-pass; no projectors computed on it | partial: the filters have; the choice of recording is the caller's |
+| 9 | bands | `process_bandpass` delta 1–4, theta 4–8, alpha 8–13, beta 13–30, gamma 30–50, high gamma 50–150 Hz, on the subject and the empty room (the release's default filter: the script's `'Method','bst-hfilter'` is not an option of `process_bandpass` and has no effect) | have (band-pass, Brainstorm golden) |
+
+### 11.2 Per subject and band: source model and region signals
+
+| # | step | the reference | nxr-neuro |
+|---|---|---|---|
+| 10 | channels | `process_stdchan`: the channels common to the subject and the empty room | need (a channel intersection at preparation) |
+| 11 | data covariance | `process_noisecov` on the band-passed run (whole run, DC offset removed, projectors applied) | partial: the estimator has (`stats::cov`), no data-covariance input |
+| 12 | noise covariance | `process_noisecov` on the band-passed empty room (whole recording, DC offset removed) | have (`noisecov`) |
+| 13 | head model | overlapping spheres on the cortex (`process_headmodel meg=3`) | have (`headmodel`, Brainstorm golden) |
+| 14 | inverse | `process_inverse_2016`: LCMV, measure NAI (source variance normalised by the noise), orientation fixed normal to the cortex, regularisation `median` (the eigenvalue tail set to the median), 0.1 | **need** (LCMV with NAI, the 2016 implementation) |
+| 15 | region signal | Desikan–Killiany, 68 regions; scout function PCA, applied **before** the spectrum (the first principal component of each region's source time series), the release's PCA scout | **need** |
+
+### 11.3 Per subject: features
+
+| # | step | the reference | nxr-neuro |
+|---|---|---|---|
+| 16 | the two halves | training [5 s, floor(T/2)], validation [ceil(T/2), T − 5 s], T the run's last time | have (spans are the caller's) |
+| 17 | spectra | `process_psd` on each band's region signals: Welch, 2 s windows, 50 % overlap, power, the release's units and window; 0.5-Hz bins | partial: Welch has (Brainstorm golden); not on region signals |
+| 18 | the spectral feature | 68 regions × 301 bins (0–150 Hz), as the notebooks read it; band notebooks: delta 8, theta 8, alpha 10, beta 34, gamma 40, high gamma 201 bins | **open**: how the 301 bins are assembled from the six band spectra is not in the release |
+| 19 | the connectome feature | per band, the region signals band-passed again (`process_bandpass` Compute, default), Hilbert transform, amplitude envelopes, Pearson correlation of every pair: 68 × 68; **no orthogonalisation** (the paper and the code agree) | need (AEC); the analytic signal has, the Hilbert of a Brainstorm band-pass does not |
+
+### 11.4 The cohort (the notebooks)
+
+| # | step | the reference | nxr-neuro |
+|---|---|---|---|
+| 20 | feature vectors | spectral: 68 × 301 row-major, raw values (no log, no normalisation); connectome: the upper triangle **with** the diagonal per band (2346), six bands concatenated | need (a members × features table read from each member's stored features) |
+| 21 | correlation | each vector z-scored across its features (ddof 0); target (validation) × database (training) Pearson matrix | need |
+| 22 | accuracy | both directions, reported separately (argmax per row, per column) | need |
+| 23 | self-differentiability D_self | **open**: the notebook z-scores each row over all N entries (the participant included, ddof 0); the paper's formula uses the mean and SD over the other participants | need |
+| 24 | PCA reconstruction | target and database stacked (2N × F), scikit-learn `PCA(k)` (its automatic solver), reconstruction with the mean; k in {2, 5, 10, 20, …, < 2N}; k chosen by the largest mean reconstructed D_self | partial: `stats.pca` and `reconstruct` have (full SVD); the curve and the choice of k need |
+| 25 | edgewise statistics | on the z-scored features: ICC(1,1) one-way random effects with k = 2; Finn's differential power (strict >, p floored at 1/(2(N−1)), sum of −ln p); group consistency (mean of products) | need |
+
+Not part of the method (analyses of the paper, left out): the demographic and artefact correlations, the PLS, the resting-state network
+summaries, the 30-second segments (a caller's choice of spans, steps 16–25 unchanged), the empty-room baselines (the same pipeline on the empty
+room).
+
+### 11.5 Citation carried by every result
+
+`producer_json.references`: da Silva Castanheira J, Orozco Perez HD, Mišić B, Baillet S (2021) Brief segments of neurophysiological activity enable
+individual differentiation. Nat Commun 12:5713, doi:10.1038/s41467-021-25895-8; software: megFingerprinting v1.0.0 (06fdba8); the identification
+statistics: Finn ES et al. (2015) Nat Neurosci 18:1664; Amico E, Goñi J (2018) Sci Rep 8:8254.
+
+## 12. Open points to settle before building (amendment 2026-11-19)
+
+1. **The spectral feature's 301 bins** (step 18): the release does not contain the export from the six band spectra to the 68 × 301 feature. One
+   reading fits the band notebooks' bin counts (each band's own spectrum over [previous band's high edge, its high edge), delta from 0 Hz, high gamma
+   to 150 Hz inclusive); it is an inference until the authors confirm it.
+2. **D_self** (step 23): the notebook (which made the published numbers) or the paper's formula.
+3. **Quirks of the release that change numbers**: the projectors are applied to the subject's data covariance but not to the empty room's noise
+   covariance; the connectome band-passes each band twice (sensor level, then again before the Hilbert transform); the halves' boundary takes T
+   from the last band's file; the connectome keeps its constant diagonal. Reproduce them (the default reproduces the release) or follow the paper's
+   text where it is silent on them.
+4. **PCA solver**: scikit-learn's automatic solver is randomised at this size and unseeded; the golden for step 24 is then reproducible only to its
+   tolerance.
+5. **The goldens' toolchain**: Brainstorm Oct-12-2018 is needed to make the per-subject goldens with the paper's defaults.
