@@ -96,6 +96,11 @@ Eigen::SparseMatrix<double> massMatrix(const HodgeDirac& h);   // diag(M)
 //  * GeometryDegenerate when ⋆1 has genuinely negative weights (`star1Negative` > 0) and the caller named no floor (`h.star1Floor` = 0): raised to the
 //    rounding level, ⋆1⁻¹ would be huge in the coexact ladder and give spurious modes. A named floor is the caller's explicit choice and is accepted.
 void requireComplete(const HodgeDirac& h);
+// THE ⋆1 OF THE MODES, one definition for the pencil and for everything applied to its modes (signal::intrinsicComplex): the raw cotan weights, every weight
+// below the floor raised to it; the floor is the caller's `star1Floor` when positive, else the rounding level 1e-9 × the mean |weight| (an edge whose weight is
+// zero within rounding: a cocircular quad, a boundary edge opposite a right angle). Returns how many were raised.
+double star1RoundingLevel(const Eigen::VectorXd& star1);
+int raiseStar1(Eigen::VectorXd& star1, double star1Floor);
 } // namespace nxr::operators::hodgedirac
 
 namespace nxr::operators::spin {

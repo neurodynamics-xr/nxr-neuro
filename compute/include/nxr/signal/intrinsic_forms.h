@@ -60,7 +60,9 @@ void attachEmbedding(IntrinsicComplex& c, nxr::geometry::IntrinsicSurface& surfa
 /** The complex of a surface's arrays (geometry-central's intrinsic Delaunay triangulation, with signposts): its edges, lengths, d0, d1, the stars (⋆0 the mesh's recorded mass, ⋆1 the
  *  cotan weights, ⋆2 = 1 / area), the signposts, and the embedding (`positions` [3 nV], the INPUT `faces` [3 nF_in] for the area-weighted vertex normals).
  *  What `eigen solve` stores, built in memory (tests; a caller with no stored package). */
-IntrinsicComplex intrinsicComplex(const nxr::geometry::SurfaceArrays& surface);
+IntrinsicComplex intrinsicComplex(const nxr::geometry::SurfaceArrays& surface, double star1Floor = 0.0);
+// ⋆1 is the modes' (operators::hodgedirac::raiseStar1 with `star1Floor`, the same as hodgedirac::assemble's): the forms read the modes with the weights they were
+// solved with (a raw weight of 0 would make ⋆1⁻¹ infinite in the coexact parts)
 
 /** The direction of edge e at its tail (atTip false) or tip (atTip true), pointing ALONG the edge (tail → tip), as an ambient unit vector. */
 Eigen::Vector3d tangentAt(const IntrinsicComplex& c, int e, bool atTip);

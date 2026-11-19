@@ -15,15 +15,16 @@ from ... import _core
 from ..geometry import _contiguous
 
 
-def intrinsicComplex(surface: dict) -> dict:
+def intrinsicComplex(surface: dict, star1_floor: float = 0.0) -> dict:
     """The intrinsic complex of a surface made by `geometry.surfaceArrays`, built once and passed to every function of this module.
 
     Returns ``nV``, ``nE``, ``nF``, ``edges`` [nE, 2] (tail, tip), ``length`` [nE], ``d0`` [nE, nV], ``d1`` [nF, nE] (sparse), ``star0`` [nV] (the
-    mixed-Voronoi mass), ``star1`` [nE] (the cotan weights), ``star2`` [nF] (1 / area), ``angleTail``, ``angleTip`` [nE] (each edge's signpost angle at
+    mixed-Voronoi mass), ``star1`` [nE] (the cotan weights, raised to the floor exactly as `operators.hodgedirac.assemble(surface, star1_floor)` raises them, so the forms read
+    the modes with the weights they were solved with; pass the same ``star1_floor``), ``star2`` [nF] (1 / area), ``angleTail``, ``angleTip`` [nE] (each edge's signpost angle at
     its ends), ``coneAngle`` [nV], ``reference`` [nV], ``positions``, ``normals`` [nV, 3], and the signposts' embedding (``fanStart`` [nV + 1],
     ``fanAngle``, ``fanDirection`` [n, 3]: per vertex its input edges' angles and directions).
     """
-    return _core.signal_intrinsicComplex(_contiguous(surface))
+    return _core.signal_intrinsicComplex(_contiguous(surface), float(star1_floor))
 
 
 def _ic(complex):
