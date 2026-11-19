@@ -391,3 +391,5 @@ retired	liftToWorld	mex	operators.liftToWorld
 retired	liftToFrame	mex	operators.liftToFrame
 retired	operatorInfo	mex	operators.operatorById
 retired	fieldInfo	mex	operators.fieldById
+python	signal_decimate	nxr::signal::decimate	ok
+python	signal_decimationHalo	nxr::signal::decimationHalo	ok

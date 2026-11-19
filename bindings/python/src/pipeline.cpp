@@ -5,6 +5,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -56,8 +57,23 @@ void bind_pipeline(nb::module_& m) {
       nb::arg("progress").none());
   m.def(
       "_read",
-      [](const std::string& dataset, const std::string& subject, const std::string& name, const std::optional<std::string>& measure, const std::optional<std::string>& of_field) {
-        const face::Stored s = face::read(dataset, subject, name, measure, of_field);
+      [](const std::string& dataset, const std::string& subject, const std::string& name, const std::optional<std::string>& measure, const std::optional<std::string>& of_field,
+         std::optional<std::int64_t> start, std::optional<std::int64_t> stop, const std::vector<std::int32_t>& rows, const std::string& projectors, const std::string& reading,
+         const std::optional<std::string>& family) {
+        face::ReadRequest rq;
+        rq.measure = measure;
+        rq.of_field = of_field;
+        rq.start = start;
+        rq.stop = stop;
+        rq.rows = rows;
+        rq.projectors = projectors;
+        rq.reading = reading;
+        rq.family = family;
+        face::Stored s;
+        {
+          nb::gil_scoped_release release;
+          s = face::read(dataset, subject, name, rq);
+        }
         nb::list arrays;
         for (const auto& a : s.arrays) {
           nb::list shape;
@@ -66,7 +82,8 @@ void bind_pipeline(nb::module_& m) {
         }
         return nb::make_tuple(s.meta.dump(), arrays);
       },
-      nb::arg("dataset"), nb::arg("subject"), nb::arg("name"), nb::arg("measure").none(), nb::arg("of_field").none());
+      nb::arg("dataset"), nb::arg("subject"), nb::arg("name"), nb::arg("measure").none(), nb::arg("of_field").none(), nb::arg("start").none(), nb::arg("stop").none(),
+      nb::arg("rows"), nb::arg("projectors"), nb::arg("reading"), nb::arg("family").none());
   m.def(
       "_synthetic_dataset",
       [](const std::string& datastore, const std::string& name, const std::string& subject, const std::string& recording, int channels, double sfreq, double seconds) {

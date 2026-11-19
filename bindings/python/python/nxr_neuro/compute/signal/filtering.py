@@ -137,3 +137,31 @@ def notch(x, frequencies: Sequence[float], sfreq: float, method=None, ripple=1e-
     """
     return _run("notch", x, sfreq, 0.0, 0.0, frequencies, method, ripple, transition_bandwidth, edge, transient_energy, transient_samples, remove_mean,
                 notch_bandwidth, bandstop_order)
+
+
+def decimate(x, q: int, *, order: int = 0, left: int = 0, width: int | None = None, offset: int = 0):
+    """The signal at rate / q, anti-aliased with no delay (`nxr::signal::decimate`; scipy.signal.decimate(x, q, ftype='fir', zero_phase=True)): a window-method low-pass of
+    order 20 q (Hamming; `order` another even order) with its edge at the new Nyquist frequency, applied centred, then every q-th sample kept.
+
+    Parameters
+    ----------
+    x : array [channels, samples]
+        A block, float32 or float64 (the output keeps the precision).
+    q : int
+        The integer factor (1200 Hz -> 300 Hz: q = 4).
+    left, width : int
+        The block's own columns [left, left + width) (width None: to the block's end); the columns before and after them are context (the halo), samples beyond the block count as zero.
+    offset : int
+        The first own column kept (0 <= offset < q): for a chunk whose first own sample is `first` in the whole signal, (-first) % q.
+
+    Returns
+    -------
+    array [channels, kept] at rate / q. Chunk by chunk: read each chunk with `decimationHalo(q)` samples of context on each side and the decimated chunks laid end to end are the
+    whole signal decimated.
+    """
+    return _core.signal_decimate(x, int(q), int(left), -1 if width is None else int(width), int(offset), int(order))
+
+
+def decimationHalo(q: int, order: int = 0) -> int:
+    """The samples of context a block needs on each side so its decimated columns equal the whole signal's (`nxr::signal::decimationHalo`): the low-pass order / 2."""
+    return _core.signal_decimationHalo(int(q), int(order))
