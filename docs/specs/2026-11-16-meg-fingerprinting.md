@@ -18,8 +18,10 @@ in its authors' release (github.com/neurohazardous/megFingerprinting, v1.0.0, co
 The identification statistics follow Finn et al. 2015 and Amico & Goñi 2018, as the paper does.
 
 This amendment replaces section 6.1 and turns section 6.2 around:
-- **Every column "papers" of section 6.2 is the default.** The pipeline reproduces the published method end to end: the sensor preprocessing
-  (notch, high-pass, the SSP projectors for heart, eyes, saccades and muscle), the per-band LCMV beamformer with its covariances, the region
+- **Every column "papers" of section 6.2 is the default.** The sensor preprocessing (notch, high-pass, the SSP projectors for heart, eyes,
+  saccades and muscle; section 11.1) is the authors' own Brainstorm processing, run in Brainstorm and imported (the filtered recordings, the
+  projectors as operators applied on load, the events): nxr-neuro does not duplicate it. From the bands on, nxr-neuro reproduces the published
+  method: the per-band LCMV beamformer with its covariances, the region
   signal as the first principal component of each region's sources before the spectrum, the frequency range and bins, no normalisation, the
   two halves of the recording, and the notebooks' estimators. Where nxr-neuro lacks a step, the step is built (to the reference) before the
   pipeline is complete; nothing is substituted.
@@ -350,7 +352,11 @@ therefore that release's, and its goldens are made with that release.
 Status: **have** (in nxr-neuro, held to Brainstorm by a golden) · **partial** · **need** (to build, to the reference) · **open** (the reference is
 ambiguous; a maintainer's decision, section 12).
 
-### 11.1 Per subject: preprocessing (sensor level)
+### 11.1 Per subject: preprocessing (sensor level): in Brainstorm, imported
+
+Steps 1–8 are run in Brainstorm with the authors' script (its Brainstorm calls unchanged) and imported with `import subject` / `import condition`:
+the filtered recordings, the SSP projectors as operators (applied on load), the events. The column "nxr-neuro" below says what nxr-neuro has if
+the step is ever needed without Brainstorm; none of the "need" entries of this table is built for this pipeline.
 
 | # | step | the reference (parameters) | nxr-neuro |
 |---|---|---|---|
