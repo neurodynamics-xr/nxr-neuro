@@ -72,6 +72,7 @@ test_crossspectrum	integration
 test_crossspectrum_bins	golden
 test_crud	unit
 test_dataset_with_template	integration
+test_decimation	unit
 test_default_subject	unit
 test_definitions_load	integration
 test_definitions_typed	integration
