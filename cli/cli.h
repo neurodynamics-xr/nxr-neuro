@@ -11,6 +11,7 @@
 
 #include "nxr/io/catalogue.h"
 #include "nxr/io/json_text.h"
+#include "nxr/io/task/commands.h"
 #include "nxr/io/writer.h"
 #include "py_json.h"
 
@@ -119,6 +120,52 @@ inline nxr::io::DatasetWriter open_one_database(const Args& a, const std::string
   if (nxr::io::is_catalogue_dataset(a.get("--dataset")))
     throw Usage("error: " + what + " works on a one-database dataset; " + a.get("--dataset") + " is a catalogue of subject packages (`list subjects`, `show subject` and the `compute` verbs open its packages)");
   return nxr::io::open_writer(a.get("--dataset"), o);
+}
+
+// ---- a command: parse, ONE library call (nxr/io/task/commands.h, nxr/pipelines/face.h), print ----
+
+// a command's progress lines: a note on stderr (`note: TEXT`), every other line as the command's JSON line
+inline void progress_line(const Json& j) {
+  if (j.is_object() && j.contains("stage") && j["stage"] == "note") std::cerr << "note: " << j["note"].get<std::string>() << "\n";
+  else emit(j);
+}
+inline nxr::io::task::Progress progress() { return progress_line; }
+
+// the library call of a command: a request it refuses as given is the command line's usage error (exit 2), worded as before
+template <class F>
+auto call(const std::string& prog, F&& f) -> decltype(f()) {
+  try {
+    return f();
+  } catch (const nxr::io::task::Refused& e) {
+    throw Usage((e.bare ? std::string() : prog + ": ") + "error: " + e.what());
+  }
+}
+
+// the result line: `"stage": "result"` first, then the command's result object
+inline void emit_result(const Json& result) {
+  Json out = Json{{"stage", "result"}};
+  for (auto it = result.begin(); it != result.end(); ++it) out[it.key()] = it.value();
+  emit(out);
+}
+
+// a repeatable option's values (none: empty)
+inline std::vector<std::string> values_of(const Args& a, const std::string& k) {
+  const auto it = a.multi.find(k);
+  return it == a.multi.end() ? std::vector<std::string>{} : it->second;
+}
+inline std::optional<std::vector<std::string>> maybe_values(const Args& a, const std::string& k) {
+  const auto it = a.multi.find(k);
+  return it == a.multi.end() ? std::nullopt : std::optional<std::vector<std::string>>(it->second);
+}
+// a comma-separated list, empty items dropped
+inline std::vector<std::string> split_commas(const std::string& s) {
+  std::vector<std::string> out;
+  std::string x;
+  for (std::size_t i = 0; i <= s.size(); ++i) {
+    if (i == s.size() || s[i] == ',') { if (!x.empty()) out.push_back(x); x.clear(); }
+    else x += s[i];
+  }
+  return out;
 }
 
 }  // namespace cli

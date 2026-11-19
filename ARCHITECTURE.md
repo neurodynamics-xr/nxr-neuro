@@ -67,7 +67,7 @@ Studio's chain, and only then write code.
 | `meeg/` | `nxr_meeg` | Eigen and `nxr_core` (amended 2026-11-17). **No file I/O, never `compute` or `io`** (the pipelines hand it arrays) |
 | `pipelines/graph/` | `nxr_graph` | `compute`, `meeg`, Eigen, nlohmann/json (amended 2026-11-17). **No file I/O, never `io`**: the graph executor, which knows arrays and parameters only |
 | `pipelines/` | `nxr_pipelines` | `compute`, `io` (**only io's task API**, `nxr/io/task/`, plus the chunk service), `meeg`: **the only place they meet** |
-| `cli/` | `nxr-neuro` | argument parsing and output only, with no maths and no SQL; it reaches data through io's task API |
+| `cli/` | `nxr-neuro` | argument parsing and output only, with no maths and no SQL: each command parses, makes ONE call to its library function (`io/include/nxr/io/task/commands.h`, or `pipelines/include/nxr/pipelines/face.h` for a command that needs compute) and prints its result; the bindings call the same functions |
 | `bindings/` | MEX, Node, wasm, Python | every library (`compute`, `meeg`, `io`, `pipelines`), as `cli/` does: **faces only**. A binding converts arguments and results and calls the library, with no maths, no SQL and no logic of its own (amended 2026-11-17: the earlier "`compute` only" came from the old nxr-compute repository) |
 
 ## The architecture policy: three layers, each knowing only its own job
