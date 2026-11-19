@@ -31,13 +31,14 @@ c = nn.compute.geometry.complex(s)                   # intrinsic faces, edges (t
 dec = nn.compute.operators.assembleDECOperators(s)   # d0, d1, hodge0..2, hodge1Inverse (scipy.sparse)
 h = nn.compute.operators.hodgedirac.assemble(s)      # the pencil (K, M), the topology, the star1 counts
 m = nn.compute.operators.hodgeDiracModes(h, 60)      # mu, vectors (0-, 1-, 2-form rows), kind
-v = nn.compute.signal.sharp(s, w)                    # a 1-form on the intrinsic edges -> tangent vectors at the vertices
+ic = nn.compute.signal.intrinsicComplex(s)          # the intrinsic complex, built once, passed to the forms
+v = nn.compute.signal.sharp(ic, w)                   # a 1-form on the intrinsic edges -> tangent vectors at the vertices
 
 md = nn.compute.signal.modesOf(m, h)                 # the modes as the forms read them (P, X2, mu, kind)
-J = nn.compute.signal.phaseCurrent(s, z)             # z [nV, frames] complex -> J [nE, frames]
-c = nn.compute.signal.projectOneForm(s, md, J)       # coefficients [K, frames]; zero rows by kind or by mu to split or band-limit
+J = nn.compute.signal.phaseCurrent(ic, z)             # z [nV, frames] complex -> J [nE, frames]
+c = nn.compute.signal.projectOneForm(ic, md, J)       # coefficients [K, frames]; zero rows by kind or by mu to split or band-limit
 Phi = nn.compute.signal.exactPotential(md, c)        # the potential of the exact part
-Psi = nn.compute.signal.coexactStream(s, md, c)      # the stream function of the coexact part
+Psi = nn.compute.signal.coexactStream(ic, md, c)      # the stream function of the coexact part
 ```
 
 Every surface function takes the dict `surfaceArrays` made; none triangulates again. See `docs/reference.md` for the full list.

@@ -34,7 +34,7 @@ int main() {
         for (int k = 0; k < 3; ++k) V[3 * v + k] = p(k);
     }
     nxr::geometry::IntrinsicSurface m(V.data(), nV, F.data(), static_cast<int>(F.size() / 3));
-    const nxr::signal::Complex c = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V.data(), nV, F.data(), static_cast<int>(F.size() / 3)));
+    const nxr::signal::IntrinsicComplex c = nxr::signal::intrinsicComplex(nxr::geometry::surfaceArrays(V.data(), nV, F.data(), static_cast<int>(F.size() / 3)));
     std::printf("  %d vertices, %d edges, %d faces; %d flips\n", c.nV, c.nE, c.nF, m.record().flips);
     EXPECT(m.record().flips > 0, "the jittered sphere needed flips");
     EXPECT(Eigen::SparseMatrix<double>(c.d1 * c.d0).norm() == 0.0, "d1 d0 = 0");
@@ -88,7 +88,7 @@ int main() {
             for (int k = 0; k < 3; ++k) V3[3 * v + k] = p(k);
         }
         nxr::geometry::IntrinsicSurface m3(V3.data(), n3, F3.data(), static_cast<int>(F3.size() / 3));
-        const nxr::signal::Complex c3 = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V3.data(), n3, F3.data(), static_cast<int>(F3.size() / 3)));
+        const nxr::signal::IntrinsicComplex c3 = nxr::signal::intrinsicComplex(nxr::geometry::surfaceArrays(V3.data(), n3, F3.data(), static_cast<int>(F3.size() / 3)));
         const Eigen::MatrixXd Lap = Eigen::MatrixXd(c3.d0.transpose() * c3.star1.asDiagonal() * c3.d0);
         Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> ges(Lap, Eigen::MatrixXd(c3.star0.asDiagonal()));
         const int K = 40;
@@ -118,7 +118,7 @@ int main() {
         icosphere(2, V2, F2, 1.0);
         const int n2 = static_cast<int>(V2.size() / 3);
         nxr::geometry::IntrinsicSurface m2(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3));
-        const nxr::signal::Complex c2 = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3)));
+        const nxr::signal::IntrinsicComplex c2 = nxr::signal::intrinsicComplex(nxr::geometry::surfaceArrays(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3)));
         const Eigen::MatrixXd Lap = Eigen::MatrixXd(c2.d0.transpose() * c2.star1.asDiagonal() * c2.d0);
         Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> ges(Lap, Eigen::MatrixXd(c2.star0.asDiagonal()));
         const int K = 12;
@@ -149,7 +149,7 @@ int main() {
         nxr::operators::HodgeSolveOptions o; o.limit = 30;
         const auto r = nxr::operators::hodgeDiracModes(h, 40, false, o);
         const nxr::signal::Modes md = nxr::signal::modesOf(r, h.nV, h.nE, h.nF);
-        const nxr::signal::Complex c2 = nxr::signal::complexOf(s2);
+        const nxr::signal::IntrinsicComplex c2 = nxr::signal::intrinsicComplex(s2);
         const int K = static_cast<int>(md.mu.size());
         int nEx = 0; for (int k : md.kind) nEx += k == 0;
         EXPECT(K == 30 && md.P.rows() == n2 && md.X2.rows() == c2.nF && nEx > 0 && nEx < K, "modesOf: 30 modes, both kinds, the 0- and 2-form rows");
@@ -184,7 +184,7 @@ int main() {
         EXPECT(refused, "modesOf refuses a both-signs solve (negative mu)");
         std::vector<double> V1; std::vector<int32_t> F1;
         icosphere(1, V1, F1, 1.0);
-        const nxr::signal::Complex c1 = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V1.data(), static_cast<int>(V1.size() / 3), F1.data(), static_cast<int>(F1.size() / 3)));
+        const nxr::signal::IntrinsicComplex c1 = nxr::signal::intrinsicComplex(nxr::geometry::surfaceArrays(V1.data(), static_cast<int>(V1.size() / 3), F1.data(), static_cast<int>(F1.size() / 3)));
         refused = false;
         try { (void)nxr::signal::projectOneForm(c1, md, Eigen::MatrixXd::Zero(c1.nE, 1)); } catch (const std::invalid_argument&) { refused = true; }
         EXPECT(refused, "modes of another triangulation are refused");
@@ -198,7 +198,7 @@ int main() {
         const double step = 1.0 / (n - 1);
         for (int i = 0; i < n; ++i) for (int j = 0; j < n; ++j) { P.push_back(j * step); P.push_back(i * step); P.push_back(0.0); }
         for (int i = 0; i + 1 < n; ++i) for (int j = 0; j + 1 < n; ++j) { const int a = i * n + j, b = a + 1, cc = a + n, d = cc + 1; T.insert(T.end(), {a, b, d, a, d, cc}); }
-        const nxr::signal::Complex g = nxr::signal::complexOf(nxr::geometry::surfaceArrays(P.data(), n * n, T.data(), static_cast<int>(T.size() / 3)));
+        const nxr::signal::IntrinsicComplex g = nxr::signal::intrinsicComplex(nxr::geometry::surfaceArrays(P.data(), n * n, T.data(), static_cast<int>(T.size() / 3)));
         const Eigen::Vector3d u(0.3, -0.7, 0.0);
         Eigen::MatrixXd J(3 * g.nV, 1);
         for (int v = 0; v < g.nV; ++v) J.middleRows(3 * v, 3) = u;

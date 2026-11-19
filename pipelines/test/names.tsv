@@ -190,6 +190,7 @@ python	operators_assemble	nxr::operators::hodgedirac::assemble	ok
 python	operators_hodgeDiracModes	nxr::operators::hodgeDiracModes	ok
 python	operators_hodgeLadders	nxr::operators::hodgeLadders	ok
 python	operators_poisson	nxr::operators::poisson	ok
+python	signal_intrinsicComplex	nxr::signal::intrinsicComplex	ok
 python	signal_sharp	nxr::signal::sharp	ok
 python	signal_flat	nxr::signal::flat	ok
 python	signal_modesOf	nxr::signal::modesOf	ok

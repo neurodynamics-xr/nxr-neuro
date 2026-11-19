@@ -177,20 +177,79 @@ Eigen::VectorXd poisson(const Sparse& K, const Sparse& M, const std::vector<int>
   return ops::poisson(K, M, *factor, density);
 }
 
-// the 1-forms of the intrinsic complex (nxr/signal/intrinsic_forms.h), built from the surface's arrays by complexOf
-Eigen::MatrixXd sharp(const nb::dict& surface, const Eigen::MatrixXd& w) {
+// the intrinsic complex (nxr::signal::IntrinsicComplex) <-> a dict, made once by signal.intrinsicComplex(surface) and passed to every form function. The signposts'
+// fans (per vertex its input edges' angles and directions, ragged) cross as fanStart [nV + 1], fanAngle [n], fanDirection [n, 3].
+nb::dict intrinsic_complex_out(nxr::signal::IntrinsicComplex&& c) {
+  nb::dict out;
+  out["nV"] = c.nV; out["nE"] = c.nE; out["nF"] = c.nF;
+  out["edges"] = rows_out(std::move(c.edges), 2);
+  out["length"] = std::move(c.length);
+  out["d0"] = std::move(c.d0); out["d1"] = std::move(c.d1);
+  out["star0"] = std::move(c.star0); out["star1"] = std::move(c.star1); out["star2"] = std::move(c.star2);
+  out["angleTail"] = std::move(c.angleTail); out["angleTip"] = std::move(c.angleTip); out["coneAngle"] = std::move(c.coneAngle);
+  out["reference"] = vec_out(std::move(c.reference));
+  out["positions"] = std::move(c.positions); out["normals"] = std::move(c.normals);
+  std::vector<int64_t> start{0};
+  std::vector<double> angle, direction;
+  for (const auto& fan : c.fans) {
+    for (const auto& [a, d] : fan) { angle.push_back(a); direction.insert(direction.end(), {d.x(), d.y(), d.z()}); }
+    start.push_back(static_cast<int64_t>(angle.size()));
+  }
+  out["fanStart"] = vec_out(std::move(start));
+  out["fanAngle"] = vec_out(std::move(angle));
+  out["fanDirection"] = rows_out(std::move(direction), 3);
+  return out;
+}
+
+nxr::signal::IntrinsicComplex intrinsic_complex_in(const nb::dict& d) {
+  if (!d.contains("fanStart") || !d.contains("star1"))
+    throw std::invalid_argument("expected the intrinsic complex made by signal.intrinsicComplex(surface)");
+  nxr::signal::IntrinsicComplex c;
+  c.nV = nb::cast<int>(field(d, "nV")); c.nE = nb::cast<int>(field(d, "nE")); c.nF = nb::cast<int>(field(d, "nF"));
+  const auto e = nb::cast<Array2<int32_t>>(field(d, "edges"));
+  c.edges.assign(e.data(), e.data() + e.shape(0) * e.shape(1));
+  c.length = nb::cast<Eigen::VectorXd>(field(d, "length"));
+  c.d0 = nb::cast<Sparse>(field(d, "d0")); c.d1 = nb::cast<Sparse>(field(d, "d1"));
+  c.star0 = nb::cast<Eigen::VectorXd>(field(d, "star0")); c.star1 = nb::cast<Eigen::VectorXd>(field(d, "star1")); c.star2 = nb::cast<Eigen::VectorXd>(field(d, "star2"));
+  c.angleTail = nb::cast<Eigen::VectorXd>(field(d, "angleTail")); c.angleTip = nb::cast<Eigen::VectorXd>(field(d, "angleTip"));
+  c.coneAngle = nb::cast<Eigen::VectorXd>(field(d, "coneAngle"));
+  c.reference = vec_in<int32_t>(d, "reference");
+  c.positions = nb::cast<Eigen::MatrixXd>(field(d, "positions")); c.normals = nb::cast<Eigen::MatrixXd>(field(d, "normals"));
+  const std::vector<int64_t> start = vec_in<int64_t>(d, "fanStart");
+  const std::vector<double> angle = vec_in<double>(d, "fanAngle");
+  const auto dir = nb::cast<Array2<double>>(field(d, "fanDirection"));
+  if (static_cast<int>(start.size()) != c.nV + 1 || start.back() != static_cast<int64_t>(angle.size()) || dir.shape(0) != angle.size() || dir.shape(1) != 3 ||
+      static_cast<int>(c.edges.size()) != 2 * c.nE || c.star1.size() != c.nE || c.star0.size() != c.nV || c.star2.size() != c.nF)
+    throw std::invalid_argument("the intrinsic complex's arrays do not match its nV, nE, nF: pass the dict made by signal.intrinsicComplex(surface)");
+  c.fans.assign(static_cast<size_t>(c.nV), {});
+  for (int v = 0; v < c.nV; ++v)
+    for (int64_t i = start[static_cast<size_t>(v)]; i < start[static_cast<size_t>(v) + 1]; ++i)
+      c.fans[static_cast<size_t>(v)].push_back({angle[static_cast<size_t>(i)], Eigen::Vector3d(dir.data()[3 * i], dir.data()[3 * i + 1], dir.data()[3 * i + 2])});
+  return c;
+}
+
+nb::dict intrinsic_complex(const nb::dict& surface) {
   const geom::SurfaceArrays s = surface_in(surface);
-  nb::gil_scoped_release release;
-  const nxr::signal::Complex c = nxr::signal::complexOf(s);
+  nxr::signal::IntrinsicComplex c;
+  {
+    nb::gil_scoped_release release;
+    c = nxr::signal::intrinsicComplex(s);
+  }
+  return intrinsic_complex_out(std::move(c));
+}
+
+// the 1-forms of the intrinsic complex (nxr/signal/intrinsic_forms.h) <-> tangent vectors
+Eigen::MatrixXd sharp(const nb::dict& complex, const Eigen::MatrixXd& w) {
+  const nxr::signal::IntrinsicComplex c = intrinsic_complex_in(complex);
   if (w.rows() != c.nE) throw std::invalid_argument("the 1-form has " + std::to_string(w.rows()) + " rows; the intrinsic complex has " + std::to_string(c.nE) + " edges");
+  nb::gil_scoped_release release;
   return nxr::signal::sharp(c, w);
 }
 
-Eigen::MatrixXd flat(const nb::dict& surface, const Eigen::MatrixXd& J) {
-  const geom::SurfaceArrays s = surface_in(surface);
-  nb::gil_scoped_release release;
-  const nxr::signal::Complex c = nxr::signal::complexOf(s);
+Eigen::MatrixXd flat(const nb::dict& complex, const Eigen::MatrixXd& J) {
+  const nxr::signal::IntrinsicComplex c = intrinsic_complex_in(complex);
   if (J.rows() != 3 * c.nV) throw std::invalid_argument("the vector field has " + std::to_string(J.rows()) + " rows; expected 3 per vertex (" + std::to_string(3 * c.nV) + ")");
+  nb::gil_scoped_release release;
   return nxr::signal::flat(c, J);
 }
 
@@ -219,54 +278,52 @@ nb::dict modes_of(const Eigen::MatrixXd& eigenvectors, const Eigen::VectorXd& ei
   return modes_out(nxr::signal::modesOf(r, nV, nE, nF));
 }
 
-// each form function rebuilds the complex from the surface's arrays (no flip: the same triangulation as the modes')
+// each form function takes the intrinsic complex made once by signal.intrinsicComplex(surface)
 template <class F>
-Eigen::MatrixXd on_complex(const nb::dict& surface, F&& f) {
-  const geom::SurfaceArrays s = surface_in(surface);
+Eigen::MatrixXd on_complex(const nb::dict& complex, F&& f) {
+  const nxr::signal::IntrinsicComplex c = intrinsic_complex_in(complex);
   nb::gil_scoped_release release;
-  const nxr::signal::Complex c = nxr::signal::complexOf(s);
   return f(c);
 }
 
-Eigen::MatrixXd project_one_form(const nb::dict& surface, const nb::dict& modes, const Eigen::MatrixXd& w) {
+Eigen::MatrixXd project_one_form(const nb::dict& complex, const nb::dict& modes, const Eigen::MatrixXd& w) {
   const nxr::signal::Modes m = modes_in(modes);
-  return on_complex(surface, [&](const nxr::signal::Complex& c) { return nxr::signal::projectOneForm(c, m, w); });
+  return on_complex(complex, [&](const nxr::signal::IntrinsicComplex& c) { return nxr::signal::projectOneForm(c, m, w); });
 }
-Eigen::MatrixXd synthesize_one_form(const nb::dict& surface, const nb::dict& modes, const Eigen::MatrixXd& coef) {
+Eigen::MatrixXd synthesize_one_form(const nb::dict& complex, const nb::dict& modes, const Eigen::MatrixXd& coef) {
   const nxr::signal::Modes m = modes_in(modes);
-  return on_complex(surface, [&](const nxr::signal::Complex& c) { return nxr::signal::synthesizeOneForm(c, m, coef); });
+  return on_complex(complex, [&](const nxr::signal::IntrinsicComplex& c) { return nxr::signal::synthesizeOneForm(c, m, coef); });
 }
-Eigen::MatrixXd project_two_form(const nb::dict& surface, const nb::dict& modes, const Eigen::MatrixXd& sigma) {
+Eigen::MatrixXd project_two_form(const nb::dict& complex, const nb::dict& modes, const Eigen::MatrixXd& sigma) {
   const nxr::signal::Modes m = modes_in(modes);
-  return on_complex(surface, [&](const nxr::signal::Complex& c) { return nxr::signal::projectTwoForm(c, m, sigma); });
+  return on_complex(complex, [&](const nxr::signal::IntrinsicComplex& c) { return nxr::signal::projectTwoForm(c, m, sigma); });
 }
-Eigen::MatrixXd synthesize_two_form(const nb::dict& surface, const nb::dict& modes, const Eigen::MatrixXd& coef) {
+Eigen::MatrixXd synthesize_two_form(const nb::dict& complex, const nb::dict& modes, const Eigen::MatrixXd& coef) {
   const nxr::signal::Modes m = modes_in(modes);
-  return on_complex(surface, [&](const nxr::signal::Complex& c) { return nxr::signal::synthesizeTwoForm(c, m, coef); });
+  return on_complex(complex, [&](const nxr::signal::IntrinsicComplex& c) { return nxr::signal::synthesizeTwoForm(c, m, coef); });
 }
-Eigen::MatrixXd coexact_stream(const nb::dict& surface, const nb::dict& modes, const Eigen::MatrixXd& coef) {
+Eigen::MatrixXd coexact_stream(const nb::dict& complex, const nb::dict& modes, const Eigen::MatrixXd& coef) {
   const nxr::signal::Modes m = modes_in(modes);
-  return on_complex(surface, [&](const nxr::signal::Complex& c) { return nxr::signal::coexactStream(c, m, coef); });
+  return on_complex(complex, [&](const nxr::signal::IntrinsicComplex& c) { return nxr::signal::coexactStream(c, m, coef); });
 }
 Eigen::MatrixXd exact_potential(const nb::dict& modes, const Eigen::MatrixXd& coef) {
   const nxr::signal::Modes m = modes_in(modes);
   nb::gil_scoped_release release;
   return nxr::signal::exactPotential(m, coef);
 }
-Eigen::MatrixXd phase_current(const nb::dict& surface, const Eigen::MatrixXcd& z) {
-  return on_complex(surface, [&](const nxr::signal::Complex& c) { return nxr::signal::phaseCurrent(c, z); });
+Eigen::MatrixXd phase_current(const nb::dict& complex, const Eigen::MatrixXcd& z) {
+  return on_complex(complex, [&](const nxr::signal::IntrinsicComplex& c) { return nxr::signal::phaseCurrent(c, z); });
 }
-Eigen::MatrixXd phase_one_form(const nb::dict& surface, const Eigen::VectorXcd& x) {
-  return on_complex(surface, [&](const nxr::signal::Complex& c) { return Eigen::MatrixXd(nxr::signal::phaseOneForm(c, x)); });
+Eigen::MatrixXd phase_one_form(const nb::dict& complex, const Eigen::VectorXcd& x) {
+  return on_complex(complex, [&](const nxr::signal::IntrinsicComplex& c) { return Eigen::MatrixXd(nxr::signal::phaseOneForm(c, x)); });
 }
 
-nb::dict split_phase(const nb::dict& surface, const nb::dict& modes, const Eigen::VectorXd& w) {
+nb::dict split_phase(const nb::dict& complex, const nb::dict& modes, const Eigen::VectorXd& w) {
   const nxr::signal::Modes m = modes_in(modes);
-  const geom::SurfaceArrays s = surface_in(surface);
+  const nxr::signal::IntrinsicComplex c = intrinsic_complex_in(complex);
   nxr::signal::PhaseSplit p;
   {
     nb::gil_scoped_release release;
-    const nxr::signal::Complex c = nxr::signal::complexOf(s);
     if (w.size() != c.nE) throw std::invalid_argument("splitPhase: the 1-form has " + std::to_string(w.size()) + " values; the intrinsic complex has " + std::to_string(c.nE) + " edges");
     p = nxr::signal::splitPhase(c, m, w);
   }
@@ -289,18 +346,19 @@ void bind_operators(nb::module_& m) {
   m.def("operators_hodgeDiracModes", &hodge_dirac_modes, arg("pencil"), arg("count"), arg("both_signs"), arg("options"));
   m.def("operators_hodgeLadders", &hodge_ladders, arg("L0"), arg("M0"), arg("S2"), arg("M2"), arg("count"), arg("options"));
   m.def("operators_poisson", &poisson, arg("K"), arg("M"), arg("density_vertices"), arg("density_values"));
-  m.def("signal_sharp", &sharp, arg("surface"), arg("w"));
-  m.def("signal_flat", &flat, arg("surface"), arg("J"));
+  m.def("signal_intrinsicComplex", &intrinsic_complex, arg("surface"));
+  m.def("signal_sharp", &sharp, arg("complex"), arg("w"));
+  m.def("signal_flat", &flat, arg("complex"), arg("J"));
   m.def("signal_modesOf", &modes_of, arg("eigenvectors"), arg("eigenvalues"), arg("kind"), arg("nV"), arg("nE"), arg("nF"));
-  m.def("signal_projectOneForm", &project_one_form, arg("surface"), arg("modes"), arg("w"));
-  m.def("signal_synthesizeOneForm", &synthesize_one_form, arg("surface"), arg("modes"), arg("coef"));
-  m.def("signal_projectTwoForm", &project_two_form, arg("surface"), arg("modes"), arg("sigma"));
-  m.def("signal_synthesizeTwoForm", &synthesize_two_form, arg("surface"), arg("modes"), arg("coef"));
+  m.def("signal_projectOneForm", &project_one_form, arg("complex"), arg("modes"), arg("w"));
+  m.def("signal_synthesizeOneForm", &synthesize_one_form, arg("complex"), arg("modes"), arg("coef"));
+  m.def("signal_projectTwoForm", &project_two_form, arg("complex"), arg("modes"), arg("sigma"));
+  m.def("signal_synthesizeTwoForm", &synthesize_two_form, arg("complex"), arg("modes"), arg("coef"));
   m.def("signal_exactPotential", &exact_potential, arg("modes"), arg("coef"));
-  m.def("signal_coexactStream", &coexact_stream, arg("surface"), arg("modes"), arg("coef"));
-  m.def("signal_phaseCurrent", &phase_current, arg("surface"), arg("z"));
-  m.def("signal_phaseOneForm", &phase_one_form, arg("surface"), arg("x"));
-  m.def("signal_splitPhase", &split_phase, arg("surface"), arg("modes"), arg("w"));
+  m.def("signal_coexactStream", &coexact_stream, arg("complex"), arg("modes"), arg("coef"));
+  m.def("signal_phaseCurrent", &phase_current, arg("complex"), arg("z"));
+  m.def("signal_phaseOneForm", &phase_one_form, arg("complex"), arg("x"));
+  m.def("signal_splitPhase", &split_phase, arg("complex"), arg("modes"), arg("w"));
 }
 
 }  // namespace nxrpy

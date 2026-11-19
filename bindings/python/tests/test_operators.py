@@ -147,41 +147,46 @@ def test_sharp_and_flat_on_a_flat_disc():
     # on a flat mesh a constant field is integrated exactly along every edge and recovered exactly from its 1-form
     v, f = disc(7)
     s = G.surfaceArrays(v, f)
+    ic = S.intrinsicComplex(s)
     J = np.tile([0.3, -0.7, 0.0], (len(v), 1))
-    w = S.flat(s, J)
+    w = S.flat(ic, J)
     c = G.complex(s)
     np.testing.assert_allclose(w, (v[c["edges"][:, 1]] - v[c["edges"][:, 0]]) @ J[0], atol=1e-6)
-    np.testing.assert_allclose(S.sharp(s, w), J, atol=1e-6)
+    np.testing.assert_allclose(S.sharp(ic, w), J, atol=1e-6)
     W = np.stack([w, 2 * w], axis=1)
-    assert S.sharp(s, W).shape == (len(v), 3, 2) and S.flat(s, np.stack([J, J], axis=2)).shape == (len(c["edges"]), 2)
+    assert S.sharp(ic, W).shape == (len(v), 3, 2) and S.flat(ic, np.stack([J, J], axis=2)).shape == (len(c["edges"]), 2)
 
 
 def test_forms_on_the_modes(sphere):
     v, _, s = sphere
     h = O.hodgedirac.assemble(s)
     md = S.modesOf(O.hodgeDiracModes(h, 40, limit=30), h)
+    ic = S.intrinsicComplex(s)
+    assert ic["nE"] == len(G.complex(s)["edges"]) and ic["fanStart"].shape == (len(v) + 1,)
     assert md["P"].shape == (len(v), 30) and set(md["kind"]) == {0, 2}
     rng = np.random.default_rng(0)
     c = rng.standard_normal((30, 2))
-    w = S.synthesizeOneForm(s, md, c)
-    np.testing.assert_allclose(S.projectOneForm(s, md, w), c, atol=1e-8)
+    w = S.synthesizeOneForm(ic, md, c)
+    np.testing.assert_allclose(S.projectOneForm(ic, md, w), c, atol=1e-8)
     ce = np.where((md["kind"] == 0)[:, None], c, 0)
     d0 = O.assembleDECOperators(s)["d0"]
-    np.testing.assert_allclose(d0 @ S.exactPotential(md, c), S.synthesizeOneForm(s, md, ce), atol=1e-10)
-    sp = S.splitPhase(s, md, w[:, 0])
-    np.testing.assert_allclose(S.coexactStream(s, md, c[:, 0]), sp["stream"], atol=1e-12)
+    np.testing.assert_allclose(d0 @ S.exactPotential(md, c), S.synthesizeOneForm(ic, md, ce), atol=1e-10)
+    sp = S.splitPhase(ic, md, w[:, 0])
+    np.testing.assert_allclose(S.coexactStream(ic, md, c[:, 0]), sp["stream"], atol=1e-12)
     assert sp["propagation"].shape == (len(v), 3) and abs(sp["shareTiming"] + sp["shareRotation"] + sp["shareResidual"] - 1) < 1e-9
     # the phase current against its formula, one column a frame
     z = np.exp(1j * 3 * v[:, 0]) * (1 + 0.5 * v[:, 2])
     e = G.complex(s)["edges"]
-    J = S.phaseCurrent(s, np.stack([z, 2 * z], axis=1))
+    J = S.phaseCurrent(ic, np.stack([z, 2 * z], axis=1))
     want = np.imag(np.conj(z[e[:, 0]]) * z[e[:, 1]])
     np.testing.assert_allclose(J[:, 0], want, atol=1e-14)
     np.testing.assert_allclose(J[:, 1], 4 * want, atol=1e-13)
     # modes of another triangulation are refused
     v1, f1 = icosphere(1)
     with pytest.raises(ValueError, match="same triangulation"):
-        S.projectOneForm(G.surfaceArrays(v1, f1), md, np.zeros(120))
+        S.projectOneForm(S.intrinsicComplex(G.surfaceArrays(v1, f1)), md, np.zeros(120))
+    with pytest.raises(TypeError, match="intrinsicComplex"):
+        S.projectOneForm(s, md, w)
 
 
 def test_plane_wave_on_a_disc_is_timing():
@@ -190,9 +195,10 @@ def test_plane_wave_on_a_disc_is_timing():
     v, f = disc(11)
     s = G.surfaceArrays(v, f)
     h = O.hodgedirac.assemble(s)
-    w = S.phaseOneForm(s, np.exp(1j * (2.0 * v[:, 0] + 1.0 * v[:, 1])))
-    full = S.splitPhase(s, S.modesOf(O.hodgeDiracModes(h, 160), h), w)
+    ic = S.intrinsicComplex(s)
+    w = S.phaseOneForm(ic, np.exp(1j * (2.0 * v[:, 0] + 1.0 * v[:, 1])))
+    full = S.splitPhase(ic, S.modesOf(O.hodgeDiracModes(h, 160), h), w)
     assert full["shareTiming"] > 1 - 1e-6 and full["shareRotation"] < 1e-12
     np.testing.assert_allclose(full["potential"] - full["potential"].mean(), (2.0 * v[:, 0] + v[:, 1]) - (2.0 * v[:, 0] + v[:, 1]).mean(), atol=1e-5)
-    cut = S.splitPhase(s, S.modesOf(O.hodgeDiracModes(h, 40), h), w)
+    cut = S.splitPhase(ic, S.modesOf(O.hodgeDiracModes(h, 40), h), w)
     assert cut["shareRotation"] < 1e-12 and 0.9 < cut["shareTiming"] < 1 and abs(cut["shareResidual"] - (1 - cut["shareTiming"])) < 1e-9
