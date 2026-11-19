@@ -363,10 +363,12 @@ MatrixXd phaseCurrent(const IntrinsicComplex& c, const Eigen::MatrixXcd& z) {
   return J;
 }
 
-Eigen::VectorXd phaseOneForm(const IntrinsicComplex& c, const Eigen::VectorXcd& x) {
-  if (x.size() != c.nV) throw std::invalid_argument("phaseOneForm: x has one value a vertex");
-  Eigen::VectorXd w(c.nE);
-  for (int e = 0; e < c.nE; ++e) w(e) = std::arg(x(c.edges[2 * static_cast<std::size_t>(e) + 1]) * std::conj(x(c.edges[2 * static_cast<std::size_t>(e)])));
+MatrixXd phaseGradient(const IntrinsicComplex& c, const Eigen::MatrixXcd& x) {
+  if (x.rows() != c.nV) throw std::invalid_argument("phaseGradient: x has one row a vertex");
+  MatrixXd w(c.nE, x.cols());
+  for (int e = 0; e < c.nE; ++e)
+    for (Eigen::Index k = 0; k < x.cols(); ++k)
+      w(e, k) = std::arg(x(c.edges[2 * static_cast<std::size_t>(e) + 1], k) * std::conj(x(c.edges[2 * static_cast<std::size_t>(e)], k)));
   return w;
 }
 

@@ -172,7 +172,7 @@ int main() {
         const Eigen::MatrixXd J = nxr::signal::phaseCurrent(c2, z);
         double eJ = 0;
         for (int col = 0; col < 2; ++col) {
-            const Eigen::VectorXd dphi = nxr::signal::phaseOneForm(c2, z.col(col));
+            const Eigen::VectorXd dphi = nxr::signal::phaseGradient(c2, Eigen::MatrixXcd(z.col(col))).col(0);
             for (int e = 0; e < c2.nE; ++e) {
                 const double want = std::abs(z(c2.edges[2 * e], col)) * std::abs(z(c2.edges[2 * e + 1], col)) * std::sin(dphi(e));
                 eJ = std::max(eJ, std::abs(J(e, col) - want));

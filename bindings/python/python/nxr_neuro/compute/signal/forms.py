@@ -1,5 +1,5 @@
 """Forms on the intrinsic complex (`nxr/signal/intrinsic_forms.h`, `nxr::signal`): 1-forms <-> tangent vectors (sharp, flat), the phase 1-forms of a
-complex field (phaseCurrent, phaseOneForm), and the Hodge–Dirac modes' reading of forms (modesOf, projectOneForm / synthesizeOneForm, projectTwoForm /
+complex field (phaseCurrent, phaseGradient: on the edges with the intrinsic complex, at the vertices with a vertex gradient), and the Hodge–Dirac modes' reading of forms (modesOf, projectOneForm / synthesizeOneForm, projectTwoForm /
 synthesizeTwoForm, exactPotential, coexactStream, splitPhase).
 
 Every function takes the INTRINSIC COMPLEX made once by `intrinsicComplex(surface)` (the intrinsic triangulation as a cell complex: edges tail -> tip,
@@ -74,27 +74,60 @@ def flat(complex: dict, J) -> np.ndarray:
     return np.asarray(w)[:, 0] if single else np.asarray(w)
 
 
-def phaseCurrent(complex: dict, z) -> np.ndarray:
-    """The phase current of a complex vertex field: J_e = Im(conj(z_tail) z_tip) = |z_tail| |z_tip| sin(arg z_tip - arg z_tail), a 1-form on the
-    intrinsic edges (tail -> tip).
+def _is_complex(op):
+    return isinstance(op, dict) and "fanStart" in op
+
+
+def vertexGradient(positions, faces):
+    """The mesh's vertex gradient (nxr's GV, the reference discretisation of the phase current and gradient): three sparse [nV, nV] operators (x, y, z), each
+    the area-weighted mean of the incident faces' linear (P1) gradients. Positions in any length unit; the gradients are per that unit."""
+    return _core.signal_vertexGradient(np.ascontiguousarray(positions, dtype=np.float64), np.ascontiguousarray(faces, dtype=np.int32))
+
+
+def phaseCurrent(operator, z, normals=None, components: int = 1) -> np.ndarray:
+    """THE PHASE CURRENT Im(conj(z) dz) of complex vertex fields, discretised by the operator the caller passes (the choice is the caller's, never the function's).
 
     Parameters
     ----------
-    z : complex array [nV] or [nV, m]
-        One column a frame (pointwise in time).
-
-    Returns
-    -------
-    array [nE] or [nE, m]
+    operator : the intrinsic complex (`intrinsicComplex(surface)`) or a vertex gradient (`vertexGradient(positions, faces)`, the reference)
+        The complex: a signed number on each intrinsic edge, J_e = Im(conj(z_tail) z_tip), the current integrated along the edge (tail -> tip): [nE] or
+        [nE, m]. The vertex gradient: a vector at each vertex on its tangent plane (`normals` [nV, 3], unit), j = Im(conj(z) grad z): [nV, 3] or [nV, 3, m].
+        The two agree through `flat` / `sharp` to second order in the phase step.
+    z : complex array [nV] or [nV, m] (one column a frame); with the vertex gradient and `components` > 1, [nV * components(, m)], the components of a
+        vertex consecutive (the formula sums over them).
     """
     z = np.asarray(z, dtype=np.complex128)
-    J = _core.signal_phaseCurrent(_ic(complex), z.reshape(len(z), -1))
-    return J[:, 0] if z.ndim == 1 else J
+    single = z.ndim == 1
+    Z = z.reshape(len(z), -1)
+    if _is_complex(operator):
+        J = _core.signal_phaseCurrent(operator, Z)
+        return J[:, 0] if single else J
+    if normals is None:
+        raise TypeError("phaseCurrent with a vertex gradient takes the unit vertex normals [nV, 3] (normals=)")
+    import scipy.sparse as sp
+    Gx, Gy, Gz = (sp.csc_matrix(g, dtype=np.float64) for g in operator)
+    J = np.asarray(_core.signal_phaseCurrent(Z, int(components), Gx, Gy, Gz, np.ascontiguousarray(normals, dtype=np.float64)))
+    J = J.reshape(-1, 3, J.shape[1])
+    return J[:, :, 0] if single else J
 
 
-def phaseOneForm(complex: dict, x) -> np.ndarray:
-    """The phase step of a complex vertex field along each intrinsic edge: w_e = arg(x_tip conj(x_tail)) (rad, in (-pi, pi]), [nE]."""
-    return _core.signal_phaseOneForm(_ic(complex), np.asarray(x, dtype=np.complex128).ravel())[:, 0]
+def phaseGradient(a, b) -> np.ndarray:
+    """THE PHASE GRADIENT dphi, discretised by what the caller passes.
+
+    phaseGradient(complex, x): on the intrinsic edges, the phase step w_e = arg(x_tip conj(x_tail)) (rad, in (-pi, pi]) of complex vertex fields x [nV(, m)]
+    -> [nE(, m)]. phaseGradient(j, p): at the vertices (the reference), grad phi = j / |z|^2 from the vertex phase current j [nV, 3(, m)] and the power
+    p [nV(, m)] (rad per length unit, pointing against the travel; NaN where p = 0) -> [nV, 3(, m)].
+    """
+    if _is_complex(a):
+        x = np.asarray(b, dtype=np.complex128)
+        w = _core.signal_phaseGradient(a, x.reshape(len(x), -1))
+        return w[:, 0] if x.ndim == 1 else w
+    j = np.asarray(a, dtype=np.float64)
+    single = j.ndim == 2
+    p = np.asarray(b, dtype=np.float64).reshape(j.shape[0], -1)
+    g = np.asarray(_core.signal_phaseGradient(np.ascontiguousarray(j.reshape(j.shape[0] * 3, -1)), np.ascontiguousarray(p)))
+    g = g.reshape(-1, 3, g.shape[1])
+    return g[:, :, 0] if single else g
 
 
 def modesOf(modes: dict, pencil: dict) -> dict:

@@ -201,7 +201,8 @@ python	signal_synthesizeTwoForm	nxr::signal::synthesizeTwoForm	ok
 python	signal_exactPotential	nxr::signal::exactPotential	ok
 python	signal_coexactStream	nxr::signal::coexactStream	ok
 python	signal_phaseCurrent	nxr::signal::phaseCurrent	ok
-python	signal_phaseOneForm	nxr::signal::phaseOneForm	ok
+python	signal_phaseGradient	nxr::signal::phaseGradient	ok
+python	signal_vertexGradient	nxr::signal::vertexGradient	ok
 python	signal_splitPhase	nxr::signal::splitPhase	ok
 python	signal_psd	nxr::signal::psd	ok
 python	signal_xpsd	nxr::signal::xpsd	ok

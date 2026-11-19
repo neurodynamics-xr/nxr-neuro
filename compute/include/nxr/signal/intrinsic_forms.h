@@ -20,7 +20,8 @@
 //   exactPotential  the exact part's potential: Σ_exact c_k P_k / μ_k, whose d0 IS the exact part of Σ c_k φ_k (a timing map, from a phase 1-form)
 //   coexactStream   the coexact part's stream function: the 2-form potential Σ_coexact c_k X2_k / μ_k at the vertices (vertexDensity)
 //   modesOf      the Hodge–Dirac mode solve's result (operators::hodgeDiracModes: rows 0-forms · 1-forms · 2-forms) as Modes
-//   phaseCurrent a complex vertex field z → the 1-form J_e = Im(conj(z_tail) z_tip) (the discrete phase current; phaseOneForm is its phase only)
+//   phaseCurrent  the phase current Im(z̄ dz) on the edges, J_e = Im(conj(z_tail) z_tip); phaseGradient: the phase step dφ on the edges. The same quantities as
+//                 phase_gradient.h's (vectors at the vertices, by a vertex gradient): the discretisation is the operator the caller passes, never the function's
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <cstdint>
@@ -127,9 +128,13 @@ struct PhaseSplit {
 };
 PhaseSplit splitPhase(const IntrinsicComplex& c, const Modes& m, const Eigen::VectorXd& w);
 /** The phase 1-form of a complex vertex field x [V]: w_e = arg(x_tip conj x_tail). */
-Eigen::VectorXd phaseOneForm(const IntrinsicComplex& c, const Eigen::VectorXcd& x);
-/** The phase current of complex vertex fields z [V x m] (each column a frame): J_e = Im(conj(z_tail) z_tip) = |z_tail| |z_tip| sin(arg z_tip − arg z_tail),
- *  a 1-form [nE x m] on the intrinsic edges (tail → tip). Pointwise in time: one column a frame. */
+/** THE PHASE GRADIENT on the intrinsic edges: the phase step w_e = arg(x_tip conj(x_tail)) (rad, in (−π, π]) of complex vertex fields x [V x m], one column a frame:
+ *  dφ integrated along each edge. The same quantity as the vertex `phaseGradient(j, p)` (phase_gradient.h), discretised on the edges of the complex given. [nE x m] */
+Eigen::MatrixXd phaseGradient(const IntrinsicComplex& c, const Eigen::MatrixXcd& x);
+/** THE PHASE CURRENT on the intrinsic edges: J_e = Im(conj(z_tail) z_tip) = |z_tail| |z_tip| sin(arg z_tip − arg z_tail) of complex vertex fields z [V x m], one
+ *  column a frame: Im(z̄ dz) integrated along each edge (tail → tip). The same quantity as the vertex `phaseCurrent(Z, components, G, N)` (phase_gradient.h),
+ *  discretised on the edges of the complex given; the two agree through `flat` / `sharp` to second order in the phase step. Which discretisation is the
+ *  caller's: the operator it passes. [nE x m] */
 Eigen::MatrixXd phaseCurrent(const IntrinsicComplex& c, const Eigen::MatrixXcd& z);
 
 }  // namespace nxr::signal
