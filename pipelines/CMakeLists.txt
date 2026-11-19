@@ -78,6 +78,7 @@ add_library(nxr_pipelines
   src/spatial_band.cpp
   src/group.cpp
   src/face.cpp
+  src/commands.cpp
   src/selection_bridge.cpp
 )
 target_include_directories(nxr_pipelines PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_BINARY_DIR})

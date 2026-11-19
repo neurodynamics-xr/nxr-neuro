@@ -616,7 +616,7 @@ fs::path synthetic_dataset(const fs::path& datastore, const std::string& name, c
       double v = i == 0 ? 2.0 * std::sin(2 * M_PI * 8.0 * static_cast<double>(t) / sfreq) + 0.2 * normal() + 5.0 : (i == M - 1 ? 40.0 : 1.0) * normal();
       xf[static_cast<std::size_t>(i * T + t)] = static_cast<float>(v);
     }
-  DatasetWriter ds = create_dataset(datastore, name);
+  DatasetWriter ds = nxr::io::create_dataset(datastore, name);
   {
     SubjectWriter sub = SubjectWriter::create(ds, subject);
     sub.compose([&] {
