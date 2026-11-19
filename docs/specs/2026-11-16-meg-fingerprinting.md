@@ -397,7 +397,7 @@ the step is ever needed without Brainstorm; none of the "need" entries of this t
 | 20 | feature vectors | spectral: 68 × 301 row-major, raw values (no log, no normalisation); connectome: the upper triangle **with** the diagonal per band (2346), six bands concatenated | need (a members × features table read from each member's stored features) |
 | 21 | correlation | each vector z-scored across its features (ddof 0); target (validation) × database (training) Pearson matrix | need |
 | 22 | accuracy | both directions, reported separately (argmax per row, per column) | need |
-| 23 | self-differentiability D_self | **open**: the notebook z-scores each row over all N entries (the participant included, ddof 0); the paper's formula uses the mean and SD over the other participants | need |
+| 23 | self-differentiability D_self | default: the notebook's, each row z-scored over all N entries (the participant included, ddof 0), which reproduces the published numbers; named option `others`: the paper's formula (mean and SD over the other participants) | need (decided 2026-11-19) |
 | 24 | PCA reconstruction | target and database stacked (2N × F), scikit-learn `PCA(k)` (its automatic solver), reconstruction with the mean; k in {2, 5, 10, 20, …, < 2N}; k chosen by the largest mean reconstructed D_self | partial: `stats.pca` and `reconstruct` have (full SVD); the curve and the choice of k need |
 | 25 | edgewise statistics | on the z-scored features: ICC(1,1) one-way random effects with k = 2; Finn's differential power (strict >, p floored at 1/(2(N−1)), sum of −ln p); group consistency (mean of products) | need |
 
@@ -421,7 +421,8 @@ statistics: Finn ES et al. (2015) Nat Neurosci 18:1664; Amico E, Goñi J (2018) 
    functions take any partition (Desikan–Killiany, the dyadic tiles of the surface, another atlas) and any labelled band set (`select.bands`); the
    definition's defaults are the reference's: LCMV per band, Desikan–Killiany (68), the region's first principal component, Welch 2 s / 50 %, the six
    bands with the cut edges above. Another partition or band set is a different, named run, never a silent change.
-2. **D_self** (step 23): the notebook (which made the published numbers) or the paper's formula.
+2. **D_self** (step 23). **Decided 2026-11-19:** the notebook's computation is the default (it made the published numbers); the paper's formula,
+   over the other participants, is the named option `others`, recorded in the provenance when chosen.
 3. **Quirks of the release that change numbers**: the projectors are applied to the subject's data covariance but not to the empty room's noise
    covariance; the connectome band-passes each band twice (sensor level, then again before the Hilbert transform); the halves' boundary takes T
    from the last band's file; the connectome keeps its constant diagonal. Reproduce them (the default reproduces the release) or follow the paper's
