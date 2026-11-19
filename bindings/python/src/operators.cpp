@@ -14,6 +14,7 @@
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/factorization.h"
 #include "nxr/signal/intrinsic_forms.h"
+#include "nxr/signal/phase_gradient.h"
 #include "surface.h"
 
 namespace nxrpy {
@@ -314,8 +315,33 @@ Eigen::MatrixXd exact_potential(const nb::dict& modes, const Eigen::MatrixXd& co
 Eigen::MatrixXd phase_current(const nb::dict& complex, const Eigen::MatrixXcd& z) {
   return on_complex(complex, [&](const nxr::signal::IntrinsicComplex& c) { return nxr::signal::phaseCurrent(c, z); });
 }
-Eigen::MatrixXd phase_one_form(const nb::dict& complex, const Eigen::VectorXcd& x) {
-  return on_complex(complex, [&](const nxr::signal::IntrinsicComplex& c) { return Eigen::MatrixXd(nxr::signal::phaseOneForm(c, x)); });
+Eigen::MatrixXd phase_gradient_edges(const nb::dict& complex, const Eigen::MatrixXcd& x) {
+  return on_complex(complex, [&](const nxr::signal::IntrinsicComplex& c) { return nxr::signal::phaseGradient(c, x); });
+}
+
+// the vertex discretisation (nxr/signal/phase_gradient.h, the reference): the mesh's vertex gradient, the current and the gradient as vectors at the vertices
+nb::tuple vertex_gradient(const Array2<double>& positions, const Array2<int32_t>& faces) {
+  if (positions.shape(1) != 3 || faces.shape(1) != 3) throw std::invalid_argument("positions and faces are [n, 3]");
+  const Eigen::MatrixXd P = to_matrix<double>(positions);
+  const Eigen::Matrix<int32_t, Eigen::Dynamic, 3, Eigen::RowMajor> F =
+      Eigen::Map<const Eigen::Matrix<int32_t, Eigen::Dynamic, 3, Eigen::RowMajor>>(faces.data(), static_cast<Eigen::Index>(faces.shape(0)), 3);
+  nxr::signal::Gradient G;
+  {
+    nb::gil_scoped_release release;
+    G = nxr::signal::vertexGradient(P, F);
+  }
+  return nb::make_tuple(G[0], G[1], G[2]);
+}
+
+Eigen::MatrixXd phase_current_vertices(const Eigen::MatrixXcd& Z, int components, const Sparse& Gx, const Sparse& Gy, const Sparse& Gz, const Eigen::MatrixXd& N) {
+  const nxr::signal::Gradient G{Gx, Gy, Gz};
+  nb::gil_scoped_release release;
+  return nxr::signal::phaseCurrent(Z, components, G, N);
+}
+
+Eigen::MatrixXd phase_gradient_vertices(const Eigen::MatrixXd& j, const Eigen::MatrixXd& p) {
+  nb::gil_scoped_release release;
+  return nxr::signal::phaseGradient(j, p);
 }
 
 nb::dict split_phase(const nb::dict& complex, const nb::dict& modes, const Eigen::VectorXd& w) {
@@ -357,7 +383,10 @@ void bind_operators(nb::module_& m) {
   m.def("signal_exactPotential", &exact_potential, arg("modes"), arg("coef"));
   m.def("signal_coexactStream", &coexact_stream, arg("complex"), arg("modes"), arg("coef"));
   m.def("signal_phaseCurrent", &phase_current, arg("complex"), arg("z"));
-  m.def("signal_phaseOneForm", &phase_one_form, arg("complex"), arg("x"));
+  m.def("signal_phaseCurrent", &phase_current_vertices, arg("Z"), arg("components"), arg("Gx"), arg("Gy"), arg("Gz"), arg("N"));
+  m.def("signal_phaseGradient", &phase_gradient_edges, arg("complex"), arg("x"));
+  m.def("signal_phaseGradient", &phase_gradient_vertices, arg("j"), arg("p"));
+  m.def("signal_vertexGradient", &vertex_gradient, arg("positions"), arg("faces"));
   m.def("signal_splitPhase", &split_phase, arg("complex"), arg("modes"), arg("w"));
 }
 

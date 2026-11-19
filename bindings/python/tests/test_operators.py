@@ -197,8 +197,27 @@ def test_plane_wave_on_a_disc_is_timing():
     h = O.hodgedirac.assemble(s)
     ic = S.intrinsicComplex(s)
     phase = 2.0 * v[:, 0] + 1.0 * v[:, 1]
-    w = S.phaseOneForm(ic, np.exp(1j * phase))
+    w = S.phaseGradient(ic, np.exp(1j * phase))
     for count in (40, 80):
         sp = S.splitPhase(ic, S.modesOf(O.hodgeDiracModes(h, count), h), w)
         assert sp["shareRotation"] < 1e-12 and 0.9 < sp["shareTiming"] < 1 and abs(sp["shareResidual"] - (1 - sp["shareTiming"])) < 1e-9
         assert np.corrcoef(sp["potential"], phase)[0, 1] > 0.997
+
+
+def test_phase_current_one_quantity_two_discretisations():
+    # the same quantity whichever operator is passed: on a fine flat disc, flat(the vertex current) ~ the edge current, and the edge phase gradient is the
+    # vertex one integrated along each edge
+    v, f = disc(21)
+    s = G.surfaceArrays(v, f)
+    ic = S.intrinsicComplex(s)
+    phase = 3.0 * v[:, 0] - 1.5 * v[:, 1]
+    z = (1 + 0.3 * v[:, 0]) * np.exp(1j * phase)
+    n = np.tile([0.0, 0.0, 1.0], (len(v), 1))
+    j = S.phaseCurrent(S.vertexGradient(v, f), z, normals=n)
+    J = S.phaseCurrent(ic, z)
+    assert j.shape == (len(v), 3) and J.shape == (ic["nE"],)
+    assert np.abs(S.flat(ic, j) - J).max() < 0.02 * np.abs(J).max()
+    g = S.phaseGradient(j, np.abs(z) ** 2)
+    e = ic["edges"]
+    np.testing.assert_allclose(S.phaseGradient(ic, z), (v[e[:, 1]] - v[e[:, 0]]) @ [3.0, -1.5, 0.0], atol=1e-10)
+    np.testing.assert_allclose(g[:, :2], np.tile([3.0, -1.5], (len(v), 1)), rtol=0.03)   # the vertex (P1) discretisation is approximate; the edge one exact
