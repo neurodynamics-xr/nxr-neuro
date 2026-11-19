@@ -1149,6 +1149,7 @@ std::vector<Row> subject_span_rows(const Database& db, const std::string& subjec
 }
 
 std::vector<Row> subject_factor_rows(const Database& db, const std::string& subject_id) {
+  if (!has_table(db, "selection_factor")) return {};   // a dataset of schema 50 or 51, read as it is: no product has factors
   return db.all("SELECT f.* FROM selection_factor f JOIN selection s ON s.id = f.selection_id WHERE s.subject_id = ? ORDER BY f.selection_id, f.ordinal", {V(subject_id)});
 }
 

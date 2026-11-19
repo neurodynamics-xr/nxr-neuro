@@ -247,7 +247,7 @@ DatasetWriter open_writer(const fs::path& folder_in, const OpenOptions& opt) {
   }
   std::optional<Database> db;
   try {
-    db.emplace(Database::open(folder / kDatasetFile));
+    db.emplace(Database::open(folder / kDatasetFile, false, "nxr-convert", opt.read_only.value_or(!opt.lock)));
   } catch (...) {
     held.release();
     throw;

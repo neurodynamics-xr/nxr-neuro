@@ -208,6 +208,7 @@ test_quadrature_pipeline	integration
 test_quantity	unit
 test_query_measure	unit
 test_read_existing	unit
+test_readonly_readers	integration
 test_records	unit
 test_regions	unit
 test_registration	integration
