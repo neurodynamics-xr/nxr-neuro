@@ -19,7 +19,7 @@
 //   package registration-create --package P --name N --from NAME@VERSION --to NAME@VERSION --from-sphere S --to-sphere S [--method shepard|nearest|barycentric]
 //                               [--neighbours K] [--one-direction] [--templates DIR ...] [--home-dataset N] [--source TEXT --licence TEXT --attribution TEXT --redistributable yes|no]
 #include "cli.h"
-#include "nxr/io/participants.h"
+#include "nxr/io/catalogue.h"
 #include "nxr/io/migrate.h"
 #ifdef NXR_NEURO_WITH_PIPELINES
 #include "nxr/pipelines/face.h"
@@ -74,16 +74,10 @@ int package_main(const std::vector<std::string>& argv) {
     emit_result(task::create_index({a.get("--dataset"), a.flag.count("--force") > 0}).result);
   } else if (action == "participants-import") {
     const Args a = parse(prog, rest, {"--dataset", "--tsv", "--sidecar"}, {}, {"--dataset", "--tsv"});
-    std::optional<std::filesystem::path> side;
-    if (const auto s = a.maybe("--sidecar")) side = *s;
-    const auto r = participants_import(a.get("--dataset"), a.get("--tsv"), side);
-    emit(Json{{"stage", "result"}, {"variables", r.variables}, {"subjects", r.n_subjects}, {"values", r.n_values}});
+    emit_result(task::import_participants({a.get("--dataset"), a.get("--tsv"), a.maybe("--sidecar")}).result);
   } else if (action == "participants-export") {
     const Args a = parse(prog, rest, {"--dataset", "--tsv", "--sidecar"}, {}, {"--dataset", "--tsv"});   // written only where the command names
-    std::optional<std::filesystem::path> side;
-    if (const auto s = a.maybe("--sidecar")) side = *s;
-    participants_export(a.get("--dataset"), a.get("--tsv"), side);
-    emit(Json{{"stage", "result"}, {"tsv", a.get("--tsv")}});
+    emit_result(task::export_participants({a.get("--dataset"), a.get("--tsv"), a.maybe("--sidecar")}).result);
   } else if (action == "split") {
     const Args a = parse(prog, rest, {"--dataset", "--registered-by"}, {"--dry-run"}, {"--dataset", "--registered-by"});
     emit_result(task::split_dataset({a.get("--dataset"), a.get("--registered-by"), a.flag.count("--dry-run") > 0}, progress()).result);

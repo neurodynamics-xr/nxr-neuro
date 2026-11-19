@@ -21,87 +21,60 @@
 //   nxr-neuro import recording --from FILE --package PATH [--name REC] [--acquisition NAME] [--format F] [--source-root DIR] [--licence T --attribution T] [--anonymize] [--in-place]
 //
 // The package is made first (`create package`). The recording is COPIED, block by block, never loaded whole (or, with --in-place, LINKED: the chunk service streams from the original file, whose path and SHA-256 the package records; a changed file is refused); the file's header fields are kept as the file has them unless
-// --anonymize drops the identifying ones. The command parses and prints; io's importer (nxr/convert/recording.h) does the work. Progress and results are JSON lines.
-#include <filesystem>
-
+// --anonymize drops the identifying ones. The command parses, calls its library function (nxr/io/task/commands.h) and prints; io's importer (nxr/convert/recording.h) does the work. Progress and results are JSON lines.
 #include "cli.h"
-#include "nxr/convert/bids.h"
-#include "nxr/convert/cifti_import.h"
-#include "nxr/convert/fif_objects.h"
-#include "nxr/convert/freesurfer_import.h"
-#include "nxr/convert/gifti_import.h"
-#include "nxr/convert/nifti_import.h"
-#include "nxr/convert/recording.h"
-#include "nxr/convert/synthetic.h"
-#include "nxr/io/subject_package.h"
 
 using namespace nxr::io;
 using namespace cli;
-namespace fs = std::filesystem;
+namespace task = nxr::io::task;
 
 namespace {
+// the origin options every file importer takes
+task::FileOrigin origin_of(const Args& a) {
+  task::FileOrigin o;
+  o.source_root = a.maybe("--source-root");
+  o.licence = a.maybe("--licence");
+  o.attribution = a.maybe("--attribution");
+  o.anonymize = a.flag.count("--anonymize") > 0;
+  return o;
+}
+
 int recording_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro import recording", rest, {"--from", "--package", "--name", "--acquisition", "--format", "--source-root", "--licence", "--attribution", "--montage"}, {"--anonymize", "--in-place"},
                        {"--from", "--package"});
-  const std::string file = a.get("--from");
-  if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
-  nxr::convert::RecordingImport opt;
-  opt.format = a.maybe("--format").value_or(nxr::convert::format_of(file));
-  opt.name = a.maybe("--name").value_or(fs::path(file).stem().string());
-  opt.acquisition = a.maybe("--acquisition").value_or("rest");
-  opt.anonymize = a.flag.count("--anonymize") > 0;
-  opt.in_place = a.flag.count("--in-place") > 0;
-  opt.licence = a.maybe("--licence").value_or("unknown");
-  opt.attribution = a.maybe("--attribution").value_or("unknown");
-  opt.redistributable = false;
-  opt.montage = a.maybe("--montage").value_or("");
-  // the recorded source is relative to the root the caller names, never an absolute path
-  const fs::path root = a.maybe("--source-root").value_or(fs::path(file).parent_path().string());
-  opt.source = fs::relative(fs::absolute(file), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();
-  opt.source_file = fs::is_directory(file) ? "" : file;   // a CTF .ds folder is not one file: no hash
-  opt.progress = [](const Json& j) { emit(j); };
-  auto reader = nxr::convert::open_recording(opt.format, file);
-  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
-  DatasetWriter w = open_package_writer(a.get("--package"));
-  SubjectWriter sub = SubjectWriter::open(w, rec.name);
-  Json out = nxr::convert::import_recording(w, sub, *reader, opt);
-  Json line = Json{{"stage", "result"}};
-  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
-  emit(line);
+  task::ImportRecordingRequest rq;
+  rq.from = a.get("--from");
+  rq.package = a.get("--package");
+  rq.name = a.maybe("--name");
+  rq.acquisition = a.maybe("--acquisition");
+  rq.format = a.maybe("--format");
+  rq.montage = a.maybe("--montage");
+  rq.origin = origin_of(a);
+  rq.in_place = a.flag.count("--in-place") > 0;
+  emit_result(task::import_recording(rq, progress()).result);
   return 0;
 }
 
 // import fif / import transform: an MNE object file (nxr/convert/fif_objects.h)
-int fif_command(const std::string& prog, const std::vector<std::string>& rest, const std::string& fixed_kind) {
-  const bool transform = !fixed_kind.empty();
-  const Args a = transform ? parse(prog, rest, {"--from", "--package", "--name", "--channels"}, {}, {"--from", "--package"})
-                           : parse(prog, rest, {"--from", "--package", "--kind", "--name", "--acquisition", "--channels", "--recording", "--surface", "--source-root", "--licence", "--attribution"},
-                                   {"--anonymize"}, {"--from", "--package"});
-  const std::string file = a.get("--from");
-  if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
-  nxr::convert::FifObjectImport opt;
-  opt.kind = transform ? fixed_kind : a.maybe("--kind").value_or("");
-  opt.name = a.maybe("--name").value_or("");
-  opt.channels = a.maybe("--channels").value_or("");
-  if (!transform) {
-    opt.acquisition = a.maybe("--acquisition").value_or("rest");
-    opt.recording = a.maybe("--recording").value_or("");
-    opt.surface = a.maybe("--surface").value_or("");
-    opt.licence = a.maybe("--licence").value_or("unknown");
-    opt.attribution = a.maybe("--attribution").value_or("unknown");
-    opt.anonymize = a.flag.count("--anonymize") > 0;
+int fif_command(const std::string& prog, const std::vector<std::string>& rest, bool transform) {
+  if (transform) {
+    const Args a = parse(prog, rest, {"--from", "--package", "--name", "--channels"}, {}, {"--from", "--package"});
+    emit_result(task::import_transform({a.get("--from"), a.get("--package"), a.maybe("--name"), a.maybe("--channels")}, progress()).result);
+    return 0;
   }
-  const fs::path root = transform ? fs::path(file).parent_path() : fs::path(a.maybe("--source-root").value_or(fs::path(file).parent_path().string()));
-  opt.source = fs::relative(fs::absolute(file), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();
-  opt.source_file = file;
-  opt.progress = [](const Json& j) { emit(j); };
-  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
-  DatasetWriter w = open_package_writer(a.get("--package"));
-  SubjectWriter sub = SubjectWriter::open(w, rec.name);
-  Json out = nxr::convert::import_fif_object(w, sub, file, opt);
-  Json line = Json{{"stage", "result"}};
-  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
-  emit(line);
+  const Args a = parse(prog, rest, {"--from", "--package", "--kind", "--name", "--acquisition", "--channels", "--recording", "--surface", "--source-root", "--licence", "--attribution"},
+                       {"--anonymize"}, {"--from", "--package"});
+  task::ImportFifRequest rq;
+  rq.from = a.get("--from");
+  rq.package = a.get("--package");
+  rq.kind = a.maybe("--kind");
+  rq.name = a.maybe("--name");
+  rq.acquisition = a.maybe("--acquisition");
+  rq.channels = a.maybe("--channels");
+  rq.recording = a.maybe("--recording");
+  rq.surface = a.maybe("--surface");
+  rq.origin = origin_of(a);
+  emit_result(task::import_fif(rq, progress()).result);
   return 0;
 }
 
@@ -109,29 +82,17 @@ int fif_command(const std::string& prog, const std::vector<std::string>& rest, c
 int nifti_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro import nifti", rest, {"--from", "--package", "--name", "--kind", "--parcellation", "--label-names", "--field-kind", "--unit", "--source-root", "--licence", "--attribution"},
                        {"--anonymize"}, {"--from", "--package"});
-  const std::string file = a.get("--from");
-  if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
-  nxr::convert::NiftiImport opt;
-  opt.name = a.maybe("--name").value_or("");
-  opt.kind = a.maybe("--kind").value_or("");
-  opt.parcellation = a.maybe("--parcellation").value_or("");
-  opt.label_names = a.maybe("--label-names").value_or("");
-  opt.field_kind = a.maybe("--field-kind").value_or("intensity");
-  opt.unit = a.maybe("--unit").value_or("");
-  opt.licence = a.maybe("--licence").value_or("unknown");
-  opt.attribution = a.maybe("--attribution").value_or("unknown");
-  opt.anonymize = a.flag.count("--anonymize") > 0;
-  const fs::path root = a.maybe("--source-root").value_or(fs::path(file).parent_path().string());
-  opt.source = fs::relative(fs::absolute(file), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();
-  opt.source_file = file;
-  opt.progress = [](const Json& j) { emit(j); };
-  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
-  DatasetWriter w = open_package_writer(a.get("--package"));
-  SubjectWriter sub = SubjectWriter::open(w, rec.name);
-  Json out = nxr::convert::import_nifti(w, sub, file, opt);
-  Json line = Json{{"stage", "result"}};
-  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
-  emit(line);
+  task::ImportNiftiRequest rq;
+  rq.from = a.get("--from");
+  rq.package = a.get("--package");
+  rq.name = a.maybe("--name");
+  rq.kind = a.maybe("--kind");
+  rq.parcellation = a.maybe("--parcellation");
+  rq.label_names = a.maybe("--label-names");
+  rq.field_kind = a.maybe("--field-kind");
+  rq.unit = a.maybe("--unit");
+  rq.origin = origin_of(a);
+  emit_result(task::import_nifti(rq, progress()).result);
   return 0;
 }
 
@@ -139,28 +100,17 @@ int nifti_command(const std::vector<std::string>& rest) {
 int freesurfer_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro import freesurfer", rest, {"--from", "--package", "--name", "--orig", "--field-kind", "--source-root", "--licence", "--attribution"}, {"--anonymize"},
                        {"--from", "--package"}, 0, {"--surfaces", "--annotations", "--overlays"});
-  const std::string dir = a.get("--from");
-  if (!fs::is_directory(dir)) throw Error(code::not_found, "no such folder: " + dir);
-  nxr::convert::FreeSurferImport opt;
-  opt.name = a.maybe("--name").value_or("cortex");
-  if (a.multi.count("--surfaces")) opt.surfaces = a.multi.at("--surfaces");
-  if (a.multi.count("--annotations")) opt.annotations = a.multi.at("--annotations");
-  if (a.multi.count("--overlays")) opt.overlays = a.multi.at("--overlays");
-  opt.orig = a.maybe("--orig").value_or("");
-  opt.field_kind = a.maybe("--field-kind").value_or("overlay");
-  opt.licence = a.maybe("--licence").value_or("unknown");
-  opt.attribution = a.maybe("--attribution").value_or("unknown");
-  opt.anonymize = a.flag.count("--anonymize") > 0;
-  const fs::path root = a.maybe("--source-root").value_or(fs::path(dir).parent_path().string());
-  opt.source = fs::relative(fs::absolute(dir), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();
-  opt.progress = [](const Json& j) { emit(j); };
-  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
-  DatasetWriter w = open_package_writer(a.get("--package"));
-  SubjectWriter sub = SubjectWriter::open(w, rec.name);
-  Json out = nxr::convert::import_freesurfer_subject(w, sub, dir, opt);
-  Json line = Json{{"stage", "result"}};
-  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
-  emit(line);
+  task::ImportFreesurferRequest rq;
+  rq.from = a.get("--from");
+  rq.package = a.get("--package");
+  rq.name = a.maybe("--name");
+  rq.orig = a.maybe("--orig");
+  rq.field_kind = a.maybe("--field-kind");
+  rq.surfaces = maybe_values(a, "--surfaces");
+  rq.annotations = maybe_values(a, "--annotations");
+  rq.overlays = maybe_values(a, "--overlays");
+  rq.origin = origin_of(a);
+  emit_result(task::import_freesurfer(rq, progress()).result);
   return 0;
 }
 
@@ -168,29 +118,17 @@ int freesurfer_command(const std::vector<std::string>& rest) {
 int gifti_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro import gifti", rest, {"--from", "--package", "--name", "--kind", "--surface", "--parcellation", "--field-kind", "--unit", "--source-root", "--licence", "--attribution"},
                        {"--anonymize"}, {"--from", "--package"});
-  const std::string file = a.get("--from");
-  if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
-  nxr::convert::GiftiImport opt;
-  opt.name = a.maybe("--name").value_or("");
-  opt.kind = a.maybe("--kind").value_or("");
-  opt.surface = a.maybe("--surface").value_or("");
-  opt.parcellation = a.maybe("--parcellation").value_or("");
-  opt.field_kind = a.maybe("--field-kind").value_or("overlay");
-  opt.unit = a.maybe("--unit").value_or("");
-  opt.licence = a.maybe("--licence").value_or("unknown");
-  opt.attribution = a.maybe("--attribution").value_or("unknown");
-  opt.anonymize = a.flag.count("--anonymize") > 0;
-  const fs::path root = a.maybe("--source-root").value_or(fs::path(file).parent_path().string());
-  opt.source = fs::relative(fs::absolute(file), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();
-  opt.source_file = file;
-  opt.progress = [](const Json& j) { emit(j); };
-  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
-  DatasetWriter w = open_package_writer(a.get("--package"));
-  SubjectWriter sub = SubjectWriter::open(w, rec.name);
-  Json out = nxr::convert::import_gifti(w, sub, file, opt);
-  Json line = Json{{"stage", "result"}};
-  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
-  emit(line);
+  task::ImportGiftiRequest rq;
+  rq.from = a.get("--from");
+  rq.package = a.get("--package");
+  rq.name = a.maybe("--name");
+  rq.kind = a.maybe("--kind");
+  rq.surface = a.maybe("--surface");
+  rq.parcellation = a.maybe("--parcellation");
+  rq.field_kind = a.maybe("--field-kind");
+  rq.unit = a.maybe("--unit");
+  rq.origin = origin_of(a);
+  emit_result(task::import_gifti(rq, progress()).result);
   return 0;
 }
 
@@ -198,86 +136,69 @@ int gifti_command(const std::vector<std::string>& rest) {
 int cifti_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro import cifti", rest, {"--from", "--package", "--name", "--left", "--right", "--parcellation", "--field-kind", "--unit", "--source-root", "--licence", "--attribution"},
                        {"--anonymize"}, {"--from", "--package"});
-  const std::string file = a.get("--from");
-  if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
-  nxr::convert::CiftiImport opt;
-  opt.name = a.maybe("--name").value_or("");
-  opt.left = a.maybe("--left").value_or("");
-  opt.right = a.maybe("--right").value_or("");
-  opt.parcellation = a.maybe("--parcellation").value_or("");
-  opt.field_kind = a.maybe("--field-kind").value_or("overlay");
-  opt.unit = a.maybe("--unit").value_or("");
-  opt.licence = a.maybe("--licence").value_or("unknown");
-  opt.attribution = a.maybe("--attribution").value_or("unknown");
-  opt.anonymize = a.flag.count("--anonymize") > 0;
-  const fs::path root = a.maybe("--source-root").value_or(fs::path(file).parent_path().string());
-  opt.source = fs::relative(fs::absolute(file), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();
-  opt.source_file = file;
-  opt.progress = [](const Json& j) { emit(j); };
-  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
-  DatasetWriter w = open_package_writer(a.get("--package"));
-  SubjectWriter sub = SubjectWriter::open(w, rec.name);
-  Json out = nxr::convert::import_cifti(w, sub, file, opt);
-  Json line = Json{{"stage", "result"}};
-  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
-  emit(line);
+  task::ImportCiftiRequest rq;
+  rq.from = a.get("--from");
+  rq.package = a.get("--package");
+  rq.name = a.maybe("--name");
+  rq.left = a.maybe("--left");
+  rq.right = a.maybe("--right");
+  rq.parcellation = a.maybe("--parcellation");
+  rq.field_kind = a.maybe("--field-kind");
+  rq.unit = a.maybe("--unit");
+  rq.origin = origin_of(a);
+  emit_result(task::import_cifti(rq, progress()).result);
   return 0;
 }
 
 // create recording --synthetic: sine waves plus noise from a seed, written into a subject package through the recording importer
 int synthetic_command(const std::vector<std::string>& rest) {
-  const Args a = parse("nxr-neuro create recording", rest, {"--package", "--name", "--acquisition", "--channels", "--sfreq", "--duration", "--seed", "--amplitude", "--noise"}, {"--synthetic"},
+  const std::string prog = "nxr-neuro create recording";
+  const Args a = parse(prog, rest, {"--package", "--name", "--acquisition", "--channels", "--sfreq", "--duration", "--seed", "--amplitude", "--noise"}, {"--synthetic"},
                        {"--package"}, 0, {"--frequency"});
-  if (!a.flag.count("--synthetic")) throw Usage("nxr-neuro create recording: error: say what to make: --synthetic (sine waves plus noise from a seed); a recording of a file is `import recording`");
-  nxr::convert::SyntheticRecording opt;
-  auto num = [&](const char* k, auto& into) {
-    if (const auto v = a.maybe(k)) {
-      try { std::size_t used = 0; const double x = std::stod(*v, &used); if (used != v->size()) throw std::invalid_argument(*v); into = static_cast<std::remove_reference_t<decltype(into)>>(x); }
-      catch (const std::exception&) { throw Usage(std::string("nxr-neuro create recording: error: argument ") + k + ": '" + *v + "' is not a number"); }
-    }
+  // refused before the numbers are read, as it always was (the library refuses it too, for the faces)
+  if (!a.flag.count("--synthetic")) throw Usage(prog + ": error: say what to make: --synthetic (sine waves plus noise from a seed); a recording of a file is `import recording`");
+  task::CreateRecordingRequest rq;
+  rq.package = a.get("--package");
+  rq.synthetic = true;
+  auto num = [&](const char* k) -> std::optional<double> {
+    const auto v = a.maybe(k);
+    if (!v) return std::nullopt;
+    try { std::size_t used = 0; const double x = std::stod(*v, &used); if (used != v->size()) throw std::invalid_argument(*v); return x; }
+    catch (const std::exception&) { throw Usage(prog + ": error: argument " + k + ": '" + *v + "' is not a number"); }
   };
-  opt.name = a.maybe("--name").value_or("synthetic");
-  opt.acquisition = a.maybe("--acquisition").value_or("rest");
-  num("--channels", opt.n_channels);
-  num("--sfreq", opt.sfreq);
-  num("--duration", opt.duration);
-  num("--amplitude", opt.amplitude);
-  num("--noise", opt.noise);
+  rq.name = a.maybe("--name");
+  rq.acquisition = a.maybe("--acquisition");
+  if (const auto x = num("--channels")) rq.channels = static_cast<std::int64_t>(*x);
+  rq.sfreq = num("--sfreq");
+  rq.duration = num("--duration");
+  rq.amplitude = num("--amplitude");
+  rq.noise = num("--noise");
   if (const auto v = a.maybe("--seed")) {
-    try { opt.seed = std::stoull(*v); } catch (const std::exception&) { throw Usage("nxr-neuro create recording: error: argument --seed: '" + *v + "' is not a whole number"); }
+    try { rq.seed = std::stoull(*v); } catch (const std::exception&) { throw Usage(prog + ": error: argument --seed: '" + *v + "' is not a whole number"); }
   }
   if (const auto it = a.multi.find("--frequency"); it != a.multi.end()) {
-    opt.frequencies.clear();
+    rq.frequency.emplace();
     for (const auto& f : it->second) {
-      try { opt.frequencies.push_back(std::stod(f)); } catch (const std::exception&) { throw Usage("nxr-neuro create recording: error: argument --frequency: '" + f + "' is not a number"); }
+      try { rq.frequency->push_back(std::stod(f)); } catch (const std::exception&) { throw Usage(prog + ": error: argument --frequency: '" + f + "' is not a number"); }
     }
   }
-  opt.progress = [](const Json& j) { emit(j); };
-  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
-  DatasetWriter w = open_package_writer(a.get("--package"));
-  SubjectWriter sub = SubjectWriter::open(w, rec.name);
-  Json out = nxr::convert::create_synthetic(w, sub, opt);
-  Json line = Json{{"stage", "result"}};
-  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
-  emit(line);
+  emit_result(call(prog, [&] { return task::create_recording(rq, progress()); }).result);
   return 0;
 }
 
 // import bids: a BIDS dataset (MEG, EEG, iEEG) into a new dataset of subject packages, with the participant variables
 int bids_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro import bids", rest, {"--from", "--dataset", "--registered-by"}, {"--in-place", "--anonymize", "--no-participants"}, {"--from", "--dataset"}, 0, {"--subject"});
-  if (!fs::is_directory(a.get("--from"))) throw Error(code::not_found, "no such BIDS folder: " + a.get("--from"));
-  nxr::convert::BidsImport opt;
-  opt.registered_by = a.maybe("--registered-by").value_or(stamp());
-  opt.in_place = a.flag.count("--in-place") > 0;
-  opt.anonymize = a.flag.count("--anonymize") > 0;
-  opt.participants = a.flag.count("--no-participants") == 0;
-  if (const auto it = a.multi.find("--subject"); it != a.multi.end()) for (const auto& s : it->second) opt.subjects.push_back(s.rfind("sub-", 0) == 0 ? s.substr(4) : s);
-  opt.progress = [](const Json& j) { emit(j); };
-  Json out = nxr::convert::import_bids(a.get("--from"), a.get("--dataset"), opt);
-  Json line = Json{{"stage", "result"}};
-  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
-  emit(line);
+  task::ImportBidsRequest rq;
+  rq.from = a.get("--from");
+  rq.dataset = a.get("--dataset");
+  rq.subject = values_of(a, "--subject");
+  rq.in_place = a.flag.count("--in-place") > 0;
+  rq.anonymize = a.flag.count("--anonymize") > 0;
+  rq.no_participants = a.flag.count("--no-participants") > 0;
+  rq.registered_by = a.maybe("--registered-by");
+  rq.created_by = stamp();
+  emit_result(task::import_bids(rq, progress()).result);
   return 0;
 }
 }  // namespace
@@ -288,8 +209,8 @@ int import_main(const std::vector<std::string>& argv) {
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   if (what == "recording") return recording_command(rest);
   if (what == "bids") return bids_command(rest);
-  if (what == "fif") return fif_command("nxr-neuro import fif", rest, "");
-  if (what == "transform") return fif_command("nxr-neuro import transform", rest, "trans");
+  if (what == "fif") return fif_command("nxr-neuro import fif", rest, false);
+  if (what == "transform") return fif_command("nxr-neuro import transform", rest, true);
   if (what == "nifti") return nifti_command(rest);
   if (what == "freesurfer") return freesurfer_command(rest);
   if (what == "gifti") return gifti_command(rest);

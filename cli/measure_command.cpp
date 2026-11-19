@@ -43,20 +43,17 @@ int measure_export_main(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro measure export";
   const cli::Args a = cli::parse(prog, rest, {"--dataset", "--labelling", "--fields", "--table", "--out", "--statistics", "--subjects", "--recipe", "--exclude", "--layout", "--scaling"}, {"--keep-all"},
                                  {"--dataset", "--labelling", "--fields", "--table", "--out"});
-  nxr::pipelines::MeasureExportOptions o;
-  o.labelling = a.get("--labelling"); o.fields = a.get("--fields"); o.table = a.get("--table"); o.out = a.get("--out");
-  if (const auto v = a.maybe("--statistics")) o.statistics = split(*v, ',');
-  if (const auto v = a.maybe("--subjects")) o.subjects = split(*v, ',');
-  o.recipe = a.maybe("--recipe");
-  if (const auto v = a.maybe("--exclude")) o.exclude = split(*v, ',');
-  if (a.flag.count("--keep-all")) o.exclude.clear();
-  if (const auto v = a.maybe("--layout")) o.layout = *v;
-  if (const auto v = a.maybe("--scaling")) o.scaling = *v;
-  try {
-    cli::emit(nxr::pipelines::measure_export(a.get("--dataset"), o));
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
+  nxr::pipelines::face::ExportMeasurementsRequest rq;
+  rq.dataset = a.get("--dataset");
+  rq.labelling = a.get("--labelling"); rq.fields = a.get("--fields"); rq.table = a.get("--table"); rq.out = a.get("--out");
+  if (const auto v = a.maybe("--statistics")) rq.statistics = split(*v, ',');
+  if (const auto v = a.maybe("--subjects")) rq.subjects = split(*v, ',');
+  rq.recipe = a.maybe("--recipe");
+  if (const auto v = a.maybe("--exclude")) rq.exclude = split(*v, ',');
+  rq.keep_all = a.flag.count("--keep-all") > 0;
+  rq.layout = a.maybe("--layout");
+  rq.scaling = a.maybe("--scaling");
+  cli::emit_result(cli::call(prog, [&] { return nxr::pipelines::face::export_measurements(rq); }).result);
   return 0;
 }
 
