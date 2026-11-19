@@ -183,6 +183,17 @@ VectorXd vertexOutflow(const IntrinsicComplex& c, const VectorXd& u) {
   return -(c.d0.transpose() * (c.star1.asDiagonal() * u));                    // the outflow of each vertex's region (the divergence times mass, negated)
 }
 
+MatrixXd vertexEnergy(const IntrinsicComplex& c, const MatrixXd& w) {
+  if (w.rows() != c.nE) throw std::invalid_argument("vertexEnergy: w has one row an intrinsic edge");
+  MatrixXd out = MatrixXd::Zero(c.nV, w.cols());
+  for (int e = 0; e < c.nE; ++e) {
+    const Eigen::RowVectorXd half = 0.5 * c.star1(e) * w.row(e).cwiseAbs2();   // ⋆1_e w_e², half to each end
+    out.row(c.edges[2 * static_cast<std::size_t>(e)]) += half;
+    out.row(c.edges[2 * static_cast<std::size_t>(e) + 1]) += half;
+  }
+  return out;
+}
+
 VectorXd vertexCirculation(const IntrinsicComplex& c, const VectorXd& w) {
   if (w.size() != c.nE) throw std::invalid_argument("vertexCirculation: w has one value an intrinsic edge");
   const VectorXd curl = c.d1 * w;                                            // each face's circulation
@@ -337,19 +348,9 @@ PhaseSplit splitPhase(const IntrinsicComplex& c, const Modes& m, const Eigen::Ve
   for (Eigen::Index k = 0; k < K; ++k) (m.kind[static_cast<std::size_t>(k)] == 0 ? cc : ce)(k) = 0;
   out.exact = synthesizeOneForm(c, m, ce).col(0);
   out.coexact = synthesizeOneForm(c, m, cc).col(0);
-  const double E = w.dot(c.star1.asDiagonal() * w), Eex = out.exact.dot(c.star1.asDiagonal() * out.exact), Eco = out.coexact.dot(c.star1.asDiagonal() * out.coexact);
-  out.shareTiming = E > 0 ? Eex / E : NAN;
-  out.shareRotation = E > 0 ? Eco / E : NAN;
-  out.shareResidual = E > 0 ? std::max(0.0, 1 - out.shareTiming - out.shareRotation) : NAN;
   out.potential = exactPotential(m, ce).col(0);
   out.propagation = sharp(c, -out.exact);
   out.stream = coexactStream(c, m, cc).col(0);
-  Eigen::VectorXd num = Eigen::VectorXd::Zero(c.nV), den = Eigen::VectorXd::Zero(c.nV);
-  for (int e = 0; e < c.nE; ++e) {
-    const double r2 = c.star1(e) * std::pow(w(e) - out.exact(e), 2), w2 = c.star1(e) * w(e) * w(e);
-    for (int end = 0; end < 2; ++end) { const int v = c.edges[2 * static_cast<std::size_t>(e) + static_cast<std::size_t>(end)]; num(v) += r2; den(v) += w2; }
-  }
-  out.inconsistency = num.cwiseQuotient(den);
   return out;
 }
 

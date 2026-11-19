@@ -930,6 +930,50 @@
    "description": "the exact circulation of the phase field round the tile (rad: the net rotation, the integral of its curl; a winding number x 2 pi round a phase singularity), the tile integral of nxr's measure/integrals; additive up the tile tree; the mean curl is this over the tile's area"
   },
   {
+   "code": 1063,
+   "name": "phase_lag_energy",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the ⋆1 energy Σ_e ⋆1_e w_e² of a phase 1-form w (each intrinsic edge's lag, rad) over a member: the sum of nxr::signal::vertexEnergy (each edge's ⋆1 w² half at each end). The denominator of the phase split's shares (rad²)"
+  },
+  {
+   "code": 1064,
+   "name": "timing_energy",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the ⋆1 energy of the EXACT part of a phase 1-form (the timing part, d of a potential: one order of arrival; nxr::signal::splitPhase) over a member: the sum of vertexEnergy of the exact part (rad²)"
+  },
+  {
+   "code": 1065,
+   "name": "rotation_energy",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the ⋆1 energy of the COEXACT part of a phase 1-form (the lags that circulate round loops; nxr::signal::splitPhase) over a member: the sum of vertexEnergy of the coexact part (rad²)"
+  },
+  {
+   "code": 1066,
+   "name": "timing_misfit_energy",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the ⋆1 energy of what the timing part leaves of a phase 1-form, w − exact (the coexact part and what lies outside the modes) over a member: the sum of vertexEnergy of w − exact (rad²)"
+  },
+  {
    "code": 1116,
    "name": "displacement",
    "merge": "none",
@@ -1084,6 +1128,63 @@
     "total_power"
    ],
    "description": "the share of the total power a band holds: power_sum / total_power (Brainstorm's relative power; 0 where the total is 0). A RATIO of sums, derived at read, never a sum of ratios"
+  },
+  {
+   "code": 1129,
+   "name": "timing_share",
+   "merge": "derived",
+   "form": "none",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "timing_energy",
+    "phase_lag_energy"
+   ],
+   "description": "the share of a phase 1-form's ⋆1 energy its exact (timing) part holds over a member: timing_energy / phase_lag_energy. A RATIO of sums, derived at read (NaN where the member has no energy)"
+  },
+  {
+   "code": 1130,
+   "name": "rotation_share",
+   "merge": "derived",
+   "form": "none",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "rotation_energy",
+    "phase_lag_energy"
+   ],
+   "description": "the share of a phase 1-form's ⋆1 energy its coexact (rotation) part holds over a member: rotation_energy / phase_lag_energy. A RATIO of sums, derived at read"
+  },
+  {
+   "code": 1131,
+   "name": "residual_share",
+   "merge": "derived",
+   "form": "none",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "phase_lag_energy",
+    "timing_energy",
+    "rotation_energy"
+   ],
+   "description": "the share of a phase 1-form's ⋆1 energy outside the modes over a member: max(0, 1 − (timing_energy + rotation_energy) / phase_lag_energy) (the parts are ⋆1-orthogonal over the whole complex; over a tile the parts' cross terms make it approximate, hence the floor at 0). Derived at read"
+  },
+  {
+   "code": 1132,
+   "name": "timing_inconsistency",
+   "merge": "derived",
+   "form": "none",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "timing_misfit_energy",
+    "phase_lag_energy"
+   ],
+   "description": "the share of a phase 1-form's ⋆1 energy no timing map explains over a member: timing_misfit_energy / phase_lag_energy (0: one order of arrival explains every lag; on a single vertex, the share over its edges). A RATIO of sums, derived at read"
   }
  ]
 }

@@ -34,6 +34,9 @@ std::vector<MeasureSpec> standard_table() {
       S("total_power", "power", "sum", M::sum), S("phase_power", "power", "sum", M::sum), S("phase_gradient_power", "power", "sum", M::sum),
       // forms on the complex's edges and faces (the tile integrals)
       S("outflow", "edge_1form", "sum", M::sum), S("circulation", "face_2form", "sum", M::sum),
+      // the ⋆1 energies of a phase 1-form and of its split's parts (vertexEnergy: each edge's half at each end), summed over a member
+      S("phase_lag_energy", "edge_1form", "sum", M::sum), S("timing_energy", "edge_1form", "sum", M::sum), S("rotation_energy", "edge_1form", "sum", M::sum),
+      S("timing_misfit_energy", "edge_1form", "sum", M::sum),
       // the member's own (no field): area is Σw, n_elements the count
       S("area", "member", "weight", M::sum), S("n_elements", "member", "count", M::sum), S("duration", "member", "member", M::sum), S("n_tiles", "member", "member", M::sum),
       S("n_cells", "member", "member", M::sum), S("interval_next", "member", "member", M::none), S("centre", "member", "member", M::none), S("first_cell", "member", "member", M::none),
@@ -62,6 +65,8 @@ std::vector<MeasureSpec> standard_table() {
       {"tile_pair_quadrature_fraction", {"tile_pair_cross_spectrum_norm2", "tile_pair_cross_spectrum_quadrature_norm2"}},
       {"phase_gradient_x", {"phase_current_x", "power"}}, {"phase_gradient_y", {"phase_current_y", "power"}}, {"phase_gradient_z", {"phase_current_z", "power"}},
       {"relative_power", {"power_sum", "total_power"}}, {"crossing_consistency", {"crossing_sum_x", "crossing_sum_y", "crossing_sum_z", "crossings"}}, {"crossing_rho2", {"crossing_sum_x", "crossing_sum_y", "crossing_sum_z", "crossings"}},
+      {"timing_share", {"timing_energy", "phase_lag_energy"}}, {"rotation_share", {"rotation_energy", "phase_lag_energy"}},
+      {"residual_share", {"phase_lag_energy", "timing_energy", "rotation_energy"}}, {"timing_inconsistency", {"timing_misfit_energy", "phase_lag_energy"}},
   };
   for (const auto& d : derived) t.push_back(S(d.first, "none", "", M::none, "", d.second));
   return t;
@@ -153,6 +158,11 @@ double Registry::derive(const std::string& name, const std::function<double(cons
     const double n = g("crossings"), s2 = sq(g("crossing_sum_x")) + sq(g("crossing_sum_y")) + sq(g("crossing_sum_z"));
     v = name == "crossing_consistency" ? std::sqrt(s2) / n : (s2 - n) / (n * (n - 1));
   }
+  // the split of a phase 1-form: shares of its ⋆1 energy (ratios of the sums over a member; NaN where it has no energy)
+  else if (name == "timing_share") v = g("phase_lag_energy") > 0 ? g("timing_energy") / g("phase_lag_energy") : kNaN;
+  else if (name == "rotation_share") v = g("phase_lag_energy") > 0 ? g("rotation_energy") / g("phase_lag_energy") : kNaN;
+  else if (name == "residual_share") v = g("phase_lag_energy") > 0 ? std::max(0.0, 1.0 - (g("timing_energy") + g("rotation_energy")) / g("phase_lag_energy")) : kNaN;
+  else if (name == "timing_inconsistency") v = g("phase_lag_energy") > 0 ? g("timing_misfit_energy") / g("phase_lag_energy") : kNaN;
   else throw std::invalid_argument("measurement: the registry derives '" + name + "' but compute has no formula for it");
   return finite_or_nan(v);
 }

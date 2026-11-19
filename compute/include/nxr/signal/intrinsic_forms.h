@@ -77,6 +77,10 @@ Eigen::MatrixXd sharp(const IntrinsicComplex& c, const Eigen::MatrixXd& w);
  *  The extrinsic form for a vertex field (a face-constant tangent vector a face, nxr measure/integrals) is nxr::integrals. */
 Eigen::VectorXd vertexOutflow(const IntrinsicComplex& c, const Eigen::VectorXd& u);
 Eigen::VectorXd vertexCirculation(const IntrinsicComplex& c, const Eigen::VectorXd& w);
+/** THE POINTWISE FORM of the ⋆1 ENERGY of a 1-form, Σ_e ⋆1_e w_e² (the squared norm the modes' 1-forms are orthonormal in): each edge's ⋆1_e w_e² shared equally between its two
+ *  ends, so the whole complex's energy, and a tile's, is the SUM of its vertices' values (the measure sum over any partition, `nxr::measurement::reduce`; a share of energy is a
+ *  ratio of such sums, derived at read). w [nE x m], one column a frame → [V x m]. */
+Eigen::MatrixXd vertexEnergy(const IntrinsicComplex& c, const Eigen::MatrixXd& w);
 
 /** A vertex density [V x m] → a 2-form [nF x m] (area × the mean of the face's vertices); and back (the area-weighted mean of a vertex's faces). */
 Eigen::MatrixXd area2form(const IntrinsicComplex& c, const Eigen::MatrixXd& rho);
@@ -115,19 +119,19 @@ Eigen::VectorXd weightedPotentialModes(const IntrinsicComplex& c, const Modes& m
 struct PatternFields { Eigen::VectorXcd S, A, rho; };
 PatternFields patternFields(const IntrinsicComplex& c, const Modes& m, const std::vector<std::pair<int, int>>& rows, const Eigen::VectorXcd& coef);
 
-/** THE SPLIT OF A PHASE 1-FORM w (each intrinsic edge's lag φ(tip) − φ(tail), rad; e.g. arg T of a cross-spectrum, or arg(x_tip conj x_tail) of a complex
+/** THE SPLIT OF A PHASE 1-FORM w (each intrinsic edge's lag φ(tip) − φ(tail), rad; e.g. arg T of a cross-spectrum, or `phaseGradient(complex, x)` of a complex
  *  pattern) by inner products with the modes' 1-forms: the exact part (= d of a timing potential: one order of arrival), the coexact part (lags that
- *  circulate round loops), the residual (outside the modes). Shares are of the ⋆1 energy. `potential` φ [V] with d0 φ = the exact part (rad; timing =
- *  φ / ω, a larger value leads for z ∝ e^{+iωt}); `propagation` −∇φ at the vertices [3V] (rad per length unit, sharpened); `stream` the coexact part's
- *  2-form potential at the vertices; `inconsistency` per vertex: over its edges, the share of ⋆1 |w|² the exact part leaves. */
+ *  circulate round loops); the residual (outside the modes) is w − exact − coexact. POINTWISE only: `potential` φ [V] with d0 φ = the exact part (rad;
+ *  timing = φ / ω, a larger value leads for z ∝ e^{+iωt}); `propagation` −∇φ at the vertices [3V] (rad per length unit, sharpened); `stream` the coexact
+ *  part's 2-form potential at the vertices. The shares of the ⋆1 energy and the inconsistency are ratios of reductions: `vertexEnergy` of w, of the exact
+ *  part, of the coexact part and of w − exact, summed over a partition's members (measures phase_lag_energy, timing_energy, rotation_energy,
+ *  timing_misfit_energy), and the derived measures timing_share, rotation_share, residual_share and timing_inconsistency read from those sums. */
 struct PhaseSplit {
   Eigen::VectorXd coef, exact, coexact;      // [K] the coefficients; [nE] the exact and coexact parts
-  double shareTiming = 0, shareRotation = 0, shareResidual = 0;
-  Eigen::VectorXd potential, stream, inconsistency;   // [V]
+  Eigen::VectorXd potential, stream;         // [V]
   Eigen::MatrixXd propagation;               // [3V x 1]
 };
 PhaseSplit splitPhase(const IntrinsicComplex& c, const Modes& m, const Eigen::VectorXd& w);
-/** The phase 1-form of a complex vertex field x [V]: w_e = arg(x_tip conj x_tail). */
 /** THE PHASE GRADIENT on the intrinsic edges: the phase step w_e = arg(x_tip conj(x_tail)) (rad, in (−π, π]) of complex vertex fields x [V x m], one column a frame:
  *  dφ integrated along each edge. The same quantity as the vertex `phaseGradient(j, p)` (phase_gradient.h), discretised on the edges of the complex given. [nE x m] */
 Eigen::MatrixXd phaseGradient(const IntrinsicComplex& c, const Eigen::MatrixXcd& x);
