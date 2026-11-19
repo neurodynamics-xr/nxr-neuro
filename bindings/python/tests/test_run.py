@@ -73,3 +73,33 @@ def test_read_refuses_what_is_not_stored(dataset):
     with pytest.raises(nn.Error) as e:
         nn.read(dataset, "S1", "nothing_of_that_name")
     assert e.value.code == "no_such_row"
+
+
+def test_read_a_recording_by_span_and_rows(dataset):
+    whole = nn.read(dataset, "S1", "rest")
+    assert whole.meta["rate"] == SFREQ and whole.meta["origin"] == 0.0 and whole.meta["channels"] == "sensors"
+    part = nn.read(dataset, "S1", "rest", start=1000, stop=2500, rows=[2, 0])   # stored in chunks of 700 samples: read across two chunk edges
+    assert part.values.shape == (2, 1500) and part.values.dtype == np.float32
+    np.testing.assert_array_equal(part.values, whole.values[[2, 0], 1000:2500])
+    assert part.meta["span"]["start_sample"] == 1000 and part.meta["rows"] == [2, 0]
+    shape = nn.read(dataset, "S1", "rest", reading="shape")
+    assert shape.arrays == {} and shape.meta["n_samples"] == int(SECONDS * SFREQ) and shape.meta["n_channels"] == CHANNELS
+    for kwargs in ({"start": 0}, {"start": 0, "stop": 10**6}, {"rows": [CHANNELS]}, {"reading": "bogus"}, {"projectors": "bogus"}):
+        with pytest.raises(nn.InvalidArgumentError):
+            nn.read(dataset, "S1", "rest", **kwargs)
+
+
+def test_read_a_manifold_its_labelling_and_spans(dataset):
+    m = nn.read(dataset, "S1", "sensors")
+    assert m.meta["class"] == "manifold" and m.positions.shape == (CHANNELS, 3) and m.meta["names"] == ["C0", "C1", "C2"]
+    q = nn.read(dataset, "S1", "sensors", family="quality")
+    names = {e["code"]: e["name"] for e in q.meta["dictionary"]}
+    assert q.codes.dtype == np.int64 and [names[c] for c in q.codes] == ["good", "good", "bad"]
+    with pytest.raises(nn.Error) as e:
+        nn.read(dataset, "S1", "sensors", family="nothing")
+    assert e.value.code == "no_such_row"
+    with pytest.raises(nn.InvalidArgumentError):
+        nn.read(dataset, "S1", "sensors", start=0, stop=10)
+    b = nn.read(dataset, "S1", "rest_bad_segments")
+    names = {e["code"]: e["name"] for e in b.meta["dictionary"]}
+    assert b.start.tolist() == [0.3 * SECONDS] and b.stop.tolist() == [0.375 * SECONDS] and [names[c] for c in b.code] == ["BAD"]

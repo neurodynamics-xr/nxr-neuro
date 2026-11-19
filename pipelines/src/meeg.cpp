@@ -850,6 +850,28 @@ HodgePackageData hodge_package_data(SubjectWriter& sub, const std::string& eigen
   return d;
 }
 
+HodgePackageForms hodge_package_forms(SubjectWriter& sub, const HodgePackageData& d) {
+  HodgePackageForms f;
+  f.K = d.basis.mu.size();
+  const auto op = find_operator(sub.db(), sub.id(), "eigenvectors", d.stem + "_forms2");
+  if (!op) missing(sub.name() + ": the Hodge-Dirac package '" + d.stem + "' has no 2-form parts (" + d.stem + "_forms2); solve it again with `nxr-neuro run eigenmodes`");
+  std::vector<std::int64_t> shape;
+  const std::vector<float> all = read_all<float>(sub.store(), text(*op, "path"), &shape);
+  if (shape.size() != 2 || shape[1] < f.K) invalid(d.stem + "_forms2: the stored 2-form parts are not [faces x at least " + std::to_string(f.K) + " modes]");
+  f.nF = shape[0];
+  f.forms2.resize(static_cast<std::size_t>(f.nF * f.K));
+  for (std::int64_t r = 0; r < f.nF; ++r) for (std::int64_t k = 0; k < f.K; ++k) f.forms2[static_cast<std::size_t>(r * f.K + k)] = all[static_cast<std::size_t>(r * shape[1] + k)];
+  const auto ev = find_operator(sub.db(), sub.id(), "eigenvectors", d.stem + "_eigenvectors");
+  const Json prov = ev ? Json::parse(opt_text(*ev, "producer_json").value_or("{}"), nullptr, false) : Json();
+  if (prov.is_object() && prov.contains("solve") && prov["solve"].is_object() && prov["solve"].contains("options") && prov["solve"]["options"].is_object()) {
+    const Json& o = prov["solve"]["options"];
+    f.mollify = o.value("mollify", f.mollify);
+    f.flip_eps = o.value("flip_eps", f.flip_eps);
+    if (o.contains("star1_floor") && o["star1_floor"].is_number()) f.star1_floor = o["star1_floor"].get<double>();
+  }
+  return f;
+}
+
 // ── the stored package's scalar (exact) modes, for the spatial band of a tile level (spatial_band.cpp) ─────────────────
 
 namespace internal {

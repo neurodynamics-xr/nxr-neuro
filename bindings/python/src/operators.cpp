@@ -344,6 +344,13 @@ Eigen::MatrixXd phase_gradient_vertices(const Eigen::MatrixXd& j, const Eigen::M
   return nxr::signal::phaseGradient(j, p);
 }
 
+Eigen::MatrixXd vertex_energy(const nb::dict& complex, const Eigen::MatrixXd& w) {
+  const nxr::signal::IntrinsicComplex c = intrinsic_complex_in(complex);
+  if (w.rows() != c.nE) throw std::invalid_argument("vertexEnergy: the 1-form has " + std::to_string(w.rows()) + " rows; the intrinsic complex has " + std::to_string(c.nE) + " edges");
+  nb::gil_scoped_release release;
+  return nxr::signal::vertexEnergy(c, w);
+}
+
 nb::dict split_phase(const nb::dict& complex, const nb::dict& modes, const Eigen::VectorXd& w) {
   const nxr::signal::Modes m = modes_in(modes);
   const nxr::signal::IntrinsicComplex c = intrinsic_complex_in(complex);
@@ -355,8 +362,7 @@ nb::dict split_phase(const nb::dict& complex, const nb::dict& modes, const Eigen
   }
   nb::dict out;
   out["coef"] = p.coef; out["exact"] = p.exact; out["coexact"] = p.coexact;
-  out["shareTiming"] = p.shareTiming; out["shareRotation"] = p.shareRotation; out["shareResidual"] = p.shareResidual;
-  out["potential"] = p.potential; out["stream"] = p.stream; out["inconsistency"] = p.inconsistency;
+  out["potential"] = p.potential; out["stream"] = p.stream;
   out["propagation"] = p.propagation;   // [3V, 1], x y z a vertex
   return out;
 }
@@ -388,6 +394,7 @@ void bind_operators(nb::module_& m) {
   m.def("signal_phaseGradient", &phase_gradient_vertices, arg("j"), arg("p"));
   m.def("signal_vertexGradient", &vertex_gradient, arg("positions"), arg("faces"));
   m.def("signal_splitPhase", &split_phase, arg("complex"), arg("modes"), arg("w"));
+  m.def("signal_vertexEnergy", &vertex_energy, arg("complex"), arg("w"));
 }
 
 }  // namespace nxrpy

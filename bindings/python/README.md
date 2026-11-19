@@ -21,7 +21,11 @@ psd = r.read()                            # = nn.read("study/demo", "sub-01", "r
 The time range is always stated: `start` and `stop` in seconds (the command line's `--from` and `--to`; `from` is a Python keyword), or `all=True`; a call without one is
 refused. `progress=callable` receives each progress line as a dict. Pipelines named by `nn.list.pipelines()` are `psd` and the shipped definitions or a `.yaml` path; the
 other hand-wired pipelines are reached through the command line until they are definitions. `nn.read(dataset, subject, name, measure=, of=)` reads a stored field, statistic,
-operator or selection (a selection's measurements with `measure`) as NumPy arrays plus metadata.
+operator, selection or manifold (a selection's measurements with `measure`) as NumPy arrays plus metadata. A recording (any time-resolved field) is read through the chunk
+service: `start=`, `stop=` (samples) and `rows=` (channels) read a part, `reading="shape"` only its description (rate, origin, samples, channels, unit, the projection applied),
+`projectors="none"` the samples as stored. A manifold gives its `positions` and element `names`; `family=` one labelling of it (`codes` and the dictionary). A selection of
+spans (events) gives `start`, `stop` (s), `code` and the dictionary. `nn.compute.signal.decimate(x, q)` lowers the rate by q (anti-aliased, zero phase), chunk by chunk with
+`decimationHalo(q)` samples of context.
 
 ## The surface and its operators
 

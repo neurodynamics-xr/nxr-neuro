@@ -930,6 +930,50 @@
    "description": "the exact circulation of the phase field round the tile (rad: the net rotation, the integral of its curl; a winding number x 2 pi round a phase singularity), the tile integral of nxr's measure/integrals; additive up the tile tree; the mean curl is this over the tile's area"
   },
   {
+   "code": 1063,
+   "name": "one_form_energy",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the ⋆1 energy Σ_e ⋆1_e w_e² of a 1-form w on the intrinsic edges (the one the Hodge split took: a phase step, rad, or a phase current) over a member: the sum of nxr::signal::vertexEnergy (each edge's ⋆1 w² half at each end). The denominator of the split's shares"
+  },
+  {
+   "code": 1064,
+   "name": "exact_energy",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the ⋆1 energy of the EXACT (curl-free) part of a 1-form (d of a potential; nxr::signal::splitPhase) over a member: the sum of vertexEnergy of the exact part (rad²)"
+  },
+  {
+   "code": 1065,
+   "name": "coexact_energy",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the ⋆1 energy of the COEXACT (divergence-free) part of a 1-form (nxr::signal::splitPhase) over a member: the sum of vertexEnergy of the coexact part (rad²)"
+  },
+  {
+   "code": 1066,
+   "name": "exact_misfit_energy",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the ⋆1 energy of what the exact part leaves of a 1-form, w − exact (the coexact part and what lies outside the modes) over a member: the sum of vertexEnergy of w − exact (rad²)"
+  },
+  {
    "code": 1116,
    "name": "displacement",
    "merge": "none",
@@ -1084,6 +1128,63 @@
     "total_power"
    ],
    "description": "the share of the total power a band holds: power_sum / total_power (Brainstorm's relative power; 0 where the total is 0). A RATIO of sums, derived at read, never a sum of ratios"
+  },
+  {
+   "code": 1129,
+   "name": "exact_share",
+   "merge": "derived",
+   "form": "none",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "exact_energy",
+    "one_form_energy"
+   ],
+   "description": "the share of a 1-form's ⋆1 energy its exact (curl-free) part holds over a member: exact_energy / one_form_energy. A RATIO of sums, derived at read (NaN where the member has no energy). The parts are ⋆1-orthogonal over the whole complex only: over a tile their cross terms remain, so a tile's share may pass 1"
+  },
+  {
+   "code": 1130,
+   "name": "coexact_share",
+   "merge": "derived",
+   "form": "none",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "coexact_energy",
+    "one_form_energy"
+   ],
+   "description": "the share of a 1-form's ⋆1 energy its coexact (divergence-free) part holds over a member: coexact_energy / one_form_energy. A RATIO of sums, derived at read (over a tile, as exact_share, it may pass 1: the cross terms of the parts remain)"
+  },
+  {
+   "code": 1131,
+   "name": "residual_share",
+   "merge": "derived",
+   "form": "none",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "one_form_energy",
+    "exact_energy",
+    "coexact_energy"
+   ],
+   "description": "the share of a 1-form's ⋆1 energy outside the modes over a member: max(0, 1 − (exact_energy + coexact_energy) / one_form_energy) (the parts are ⋆1-orthogonal over the whole complex; over a tile the parts' cross terms make it approximate, hence the floor at 0). Derived at read"
+  },
+  {
+   "code": 1132,
+   "name": "exact_misfit_share",
+   "merge": "derived",
+   "form": "none",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "exact_misfit_energy",
+    "one_form_energy"
+   ],
+   "description": "the share of a 1-form's ⋆1 energy its exact part leaves over a member: exact_misfit_energy / one_form_energy (0: a potential explains the whole form; on a single vertex, the share over its edges). A RATIO of sums, derived at read"
   }
  ]
 }

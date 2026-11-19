@@ -2,8 +2,8 @@
 and joint wavelet transforms."""
 
 from .forms import (coexactStream, exactPotential, flat, intrinsicComplex, modesOf, phaseCurrent, phaseGradient, projectOneForm, projectTwoForm, sharp, splitPhase,
-                    synthesizeOneForm, synthesizeTwoForm, vertexGradient)
-from .filtering import bandpass, bandstop, highpass, lowpass, notch
+                    synthesizeOneForm, synthesizeTwoForm, vertexEnergy, vertexGradient)
+from .filtering import bandpass, bandstop, decimate, decimationHalo, highpass, lowpass, notch
 from .graph import GraphBank, graphBank, gwt, igwt
 from .joint import JointCoefficients, ijwt, jwt
 from .spectral import WelchResult, psd, xpsd
@@ -11,7 +11,7 @@ from .wavelets import TimeBank, bandAnalytic, bandEnvelope, iwt, timeBank, wt
 
 __all__ = [
     "coexactStream", "exactPotential", "flat", "intrinsicComplex", "modesOf", "phaseCurrent", "phaseGradient", "projectOneForm", "projectTwoForm", "sharp", "splitPhase",
-    "synthesizeOneForm", "synthesizeTwoForm", "vertexGradient",
-    "GraphBank", "JointCoefficients", "TimeBank", "WelchResult", "bandAnalytic", "bandEnvelope", "bandpass", "bandstop", "graphBank", "gwt", "highpass", "igwt",
+    "synthesizeOneForm", "synthesizeTwoForm", "vertexEnergy", "vertexGradient",
+    "GraphBank", "JointCoefficients", "TimeBank", "WelchResult", "bandAnalytic", "bandEnvelope", "bandpass", "bandstop", "decimate", "decimationHalo", "graphBank", "gwt", "highpass", "igwt",
     "ijwt", "iwt", "jwt", "lowpass", "notch", "psd", "timeBank", "wt", "xpsd",
 ]

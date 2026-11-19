@@ -47,6 +47,8 @@
 #include "nxr/select/events.h"
 #include "nxr/stats/summary.h"
 #include "nxr/signal/phase_gradient.h"
+#include "nxr/signal/intrinsic_forms.h"
+#include "nxr/geometry/surface_arrays.h"
 #include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/wavelet.h"
 #include "nxr/select/risefall.h"
@@ -528,11 +530,15 @@ std::vector<StepSpec> build() {
                  if (x.unit) y.unit = "(" + *x.unit + ")^2";
                  return Values{{"y", y}};
                }});
-  r.push_back({"phase_current", "chunk", {"x"}, {}, {"y"}, Json::object(), "nxr detect/core_phase.py PhaseReader (Im(conj(z) grad z), the GV gradient); compute nxr::signal::phaseCurrent",
-               "the phase current j = Im(z̄ ∇z) = |z|² ∇φ on the tangent plane, per vertex per sample (three numbers a vertex: x y z)",
-               [](const Values& ins, const Json&, const PlanContext& c) {
+  r.push_back({"phase_current", "chunk", {"x"}, {}, {"y"}, Json{{"discretisation", "vertex_gradient"}},
+               "nxr detect/core_phase.py PhaseReader (Im(conj(z) grad z), the GV gradient; the default `discretisation: vertex_gradient`); compute nxr::signal::phaseCurrent",
+               "the phase current j = Im(z̄ ∇z) = |z|² ∇φ on the tangent plane, per vertex per sample (three numbers a vertex: x y z). `discretisation`: vertex_gradient (the reference: the vertex "
+               "gradient of the mesh) or intrinsic_edges (Im(z̄_tail z_tip) on the edges of the surface's intrinsic Delaunay complex, back at the vertices by sharp)",
+               [](const Values& ins, const Json& p, const PlanContext& c) {
                  const Value& z = ins.at("x");
                  phase_input(z, c, "phase_current");
+                 const std::string disc = p.value("discretisation", std::string("vertex_gradient"));
+                 need(disc == "vertex_gradient" || disc == "intrinsic_edges", "phase_current: discretisation is vertex_gradient (the reference) or intrinsic_edges, not '" + disc + "'");
                  Value y = made(z);
                  y.value_type = "vector3";
                  y.complex = false;
@@ -756,7 +762,18 @@ std::shared_ptr<nxr::signal::FaceGradientOperator> surface_operator(ExecContext&
   std::vector<float> P(S.vertices.begin(), S.vertices.end());
   return std::make_shared<nxr::signal::FaceGradientOperator>(nxr::signal::assembleFaceGradient(P.data(), S.faces.data(), static_cast<int>(S.n_vertices()), static_cast<int>(S.n_faces())));
 }
-struct PhaseState { nxr::signal::Gradient G; Eigen::MatrixXd N; int components = 1; };
+struct PhaseState { nxr::signal::Gradient G; Eigen::MatrixXd N; int components = 1; std::shared_ptr<const nxr::signal::IntrinsicComplex> edges; };
+// the phase current on the EDGES of the surface's intrinsic Delaunay complex (the options `eigen solve` uses by default), bound once: the discretisation `intrinsic_edges`
+std::shared_ptr<PhaseState> phase_state_edges(const Value& z, ExecContext& c) {
+  const auto m = c.bound.manifold(z.manifolds[0]);
+  const auto S = c.bound.surface(m ? std::optional<std::string>(nxr::io::text(*m, "name")) : std::nullopt);
+  const nxr::geometry::SurfaceArrays arrays = nxr::geometry::surfaceArrays(S.vertices.data(), static_cast<int>(S.n_vertices()), S.faces.data(), static_cast<int>(S.n_faces()));
+  auto st = std::make_shared<PhaseState>();
+  st->components = z.value_type == "vector3" ? 3 : 1;
+  st->edges = std::make_shared<const nxr::signal::IntrinsicComplex>(nxr::signal::intrinsicComplex(arrays));
+  if (c.say) c.say(Json{{"phase_current", "intrinsic_edges"}, {"complex", Json{{"vertices", st->edges->nV}, {"edges", st->edges->nE}, {"faces", st->edges->nF}}}});
+  return st;
+}
 std::shared_ptr<PhaseState> phase_state(const Value& z, ExecContext& c) {
   const auto op = surface_operator(c, z.manifolds[0]);
   const int nV = op->nV;
@@ -1255,11 +1272,25 @@ void bind_execution(std::vector<StepSpec>& r) {
   for (const char* n : {"phase_current", "signal.gradient_power"}) {
     StepSpec& s = at(n);
     const bool current = std::string(n) == "phase_current";
-    s.prepare = [](const Values& ins, const Json&, ExecContext& c) { return std::any(phase_state(ins.at("x"), c)); };
+    s.prepare = [current](const Values& ins, const Json& p, ExecContext& c) {
+      if (current && p.value("discretisation", std::string("vertex_gradient")) == "intrinsic_edges") return std::any(phase_state_edges(ins.at("x"), c));
+      return std::any(phase_state(ins.at("x"), c));
+    };
     s.chunk = [current](const std::any& st, const Blocks& ins, std::int64_t keep) {
       const PhaseState& ps = *std::any_cast<const std::shared_ptr<PhaseState>&>(st);
       const Block b = crop(ins.at("x"), keep);
       const Eigen::MatrixXcd Z = complex_of(b);
+      if (ps.edges) {                                                     // Σ over the components of Im(z̄_tail z_tip) on the edges, then sharp: x y z a vertex
+        const nxr::signal::IntrinsicComplex& cx = *ps.edges;
+        if (Z.rows() != static_cast<Eigen::Index>(cx.nV) * ps.components) refuse("phase_current: x has " + std::to_string(Z.rows()) + " rows, the surface " + std::to_string(cx.nV) + " vertices x " + std::to_string(ps.components));
+        Eigen::MatrixXd J = Eigen::MatrixXd::Zero(cx.nE, Z.cols());
+        for (int a = 0; a < ps.components; ++a) {
+          Eigen::MatrixXcd za(cx.nV, Z.cols());
+          for (int v = 0; v < cx.nV; ++v) za.row(v) = Z.row(static_cast<Eigen::Index>(v) * ps.components + a);
+          J += nxr::signal::phaseCurrent(cx, za);
+        }
+        return Blocks{{"y", block_of(nxr::signal::sharp(cx, J), b.left, b.right)}};
+      }
       const Eigen::MatrixXd Y = current ? nxr::signal::phaseCurrent(Z, ps.components, ps.G, ps.N) : nxr::signal::gradientPower(Z, ps.components, ps.G, ps.N);
       return Blocks{{"y", block_of(Y, b.left, b.right)}};
     };

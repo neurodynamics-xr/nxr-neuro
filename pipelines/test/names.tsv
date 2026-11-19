@@ -66,6 +66,7 @@ node	signal.analytic_bands	-	composite
 node	signal.filter	nxr::signal::filter	ok
 node	signal.flow_activation	-	composite
 node	signal.flow_hodge_modes	-	composite
+node	signal.phase_split	-	composite
 node	signal.flow_max_amplitude	-	composite
 node	signal.flow_series	-	composite
 node	signal.flow_velocity	-	composite
@@ -184,6 +185,7 @@ python	geometry_eulerCharacteristic	nxr::geometry::eulerCharacteristic	ok
 python	geometry_vertexFrames	nxr::geometry::vertexFrames	ok
 python	geometry_frames	nxr::geometry::frames	ok
 python	geometry_heat	nxr::geometry::heat	ok
+python	geometry_logMap	nxr::geometry::transport::logMap	ok
 python	operators_assembleManifoldOperators	nxr::operators::assembleManifoldOperators	ok
 python	operators_assembleDECOperators	nxr::operators::assembleDECOperators	ok
 python	operators_assemble	nxr::operators::hodgedirac::assemble	ok
@@ -204,6 +206,7 @@ python	signal_phaseCurrent	nxr::signal::phaseCurrent	ok
 python	signal_phaseGradient	nxr::signal::phaseGradient	ok
 python	signal_vertexGradient	nxr::signal::vertexGradient	ok
 python	signal_splitPhase	nxr::signal::splitPhase	ok
+python	signal_vertexEnergy	nxr::signal::vertexEnergy	ok
 python	signal_psd	nxr::signal::psd	ok
 python	signal_xpsd	nxr::signal::xpsd	ok
 python	signal_filter	nxr::signal::filter	ok
@@ -392,3 +395,5 @@ retired	liftToWorld	mex	operators.liftToWorld
 retired	liftToFrame	mex	operators.liftToFrame
 retired	operatorInfo	mex	operators.operatorById
 retired	fieldInfo	mex	operators.fieldById
+python	signal_decimate	nxr::signal::decimate	ok
+python	signal_decimationHalo	nxr::signal::decimationHalo	ok

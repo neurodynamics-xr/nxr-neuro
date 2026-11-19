@@ -56,6 +56,14 @@ struct HodgePackageData {
   std::string input_surface_id, stem, axis_id, id;
 };
 HodgePackageData hodge_package_data(nxr::io::SubjectWriter& sub, const std::string& eigenvectors_name, const std::optional<std::int64_t>& modes);
+/** the package's FULL forms beyond its eigenvectors: the 2-form parts χ/√2 of its first `K` modes on the intrinsic faces (`<stem>_forms2`, [nF x K], float32 as stored, row-major) and the
+ *  options its intrinsic complex was built with (the solve's provenance: mollify, flip_eps, star1_floor; null floor: none named), so a node rebuilds the same complex from the glued surface */
+struct HodgePackageForms {
+  std::vector<float> forms2;
+  std::int64_t nF = 0, K = 0;
+  double mollify = 1e-6, flip_eps = 1e-6, star1_floor = 0.0;
+};
+HodgePackageForms hodge_package_forms(nxr::io::SubjectWriter& sub, const HodgePackageData& package);
 // The type of each channel of a channels manifold (its 'type' labelling); empty when there is none.
 /** the positions of a points manifold with no channel types (the landmarks of a template: nasion, LPA, RPA): [n x 3] and each point's name from its `<manifold>_names` labelling (empty when it has none) */
 struct NamedPoints { std::string id, name; std::vector<double> positions; std::vector<std::string> names; };

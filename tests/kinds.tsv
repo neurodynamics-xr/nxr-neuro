@@ -72,6 +72,7 @@ test_crossspectrum	integration
 test_crossspectrum_bins	golden
 test_crud	unit
 test_dataset_with_template	integration
+test_decimation	unit
 test_default_subject	unit
 test_definitions_load	integration
 test_definitions_typed	integration
@@ -166,6 +167,7 @@ test_measurement_query	unit
 test_measures	unit
 test_meeg_pipelines	integration
 test_member_analytic	integration
+test_phase_split	integration
 test_mesh_bundles	unit
 test_migrate	unit
 test_migrate_measurement	unit

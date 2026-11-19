@@ -1,0 +1,190 @@
+// nxr-pipelines — the intrinsic forms as graph nodes (docs/specs/2026-11-19-intrinsic-form-nodes.md).
+//
+// THE GRAPH. x (a complex scalar field on the surface a Hodge-Dirac package is solved on, streamed) --[signal.phase_split]--> per sample, at the vertices: the exact part's potential,
+// the coexact part's stream function, the propagation (−∇ potential) and the ⋆1 energies of the 1-form, of its exact part, of its coexact part and of what the exact part leaves.
+// The 1-form is the parameter `one_form`: phase_gradient (the reference: the phase step on the intrinsic edges) or phase_current (Im(conj(z_tail) z_tip)).
+// The 1-forms live only inside the node: its ports carry vertex fields. The package's complex and its modes (the eigenvectors and the
+// 2-form parts, which the runner binds in preparation: `reads_package_forms`) are bound once. Every output is pointwise; the shares of the energy are measurements: each energy
+// reduced by `measurement.reduce` (measure sum under its name) over any partition, the shares derived at read (exact_share, coexact_share, residual_share, exact_misfit_share).
+#include "nxr/pipelines/form_steps.h"
+
+#include <cmath>
+#include <complex>
+#include <cstring>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include <Eigen/Dense>
+
+#include "nxr/geometry/surface_arrays.h"
+#include "nxr/graph/node.h"
+#include "nxr/signal/intrinsic_forms.h"
+
+namespace nxr::pipelines::graph {
+
+namespace ng = nxr::graph;
+using nxr::graph::Json;
+
+namespace {
+
+const char* const kWho = "signal.phase_split";
+const char* const kScalarOutputs[] = {"potential", "stream", "one_form_energy", "exact_energy", "coexact_energy", "exact_misfit_energy"};
+
+struct SplitPrepared {
+  std::shared_ptr<const nxr::signal::IntrinsicComplex> complex;
+  std::shared_ptr<const nxr::signal::Modes> modes;
+  bool phase_current = false;   // the parameter `one_form`: phase_current (else phase_gradient)
+  std::string boundary;         // a fact of the method: none (a closed surface) | neumann_potential_dirichlet_stream (an open one)
+};
+
+// the package constant as the runner binds it (runner.cpp: the eigenvectors [K x V] mode-major, mu, kind, the glued surface's positions and faces; with `reads_package_forms`
+// the 2-form parts [nF x K] and the complex's options) → the intrinsic complex the modes were solved on, and the modes' full forms
+SplitPrepared bind_package(const ng::Array& H) {
+  if (!H.meta.value("hodge", false)) ng::refuse(std::string(kWho) + ": package is not a Hodge-Dirac package (an operator of kind eigenvectors, <stem>_eigenvectors)");
+  if (!H.meta.contains("forms2") || !H.meta.contains("complex")) ng::refuse(std::string(kWho) + ": the package's 2-form parts were not bound (the node reads the package's full forms)");
+  const std::int64_t K = H.rows, V = H.cols;
+  const std::vector<double> pos = H.meta.at("positions").get<std::vector<double>>();
+  const std::vector<std::int32_t> faces = H.meta.at("faces").get<std::vector<std::int32_t>>();
+  if (static_cast<std::int64_t>(pos.size()) != 3 * V) ng::refuse(std::string(kWho) + ": the package's surface has " + std::to_string(pos.size() / 3) + " vertices, its eigenvectors " + std::to_string(V));
+  const Json& o = H.meta.at("complex");
+  nxr::geometry::IntrinsicOptions io;
+  io.mollify = o.value("mollify", io.mollify);
+  io.flipEps = o.value("flip_eps", io.flipEps);
+  const nxr::geometry::SurfaceArrays arrays = nxr::geometry::surfaceArrays(pos.data(), static_cast<int>(V), faces.data(), static_cast<int>(faces.size() / 3), io);
+  auto c = std::make_shared<nxr::signal::IntrinsicComplex>(nxr::signal::intrinsicComplex(arrays, o.value("star1_floor", 0.0)));   // ⋆1 the pencil's (raiseStar1, the same floor)
+  const std::vector<std::int64_t> shape = H.meta.at("forms2_shape").get<std::vector<std::int64_t>>();
+  const auto& bin = H.meta.at("forms2").get_binary();
+  if (shape.size() != 2 || shape[1] != K || shape[0] != c->nF || bin.size() != static_cast<std::size_t>(shape[0] * shape[1]) * sizeof(float))
+    ng::refuse(std::string(kWho) + ": the package's 2-form parts are not [" + std::to_string(c->nF) + " faces x " + std::to_string(K) + " modes] of the complex rebuilt from its surface (another triangulation)");
+  auto m = std::make_shared<nxr::signal::Modes>();
+  m->P.resize(V, K);
+  for (std::int64_t k = 0; k < K; ++k) for (std::int64_t v = 0; v < V; ++v) m->P(v, k) = H.data[static_cast<std::size_t>(k * V + v)];
+  m->X2.resize(c->nF, K);
+  std::vector<float> x2(static_cast<std::size_t>(shape[0] * shape[1]));
+  std::memcpy(x2.data(), bin.data(), bin.size());
+  for (std::int64_t f = 0; f < c->nF; ++f) for (std::int64_t k = 0; k < K; ++k) m->X2(f, k) = x2[static_cast<std::size_t>(f * K + k)];
+  const std::vector<double> mu = H.meta.at("mu").get<std::vector<double>>();
+  const std::vector<int> kind = H.meta.at("kind").get<std::vector<int>>();
+  m->mu = Eigen::Map<const Eigen::VectorXd>(mu.data(), K);
+  m->kind.assign(kind.begin(), kind.begin() + K);
+  for (Eigen::Index k = 0; k < m->mu.size(); ++k)
+    if (!(m->mu(k) > 0) || (m->kind[static_cast<std::size_t>(k)] != 0 && m->kind[static_cast<std::size_t>(k)] != 2))
+      ng::refuse(std::string(kWho) + ": mode " + std::to_string(k) + " is not an exact or coexact mode with a positive eigenvalue (a harmonic or negative mode)");
+  // the boundary loops of the complex: an edge with one face (a column of d1 with one entry) lies on the boundary
+  int boundary_edges = 0;
+  {
+    const Eigen::SparseMatrix<double> d1 = c->d1;
+    for (int e = 0; e < d1.outerSize(); ++e) if (d1.col(e).nonZeros() == 1) ++boundary_edges;
+  }
+  return SplitPrepared{c, m, false, boundary_edges == 0 ? "none" : "neumann_potential_dirichlet_stream"};
+}
+
+ng::Block block_rows(const Eigen::MatrixXd& A, std::int64_t left, std::int64_t right) {
+  ng::Block b;
+  b.rows = A.rows(); b.width = A.cols(); b.left = left; b.right = right;
+  b.re.resize(static_cast<std::size_t>(b.rows * b.width));
+  for (Eigen::Index r = 0; r < A.rows(); ++r)
+    for (Eigen::Index t = 0; t < A.cols(); ++t) b.re[static_cast<std::size_t>(r * b.width + t)] = static_cast<float>(A(r, t));
+  return b;
+}
+
+ng::NodeSpec phase_split() {
+  ng::NodeSpec n;
+  n.name = kWho;
+  n.kind = ng::Kind::chunk;
+  n.reads_package_forms = true;
+  n.inputs = {{"x", "a complex scalar field on the surface the package's modes are solved on (the glued surface of a cortex: `meeg.apply_kernel` with `glued`), streamed", false},
+              {"package", "the Hodge-Dirac package (its eigenvectors operator); the runner binds its 2-form parts and its complex's options with it", false}};
+  n.outputs = {{"potential", "the exact part's potential φ at the vertices (rad): d0 φ is the exact (curl-free) part of the 1-form", false},
+               {"stream", "the coexact part's stream function at the vertices (rad)", false},
+               {"propagation", "−∇φ at the vertices, x y z a vertex (rad per length unit, sharpened from the exact part)", false},
+               {"one_form_energy", "the ⋆1 energy of the 1-form at the vertices (each edge's ⋆1 w² half at each end; rad²)", false},
+               {"exact_energy", "the ⋆1 energy of its exact part at the vertices (rad²)", false},
+               {"coexact_energy", "the ⋆1 energy of its coexact part at the vertices (rad²)", false},
+               {"exact_misfit_energy", "the ⋆1 energy of w − the exact part at the vertices (rad²)", false}};
+  n.parameters = {{"one_form", Json("phase_gradient"), "the 1-form that is split: phase_gradient (the reference: the phase step arg(x_tip conj(x_tail)) on the intrinsic edges) | phase_current (Im(conj(x_tail) x_tip), the amplitude-weighted phase step)", "-", {"phase_gradient", "phase_current"}, false}};
+  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input,
+                             "each sample on its own: the 1-form on the intrinsic edges (the phase step or the phase current), their split by inner products with the modes, the pointwise parts and energies; double, float32 result for float32 input");
+  n.matches = "compute nxr::signal::phaseGradient(complex, x) or phaseCurrent(complex, x), splitPhase, vertexEnergy (the intrinsic forms; the Hodge-Dirac modes' full forms)";
+  n.description = "a 1-form of a complex field (its phase step, or its phase current) split by the Hodge-Dirac modes per sample into its exact and coexact parts: the exact part's potential, the coexact part's stream function, the propagation and the ⋆1 energies at the vertices "
+                  "(the shares are measurements: each energy summed over a partition, the ratios derived at read)";
+  n.plan = [](const ng::Types& in, const Json&) {
+    const auto it = in.find("x");
+    if (it == in.end()) ng::refuse(std::string(kWho) + ": x is not given");
+    const ng::PortType& x = it->second;
+    if (!x.streamed()) ng::refuse(std::string(kWho) + ": x is a streamed field (samples or frames)");
+    if (x.value != ng::ValueType::complex) ng::refuse(std::string(kWho) + ": x must be a complex scalar field (the analytic signal on the vertices): its phase is split");
+    if (!in.count("package")) ng::refuse(std::string(kWho) + ": package is not given");
+    // each output lies where x does (its value as the runner describes it: same manifolds and time line), real, made by a non-linear node
+    auto made = [&x](ng::ValueType value) {
+      ng::PortType y = x;
+      y.value = value; y.complex_parts = false; y.components = value == ng::ValueType::vector3 ? 3 : 1; y.nonlinear = true; y.quantity.clear();
+      if (y.rows > 0 && value == ng::ValueType::vector3) y.rows *= 3;
+      if (y.facts.contains("value") && y.facts["value"].is_object()) {
+        Json& v = y.facts["value"];
+        v["complex"] = false;
+        v["value_type"] = value == ng::ValueType::vector3 ? "vector3" : "scalar";
+        v["facts"] = Json{{"nonlinear", true}, {"made_by", kWho}};
+        v["unit"] = nullptr;
+      }
+      return y;
+    };
+    ng::Planned out;
+    for (const char* o : kScalarOutputs) out.out[o] = made(ng::ValueType::real);
+    out.out["propagation"] = made(ng::ValueType::vector3);
+    return out;
+  };
+  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& params, ng::Shared&) {
+    const std::string form = params.value("one_form", std::string("phase_gradient"));
+    if (form != "phase_gradient" && form != "phase_current") ng::refuse(std::string(kWho) + ": one_form is phase_gradient (the reference) or phase_current, not '" + form + "'");
+    const auto it = c.find("package");
+    if (it == c.end() || it->second.meta.value("placeholder", false)) ng::refuse(std::string(kWho) + ": package was not handed over");
+    SplitPrepared s = bind_package(it->second);
+    s.phase_current = form == "phase_current";
+    return std::any(s);
+  };
+  n.record = [](const std::any& prepared) {
+    const SplitPrepared& s = std::any_cast<const SplitPrepared&>(prepared);
+    return Json{{"complex", Json{{"vertices", s.complex->nV}, {"edges", s.complex->nE}, {"faces", s.complex->nF}}}, {"modes", s.modes->mu.size()}, {"one_form", s.phase_current ? "phase_current" : "phase_gradient"}, {"boundary", s.boundary}};
+  };
+  n.chunk = [](const std::any& prepared, const ng::Blocks& in, std::int64_t keep, const ng::Place&) {
+    const SplitPrepared& s = std::any_cast<const SplitPrepared&>(prepared);
+    const nxr::signal::IntrinsicComplex& c = *s.complex;
+    const ng::Block& b = in.at("x");
+    if (b.rows != c.nV) ng::refuse(std::string(kWho) + ": x has " + std::to_string(b.rows) + " rows; the package's surface has " + std::to_string(c.nV) + " vertices (a field on that surface)");
+    const std::int64_t L = std::min(keep, b.left), R = std::min(keep, b.right), first = b.left - L, m = b.own() + L + R;
+    Eigen::MatrixXcd X(b.rows, m);
+    for (std::int64_t r = 0; r < b.rows; ++r)
+      for (std::int64_t t = 0; t < m; ++t) {
+        const std::size_t at = static_cast<std::size_t>(r * b.width + first + t);
+        X(r, t) = std::complex<double>(b.re[at], b.complex() ? b.im[at] : 0.0);
+      }
+    const Eigen::MatrixXd W = s.phase_current ? nxr::signal::phaseCurrent(c, X) : nxr::signal::phaseGradient(c, X);   // the 1-form on the intrinsic edges [nE x m]: inside the node only
+    Eigen::MatrixXd pot(c.nV, m), str(c.nV, m), prop(3 * c.nV, m), parts(c.nE, 4 * m);
+    for (std::int64_t t = 0; t < m; ++t) {
+      const nxr::signal::PhaseSplit sp = nxr::signal::splitPhase(c, *s.modes, W.col(t));
+      pot.col(t) = sp.potential; str.col(t) = sp.stream; prop.col(t) = sp.propagation.col(0);
+      parts.col(t) = W.col(t); parts.col(m + t) = sp.exact; parts.col(2 * m + t) = sp.coexact; parts.col(3 * m + t) = W.col(t) - sp.exact;
+    }
+    const Eigen::MatrixXd E = nxr::signal::vertexEnergy(c, parts);       // [V x 4m]: w, exact, coexact, w - exact
+    ng::Blocks out;
+    out["potential"] = block_rows(pot, L, R);
+    out["stream"] = block_rows(str, L, R);
+    out["propagation"] = block_rows(prop, L, R);
+    const char* const energies[] = {"one_form_energy", "exact_energy", "coexact_energy", "exact_misfit_energy"};
+    for (int k = 0; k < 4; ++k) out[energies[k]] = block_rows(E.middleCols(k * m, m), L, R);
+    return out;
+  };
+  return n;
+}
+
+}  // namespace
+
+void register_form_nodes() {
+  ng::Registry& r = ng::registry();
+  for (ng::NodeSpec n : {phase_split()})
+    if (!r.find(n.name)) r.add(std::move(n));
+}
+
+}  // namespace nxr::pipelines::graph

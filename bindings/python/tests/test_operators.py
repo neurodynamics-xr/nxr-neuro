@@ -173,7 +173,12 @@ def test_forms_on_the_modes(sphere):
     np.testing.assert_allclose(d0 @ S.exactPotential(md, c), S.synthesizeOneForm(ic, md, ce), atol=1e-10)
     sp = S.splitPhase(ic, md, w[:, 0])
     np.testing.assert_allclose(S.coexactStream(ic, md, c[:, 0]), sp["stream"], atol=1e-12)
-    assert sp["propagation"].shape == (len(v), 3) and abs(sp["shareTiming"] + sp["shareRotation"] + sp["shareResidual"] - 1) < 1e-9
+    assert sp["propagation"].shape == (len(v), 3) and "shareTiming" not in sp and "inconsistency" not in sp
+    # the energies are pointwise: the vertices' values sum to the *1 energy (a share is a ratio of such sums, derived at read)
+    star1 = np.asarray(ic["star1"])
+    ev = S.vertexEnergy(ic, np.stack([w[:, 0], sp["exact"]], axis=1))
+    assert ev.shape == (len(v), 2)
+    np.testing.assert_allclose(ev.sum(axis=0), [np.sum(star1 * w[:, 0] ** 2), np.sum(star1 * sp["exact"] ** 2)], rtol=1e-12)
     # the phase current against its formula, one column a frame
     z = np.exp(1j * 3 * v[:, 0]) * (1 + 0.5 * v[:, 2])
     e = G.complex(s)["edges"]
@@ -200,7 +205,8 @@ def test_plane_wave_on_a_disc_is_timing():
     w = S.phaseGradient(ic, np.exp(1j * phase))
     for count in (40, 80):
         sp = S.splitPhase(ic, S.modesOf(O.hodgeDiracModes(h, count), h), w)
-        assert sp["shareRotation"] < 1e-12 and 0.9 < sp["shareTiming"] < 1 and abs(sp["shareResidual"] - (1 - sp["shareTiming"])) < 1e-9
+        energy, timing, rotation = S.vertexEnergy(ic, np.stack([w, sp["exact"], sp["coexact"]], axis=1)).sum(axis=0)   # the sums over the whole disc
+        assert rotation / energy < 1e-12 and 0.9 < timing / energy < 1
         assert np.corrcoef(sp["potential"], phase)[0, 1] > 0.997
 
 
@@ -221,3 +227,62 @@ def test_phase_current_one_quantity_two_discretisations():
     e = ic["edges"]
     np.testing.assert_allclose(S.phaseGradient(ic, z), (v[e[:, 1]] - v[e[:, 0]]) @ [3.0, -1.5, 0.0], atol=1e-10)
     np.testing.assert_allclose(g[:, :2], np.tile([3.0, -1.5], (len(v), 1)), rtol=0.03)   # the vertex (P1) discretisation is approximate; the edge one exact
+
+
+def test_log_map(sphere):
+    # on the unit sphere the log map's norm is the geodesic distance (the heat distance's, to its accuracy) and the frame is orthonormal and tangent
+    v, _, s = sphere
+    r = G.logMap(s, 0)
+    d = np.linalg.norm(r["logCoords"], axis=1)
+    assert r["logCoords"].shape == (len(v), 2) and d[0] < 1e-9
+    true = np.arccos(np.clip(v @ v[0], -1, 1))
+    near = true < 1.0
+    np.testing.assert_allclose(d[near], true[near], atol=0.03)
+    e1, e2, n = r["sourceE1"], r["sourceE2"], r["sourceNormal"]
+    np.testing.assert_allclose([e1 @ e1, e2 @ e2, e1 @ e2, e1 @ v[0]], [1, 1, 0, 0], atol=1e-9)
+    assert n @ v[0] > 0.99
+    # near the source the coordinates point the right way: source + x e1 + y e2 ~ the vertex
+    k = np.argsort(np.where(near, true, np.inf))[1:6]
+    approx = v[0] + r["logCoords"][k, :1] * e1 + r["logCoords"][k, 1:] * e2
+    assert np.abs(approx - v[k]).max() < 0.05
+    both = G.logMap(s, [0, 5])
+    assert len(both) == 2
+    np.testing.assert_allclose(both[0]["logCoords"], r["logCoords"], atol=1e-10)
+
+
+def test_log_map_face_point():
+    # a point of an input face: the blend of its corners' log maps (first order). On the unit sphere, at a face's centroid the norm of the coordinates is
+    # the great-circle distance from the point, better than the nearest vertex's log map taken as the point's
+    v, f = icosphere(3)
+    s = G.surfaceArrays(v, f)
+    fi = 7
+    w = np.array([1 / 3, 1 / 3, 1 / 3])
+    r = G.logMap(s, (fi, tuple(w)))
+    p = w @ v[f[fi]]
+    assert r["logCoords"].shape == (len(v), 2)
+    np.testing.assert_allclose(r["sourcePoint"], p, atol=1e-12)
+    e1, e2, n = r["sourceE1"], r["sourceE2"], r["sourceNormal"]
+    np.testing.assert_allclose([e1 @ e1, e2 @ e2, e1 @ e2, e1 @ n, e2 @ n], [1, 1, 0, 0, 0], atol=1e-9)
+    pu = p / np.linalg.norm(p)
+    true = np.arccos(np.clip(v @ pu, -1, 1))
+    near = true < 1.0
+    d = np.linalg.norm(r["logCoords"], axis=1)
+    err_face = np.abs(d[near] - true[near])
+    np.testing.assert_allclose(d[near], true[near], atol=0.03)
+    # the nearest vertex's log map, read as the log map of the point
+    k = f[fi][np.argmin(np.linalg.norm(v[f[fi]] - p, axis=1))]
+    dv = np.linalg.norm(G.logMap(s, int(k))["logCoords"], axis=1)
+    err_vertex = np.abs(dv[near] - true[near])
+    assert err_face.mean() < err_vertex.mean() and err_face.max() < err_vertex.max()
+    # at a corner: the vertex log map, coordinates identical
+    c = G.logMap(s, (fi, (1.0, 0.0, 0.0)))
+    np.testing.assert_allclose(c["logCoords"], G.logMap(s, int(f[fi][0]))["logCoords"], atol=1e-9)
+    # a list of points: one solver, same results
+    both = G.logMap(s, [(fi, (1.0, 0.0, 0.0)), (fi, tuple(w))])
+    assert len(both) == 2
+    np.testing.assert_allclose(both[1]["logCoords"], r["logCoords"], atol=1e-10)
+    for bad in [(fi, (0.5, 0.6, -0.1)), (fi, (0.5, 0.3, 0.3)), (len(f), (1.0, 0.0, 0.0))]:
+        with pytest.raises(Exception):
+            G.logMap(s, bad)
+    with pytest.raises(ValueError):
+        G.logMap(s, [0, (fi, tuple(w))])

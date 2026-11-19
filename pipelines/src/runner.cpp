@@ -1190,6 +1190,13 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.meta["input_positions"] = h.input_positions;
         a.meta["input_surface_id"] = h.input_surface_id;
         a.meta["name"] = h.stem; a.meta["id"] = h.id; a.meta["axis_id"] = h.axis_id;
+        if (n.spec->reads_package_forms) {                                  // the full forms: the 2-form parts (as stored, float32 bytes) and the options of the package's complex
+          const nxr::pipelines::HodgePackageForms f = nxr::pipelines::hodge_package_forms(sub, h);
+          const auto* bytes = reinterpret_cast<const std::uint8_t*>(f.forms2.data());
+          a.meta["forms2"] = Json::binary(std::vector<std::uint8_t>(bytes, bytes + f.forms2.size() * sizeof(float)));
+          a.meta["forms2_shape"] = Json::array({f.nF, f.K});
+          a.meta["complex"] = Json{{"mollify", f.mollify}, {"flip_eps", f.flip_eps}, {"star1_floor", f.star1_floor}};
+        }
         constants[name] = std::move(a);
       }
     for (const auto& [port, name] : n.in)

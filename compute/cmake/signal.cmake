@@ -7,6 +7,7 @@ target_sources(nxr_compute PRIVATE
   src/signal/crossspectral_bins.cpp
   src/signal/crossspectral_decomposition.cpp
   src/signal/crossspectral_measures.cpp
+  src/signal/decimation.cpp
   src/signal/filters.cpp
   src/signal/filters_fir.cpp
   src/signal/filters_fir_design.cpp
@@ -169,6 +170,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   target_link_libraries(test_filter PRIVATE nxr_compute)
   target_compile_definitions(test_filter PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
   add_test(NAME test_filter COMMAND test_filter)
+  add_executable(test_decimation test/test_decimation.cpp)   # decimate: chunk-size independence with the halo, zero phase, no alias
+  target_link_libraries(test_decimation PRIVATE nxr_compute)
+  add_test(NAME test_decimation COMMAND test_decimation)
   foreach(t test_crossspectrum_bins test_tensor test_wave)   # moved from meeg: they read compute's functions (and meeg's source power)
     add_executable(${t} test/${t}.cpp)
     target_link_libraries(${t} PRIVATE nxr_compute nxr_meeg)

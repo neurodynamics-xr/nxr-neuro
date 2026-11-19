@@ -284,6 +284,9 @@ Signature s_field_form() {
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
         const std::string form = p.value("form", std::string());
+        const std::string disc = p.value("discretisation", std::string("vertex_gradient"));
+        if (disc != "vertex_gradient" && (form != "phase_current" || disc != "intrinsic_edges"))
+          u.fail("x", "discretisation is vertex_gradient (the reference) or intrinsic_edges, and only the phase current has one (form " + form + ", discretisation " + disc + ")");
         PortType& y = u.out.at("y");
         y.nonlinear = true;
         if (form == "magnitude") { y.value = VT::real; y.complex_parts = false; y.quantity = "amplitude"; }
@@ -297,6 +300,27 @@ Signature s_field_form() {
         } else if (form == "outer") {
           if (!is_complex(x)) u.fail("x", "must be complex (the analytic signal): z z^H of a real field is its square");
         } else u.fail("x", "form is magnitude, power, phase_current or outer (no default)");
+      });
+}
+
+// `signal.phase_split`: the phase of a complex scalar field on a surface split by a Hodge-Dirac package's modes, per sample; every output a real vertex field on x's domain
+// (the propagation a tangent vector3); the edges of the package's complex stay inside the node (docs/specs/2026-11-19-intrinsic-form-nodes.md)
+Signature s_phase_split() {
+  return sig(Move::pointwise)
+      .in("x", field({M, TF}).streamed())
+      .in("package", any_port().because("The Hodge-Dirac package (its eigenvectors operator) of the surface x lies on."))
+      .out("potential", like("x")).out("stream", like("x")).out("propagation", like("x"))
+      .out("one_form_energy", like("x")).out("exact_energy", like("x")).out("coexact_energy", like("x")).out("exact_misfit_energy", like("x"))
+      .refine([](Unified& u, const Json& p) {
+        const PortType& x = u.type("x");
+        const std::string one_form = p.value("one_form", std::string("phase_gradient"));
+        if (one_form != "phase_gradient" && one_form != "phase_current") u.fail("x", "one_form is phase_gradient (the reference) or phase_current, not '" + one_form + "'");
+        if (x.value != VT::complex) u.fail("x", "must be a complex scalar field (the analytic signal at the vertices): its phase is split");
+        if (!is_surface(x.domain.factors.front())) u.fail("x", "its first factor " + print(x.domain.factors.front()) + " is not a surface; the phase is split on a surface's intrinsic complex");
+        for (auto& [name, y] : u.out) {
+          y.nonlinear = true; y.complex_parts = false; y.quantity.clear();
+          y.value = name == "propagation" ? VT::vector3 : VT::real;
+        }
       });
 }
 
@@ -755,6 +779,7 @@ const std::map<std::string, Signature>& table() {
     m["measurement.roll_up"] = s_roll_up();
     m["measurement.estimate"] = s_estimate();
     m["signal.field_form"] = s_field_form();
+    m["signal.phase_split"] = s_phase_split();
     m["select.time_grid"] = s_select_time_grid();
     m["select.dyadic_surface"] = s_select_dyadic_surface();
     m["select.bands"] = s_select_bands();
