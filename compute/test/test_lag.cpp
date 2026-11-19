@@ -43,7 +43,7 @@ int main() {
     const Eigen::Index n = 800, pad = 600;                        // 4 s, and margins the band's response fits in
     tb::Design meyer(tb::Family::Meyer, 2.0, tb::Sides::Analytic);
     meyer.bands = {{8.0, 12.0}};
-    const auto bank = tb::design(meyer, tb::gridLength(n + 2 * pad, tb::Padding::FastLen), fs);
+    const auto bank = tb::timeBank(meyer, tb::gridLength(n + 2 * pad, tb::Padding::FastLen), fs);
     const double nEst = tb::independentEstimates(bank, 0, n), B = tb::equivalentBandwidth(bank, 0);
     std::vector<double> lags;
     double seSum = 0, gSum = 0;

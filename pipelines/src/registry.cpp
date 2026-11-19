@@ -294,7 +294,7 @@ std::vector<StepSpec> build() {
                "nxr vortex.band_at_frames (the band's analytic signal at the frames); here the band's wavelet `wt(bank, member, window, instants)` (nxr::signal, Morlet or Meyer, the Studio's gains) evaluated at the START of each frame, exactly (no interpolation)",
                "the analytic signal of a band of a real field read at the FRAME TILING (a closed-form spans Selection of frames, `select.time_grid` rule frames: a frame's time is its tile's start): ONE step, the band's wavelet transform "
                "of the chunk's block evaluated at each frame's (non-integer) sample position, a sum over the band's bins, never a signal on every sample interpolated. The band is `band` [lo, hi] Hz with its `shape` (morlet | meyer, "
-               "`half_width` octaves for meyer's edges), the analytic signal of gain 2 as `analytic`. The block is the chunk with the halo the band's response needs (its impulse response down to `tolerance` of its L1 norm, default 1e-6 (the agreement of chunked with whole is then the float32 storage, 1e-7 of the peak; the 1e-12 reach is the whole 65536-sample bank, a 1/t tail of the masked band): the margin of the streaming wt), so the result does not depend on the chunk size; a frame "
+               "`half_width` octaves for meyer's edges), the analytic signal of gain 2 as `analytic`. The block is the chunk with the halo the band's response needs (its impulse response down to `tolerance` of its L1 norm, default 1e-6: timefilterbank::haloOf), so the result does not depend on the chunk size; a frame "
                "belongs to the chunk holding the sample at or before it. The output's columns are FRAMES (axis `frames`): the steps after it are pointwise in time (a linear map, a form, |x|², a series kept) and fold frames; a step that reads the "
                "samples' own time refuses it. With `within` (a spans Selection of the recording's time line: the bursts, a stage) only the frames inside a span are GOOD (the steps after it leave the others out); without it every frame is. "
                "Beyond the recording the signal reads 0",
@@ -784,7 +784,7 @@ void bind_traits(std::vector<StepSpec>& r) {
   declare("signal.band_filter", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "a zero-phase FIR band filter; float32 taps, each output sample a float64 sum over the window, stored as float32", "the taps' reach: taps.size() - 1 samples each side (set by the band's width; a recording's end is reflected)"));
   declare("signal.analytic", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's even and odd FIR passes (the analytic signal); float64 sums, float32 result", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
   declare("signal.envelope", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the analytic signal's modulus: the same FIR passes, then |z| in double, stored as float32", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
-  declare("signal.analytic_frames", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's analytic signal at the frame tiling by wt at the frames' instants (a sum over the band's bins of the block's spectrum); float64 throughout, float32 result", "the band's impulse response down to 1e-6 of its L1 norm (the margin of nxr::signal::wtLayout), samples each side of the chunk"));
+  declare("signal.analytic_frames", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's analytic signal at the frame tiling by wt at the frames' instants (a sum over the band's bins of the block's spectrum); float64 throughout, float32 result", "the band's impulse response down to `tolerance` (default 1e-6) of its L1 norm (timefilterbank::haloOf), samples each side of the chunk"));
   declare("meeg.apply_kernel", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "a linear map of the rows (kernel, spatial band) applied to each column independently; the product is formed in double and stored as float32", {}));
   declare("magnitude", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "the norm over an element's components, per sample; sums in double, float32 result", {}));
   declare("measurement.collect", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "appends each block's own columns in time order: the order of the blocks fixes the result", {}));
@@ -852,10 +852,7 @@ void bind_execution(std::vector<StepSpec>& r) {
         // the block's analytic bank (the wavelet filterbank, analytic, gain 2, DC and Nyquist dropped as the band analytic signal always did), one transform of the block shared by all its members
         namespace tb = nxr::signal::timefilterbank;
         if (block.rows() < 2) refuse("analytic: a block holds at least 2 samples");
-        tb::Design design(a.shape, 2.0, tb::Sides::Analytic);
-        design.bands = a.bank;
-        design.edgeBins = tb::EdgeBins::Drop;
-        const tb::Coefficients coefficients = nxr::signal::wt(tb::design(design, static_cast<std::size_t>(block.rows()), a.sfreq), block);   // per band: [samples x channels]
+        const tb::Coefficients coefficients = nxr::signal::bandAnalytic(block, a.sfreq, a.bank, a.shape);   // per band: [samples x channels]
         const std::int64_t kl = std::min(keep, b.left), kr = std::min(keep, b.right), w = b.own() + kl + kr, c0 = b.left - kl;
         Block y{NB * M, w, kl, kr, std::vector<float>(static_cast<std::size_t>(NB * M * w)), std::vector<float>(static_cast<std::size_t>(NB * M * w))};
         for (std::int64_t bi = 0; bi < NB; ++bi) {
@@ -911,13 +908,9 @@ void bind_execution(std::vector<StepSpec>& r) {
       design.bands = {{p["band"][0].get<double>(), p["band"][1].get<double>()}};
       design.halfWidth = p["half_width"].get<double>();
       design.edgeBins = tb::EdgeBins::Drop;
-      s.bank = tb::design(design, std::size_t(1) << 16, x.rate);
-      // THE HALO is the old streaming wt's margin: the length after which the member's |impulse response| (the masked gain on a fine grid, the grid doubled while the tail has not decayed) holds under
-      // 1e-6 of its L1 norm (WtOptions::tolerance; the rule of wtLayout), so the frames of a chunk are the whole record's to that tolerance whatever the chunk size. The band's taps (haloOf) are shorter and left 1e-3.
-      nxr::signal::WtOptions wo;
-      wo.block = 1;
-      wo.tolerance = p.value("tolerance", 1e-6);
-      s.H = std::max(static_cast<std::int64_t>(tb::haloOf(s.bank, 0)), nxr::signal::wtLayout(s.bank, wo).margin);
+      s.bank = tb::timeBank(design, std::size_t(1) << 16, x.rate);
+      // THE HALO is the member's impulse response down to `tolerance` of its L1 norm (timefilterbank::haloOf): the frames of a chunk are the whole record's to the tail the taps leave out, whatever the chunk size
+      s.H = static_cast<std::int64_t>(tb::haloOf(s.bank, 0, p.value("tolerance", 1e-6)));
     }
     if (ins.count("within")) {
       s.has_within = true;
@@ -1310,7 +1303,7 @@ void bind_execution(std::vector<StepSpec>& r) {
       // an event of row -1 (a global event, `combine mean`) is fitted on the MEAN over the series' rows and holds on every row
       Eigen::VectorXd series = Eigen::Map<const Eigen::VectorXd>(x.data.data() + std::max<std::int64_t>(row, 0) * x.cols, x.cols);
       if (row < 0) { series.setZero(); for (std::int64_t q = 0; q < R; ++q) series += Eigen::Map<const Eigen::VectorXd>(x.data.data() + q * x.cols, x.cols); series /= static_cast<double>(R); }
-      const auto F = nxr::select::fit(series, fs, t0, t1, o);
+      const auto F = nxr::select::risefall(series, fs, t0, t1, o);
       const bool keep = F.ok && !(p["min_r2"].is_number() && F.r2 < p["min_r2"].get<double>());
       ok += F.ok; bound += F.ok && F.atBound; below += F.ok && !keep;
       fits.push_back(Json{{"event", e}, {"row", row}, {"ok", F.ok}, {"kept", keep}, {"at_bound", F.atBound}, {"r2", F.ok ? Json(F.r2) : Json()}});
@@ -1435,9 +1428,11 @@ void bind_execution(std::vector<StepSpec>& r) {
     const double width_s = x.meta.value("width_s", 0.0);
     need(W > 0 && width_s > 0, "detect_spans: x carries no tile width");
     // seconds in whole tiles: joined when the tiles between them span ≤ merge_s; kept when min_s ≤ tiles × width ≤ max_s
-    const std::int64_t gap = static_cast<std::int64_t>(std::floor(p["merge_s"].get<double>() / width_s + 1e-9)) + 1;
-    const std::int64_t minL = std::max<std::int64_t>(1, static_cast<std::int64_t>(std::ceil(p["min_s"].get<double>() / width_s - 1e-9)));
-    const std::int64_t maxL = p["max_s"].is_null() ? std::numeric_limits<std::int64_t>::max() : static_cast<std::int64_t>(std::floor(p["max_s"].get<double>() / width_s + 1e-9));
+    nxr::select::BurstOptions bo;
+    bo.enterSd = p["enter_sd"].get<double>(); bo.exitSd = p["exit_sd"].get<double>(); bo.mergeS = p["merge_s"].get<double>(); bo.minS = p["min_s"].get<double>();
+    if (!p["max_s"].is_null()) bo.maxS = p["max_s"].get<double>();
+    const nxr::select::BurstLengths lengths = nxr::select::burstLengths(bo, width_s);
+    const std::int64_t gap = lengths.gap, maxL = lengths.maxLength;
     // the measure the events are found on: one column of x [rows x tiles x measures]
     const std::int64_t C = std::max<std::int64_t>(1, x.comps);
     std::int64_t mi = 0, at_comp = 0;
@@ -1474,24 +1469,21 @@ void bind_execution(std::vector<StepSpec>& r) {
     std::size_t si = 0;
     for (const auto& [row, v] : series) {
       const std::size_t this_series = si++;
-      std::vector<double> good;
-      for (Eigen::Index t = 0; t < v.size(); ++t) if (std::isfinite(v(t))) good.push_back(v(t));
-      if (good.size() < 2) { thresholds.push_back(Json{{"row", row}, {"skipped", "fewer than 2 good tiles"}}); continue; }
-      const Eigen::Map<const Eigen::VectorXd> g(good.data(), static_cast<Eigen::Index>(good.size()));
-      const double med = base ? base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmed + bshift)] : nxr::select::median(g);
-      const double sd = base ? base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmad + bshift)] : nxr::select::mad(g);
-      if (!(sd > 0)) { thresholds.push_back(Json{{"row", row}, {"median", med}, {"robust_sd", sd}, {"skipped", "no spread (robust SD 0)"}}); continue; }
-      const double hi = med + p["enter_sd"].get<double>() * sd, lo = med + p["exit_sd"].get<double>() * sd;
-      Eigen::VectorXd z = v;
-      for (Eigen::Index t = 0; t < z.size(); ++t) if (!std::isfinite(z(t))) z(t) = -std::numeric_limits<double>::infinity();   // a bad tile ends a span
-      auto spans = nxr::select::keepSpans(nxr::select::mergeSpans(nxr::select::crossings(z, hi, lo), gap), minL, maxL);
-      thresholds.push_back(Json{{"row", row}, {"median", med}, {"robust_sd", sd}, {"enter", hi}, {"exit", lo}, {"good_tiles", static_cast<std::int64_t>(good.size())}, {"spans", static_cast<std::int64_t>(spans.size())}});
+      // the detection is the compute function (nxr::select::detectBursts); the baseline is the stored statistic's when given
+      std::optional<nxr::select::Baseline> given;
+      if (base) given = nxr::select::Baseline{base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmed + bshift)],
+                                              base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmad + bshift)]};
+      const nxr::select::Bursts found = nxr::select::detectBursts(v, width_s, bo, given);
+      if (found.good < 2) { thresholds.push_back(Json{{"row", row}, {"skipped", "fewer than 2 good tiles"}}); continue; }
+      if (!found.skipped.empty()) { thresholds.push_back(Json{{"row", row}, {"median", found.median}, {"robust_sd", found.sd}, {"skipped", found.skipped}}); continue; }
+      const auto& spans = found.spans;
+      thresholds.push_back(Json{{"row", row}, {"median", found.median}, {"robust_sd", found.sd}, {"enter", found.enter}, {"exit", found.exit}, {"good_tiles", found.good}, {"spans", static_cast<std::int64_t>(spans.size())}});
       for (const auto& sp : spans) {
         out.data.insert(out.data.end(), {static_cast<double>(sp.start), static_cast<double>(sp.stop), static_cast<double>(row), sp.value});
         ++out.rows;
       }
     }
-    out.meta = Json{{"tiles_of", x.meta}, {"durations", durations}, {"thresholds", thresholds}, {"tiles_compared", Json{{"merge_gap_tiles_below", gap}, {"min_tiles", minL},
+    out.meta = Json{{"tiles_of", x.meta}, {"durations", durations}, {"thresholds", thresholds}, {"tiles_compared", Json{{"merge_gap_tiles_below", gap}, {"min_tiles", lengths.minLength},
                     {"max_tiles", p["max_s"].is_null() ? Json() : Json(maxL)}, {"width_s", width_s}}},
                     {"statistic", ins.count("baseline") ? "per series: the median and the robust SD (1.4826 x MAD) of the baseline statistic (summarize)" :
                                                          "per series: the median and the robust SD (1.4826 x MAD) over its good tiles in the run's span (nxr::select::median, mad), computed here"}};

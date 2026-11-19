@@ -47,7 +47,6 @@ int main() {
   g::ExecContext ctx{db, [](const Json&) {}, {}, &made};
   Json p = node.parameters;
   p["band"] = Json::array({8.0, 12.0});
-  p["tolerance"] = 1e-6;                                  // the step's default, stated
   g::NodeCall prep = g::NodeCall::prepare(ins, p, ctx);
   g::dispatch(node, prep);
   const std::int64_t H = node.halo(prep.made_state);
@@ -83,7 +82,7 @@ int main() {
   tb::Design d(tb::Family::Morlet, 2.0, tb::Sides::Analytic); d.bands = {{8.0, 12.0}}; d.edgeBins = tb::EdgeBins::Drop;
   Eigen::VectorXd at(count); for (std::int64_t j = 0; j < count; ++j) at(j) = static_cast<double>(j) * fwi::kHop + static_cast<double>(H);
   Eigen::MatrixXd padded = Eigen::MatrixXd::Zero(C, N + 2 * H); padded.middleCols(H, N) = rec.cast<float>().cast<double>();   // zero outside the record, the reach of the band each side
-  const Eigen::MatrixXcd direct = nxr::signal::wt(tb::design(d, std::size_t(1) << 16, fwi::kFs), 0, padded, at);
+  const Eigen::MatrixXcd direct = nxr::signal::wt(tb::timeBank(d, std::size_t(1) << 16, fwi::kFs), 0, padded, at);
   double e0 = 0, e1 = 0, e2 = 0, peak = 0;
   for (std::int64_t r = 0; r < C; ++r) for (std::int64_t j = 0; j < count; ++j) {
     const auto w = whole[static_cast<std::size_t>(r * count + j)];
@@ -94,7 +93,7 @@ int main() {
   }
   std::printf("  whole run vs wt: %.2e; chunks of 1024 vs whole: %.2e; of 700: %.2e (peak %.3g)\n", e0, e1, e2, peak);
   CHECK(e0 < 1e-5 * peak);
-  CHECK(e1 < 2e-6 * peak && e2 < 2e-6 * peak);          // the declared halo is the impulse response down to 1e-12 of its L1 norm: chunked == whole to the float32 storage
+  CHECK(e1 < 2e-6 * peak && e2 < 2e-6 * peak);          // the declared halo is the impulse response down to 1e-6 of its L1 norm: chunked == whole to the float32 storage
   std::filesystem::remove_all(root);
   return nxrtest::finish("analytic_frames_step");
 }

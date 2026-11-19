@@ -2,6 +2,7 @@
 // negative half-waves with their troughs, the median and robust SD; a planted burst found from its envelope; refusals.
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <random>
 
 #include "nxr/select/events.h"
@@ -75,6 +76,31 @@ int main() {
     EXPECT(std::abs(in[0] - 1.5) < 1e-12 && std::abs(in[1] - 1.5) < 1e-12 && std::isnan(in[2]) && std::isnan(in[3]), "the next event on the same row minus this stop; NaN for the last on a row");
     const auto any = eventIntervalNext({{0, 2, -1}, {3, 4, -1}}, 1.0);
     EXPECT(any[0] == 1.0 && std::isnan(any[1]), "row -1: the next event of any row");
+  }
+  {
+    // detectBursts: a planted burst on a flat noisy amplitude, at 100 samples a second
+    Eigen::VectorXd a(1000);                                       // a background that never reaches median + 1.5 SD: 1 + 0.1 sin (enter ~1.157 > 1.1)
+    for (Eigen::Index t = 0; t < a.size(); ++t) a(t) = 1.0 + 0.1 * std::sin(2 * 3.14159265358979323846 * static_cast<double>(t) / 37.0);
+    for (Eigen::Index t = 400; t < 460; ++t) a(t) = 3.0;            // 0.6 s burst
+    for (Eigen::Index t = 700; t < 720; ++t) a(t) = 3.0;            // 0.2 s: too short for minS 0.4
+    BurstOptions o;                                                 // the reference defaults: 1.5 / 1.0 SD, 0.1 s, 0.4 s
+    const Bursts b = detectBursts(a, 0.01, o);
+    EXPECT(b.skipped.empty() && b.spans.size() == 1 && b.spans[0].start == 400 && b.spans[0].stop == 460, "detectBursts: the 0.6 s burst found, the 0.2 s one dropped by minS");
+    EXPECT(std::abs(b.median - median(a)) < 1e-12 && std::abs(b.sd - mad(a)) < 1e-12 && std::abs(b.enter - (b.median + 1.5 * b.sd)) < 1e-12, "the baseline: median and 1.4826 MAD, enter at median + 1.5 SD");
+    EXPECT(b.gap == 11 && b.minLength == 40 && b.maxLength == std::numeric_limits<std::int64_t>::max(), "the durations in samples: gap 0.1 s -> 11, min 0.4 s -> 40, no max");
+    const auto ref = keepSpans(mergeSpans(crossings(a, b.enter, b.exit), b.gap), b.minLength, b.maxLength);
+    EXPECT(ref.size() == b.spans.size() && ref[0].start == b.spans[0].start && ref[0].stop == b.spans[0].stop && ref[0].value == b.spans[0].value, "the same as crossings -> mergeSpans -> keepSpans");
+    const Bursts given = detectBursts(a, 0.01, o, Baseline{1.0, 0.5});
+    EXPECT(given.median == 1.0 && given.sd == 0.5 && given.enter == 1.75, "a baseline handed in is used as given");
+    Eigen::VectorXd bad = a; bad(430) = std::numeric_limits<double>::quiet_NaN();
+    BurstOptions noMerge = o; noMerge.mergeS = 0;
+    const Bursts split = detectBursts(bad, 0.01, noMerge);
+    EXPECT(split.good == 999 && split.spans.empty(), "a NaN sample ends a span: without merging, the burst splits into two of 0.3 s, both too short");
+    EXPECT(detectBursts(bad, 0.01, o).spans.size() == 1, "with the 0.1 s merge, the two halves are joined again (the gap is one sample)");
+    EXPECT(detectBursts(Eigen::VectorXd::Constant(50, 2.0), 0.01, o).skipped == "no spread (robust SD 0)", "a flat series: skipped, said why");
+    bool refused = false;
+    try { detectBursts(a, 0.0, o); } catch (const std::invalid_argument&) { refused = true; }
+    EXPECT(refused, "step 0 refused");
   }
   std::cout << (failures ? "FAIL" : "PASS") << " test_intervals (" << failures << " failures)\n";
   return failures ? 1 : 0;

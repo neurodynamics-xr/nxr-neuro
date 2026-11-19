@@ -246,6 +246,16 @@ the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subcl
 | `compute.signal.lowpass`, `highpass`, `bandpass`, `bandstop`, `notch` | `nxr::signal::filters` | Brainstorm's zero-phase FIR and IIR filters, options as `FilterOptions` |
 | `compute.stats.pca(x, scale="none")`, `compute.stats.reconstruct(...)` | `nxr::stats` | principal components of observations x features (scikit-learn's `svd_solver="full"`, sign convention fixed) and the rank-k reconstruction |
 | `compute.operators.eigen(vertices, faces, k, ...)` | `nxr::geometry::solve::eigen` | the Laplace-Beltrami eigenpairs of a triangle mesh (cotangent Laplacian, mixed-Voronoi mass; the shift ladder by default) |
+| `compute.select.median(x)`, `mad(x)` | `nxr::select::median`, `mad` | the median, and the robust SD 1.4826 * median absolute deviation, of a 1-D series |
+| `compute.select.crossings(x, entry, exit)`, `mergeSpans(spans, gap)`, `keepSpans(spans, min_length, max_length)` | `nxr::select::crossings`, `mergeSpans`, `keepSpans` | spans where a series is above a hysteresis threshold, joined across short gaps, kept by length (samples); a span is `start, stop, peak, value` arrays (0-based, stop exclusive) |
+| `compute.select.detectBursts(amplitude, step, enter_sd=1.5, exit_sd=1.0, merge_s=0.1, min_s=0.4, max_s=inf, baseline=None)` | `nxr::select::detectBursts` | the bursts of an amplitude series: robust baseline, hysteresis, merge, length; the spans with the baseline, levels and durations used |
+| `compute.select.risefall(amplitude, sfreq, t0, t1, model="linear", margin=1.0, smooth=0.1, tau_max=1.0, min_r2=None)`, `stagesOf(t_on, t_off, tau_rise, tau_fall)` | `nxr::select::risefall`, `stagesOf` | the double-sigmoid fit of an episode's switch-on and switch-off (`kept` is the fit gate when `min_r2` is given), and its onset, plateau and offset stages |
+| `compute.signal.bandAnalytic(x, sfreq, bands, shape="morlet", half_width=1/3)`, `bandEnvelope(...)` | `nxr::signal::bandAnalytic`, `bandEnvelope` | the analytic signal (complex) and the envelope (real) of bands, `[bands, channels, samples]`, designed on the window given |
+| `compute.signal.timeBank(sfreq, n, family, sides="analytic", gain=1.0, ...)` | `nxr::signal::timefilterbank::timeBank` | a time filterbank for inspection: bins, gains `[members, bins]`, centre frequencies, frame bounds |
+| `compute.signal.wt(x, sfreq, bank)`, `iwt(W, sfreq, n, bank, synthesis="dual")` | `nxr::signal::wt`, `iwt` | the wavelet transform of a signal by a time bank (a dict of the design fields, designed on x's own n samples) and its inverse; complex `[members, channels, samples]` |
+| `compute.signal.graphBank(family, eigenvalues=None, lmax=None, ...)` | `nxr::signal::graphfilterbank::graphBank` | a graph filterbank (mexhat, heat, itersine, logitersine, meyer, weyl, rank) for inspection: gains at the eigenvalues, roles, scales, centre wavenumbers, frame bounds |
+| `compute.signal.gwt(F, bank, eigenvalues=, eigenvectors=, mass=)` or `(F, bank, laplacian=, mass=, order=40, lmax=0)`, `igwt(...)` | `nxr::signal::gwt`, `igwt` | the wavelet transform of a field on a graph, exact through the operator's modes or by a Chebyshev series; `[members, vertices, samples]` |
+| `compute.signal.jwt(F, sfreq, graph_bank, time_bank, eigenvalues=, ..., kernels=None)`, `ijwt(...)` | `nxr::signal::jwt`, `ijwt` | the joint time-vertex wavelet transform on mode series or on vertex fields, with optional speed or ridge kernels; complex `[members, rows, samples]` and the member index table (graph member fastest) |
 
 **`nn.io`** (the pure formats, `io/formats`; native, no MATLAB and no Python library at run time): `open_edf` / `read_edf` (EDF, EDF+, BDF, BDF+; `open_bdf` and
 `read_bdf` are the same), `open_brainvision` / `read_brainvision`, `open_eeglab` / `read_eeglab`, `open_fif` / `read_fif` (Neuromag / MNE raw; `allow_maxshield=False`) return a recording: `rec.header` (a dictionary holding every field of
@@ -259,7 +269,7 @@ the sign convention; the sphere's eigenvalues l(l+1); the readers against the MN
 ## The MATLAB face (`+nxr`, `bindings/mex`; spec `docs/specs/2026-11-17-interoperability.md`)
 
 The same first slice as the Python wheel, **with the same names and options**, under the `+nxr` package: `nxr.compute.signal.psd`, `cross_spectrum`;
-`nxr.compute.signal.lowpass`, `highpass`, `bandpass`, `bandstop`, `notch`; `nxr.compute.stats.pca`, `reconstruct`; `nxr.compute.operators.eigen`; `nxr.io.open_edf` / `open_bdf` /
+`nxr.compute.signal.lowpass`, `highpass`, `bandpass`, `bandstop`, `notch`; `nxr.compute.stats.pca`, `reconstruct`; `nxr.compute.operators.eigen`; `nxr.compute.select.{median, mad, crossings, mergeSpans, keepSpans, detectBursts, risefall, stagesOf}` and `nxr.compute.signal.{bandAnalytic, bandEnvelope, timeBank, wt, iwt, graphBank, gwt, igwt, jwt, ijwt}` (the C++ word verbatim, camelCase, in every face; the options keep their snake_case names; a bank is a struct of the design fields; spans are structs of columns with 1-based `start` and `peak` and `stop` the last sample, inclusive: the wheel's 0-based, stop-exclusive arrays converted at the boundary; the member index of `jwt` is 1-based); `nxr.io.open_edf` / `open_bdf` /
 `open_brainvision` / `open_eeglab` / `open_fif` (a `nxr.io.Recording`: `header` as a struct, `read(first, last)`, `read_all`), `read_<format>` (header and block in one call, the span
 stated), `read_nifti`, `read_gifti`, `read_tsv`. FIF raw (`io/formats/fif.h`: MNE's raw reader, split files, skips, annotations, the whole `info`) is in both faces (`nn.io.open_fif` / `read_fif`).
 A binding only binds: each function is one command of the one `nxr_compute` mexFunction (`compute.*` and `io.*` commands, `bindings/mex/src/first_slice*.cpp`) into the library; the
@@ -545,7 +555,7 @@ one place a recording is read and looped over.
 - **What is recorded.** Each producer record states the span (`analysis_window.chunks`) and the chunks read (`chunks_read`, first and last).
 - **The halo** (the Studio's `haloOf`): samples of context a computation needs on each side of its span, so its edges are computed with real samples, never a
   reflection. The service reads them from the neighbouring chunks and clips them where the recording ends (`with_halo`). Its size is the computation's: optical
-  flow's wavelet bank asks for its filterbank's margins; a Welch spectrum asks for n - 1 samples to the RIGHT (an accumulating node's halo: a segment belongs to the chunk that holds its start and reads into the halo; it never reaches past the span's end, and nothing is carried between chunks).
+  flow's member asks for its taps (`haloOf`); a Welch spectrum asks for n - 1 samples to the RIGHT (an accumulating node's halo: a segment belongs to the chunk that holds its start and reads into the halo; it never reaches past the span's end, and nothing is carried between chunks).
 - **The job** (the Studio's `chunkLoop`):
   - Every chunk is read **whole** (the Studio's residency) and handed over cut to the span and its halo.
   - Chunk k + 1 is **read while chunk k is folded**. The memory held is two chunks.
@@ -1569,7 +1579,7 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
 ## Optical flow (`compute/include/nxr/opticalflow*.h`, `run flow_modes`)
 
 Rheome's `flow.apparent` for a recording, streamed (the memory held does not depend on the window's length). One member of a time filterbank (`--family`, `--gain`, `--freq`: no defaults) is
-applied at the sensors, carried through the kernel, and reduced to the amplitude |J| per source (`--input signed`: the band signal itself, fixed kernel only). Horn–Schunck optical flow is solved per
+applied at the sensors and read at the frames of a frame grid made first (`run select_time_grid --rule frames`, input `grid`): the transform returns the member's analytic signal at the recording's full rate and never decimates, resamples or windows it; the frames are the grid's. They are carried through the kernel, and reduced to the amplitude |J| per source (`--input signed`: the band signal itself, fixed kernel only). Horn–Schunck optical flow is solved per
 frame on the cortex, and each velocity is read at once in the Hodge–Dirac modes: **exact** coefficients (sources and sinks of the motion) and **coexact** coefficients (its rotation).
 
 - Defaults: the **connection** regulariser, the Cortical Flow Studio's connection Laplacian on the signpost gauge with its gauge data term (ported line for line), solved by
@@ -1694,7 +1704,7 @@ pairs at a distance, a filterbank band's matrix).
 ## A band's coefficients on a chunk: the filterbank transform of a haloed block (`nxr::signal::wtBlock`, `haloOf`)
 
 **Why.** The FFT route to a band's complex signal: the chunk (with its halo, from io's chunk service) Fourier transformed, the band's gain put on the bins,
-transformed back; any number of members at once, so a time–frequency cross-spectrum or an average over frequencies is the same call. The bank is the
+transformed back; any number of members at once, so a time–frequency cross-spectrum or an average over frequencies is the same call. Every transform returns its coefficients at the input's rate: it never decimates, resamples or windows its input (`wt(bank, member, x, at)` reads one member's analytic signal at instants the caller gives, exactly). The bank is the
 caller's `timebank::Design`: the Signal chain's single Meyer band (`bands = {{8, 12}}`, the Studio's `meyerBand`, not the tight frame: alpha's edges are
 closer than the frame allows), Morlet centres, or any of the frame families. The bank is designed on the block's own grid (zero-padded, no wrap) and only
 the own columns are kept. **The halo** (`haloOf(bank, member)`) is the member's response length, as the Studio's device chain sizes its HALO by the band's

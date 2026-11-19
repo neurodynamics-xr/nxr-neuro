@@ -90,7 +90,7 @@ int lsq(Vec6& p, const Vec6& lb, const Vec6& ub, const Eigen::VectorXd& t, const
 }
 }  // namespace
 
-Fit fit(const Eigen::Ref<const Eigen::VectorXd>& a, double fs, double t0, double t1, const Options& o) {
+Fit risefall(const Eigen::Ref<const Eigen::VectorXd>& a, double fs, double t0, double t1, const Options& o) {
   Fit R;
   if (!(fs > 0)) throw std::invalid_argument("risefall: the rate is above 0");
   const std::int64_t N = a.size();

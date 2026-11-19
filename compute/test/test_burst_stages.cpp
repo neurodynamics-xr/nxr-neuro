@@ -46,7 +46,7 @@ int main() {
       const auto on = two(l1), wi = two(l2), of = two(l3);
       nxr::select::Options o;
       o.model = nxr::select::Model::Quadrature; o.margin = 10 * cyc; o.smooth = cyc; o.tauMax = 10 * cyc;
-      const auto F = nxr::select::fit(a, fs, t0, t1, o);
+      const auto F = nxr::select::risefall(a, fs, t0, t1, o);
       const bool gate = nxr::select::passesGate(F, 0.7);
       std::printf("  %s: ok %d at_bound %d r2 %.4f (nxr %.4f), tOn %.4f (%.4f), tOff %.4f (%.4f), gate %d (nxr %s)\n", name.c_str(), F.ok, F.atBound, F.r2, num(m["r2"]), F.tOn, num(m["tOn"]), F.tOff, num(m["tOff"]), gate, m["gate"].c_str());
       EXPECT(F.ok == (m["ok"] == "1") && F.atBound == (m["at_bound"] == "1") && gate == (m["gate"] == "1"), name << ": the gate differs from nxr's");

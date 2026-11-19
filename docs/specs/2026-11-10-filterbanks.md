@@ -90,7 +90,7 @@ is `cwtfilterbank`'s symmetric extension (`[x; flip(x)]`; its `wt` keeps the fir
 Coefficients live on the padded grid (`nfft` rows); `synthesis` crops to the record.
 
 **Frame operations**: `gains`, `dualGains` (g/S, with the edge rule), `frameOperator`, `bounds` (interior bins; raw Sum g^2, Rheome prints S/2), `isTight`, `centerFrequencies`,
-`rates` and `analysisOwnRate` (Rheome's `wt`: each member at its own rate), `analysis`, `synthesis` / `synthesisComplex` (Dual | Tight), `scalogram`, `energies`.
+`rates`, `analysis`, `synthesis` / `synthesisComplex` (Dual | Tight), `scalogram`, `energies`.
 
 ### The joint bank (`jointbank`)
 
@@ -105,7 +105,7 @@ Measured: a +ridge / -ridge pair separates a counter-clockwise from a clockwise 
 
 | source | what | agreement |
 |---|---|---|
-| Rheome `@timefilterbank` (4 banks: N 151-300, 2-6 voices, a limited range, an odd length) | gains, centres, bins, bounds (S/2), rates, full-rate coefficients, own-rate `wt` | 5e-13 |
+| Rheome `@timefilterbank` (4 banks: N 151-300, 2-6 voices, a limited range, an odd length) | gains, centres, bins, bounds (S/2), rates, full-rate coefficients | 5e-13 |
 | MATLAB `cwtfilterbank` Morse (default and TimeBandwidth 30), Amor, Bump | centres, gains, coefficients, `wt` (symmetric extension) | 4e-13 (the Nyquist rule changes nothing visible) |
 | Rheome `@jointfilterbank` + `+jtv` (sphere spectrum x itersine, separable; mexhat x speed kernel) | frame operator, bounds, `wt` (5 members), `iwt` dual and tight, `jtv.bounds` / `jtv.dual` | 4e-13 |
 | Rheome `+filters` | gabor, travwave, resonator, stmatern, bandpass, diffusion, wave, dampedwave, kleingordon, schrodinger, heat, mexhat, diffgauss, sphere_kernel, steer, spin, psitime / band, speedkernel, scatter (mexhat 55 pairs; itersine 0 pairs) | 3e-12 |

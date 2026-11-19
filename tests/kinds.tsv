@@ -165,6 +165,7 @@ test_measurement	golden
 test_measurement_query	unit
 test_measures	unit
 test_meeg_pipelines	integration
+test_member_analytic	integration
 test_mesh_bundles	unit
 test_migrate	unit
 test_migrate_measurement	unit
@@ -271,5 +272,4 @@ test_welch	golden
 test_welch_halo	integration
 test_wishart_null	integration
 test_writer	unit
-test_wt	unit	slow
 test_wt_at	unit

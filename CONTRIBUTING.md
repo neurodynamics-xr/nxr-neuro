@@ -46,6 +46,7 @@ accepted. `docs/reference.md` describes every verb and method, `docs/specs/` the
   (MEX `compute.signal.lowpass`, the MATLAB package `+nxr/+compute/+signal/lowpass.m`, the Python module `nxr_neuro.compute.signal.lowpass` and its native `signal_lowpass`) use the same word.
   Add each new entry to `pipelines/test/names.tsv`; the test `test_names_across_layers` fails on a mismatch, on an entry missing from the table and on a table row the sources do not have.
   A renamed entry is refused under its old name with the new name in the message (`retired` rows), never kept as an alias.
+- **Every function a user would call is bound.** Every function a user would call on data (a transform and its inverse, a bank's design, a detector, a fit, a measure, a statistic) is bound in every face: as a registered node, or directly while the generated bindings are not built. Only implementation helpers stay internal, each listed by name in the coverage test's exception list. A binding uses the C++ word verbatim (camelCase), in every face.
 
 ## Adding a node or a pipeline (inside the paramount architecture and its decided structure)
 

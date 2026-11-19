@@ -42,7 +42,7 @@ static Case run(bool travelling) {
     sp.S = cw.S; sp.Sq = cw.Sq;
     const auto graph = nxr::signal::graphfilterbank::design(nxr::signal::graphfilterbank::Family::LogItersine, nxr::signal::graphfilterbank::Range::fromSpectrum(mu.array().square()));
     nxr::signal::timefilterbank::Design td(nxr::signal::timefilterbank::Family::Itersine, 1.0, nxr::signal::timefilterbank::Sides::Analytic);
-    const auto time = nxr::signal::timefilterbank::design(td, 256, fs);
+    const auto time = nxr::signal::timefilterbank::timeBank(td, 256, fs);
     ss::Options o; o.speedBins = 60;
     Case c;
     c.r = ss::compute(graph, time, mu, kind, sp, o);

@@ -2,6 +2,7 @@
 #include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/graphtransforms.h"
 #include "nxr/signal/filters_fir.h"
+#include "nxr/signal/fourier.h"
 #include "nxr/stats/bandwidth.h"
 #include <algorithm>
 #include <cmath>
@@ -21,6 +22,21 @@ Family bandFamilyOf(const std::string& name) {
     if (name == "morlet") return Family::Morlet;
     if (name == "power_partition") return Family::PowerPartition;
     throw std::invalid_argument("the band shape is morlet or power_partition, not '" + name + "'");
+}
+Family familyOf(const std::string& name) {
+    if (name == "itersine") return Family::Itersine;
+    if (name == "meyer") return Family::Meyer;
+    if (name == "morlet") return Family::Morlet;
+    if (name == "morse") return Family::Morse;
+    if (name == "amor") return Family::Amor;
+    if (name == "bump") return Family::Bump;
+    if (name == "power_partition") return Family::PowerPartition;
+    throw std::invalid_argument("time bank family '" + name + "' is not one of itersine, meyer, morlet, morse, amor, bump, power_partition");
+}
+Sides sidesOf(const std::string& name) {
+    if (name == "analytic") return Sides::Analytic;
+    if (name == "two_sided") return Sides::TwoSided;
+    throw std::invalid_argument("time bank sides '" + name + "' is not one of analytic, two_sided");
 }
 const char* bandFamilyName(Family family) { return family == Family::PowerPartition ? "power_partition" : "morlet"; }
 
@@ -123,7 +139,7 @@ double bump(double x) {
 
 }  // namespace
 
-TimeFilterbank design(const Design& d, std::size_t nfft, double fs) {
+TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs) {
     if (nfft < 2 || !(fs > 0)) throw std::invalid_argument("timebank::design: nfft >= 2 and fs > 0");
     if (!(d.gain > 0) || !std::isfinite(d.gain)) throw std::invalid_argument("timebank::design: the gain is the peak in-band response, a positive number");
     const bool analytic = d.sides == Sides::Analytic;
@@ -411,11 +427,42 @@ MatrixXcd inverseComplex(const TimeFilterbank& b, const MatrixXcd& S, std::size_
     return ifft(S).topRows(static_cast<Eigen::Index>(n));
 }
 
-std::size_t haloOf(const TimeFilterbank& bank, int member) {
+std::size_t haloOfTaps(const TimeFilterbank& bank, int member) {
   if (member < 0 || member >= bank.size()) throw std::invalid_argument("haloOf: no member " + std::to_string(member));
   const Gain1 g = bank.members[static_cast<std::size_t>(member)].gain;
   const auto onAbs = [g](double f) { return g(std::abs(f)); };
   return std::max(nxr::signal::gainTaps(onAbs, bank.fs, false).size(), nxr::signal::gainTaps(onAbs, bank.fs, true).size()) - 1;
+}
+
+std::size_t haloOf(const TimeFilterbank& bank, int member, double tolerance) {
+  if (member < 0 || member >= bank.size()) throw std::invalid_argument("haloOf: no member " + std::to_string(member));
+  if (!(tolerance > 0) || !(tolerance < 1)) throw std::invalid_argument("haloOf: the tolerance is in (0, 1)");
+  using i64 = std::int64_t;
+  constexpr i64 kMaxReach = i64(1) << 16;
+  const std::size_t m = static_cast<std::size_t>(member);
+  // the impulse response of the member's masked gain on a fine grid (zero outside the member's support on the bank's grid), the grid doubled while the tail has not decayed
+  const double df = bank.fs / static_cast<double>(bank.nfft);
+  const double lo = static_cast<double>(bank.support[m].first) * df - 1e-9 * df, hi = static_cast<double>(bank.support[m].second) * df + 1e-9 * df;
+  std::size_t g = nxr::signal::next_fast_len(std::max<std::size_t>(4 * bank.nfft, 4096), true);
+  i64 reach = 0;
+  for (;;) {
+    VectorXd f = VectorXd::LinSpaced(static_cast<Eigen::Index>(g / 2 + 1), 0, static_cast<double>(g / 2)) * (bank.fs / static_cast<double>(g));
+    MatrixXd G = gains(bank, f);
+    Eigen::VectorXcd Y = Eigen::VectorXcd::Zero(static_cast<Eigen::Index>(g));
+    for (Eigen::Index i = 0; i < G.rows(); ++i) if (f(i) >= lo && f(i) <= hi) Y(i) = G(i, member);
+    const Eigen::VectorXcd h = nxr::signal::ifft(Eigen::MatrixXcd(Y)).col(0);
+    VectorXd a = VectorXd::Zero(static_cast<Eigen::Index>(g / 2 + 1));   // sum of |h| at |t| = i, both sides
+    double total = 0;
+    for (std::size_t i = 0; i < g; ++i) { const std::size_t t = std::min(i, g - i); a(static_cast<Eigen::Index>(t)) += std::abs(h(static_cast<Eigen::Index>(i))); total += std::abs(h(static_cast<Eigen::Index>(i))); }
+    double tail = 0; reach = static_cast<i64>(g / 2);
+    for (i64 t = static_cast<i64>(g / 2); t >= 0; --t) {      // grow the tail from the far end while it stays under the tolerance
+      if (tail + a(t) > tolerance * total) { reach = t; break; }
+      tail += a(t); reach = t;
+    }
+    if (reach < static_cast<i64>(g / 2) - 1 || static_cast<i64>(g) >= 2 * kMaxReach) break;
+    g = nxr::signal::next_fast_len(2 * g, true);
+  }
+  return static_cast<std::size_t>(std::max<i64>(1, std::min<i64>(reach, kMaxReach)));
 }
 
 double equivalentBandwidth(const TimeFilterbank& bank, int member, int grid) {
