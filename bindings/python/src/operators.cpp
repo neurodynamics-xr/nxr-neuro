@@ -229,12 +229,12 @@ nxr::signal::IntrinsicComplex intrinsic_complex_in(const nb::dict& d) {
   return c;
 }
 
-nb::dict intrinsic_complex(const nb::dict& surface) {
+nb::dict intrinsic_complex(const nb::dict& surface, double star1_floor) {
   const geom::SurfaceArrays s = surface_in(surface);
   nxr::signal::IntrinsicComplex c;
   {
     nb::gil_scoped_release release;
-    c = nxr::signal::intrinsicComplex(s);
+    c = nxr::signal::intrinsicComplex(s, star1_floor);
   }
   return intrinsic_complex_out(std::move(c));
 }
@@ -372,7 +372,7 @@ void bind_operators(nb::module_& m) {
   m.def("operators_hodgeDiracModes", &hodge_dirac_modes, arg("pencil"), arg("count"), arg("both_signs"), arg("options"));
   m.def("operators_hodgeLadders", &hodge_ladders, arg("L0"), arg("M0"), arg("S2"), arg("M2"), arg("count"), arg("options"));
   m.def("operators_poisson", &poisson, arg("K"), arg("M"), arg("density_vertices"), arg("density_values"));
-  m.def("signal_intrinsicComplex", &intrinsic_complex, arg("surface"));
+  m.def("signal_intrinsicComplex", &intrinsic_complex, arg("surface"), arg("star1_floor"));
   m.def("signal_sharp", &sharp, arg("complex"), arg("w"));
   m.def("signal_flat", &flat, arg("complex"), arg("J"));
   m.def("signal_modesOf", &modes_of, arg("eigenvectors"), arg("eigenvalues"), arg("kind"), arg("nV"), arg("nE"), arg("nF"));
