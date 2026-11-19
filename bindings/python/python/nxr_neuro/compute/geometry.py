@@ -87,3 +87,57 @@ def _contiguous(surface: dict) -> dict:
             t[k] = np.ascontiguousarray(a, dtype=np.int64 if k in _INT_FIELDS else np.float64)
     return {"positions": np.ascontiguousarray(surface["positions"], dtype=np.float64),
             "faces": np.ascontiguousarray(surface["faces"], dtype=np.int32), "triangulation": t}
+
+
+def meshTopology(surface: dict) -> dict:
+    """The INPUT mesh's halfedge topology as arrays (geometry-central's ids, 0-based; -1 = none or exterior).
+
+    Returns ``nV, nE, nF, nH, nC`` and, int64: ``vertexHalfedge``, ``edgeHalfedge``, ``faceHalfedge``, ``cornerHalfedge``, ``heTwin``, ``heNext``,
+    ``heVertex`` (tail), ``heEdge``, ``heFace`` (-1 for exterior halfedges), ``heCorner``; uint8: ``heOrientation`` (1 when the halfedge runs along
+    its edge), ``heIsInterior``. The boundary edges are ``heEdge[heIsInterior == 0]``, the boundary vertices ``heVertex[heIsInterior == 0]``;
+    the number of boundary loops is ``surface["triangulation"]["boundaryLoops"]``.
+    """
+    return _core.geometry_meshTopology(_contiguous(surface))
+
+
+def eulerCharacteristic(surface: dict) -> int:
+    """chi = nV - nE + nF of the input mesh (2 - 2 genus - boundary loops)."""
+    return _core.geometry_eulerCharacteristic(_contiguous(surface))
+
+
+def vertexFrames(surface: dict) -> dict:
+    """The tangent frame at each vertex: ``e1``, ``e2`` = n x e1, ``normals`` (corner-angle weighted), each [nV, 3].
+
+    The frame is the gauge of the (mollified) input mesh: the tangent space the connection Laplacian's coordinates, the vector heat method and the
+    transport use; a tangent vector with coordinates (a, b) is a e1 + b e2.
+    """
+    return _core.geometry_vertexFrames(_contiguous(surface))
+
+
+def frames(surface: dict) -> dict:
+    """The tangent frame of each INPUT face: ``e1``, ``e2`` = n x e1, ``normals``, each [nF, 3]."""
+    return _core.geometry_frames(_contiguous(surface))
+
+
+def heat(surface: dict, sources, t_coef: float = 1.0, mesh: str = "intrinsic") -> np.ndarray:
+    """Geodesic distances by the heat method (Crane et al. 2013).
+
+    Parameters
+    ----------
+    surface : dict
+        Made by :func:`surfaceArrays`.
+    sources : int, sequence of int, or sequence of sequences of int
+        One source set (a vertex or a list of vertices): the distance to the nearest of them, [nV]. A list of sets: one column per set, [nV, n_sets].
+    t_coef : float
+        The time step as a multiple of the squared mean edge length (default 1).
+    mesh : str
+        "intrinsic" (the default): on the operator mesh (the intrinsic Delaunay triangulation). "input": geometry-central's heat method on the input.
+    """
+    if np.isscalar(sources):
+        sets, single = [[int(sources)]], True
+    elif len(sources) and not np.isscalar(sources[0]):
+        sets, single = [[int(v) for v in s] for s in sources], False
+    else:
+        sets, single = [[int(v) for v in sources]], True
+    D = _core.geometry_heat(_contiguous(surface), sets, float(t_coef), str(mesh))
+    return D[:, 0] if single else D

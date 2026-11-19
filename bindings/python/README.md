@@ -22,3 +22,21 @@ The time range is always stated: `start` and `stop` in seconds (the command line
 refused. `progress=callable` receives each progress line as a dict. Pipelines named by `nn.list.pipelines()` are `psd` and the shipped definitions or a `.yaml` path; the
 other hand-wired pipelines are reached through the command line until they are definitions. `nn.read(dataset, subject, name, measure=, of=)` reads a stored field, statistic,
 operator or selection (a selection's measurements with `measure`) as NumPy arrays plus metadata.
+
+## The surface and its operators
+
+```python
+s = nn.compute.geometry.surfaceArrays(V, F)          # made once: the intrinsic Delaunay triangulation and its record, a dict of arrays
+c = nn.compute.geometry.complex(s)                   # intrinsic faces, edges (tail -> tip), signed face edges, lengths
+dec = nn.compute.operators.assembleDECOperators(s)   # d0, d1, hodge0..2, hodge1Inverse (scipy.sparse)
+h = nn.compute.operators.hodgedirac.assemble(s)      # the pencil (K, M), the topology, the star1 counts
+m = nn.compute.operators.hodgeDiracModes(h, 60)      # mu, vectors (0-, 1-, 2-form rows), kind
+v = nn.compute.signal.sharp(s, w)                    # a 1-form on the intrinsic edges -> tangent vectors at the vertices
+```
+
+Every surface function takes the dict `surfaceArrays` made; none triangulates again. See `docs/reference.md` for the full list.
+
+## A local build
+
+`pip install ./bindings/python` (from the repository root) builds the module with CMake and installs it; `-C build-dir=<folder>` keeps the build tree,
+so a second install recompiles only what changed.
