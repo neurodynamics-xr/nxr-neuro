@@ -20,6 +20,9 @@
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/signal/filters_fir.h"
+#include "nxr/geometry/surface_arrays.h"
+#include "nxr/signal/intrinsic_forms.h"
+#include "nxr/pipelines/registry.h"
 
 using namespace nxr::io;
 static const std::string kBandPower = std::string(NXR_TEST_DEFINITIONS_DIR) + "/band_power_test.yaml";   // the test fixture definition (not shipped)
@@ -215,6 +218,43 @@ outputs:
     const auto refa = direct(kfix, N, 1, 8, 12, 0, T, true);
     CHECK(rel(read_statistic((sub.folder() / (r4[0]["stored"][0]["path"].get<std::string>()))), refa) < 1e-5);
     // (the phase current is a vector: its measure is `reduce`'s phase_current, tested with the measure pipeline; `estimate` takes a scalar)
+  }
+  // the phase current's DISCRETISATION is a named option of the form (default the vertex gradient): `intrinsic_edges` binds, in preparation, the intrinsic Delaunay complex of the
+  // field's stored surface, and per block gives Im(z̄_tail z_tip) on its edges back at the vertices by sharp (= the direct computation); a scalar field and a free current's three
+  // components (summed) alike; the halo kept is the caller's
+  {
+    const g::StepSpec& ff = g::step("signal.field_form");
+    g::Bound bound(sub, &ds);
+    g::ExecContext ctx{bound, {}, {}, nullptr};
+    const auto cx = nxr::signal::intrinsicComplex(nxr::geometry::surfaceArrays(b.P.data(), N, b.F.data(), b.nF));
+    for (const int comps : {1, 3}) {
+      g::Value x;
+      x.cls = "field"; x.manifolds = {surf}; x.value_type = comps == 1 ? "scalar" : "vector3"; x.complex = true; x.chunked = true;
+      const std::any st = ff.prepare(g::Values{{"x", x}}, Json{{"form", "phase_current"}, {"discretisation", "intrinsic_edges"}}, ctx);
+      const int W = 6, L = 1, R = 1;
+      g::Block blk; blk.rows = comps * N; blk.width = W; blk.left = L; blk.right = R;
+      blk.re.resize(static_cast<std::size_t>(blk.rows * W)); blk.im.resize(blk.re.size());
+      Eigen::MatrixXcd Z(blk.rows, W);
+      for (std::int64_t r = 0; r < blk.rows; ++r) for (int t = 0; t < W; ++t) {
+        const std::complex<float> z(static_cast<float>(nd(rng)), static_cast<float>(nd(rng)));
+        blk.re[static_cast<std::size_t>(r * W + t)] = z.real(); blk.im[static_cast<std::size_t>(r * W + t)] = z.imag(); Z(r, t) = z;
+      }
+      const g::Blocks y = ff.chunk(st, g::Blocks{{"x", blk}}, 0);
+      const g::Block& h = y.at("y");
+      Eigen::MatrixXd J = Eigen::MatrixXd::Zero(cx.nE, W - L - R);
+      for (int a = 0; a < comps; ++a) {
+        Eigen::MatrixXcd za(N, W - L - R);
+        for (int v = 0; v < N; ++v) za.row(v) = Z.row(static_cast<Eigen::Index>(v) * comps + a).segment(L, W - L - R);
+        J += nxr::signal::phaseCurrent(cx, za);
+      }
+      const Eigen::MatrixXd want = nxr::signal::sharp(cx, J);
+      double worst = 0;
+      CHECK(h.rows == 3 * N && h.left == 0 && h.right == 0 && h.width == W - L - R && !h.complex());
+      if (h.rows == 3 * N && h.width == W - L - R)
+        for (int r = 0; r < 3 * N; ++r) for (int t = 0; t < h.width; ++t) worst = std::max(worst, std::abs(h.re[static_cast<std::size_t>(r * h.width + t)] - want(r, t)));
+      std::printf("  phase current on the intrinsic edges (%d component(s)): node vs direct %.2e (peak %.3g)\n", comps, worst, want.cwiseAbs().maxCoeff());
+      CHECK(worst < 1e-5 * want.cwiseAbs().maxCoeff());
+    }
   }
   // a free kernel's ℍ current through the form nx (n·x, linear: the phase kept), then its power: runs and stores a scalar map
   const std::string fphase = R"(pipeline: form_test

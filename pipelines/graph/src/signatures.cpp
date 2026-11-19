@@ -284,6 +284,9 @@ Signature s_field_form() {
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
         const std::string form = p.value("form", std::string());
+        const std::string disc = p.value("discretisation", std::string("vertex_gradient"));
+        if (disc != "vertex_gradient" && (form != "phase_current" || disc != "intrinsic_edges"))
+          u.fail("x", "discretisation is vertex_gradient (the reference) or intrinsic_edges, and only the phase current has one (form " + form + ", discretisation " + disc + ")");
         PortType& y = u.out.at("y");
         y.nonlinear = true;
         if (form == "magnitude") { y.value = VT::real; y.complex_parts = false; y.quantity = "amplitude"; }

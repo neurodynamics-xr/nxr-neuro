@@ -177,6 +177,14 @@ int main() {
   // a real field has no phase
   CHECK(has(plan_of("      - {node: meeg.apply_kernel, in: {x: recording, kernel: kernel}, out: j}\n      - {node: signal.field_form, in: {x: j}, with: {form: phase_current}, out: h}\n      - {node: measurement.estimate, in: {x: h}, with: {method: sample}, out: out}\n"),
             "x must be complex"));
+  // the phase current's discretisation: a named option of that form only (vertex_gradient, the reference, or intrinsic_edges)
+  {
+    const std::string zj = "      - {node: signal.analytic, in: {x: recording}, out: z}\n      - {node: meeg.apply_kernel, in: {x: z, kernel: kernel}, out: j}\n";
+    CHECK(has(plan_of(zj + "      - {node: signal.field_form, in: {x: j}, with: {form: phase_current, discretisation: cotan}, out: h}\n      - {node: measurement.estimate, in: {x: h}, with: {method: sample}, out: out}\n"),
+              "discretisation"));
+    CHECK(has(plan_of(zj + "      - {node: signal.field_form, in: {x: j}, with: {form: power, discretisation: intrinsic_edges}, out: h}\n      - {node: measurement.estimate, in: {x: h}, with: {method: sample}, out: out}\n"),
+              "discretisation"));
+  }
   // D106: no linear map after the envelope
   CHECK(has(plan_of("      - {node: signal.envelope, in: {x: recording}, out: e}\n      - {node: meeg.apply_kernel, in: {x: e, kernel: kernel}, out: j}\n      - {node: measurement.estimate, in: {x: j}, with: {method: sample}, out: out}\n"),
             "(D106)"));
