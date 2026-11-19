@@ -1,6 +1,6 @@
 """Forms on the intrinsic complex (`nxr/signal/intrinsic_forms.h`, `nxr::signal`): 1-forms <-> tangent vectors (sharp, flat), the phase 1-forms of a
 complex field (phaseCurrent, phaseGradient: on the edges with the intrinsic complex, at the vertices with a vertex gradient), and the Hodge–Dirac modes' reading of forms (modesOf, projectOneForm / synthesizeOneForm, projectTwoForm /
-synthesizeTwoForm, exactPotential, coexactStream, splitPhase).
+synthesizeTwoForm, exactPotential, coexactStream, splitPhase, vertexEnergy).
 
 Every function takes the INTRINSIC COMPLEX made once by `intrinsicComplex(surface)` (the intrinsic triangulation as a cell complex: edges tail -> tip,
 faces, lengths, d0, d1, the three stars, and the signposts placing its edges in R^3), a dict of arrays passed on, never rebuilt. The modes must be solved
@@ -187,9 +187,18 @@ def coexactStream(complex: dict, modes: dict, coef) -> np.ndarray:
 
 
 def splitPhase(complex: dict, modes: dict, w) -> dict:
-    """The split of a phase 1-form w [nE] by the modes: ``coef`` [K]; ``exact``, ``coexact`` [nE] (the timing and rotation parts); ``shareTiming``,
-    ``shareRotation``, ``shareResidual`` (shares of the *1 energy); ``potential`` [nV] (exactPotential), ``stream`` [nV] (coexactStream),
-    ``propagation`` [nV, 3] (-grad potential, sharpened), ``inconsistency`` [nV] (per vertex, the share of *1 |w|^2 its edges' exact part leaves)."""
+    """The split of a phase 1-form w [nE] by the modes, POINTWISE parts only: ``coef`` [K]; ``exact``, ``coexact`` [nE] (the timing and rotation parts;
+    the residual outside the modes is w - exact - coexact); ``potential`` [nV] (exactPotential), ``stream`` [nV] (coexactStream), ``propagation`` [nV, 3]
+    (-grad potential, sharpened). The shares of the *1 energy and the inconsistency are ratios of reductions: sum ``vertexEnergy`` of w, of ``exact``,
+    of ``coexact`` and of w - exact over a partition's members (the measures phase_lag_energy, timing_energy, rotation_energy, timing_misfit_energy);
+    timing_share, rotation_share, residual_share and timing_inconsistency are the derived measures read from those sums."""
     out = _core.signal_splitPhase(_ic(complex), modes, np.asarray(w, dtype=np.float64).ravel())
     out["propagation"] = np.asarray(out["propagation"]).reshape(-1, 3)
     return out
+
+
+def vertexEnergy(complex: dict, w) -> np.ndarray:
+    """The *1 energy of a 1-form at the vertices: each edge's *1_e w_e^2 shared equally between its two ends, so the energy over any set of vertices (a
+    tile, the whole complex) is the SUM of their values. w [nE] or [nE, m] -> [nV] or [nV, m]."""
+    a, single = _columns(w)
+    return _shaped(_core.signal_vertexEnergy(_ic(complex), a), single)

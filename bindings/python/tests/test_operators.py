@@ -173,7 +173,12 @@ def test_forms_on_the_modes(sphere):
     np.testing.assert_allclose(d0 @ S.exactPotential(md, c), S.synthesizeOneForm(ic, md, ce), atol=1e-10)
     sp = S.splitPhase(ic, md, w[:, 0])
     np.testing.assert_allclose(S.coexactStream(ic, md, c[:, 0]), sp["stream"], atol=1e-12)
-    assert sp["propagation"].shape == (len(v), 3) and abs(sp["shareTiming"] + sp["shareRotation"] + sp["shareResidual"] - 1) < 1e-9
+    assert sp["propagation"].shape == (len(v), 3) and "shareTiming" not in sp and "inconsistency" not in sp
+    # the energies are pointwise: the vertices' values sum to the *1 energy (a share is a ratio of such sums, derived at read)
+    star1 = np.asarray(ic["star1"])
+    ev = S.vertexEnergy(ic, np.stack([w[:, 0], sp["exact"]], axis=1))
+    assert ev.shape == (len(v), 2)
+    np.testing.assert_allclose(ev.sum(axis=0), [np.sum(star1 * w[:, 0] ** 2), np.sum(star1 * sp["exact"] ** 2)], rtol=1e-12)
     # the phase current against its formula, one column a frame
     z = np.exp(1j * 3 * v[:, 0]) * (1 + 0.5 * v[:, 2])
     e = G.complex(s)["edges"]
@@ -200,7 +205,8 @@ def test_plane_wave_on_a_disc_is_timing():
     w = S.phaseGradient(ic, np.exp(1j * phase))
     for count in (40, 80):
         sp = S.splitPhase(ic, S.modesOf(O.hodgeDiracModes(h, count), h), w)
-        assert sp["shareRotation"] < 1e-12 and 0.9 < sp["shareTiming"] < 1 and abs(sp["shareResidual"] - (1 - sp["shareTiming"])) < 1e-9
+        energy, timing, rotation = S.vertexEnergy(ic, np.stack([w, sp["exact"], sp["coexact"]], axis=1)).sum(axis=0)   # the sums over the whole disc
+        assert rotation / energy < 1e-12 and 0.9 < timing / energy < 1
         assert np.corrcoef(sp["potential"], phase)[0, 1] > 0.997
 
 
