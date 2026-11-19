@@ -2,7 +2,8 @@
 //   d1·d0 = 0; ⋆1 ≥ 0 (Delaunay); an unflipped edge's direction at each end is the mesh edge's (the signposts embedded through the input's edges);
 //   flat of a GRADIENT field ∇f (f = z, its tangential part) ≈ d0 f, the exact edge differences (the field integrated along each edge);
 //   sharp(flat(J)) ≈ J for smooth tangent fields (a gradient and a rotation n × ẑ), away from nothing (a closed sphere);
-//   area2form / vertexDensity: a constant density integrates to the area and comes back constant.
+//   area2form / vertexDensity: a constant density integrates to the area and comes back constant;
+//   on an OPEN grid: flat and sharp exact for a constant field at every edge and vertex, the boundary included.
 #include <cmath>
 #include <iostream>
 #include <complex>
@@ -13,6 +14,8 @@
 #include "mesh_helpers.h"
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/signal/intrinsic_forms.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/eigen.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
@@ -31,7 +34,7 @@ int main() {
         for (int k = 0; k < 3; ++k) V[3 * v + k] = p(k);
     }
     nxr::geometry::IntrinsicSurface m(V.data(), nV, F.data(), static_cast<int>(F.size() / 3));
-    const nxr::signal::Complex c = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V.data(), nV, F.data(), static_cast<int>(F.size() / 3)));
+    const nxr::signal::IntrinsicComplex c = nxr::signal::intrinsicComplex(nxr::geometry::surfaceArrays(V.data(), nV, F.data(), static_cast<int>(F.size() / 3)));
     std::printf("  %d vertices, %d edges, %d faces; %d flips\n", c.nV, c.nE, c.nF, m.record().flips);
     EXPECT(m.record().flips > 0, "the jittered sphere needed flips");
     EXPECT(Eigen::SparseMatrix<double>(c.d1 * c.d0).norm() == 0.0, "d1 d0 = 0");
@@ -85,7 +88,7 @@ int main() {
             for (int k = 0; k < 3; ++k) V3[3 * v + k] = p(k);
         }
         nxr::geometry::IntrinsicSurface m3(V3.data(), n3, F3.data(), static_cast<int>(F3.size() / 3));
-        const nxr::signal::Complex c3 = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V3.data(), n3, F3.data(), static_cast<int>(F3.size() / 3)));
+        const nxr::signal::IntrinsicComplex c3 = nxr::signal::intrinsicComplex(nxr::geometry::surfaceArrays(V3.data(), n3, F3.data(), static_cast<int>(F3.size() / 3)));
         const Eigen::MatrixXd Lap = Eigen::MatrixXd(c3.d0.transpose() * c3.star1.asDiagonal() * c3.d0);
         Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> ges(Lap, Eigen::MatrixXd(c3.star0.asDiagonal()));
         const int K = 40;
@@ -115,7 +118,7 @@ int main() {
         icosphere(2, V2, F2, 1.0);
         const int n2 = static_cast<int>(V2.size() / 3);
         nxr::geometry::IntrinsicSurface m2(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3));
-        const nxr::signal::Complex c2 = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3)));
+        const nxr::signal::IntrinsicComplex c2 = nxr::signal::intrinsicComplex(nxr::geometry::surfaceArrays(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3)));
         const Eigen::MatrixXd Lap = Eigen::MatrixXd(c2.d0.transpose() * c2.star1.asDiagonal() * c2.d0);
         Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> ges(Lap, Eigen::MatrixXd(c2.star0.asDiagonal()));
         const int K = 12;
@@ -135,6 +138,86 @@ int main() {
         bool bad = false;
         try { nxr::signal::patternFields(c2, mp, {{7, 2}}, Eigen::VectorXcd::Ones(1)); } catch (const std::invalid_argument&) { bad = true; }
         EXPECT(bad, "patternFields refuses a normal row of an exact mode");
+    }
+    {   // the Hodge–Dirac modes read through modesOf: projection and synthesis invert each other on the modes' span, d0 of the exact potential is the
+        // exact part, coexactStream is splitPhase's stream, phaseCurrent is |z_tail||z_tip| sin of the phase step; mismatched modes are refused
+        std::vector<double> V2; std::vector<int32_t> F2;
+        icosphere(2, V2, F2, 1.0);
+        const int n2 = static_cast<int>(V2.size() / 3), f2 = static_cast<int>(F2.size() / 3);
+        const auto s2 = nxr::geometry::surfaceArrays(V2.data(), n2, F2.data(), f2);
+        const auto h = nxr::operators::hodgedirac::assemble(s2);
+        nxr::operators::HodgeSolveOptions o; o.limit = 30;
+        const auto r = nxr::operators::hodgeDiracModes(h, 40, false, o);
+        const nxr::signal::Modes md = nxr::signal::modesOf(r, h.nV, h.nE, h.nF);
+        const nxr::signal::IntrinsicComplex c2 = nxr::signal::intrinsicComplex(s2);
+        EXPECT((c2.star1 - h.star1).cwiseAbs().maxCoeff() == 0.0, "the complex's star1 is the pencil's");
+        const int K = static_cast<int>(md.mu.size());
+        int nEx = 0; for (int k : md.kind) nEx += k == 0;
+        EXPECT(K == 30 && md.P.rows() == n2 && md.X2.rows() == c2.nF && nEx > 0 && nEx < K, "modesOf: 30 modes, both kinds, the 0- and 2-form rows");
+        Eigen::MatrixXd coef = Eigen::MatrixXd::Zero(K, 2);
+        for (int k = 0; k < K; ++k) { coef(k, 0) = nd(rng); coef(k, 1) = nd(rng); }
+        const Eigen::MatrixXd w = nxr::signal::synthesizeOneForm(c2, md, coef);
+        const double eRT = (nxr::signal::projectOneForm(c2, md, w) - coef).cwiseAbs().maxCoeff();
+        EXPECT(eRT < 1e-8, "projectOneForm(synthesizeOneForm(c)) = c (" << eRT << ")");
+        Eigen::MatrixXd ce = coef;
+        for (int k = 0; k < K; ++k) if (md.kind[k] != 0) ce.row(k).setZero();
+        const double eP = (c2.d0 * nxr::signal::exactPotential(md, coef) - nxr::signal::synthesizeOneForm(c2, md, ce)).cwiseAbs().maxCoeff();
+        EXPECT(eP < 1e-10, "d0 exactPotential = the exact part (" << eP << ")");
+        const auto sp = nxr::signal::splitPhase(c2, md, w.col(0));
+        EXPECT((nxr::signal::coexactStream(c2, md, coef).col(0) - sp.stream).cwiseAbs().maxCoeff() < 1e-12, "coexactStream = splitPhase's stream");
+        Eigen::MatrixXcd z(n2, 2);
+        for (int v = 0; v < n2; ++v) {
+            z(v, 0) = std::polar(1.0 + 0.5 * V2[3 * v + 2], 3.0 * V2[3 * v]);
+            z(v, 1) = std::polar(2.0, -V2[3 * v + 1]);
+        }
+        const Eigen::MatrixXd J = nxr::signal::phaseCurrent(c2, z);
+        double eJ = 0;
+        for (int col = 0; col < 2; ++col) {
+            const Eigen::VectorXd dphi = nxr::signal::phaseGradient(c2, Eigen::MatrixXcd(z.col(col))).col(0);
+            for (int e = 0; e < c2.nE; ++e) {
+                const double want = std::abs(z(c2.edges[2 * e], col)) * std::abs(z(c2.edges[2 * e + 1], col)) * std::sin(dphi(e));
+                eJ = std::max(eJ, std::abs(J(e, col) - want));
+            }
+        }
+        EXPECT(J.rows() == c2.nE && J.cols() == 2 && eJ < 1e-12, "phaseCurrent = |z_tail||z_tip| sin(phase step), one column a frame (" << eJ << ")");
+        bool refused = false;
+        try { (void)nxr::signal::modesOf(nxr::operators::hodgeDiracModes(h, 40, true, o), h.nV, h.nE, h.nF); } catch (const std::invalid_argument&) { refused = true; }
+        EXPECT(refused, "modesOf refuses a both-signs solve (negative mu)");
+        std::vector<double> V1; std::vector<int32_t> F1;
+        icosphere(1, V1, F1, 1.0);
+        const nxr::signal::IntrinsicComplex c1 = nxr::signal::intrinsicComplex(nxr::geometry::surfaceArrays(V1.data(), static_cast<int>(V1.size() / 3), F1.data(), static_cast<int>(F1.size() / 3)));
+        refused = false;
+        try { (void)nxr::signal::projectOneForm(c1, md, Eigen::MatrixXd::Zero(c1.nE, 1)); } catch (const std::invalid_argument&) { refused = true; }
+        EXPECT(refused, "modes of another triangulation are refused");
+    }
+    {   // an OPEN surface (a flat grid, one boundary loop): every edge's direction at both ends, the boundary edges included, is the mesh edge's,
+        // so flat of a constant field is the exact edge difference and sharp recovers it at every vertex, the boundary vertices included
+        const int n = 7;
+        std::vector<double> P; std::vector<int32_t> T;
+        // positions as j * (1 / (n - 1)) (NumPy's linspace), not j / (n - 1): at some rim vertices the input's angle sum then lands one ulp under the
+        // intrinsic cone angle, the case where a boundary edge's direction once wrapped round through the exterior
+        const double step = 1.0 / (n - 1);
+        for (int i = 0; i < n; ++i) for (int j = 0; j < n; ++j) { P.push_back(j * step); P.push_back(i * step); P.push_back(0.0); }
+        for (int i = 0; i + 1 < n; ++i) for (int j = 0; j + 1 < n; ++j) { const int a = i * n + j, b = a + 1, cc = a + n, d = cc + 1; T.insert(T.end(), {a, b, d, a, d, cc}); }
+        const auto sg = nxr::geometry::surfaceArrays(P.data(), n * n, T.data(), static_cast<int>(T.size() / 3));
+        const nxr::signal::IntrinsicComplex g = nxr::signal::intrinsicComplex(sg);
+        {   // the grid's boundary edges face right angles: a raw weight of 0 (or -1e-16); the complex holds the pencil's raised weights, so the coexact
+            // parts of the modes are finite (a raw 0 gave inf, then NaN, on one platform)
+            const auto hg = nxr::operators::hodgedirac::assemble(sg);
+            EXPECT(hg.star1Clamped > 0 && (g.star1 - hg.star1).cwiseAbs().maxCoeff() == 0.0 && g.star1.minCoeff() > 0, "open grid: the complex's star1 is the pencil's, raised above 0");
+        }
+        const Eigen::Vector3d u(0.3, -0.7, 0.0);
+        Eigen::MatrixXd J(3 * g.nV, 1);
+        for (int v = 0; v < g.nV; ++v) J.middleRows(3 * v, 3) = u;
+        const Eigen::MatrixXd w = nxr::signal::flat(g, J);
+        double worstFlat = 0;
+        for (int e = 0; e < g.nE; ++e) {
+            const Eigen::Vector3d ch = g.positions.row(g.edges[2 * e + 1]) - g.positions.row(g.edges[2 * e]);
+            worstFlat = std::max(worstFlat, std::abs(w(e, 0) - ch.dot(u)));
+        }
+        EXPECT(worstFlat < 1e-6, "open grid: flat of a constant field = the edge differences, boundary edges included (worst " << worstFlat << ")");
+        const Eigen::MatrixXd back = nxr::signal::sharp(g, w);
+        EXPECT((back - J).cwiseAbs().maxCoeff() < 1e-6, "open grid: sharp recovers the constant field at every vertex, boundary included");
     }
     std::cout << (failures ? "FAIL" : "PASS") << " test_intrinsic_forms (" << failures << " failures)\n";
     return failures ? 1 : 0;

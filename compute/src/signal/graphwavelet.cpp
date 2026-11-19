@@ -14,7 +14,7 @@ Eigen::MatrixXcd join(const Eigen::MatrixXd& re, const Eigen::MatrixXd& im) {
     Eigen::MatrixXcd z(re.rows(), re.cols()); z.real() = re; z.imag() = im; return z;
 }
 
-template <class Op> CoefficientsC complexOf(const Eigen::MatrixXcd& F, Op op) {   // op(real matrix) → Coefficients
+template <class Op> CoefficientsC intrinsicComplex(const Eigen::MatrixXcd& F, Op op) {   // op(real matrix) → Coefficients
     Coefficients re = op(Eigen::MatrixXd(F.real())), im = op(Eigen::MatrixXd(F.imag()));
     CoefficientsC out;
     for (std::size_t m = 0; m < re.size(); ++m) out.push_back(join(re[m], im[m]));
@@ -40,7 +40,7 @@ Coefficients gwt(const GraphFilterbank& bank, const EigenTransform& t, const Eig
     return W;
 }
 CoefficientsC gwt(const GraphFilterbank& bank, const EigenTransform& t, const Eigen::MatrixXcd& F) {
-    return complexOf(F, [&](const Eigen::MatrixXd& X) { return gwt(bank, t, X); });
+    return intrinsicComplex(F, [&](const Eigen::MatrixXd& X) { return gwt(bank, t, X); });
 }
 
 Coefficients gwt(const GraphFilterbank& bank, const ChebyshevOperator& t, const Eigen::MatrixXd& F) {
@@ -49,7 +49,7 @@ Coefficients gwt(const GraphFilterbank& bank, const ChebyshevOperator& t, const 
     return W;
 }
 CoefficientsC gwt(const GraphFilterbank& bank, const ChebyshevOperator& t, const Eigen::MatrixXcd& F) {
-    return complexOf(F, [&](const Eigen::MatrixXd& X) { return gwt(bank, t, X); });
+    return intrinsicComplex(F, [&](const Eigen::MatrixXd& X) { return gwt(bank, t, X); });
 }
 
 static const graphfilterbank::Member& memberOf(const GraphFilterbank& bank, int member) {

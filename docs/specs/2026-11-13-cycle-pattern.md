@@ -41,7 +41,7 @@ The **phase origin** of a pattern is free (an eigenvector is defined up to e^{i�
 **On the cortex**, a pattern's coefficients give three complex vertex fields:
 - S, the **stream function** of the tangent current's divergence-free part: Σ_coexact (c_k / μ_k) P_k;
 - A, the **potential** of its curl-free part: Σ_exact (c_k / μ_k) P_k (`intrinsic::potential`);
-- ρ, the **normal current**: vertexDensity(synth2(a)).
+- ρ, the **normal current**: vertexDensity(synthesizeTwoForm(a)).
 
 ## The graph
 
@@ -85,14 +85,14 @@ parameters: spatial band (weyl:J | weyl:all | modes), patterns q
 before (setup, bound once; the same code as phasegradient --spatial-band):
   glued_kernel     operator → the kernel on the glued surface
   split_normal     vector3 kernel → ρ rows and tangent rows (the vertex normals of the embedding)
-  read_forms       → A2 [K x M] (read2 ∘ area2form), A1 [K x M] (read1 ∘ flat)
+  read_forms       → A2 [K x M] (projectTwoForm ∘ area2form), A1 [K x M] (projectOneForm ∘ flat)
 after (per spatial band):
   band_rows        gains, A2, A1 → B [n x M]                                       nxr::filterbank gains; rows kept at |g| ≥ 1e-3
   congruence       B, C_w → C_Φ,w [n x n] per window; and for the whole span        algebra::congruence, dense (a new overload: the whole product)
   cycle_patterns   C_Φ → m [n x q], λ [q], trace                                    new: nxr::patterns::leading
   pattern_rotate   m → m e^{iθ}, the frame of largest variance at phase 0           new: nxr::patterns::rotateToLargest
   similarity       m_w, m_span → |⟨m_w, m_span⟩|, |⟨m_w, m_1⟩|                      new: nxr::patterns::similarity
-  pattern_fields   m → S, A, ρ [V] complex                                          new: nxr::intrinsic::patternFields (potential, synth2, vertexDensity)
+  pattern_fields   m → S, A, ρ [V] complex                                          new: nxr::intrinsic::patternFields (potential, synthesizeTwoForm, vertexDensity)
 outputs: (below)
 ```
 

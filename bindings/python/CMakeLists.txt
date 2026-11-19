@@ -9,6 +9,8 @@ find_package(nanobind CONFIG REQUIRED)
 nanobind_add_module(nxr_neuro_core NB_STATIC STABLE_ABI NB_DOMAIN nxr
   src/module.cpp
   src/compute.cpp
+  src/geometry.cpp
+  src/operators.cpp
   src/access.cpp
   src/formats.cpp
   src/pipeline.cpp)

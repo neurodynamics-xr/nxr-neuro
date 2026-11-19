@@ -22,6 +22,7 @@
 #include "nxr/operators/registry/operator_registry.h"
 #include <Eigen/Eigenvalues>
 #include <algorithm>
+#include <functional>
 #include "surface_of.h"
 using namespace nxr::geometry;
 using nxr::operators::hodgedirac::HodgeDirac;
@@ -207,12 +208,67 @@ static void testReferenceMethod() {
     EXPECT(orth < 1e-8, "reference modes M-orthonormal without whitening " + std::to_string(orth));
 }
 
+// A flat n x n grid of the unit square, two triangles per cell; `hole` removes the centre cell's two triangles (a second boundary loop).
+static void squareGrid(int n, bool hole, std::vector<double>& V, std::vector<int32_t>& F) {
+    V.clear(); F.clear();
+    for (int i = 0; i < n; ++i) for (int j = 0; j < n; ++j) { V.push_back(double(j) / (n - 1)); V.push_back(double(i) / (n - 1)); V.push_back(0.0); }
+    for (int i = 0; i + 1 < n; ++i) for (int j = 0; j + 1 < n; ++j) {
+        if (hole && i == (n - 1) / 2 && j == (n - 1) / 2) continue;
+        const int a = i * n + j, b = a + 1, c = a + n, d = c + 1;
+        F.insert(F.end(), {a, b, d, a, d, c});
+    }
+}
+
+static bool throwsCode(const std::function<void()>& f, nxr::core::ErrorCode code) {
+    try { f(); } catch (const nxr::core::Error& e) { return e.code() == code; }
+    return false;
+}
+
+static void testTopologyAndGuards() {
+    std::cout << "\n=== hodgedirac: topology reported, incomplete splits refused ===\n";
+    {
+        std::vector<double> V; std::vector<int32_t> F; icosphere(2, V, F);
+        const auto m = surfaceOf(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
+        HodgeDirac h = nxr::operators::hodgedirac::assemble(m);
+        EXPECT(h.eulerCharacteristic == 2 && h.boundaryLoops == 0 && h.genus == 0 && h.star1Negative == 0, "sphere: chi 2, no boundary, genus 0, no negative weight");
+    }
+    {   // a disc (one loop): the split is complete (Neumann exact ladder, Dirichlet coexact ladder); the solve runs
+        std::vector<double> V; std::vector<int32_t> F; squareGrid(9, false, V, F);
+        const auto m = surfaceOf(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
+        HodgeDirac h = nxr::operators::hodgedirac::assemble(m);
+        EXPECT(h.eulerCharacteristic == 1 && h.boundaryLoops == 1 && h.genus == 0, "disc: chi 1, one loop, genus 0");
+        EXPECT(h.star1Negative == 0, "disc of right triangles: no negative weight");
+        nxr::operators::HodgeSolveOptions lim; lim.limit = 10;
+        nxr::operators::EigenResult r = nxr::operators::hodgeDiracModes(h, 24, false, lim);
+        EXPECT(r.k == 10 && (r.kind.array() != 1).all(), "disc: modes solved, none harmonic");
+    }
+    {   // an annulus (two loops): one harmonic 1-form missing, refused
+        std::vector<double> V; std::vector<int32_t> F; squareGrid(9, true, V, F);
+        const auto m = surfaceOf(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
+        HodgeDirac h = nxr::operators::hodgedirac::assemble(m);
+        EXPECT(h.eulerCharacteristic == 0 && h.boundaryLoops == 2 && h.genus == 0, "annulus: chi 0, two loops");
+        EXPECT(throwsCode([&] { nxr::operators::hodgeDiracModes(h, 24); }, nxr::core::ErrorCode::ClosedMeshRequired), "annulus: hodgeDiracModes refused");
+    }
+    {   // one triangle whose angle opposite a boundary edge is obtuse: a genuinely negative weight, refused unless a floor is named
+        std::vector<double> V = {0, 0, 0, 2, 0, 0, 1, 0.2, 0}; std::vector<int32_t> F = {0, 1, 2};
+        const auto m = surfaceOf(V.data(), 3, F.data(), 1);
+        HodgeDirac h = nxr::operators::hodgedirac::assemble(m);
+        EXPECT(h.star1Negative == 1 && h.star1Clamped >= 1, "obtuse boundary angle: one negative weight counted");
+        EXPECT(throwsCode([&] { nxr::operators::hodgedirac::requireComplete(h); }, nxr::core::ErrorCode::GeometryDegenerate), "negative weight refused");
+        HodgeDirac hf = nxr::operators::hodgedirac::assemble(m, 1e-6);
+        EXPECT(hf.star1Negative == 1 && hf.star1Floor == 1e-6, "with a named floor: still counted");
+        bool ok = true; try { nxr::operators::hodgedirac::requireComplete(hf); } catch (...) { ok = false; }
+        EXPECT(ok, "with a named floor: accepted");
+    }
+}
+
 int main() {
     testStructure();
     testSpectrumAndSplit();
     testSlicingAndShift();
     testRemoveDCAndRegistry();
     testReferenceMethod();
+    testTopologyAndGuards();
     std::cout << (g_failures ? "\nFAILURES\n" : "\nALL PASSED\n");
     return g_failures ? 1 : 0;
 }
