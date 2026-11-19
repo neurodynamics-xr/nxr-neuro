@@ -248,3 +248,41 @@ def test_log_map(sphere):
     both = G.logMap(s, [0, 5])
     assert len(both) == 2
     np.testing.assert_allclose(both[0]["logCoords"], r["logCoords"], atol=1e-10)
+
+
+def test_log_map_face_point():
+    # a point of an input face: the blend of its corners' log maps (first order). On the unit sphere, at a face's centroid the norm of the coordinates is
+    # the great-circle distance from the point, better than the nearest vertex's log map taken as the point's
+    v, f = icosphere(3)
+    s = G.surfaceArrays(v, f)
+    fi = 7
+    w = np.array([1 / 3, 1 / 3, 1 / 3])
+    r = G.logMap(s, (fi, tuple(w)))
+    p = w @ v[f[fi]]
+    assert r["logCoords"].shape == (len(v), 2)
+    np.testing.assert_allclose(r["sourcePoint"], p, atol=1e-12)
+    e1, e2, n = r["sourceE1"], r["sourceE2"], r["sourceNormal"]
+    np.testing.assert_allclose([e1 @ e1, e2 @ e2, e1 @ e2, e1 @ n, e2 @ n], [1, 1, 0, 0, 0], atol=1e-9)
+    pu = p / np.linalg.norm(p)
+    true = np.arccos(np.clip(v @ pu, -1, 1))
+    near = true < 1.0
+    d = np.linalg.norm(r["logCoords"], axis=1)
+    err_face = np.abs(d[near] - true[near])
+    np.testing.assert_allclose(d[near], true[near], atol=0.03)
+    # the nearest vertex's log map, read as the log map of the point
+    k = f[fi][np.argmin(np.linalg.norm(v[f[fi]] - p, axis=1))]
+    dv = np.linalg.norm(G.logMap(s, int(k))["logCoords"], axis=1)
+    err_vertex = np.abs(dv[near] - true[near])
+    assert err_face.mean() < err_vertex.mean() and err_face.max() < err_vertex.max()
+    # at a corner: the vertex log map, coordinates identical
+    c = G.logMap(s, (fi, (1.0, 0.0, 0.0)))
+    np.testing.assert_allclose(c["logCoords"], G.logMap(s, int(f[fi][0]))["logCoords"], atol=1e-9)
+    # a list of points: one solver, same results
+    both = G.logMap(s, [(fi, (1.0, 0.0, 0.0)), (fi, tuple(w))])
+    assert len(both) == 2
+    np.testing.assert_allclose(both[1]["logCoords"], r["logCoords"], atol=1e-10)
+    for bad in [(fi, (0.5, 0.6, -0.1)), (fi, (0.5, 0.3, 0.3)), (len(f), (1.0, 0.0, 0.0))]:
+        with pytest.raises(Exception):
+            G.logMap(s, bad)
+    with pytest.raises(ValueError):
+        G.logMap(s, [0, (fi, tuple(w))])

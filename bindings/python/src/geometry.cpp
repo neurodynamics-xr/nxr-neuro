@@ -125,20 +125,47 @@ tr::LogMapStrategy log_map_strategy(const std::string& s) {
   throw std::invalid_argument("strategy '" + s + "' is not one of affine_local, affine_adaptive, vector_heat");
 }
 
-nb::list log_map(const nb::dict& surface, const std::vector<int>& sources, const std::string& strategy, double t_coef) {
+// Sources: vertices (`sources`), or points of input faces (`faces` and `barycentrics` [n, 3]); one kind per call.
+nb::list log_map(const nb::dict& surface, const std::vector<int>& sources, const std::vector<int>& faces, const Eigen::MatrixXd& barycentrics,
+                 const std::string& strategy, double t_coef) {
   const geom::SurfaceArrays s = surface_in(surface);
   const tr::LogMapStrategy st = log_map_strategy(strategy);
-  std::vector<tr::LogMapResult> rs;
+  if (!sources.empty() && !faces.empty()) throw std::invalid_argument("logMap: the sources are vertices or face points, not both");
+  if (static_cast<size_t>(barycentrics.rows()) != faces.size() || (!faces.empty() && barycentrics.cols() != 3))
+    throw std::invalid_argument("logMap: one row of three barycentric weights per face");
+  nb::list out;
+  if (faces.empty()) {
+    std::vector<tr::LogMapResult> rs;
+    {
+      nb::gil_scoped_release release;
+      rs = tr::logMap(s, sources, st, t_coef);   // the batch form: one solver for every source
+    }
+    for (auto& r : rs) {
+      nb::dict d;
+      d["logCoords"] = std::move(r.logCoords);
+      d["sourceE1"] = Eigen::VectorXd(r.sourceE1);
+      d["sourceE2"] = Eigen::VectorXd(r.sourceE2);
+      out.append(d);
+    }
+    return out;
+  }
+  std::vector<tr::FacePoint> pts(faces.size());
+  for (size_t i = 0; i < faces.size(); ++i) {
+    pts[i].face = faces[i];
+    for (int k = 0; k < 3; ++k) pts[i].barycentric[k] = barycentrics(static_cast<Eigen::Index>(i), k);
+  }
+  std::vector<tr::FaceLogMapResult> rs;
   {
     nb::gil_scoped_release release;
-    rs = tr::logMap(s, sources, st, t_coef);   // the batch form: one solver for every source
+    rs = tr::logMap(s, pts, st, t_coef);
   }
-  nb::list out;
   for (auto& r : rs) {
     nb::dict d;
     d["logCoords"] = std::move(r.logCoords);
     d["sourceE1"] = Eigen::VectorXd(r.sourceE1);
     d["sourceE2"] = Eigen::VectorXd(r.sourceE2);
+    d["sourceNormal"] = Eigen::VectorXd(r.sourceNormal);
+    d["sourcePoint"] = Eigen::VectorXd(r.sourcePoint);
     out.append(d);
   }
   return out;
@@ -154,7 +181,7 @@ void bind_geometry(nb::module_& m) {
   m.def("geometry_eulerCharacteristic", &euler_characteristic, arg("surface"));
   m.def("geometry_vertexFrames", &vertex_frames, arg("surface"));
   m.def("geometry_frames", &face_frames, arg("surface"));
-  m.def("geometry_logMap", &log_map, arg("surface"), arg("sources"), arg("strategy"), arg("t_coef"));
+  m.def("geometry_logMap", &log_map, arg("surface"), arg("sources"), arg("faces"), arg("barycentrics"), arg("strategy"), arg("t_coef"));
   m.def("geometry_heat", &heat, arg("surface"), arg("source_sets"), arg("t_coef"), arg("mesh"));
 }
 

@@ -23,6 +23,7 @@
 //
 // PURE MATHS: arrays in, arrays out.
 #include <Eigen/Dense>
+#include <array>
 #include <complex>
 #include <cstdint>
 #include <string>
@@ -142,6 +143,49 @@ LogMapResult logMap(
 std::vector<LogMapResult> logMap(
     const SurfaceArrays& surface,
     const std::vector<int>& sourceVertices,
+    LogMapStrategy strategy = LogMapStrategy::AffineLocal,
+    double tCoef = 1.0
+);
+
+/** A point on a face of the INPUT mesh: the face's index (a row of `surface.faces`) and its barycentric coordinates (non-negative, summing to 1 within 1e-9;
+ *  coordinate k belongs to corner k of `surface.faces.row(face)`). */
+struct FacePoint {
+    int face = 0;
+    std::array<double, 3> barycentric{1.0 / 3, 1.0 / 3, 1.0 / 3};
+};
+
+/** The log map at a point of an input face: per-vertex (logX, logY), in ONE tangent frame realised in R^3.
+ *
+ *  Method (first order, geometry-central's own for a face point, `VectorHeatMethodSolver::computeLogMap(SurfacePoint)`): the solver lives on the intrinsic
+ *  Delaunay triangulation, whose faces are not the input's and which is handed in as arrays with no map back to the input, so an exact tracing of the
+ *  point is not available here. The point is blended from the three corner vertices' log maps instead: log_p(x) = sum_k w_k R_k log_{v_k}(x), each vector
+ *  of corner k's tangent plane carried into the input face's plane by the rotation about n_k x n_f that takes the corner's normal n_k to the face normal
+ *  n_f. The offset of p from each corner (p - v_k) sums to zero under the weights (p = sum w_k v_k), so it drops out. Accurate to first order in the
+ *  face's size: the error is that of treating the three corners' planes as the face's plane, small on a fine mesh, and exact at a corner (weights
+ *  (1, 0, 0) give that vertex's log map, coordinates identical to the vertex form's).
+ *
+ *  Frame: the frame of the corner with the largest weight (the first on a tie), rotated into the face's plane by the same rotation. e1 and e2 are unit and
+ *  tangent to the face, `sourceNormal` = e1 x e2 = the input face's unit normal, and `sourcePoint` = sum w_k p_k, the point in R^3.
+ *  Same strategies as the vertex form. Throws core::Error(InvalidInput) for a face outside [0, nF), weights that are negative, not finite or not
+ *  summing to 1 within 1e-9, or a degenerate face. */
+struct FaceLogMapResult {
+    Eigen::MatrixXd logCoords;   // [nV, 2] (logX, logY) in (sourceE1, sourceE2)
+    Eigen::Vector3d sourceE1;
+    Eigen::Vector3d sourceE2;
+    Eigen::Vector3d sourceNormal;
+    Eigen::Vector3d sourcePoint;
+};
+
+FaceLogMapResult logMap(
+    const SurfaceArrays& surface,
+    const FacePoint& point,
+    LogMapStrategy strategy = LogMapStrategy::AffineLocal,
+    double tCoef = 1.0
+);
+/** The batch form: one solver for every point. */
+std::vector<FaceLogMapResult> logMap(
+    const SurfaceArrays& surface,
+    const std::vector<FacePoint>& points,
     LogMapStrategy strategy = LogMapStrategy::AffineLocal,
     double tCoef = 1.0
 );

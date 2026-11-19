@@ -117,6 +117,37 @@ static void testVectorHeat(const nxr::geometry::SurfaceArrays& m) {
     REQUIRE(std::abs(logmap.sourceE1.norm() - 1.0) < 1e-6, "sourceE1 unit");
     REQUIRE(std::abs(logmap.sourceE2.norm() - 1.0) < 1e-6, "sourceE2 unit");
 
+    // Log map at a point of an input face: a corner reproduces the vertex form (coordinates identical), the centroid is a point on the face in the
+    // face's plane, bad faces and weights are refused.
+    {
+        const int f = 3;
+        const int c0 = m.faces(f, 0);
+        const auto lv = logMap(m, c0);
+        const auto lc = logMap(m, FacePoint{f, {1.0, 0.0, 0.0}});
+        REQUIRE((lc.logCoords - lv.logCoords).cwiseAbs().maxCoeff() < 1e-9, "face point at a corner = the vertex log map");
+        const auto lm = logMap(m, FacePoint{f, {1.0 / 3, 1.0 / 3, 1.0 / 3}});
+        Eigen::Vector3d centroid = Eigen::Vector3d::Zero();
+        for (int k = 0; k < 3; ++k) centroid += m.positions.row(m.faces(f, k)).transpose() / 3.0;
+        REQUIRE((lm.sourcePoint - centroid).norm() < 1e-12, "sourcePoint = the weighted corners");
+        REQUIRE(std::abs(lm.sourceE1.norm() - 1.0) < 1e-9 && std::abs(lm.sourceE2.norm() - 1.0) < 1e-9 && std::abs(lm.sourceE1.dot(lm.sourceE2)) < 1e-9,
+                "face frame orthonormal");
+        const Eigen::Vector3d nf = (m.positions.row(m.faces(f, 1)) - m.positions.row(m.faces(f, 0))).transpose().cross(
+            (m.positions.row(m.faces(f, 2)) - m.positions.row(m.faces(f, 0))).transpose()).normalized();
+        REQUIRE(std::abs(lm.sourceE1.dot(nf)) < 1e-9 && (lm.sourceNormal - nf).norm() < 1e-9, "face frame tangent to the face, normal = the face's");
+        REQUIRE(lm.logCoords.allFinite(), "face log map finite");
+        const auto both = logMap(m, std::vector<FacePoint>{{f, {1.0, 0.0, 0.0}}, {f, {0.2, 0.3, 0.5}}});
+        REQUIRE(both.size() == 2 && (both[0].logCoords - lc.logCoords).cwiseAbs().maxCoeff() < 1e-12, "batch form = single form");
+        bool refused = false;
+        try { logMap(m, FacePoint{f, {0.5, 0.6, -0.1}}); } catch (const nxr::core::Error&) { refused = true; }
+        REQUIRE(refused, "negative weight refused");
+        refused = false;
+        try { logMap(m, FacePoint{f, {0.5, 0.3, 0.3}}); } catch (const nxr::core::Error&) { refused = true; }
+        REQUIRE(refused, "weights not summing to 1 refused");
+        refused = false;
+        try { logMap(m, FacePoint{m.nF(), {1, 0, 0}}); } catch (const nxr::core::Error&) { refused = true; }
+        REQUIRE(refused, "face out of range refused");
+    }
+
     // findCenter of three nearby vertices: must be a finite 3D point.
     Eigen::Vector3d c = findCenter(m, {0, 1, 5});
     REQUIRE(std::isfinite(c.x()) && std::isfinite(c.y()) && std::isfinite(c.z()),

@@ -149,8 +149,10 @@ def logMap(surface: dict, source, strategy: str = "affine_local", t_coef: float 
 
     Parameters
     ----------
-    source : int, or a sequence of int
-        One source vertex (one result), or several (a list of results, solved on one solver: the factorisation is shared).
+    source : int, a sequence of int, ``(face, (w0, w1, w2))``, or a sequence of such pairs
+        One source vertex (one result), or several (a list of results, solved on one solver: the factorisation is shared). A pair is a point of an INPUT
+        face: its index (a row of the surface's faces) and its barycentric weights (non-negative, summing to 1; weight k belongs to corner k of the face).
+        A face point's log map blends its three corners' log maps (first order in the face's size; exact at a corner); one kind of source per call.
     strategy : str
         "affine_local" (the default: the affine heat method, prefactored), "affine_adaptive" (no prefactoring, the most accurate near the source),
         or "vector_heat" (the original vector heat method).
@@ -163,10 +165,22 @@ def logMap(surface: dict, source, strategy: str = "affine_local", t_coef: float 
         ``logCoords`` [nV, 2] (x, y) in the source's tangent plane: the norm is the geodesic distance from the source, atan2(y, x) the direction;
         ``sourceE1``, ``sourceE2`` [3] the plane's frame in R^3 (the gauge of `vertexFrames`); ``sourceNormal`` [3] = e1 x e2. A point near the source is
         approximately source + x e1 + y e2.
+        For a face point the frame is the heaviest corner's, rotated into the face's plane (``sourceNormal`` is the face's unit normal), and
+        ``sourcePoint`` [3] is the point in R^3 (the weighted sum of the corners).
     """
-    single = np.isscalar(source)
-    srcs = [int(source)] if single else [int(v) for v in source]
-    out = _core.geometry_logMap(_contiguous(surface), srcs, str(strategy), float(t_coef))
-    for r in out:
-        r["sourceNormal"] = np.cross(r["sourceE1"], r["sourceE2"])
+    def is_point(x):
+        return not np.isscalar(x) and len(x) == 2 and np.isscalar(x[0]) and not np.isscalar(x[1])
+    single = np.isscalar(source) or is_point(source)
+    items = [source] if single else list(source)
+    pts = [is_point(x) for x in items]
+    if any(pts) and not all(pts):
+        raise ValueError("logMap: the sources are vertices or (face, weights) pairs, not both")
+    if items and all(pts):
+        faces = [int(f) for f, _ in items]
+        bary = np.array([np.asarray(w, dtype=float).reshape(3) for _, w in items]).reshape(-1, 3)
+        out = _core.geometry_logMap(_contiguous(surface), [], faces, bary, str(strategy), float(t_coef))
+    else:
+        out = _core.geometry_logMap(_contiguous(surface), [int(v) for v in items], [], np.zeros((0, 3)), str(strategy), float(t_coef))
+        for r in out:
+            r["sourceNormal"] = np.cross(r["sourceE1"], r["sourceE2"])
     return out[0] if single else out
