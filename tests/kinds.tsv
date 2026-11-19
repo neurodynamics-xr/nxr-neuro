@@ -171,7 +171,7 @@ test_migrate	unit
 test_migrate_measurement	unit
 test_monogenic	unit
 test_montage	golden
-test_montage_create	integration
+test_montage_definition	integration
 test_montage_nodes	integration
 test_morlet	golden
 test_names_across_layers	guard
@@ -217,7 +217,7 @@ test_runner_outputs	integration
 test_runner_plan	integration
 test_scale	unit
 test_scale_selection	integration
-test_scale_step	integration
+test_scale_step	integration	slow
 test_scalespace	unit
 test_scaling	unit
 test_schema	unit

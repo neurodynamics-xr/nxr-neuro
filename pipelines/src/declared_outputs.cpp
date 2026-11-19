@@ -322,7 +322,8 @@ void check_declared(const Plan& P, const std::string& o) {
   const Value& v = P.values.at(o);
   const std::string want = k == "operator" ? "operator" : k == "manifold" ? "manifold" : k == "selection" ? "selection" : k == "field" ? "field" : k == "measurement" ? "measurement" : "statistic";
   // an output the connectome's array nodes make (class `array`): a sparse matrix over a selection's members stored two codes a row, a sparse matrix stored as a field, an index list stored as a selection
-  const bool array_output = v.cls == "array" && ((k == "measurement" && spec.value("codes", 1) == 2) || k == "field" || (k == "selection" && spec.value("type", std::string()) == "indices"));
+  const bool array_output = v.cls == "array" && ((k == "measurement" && spec.value("codes", 1) == 2) || k == "field" || (k == "selection" && spec.value("type", std::string()) == "indices") ||
+                            (k == "manifold" && spec.value("type", std::string()) == "points") || (k == "selection" && spec.value("type", std::string()) == "partition"));   // a montage: points [n x 3] and a label per point
   if (v.cls != want && !array_output) bad(o, "declared " + k + " but its steps make a " + v.cls);
   if (v.chunked) bad(o, "a value inside the chunk loop is not stored: only what leaves it");
   if (declared_name(P, o).empty()) bad(o, "its name is empty");
@@ -504,7 +505,8 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       if (spec.contains("derived_from")) p.derived_from_id = link_of(P, spec, "derived_from", &made, o);
       if (d.contains("description") && d["description"].is_string()) p.description = d["description"].get<std::string>();
       if (d.contains("producer") && d["producer"].is_object()) p.producer = d["producer"];
-      p.positions = values_of(a, {a.rows * a.cols}, false, o);
+      if (a.cols == 3) p.positions = values_of(a, {a.rows, a.cols}, false, o);   // points in space (a montage's electrodes), in the coordinate system the node names
+      else p.positions = values_of(a, {a.rows * a.cols}, false, o);
       if (replace) clear(task::Cls::manifold, unit.path_of(p));
       id = unit.points(p);
     } else if (t == "complex") {

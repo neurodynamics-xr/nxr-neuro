@@ -1037,7 +1037,8 @@ std::string Unit::surface(const SurfaceOut& o) {
 std::string Unit::points(const PointsOut& p) {
   need_open(open_);
   SubjectWriter& sub = *impl_->writer;
-  if (p.positions.shape.size() != 1 || p.positions.f64.empty() || p.positions.size() != p.positions.shape[0]) throw Error(code::invalid_argument, "points " + p.name + ": coordinates [n] in float64");
+  const bool xyz = p.positions.shape.size() == 2 && p.positions.shape[1] == 3;   // [n x 3]: points in space (a montage); [n]: one coordinate each (a mode axis)
+  if ((p.positions.shape.size() != 1 && !xyz) || p.positions.f64.empty() || p.positions.size() != p.positions.shape[0] * (xyz ? 3 : 1)) throw Error(code::invalid_argument, "points " + p.name + ": coordinates [n] or positions [n x 3] in float64");
   const std::int64_t n = p.positions.shape[0];
   const std::string path = path_of(p);
   if (const auto r = sub.find("manifold", path)) {   // the same coordinates are the same axis; another one's is the caller's to replace first
@@ -1045,7 +1046,7 @@ std::string Unit::points(const PointsOut& p) {
     if (have.n_vertices && *have.n_vertices == n) {
       ArrayReader old = ArrayReader::open(sub.store(), path);
       const std::vector<std::uint8_t> raw = old.read();
-      if (raw.size() == static_cast<std::size_t>(n) * sizeof(double) && std::equal(raw.begin(), raw.end(), reinterpret_cast<const std::uint8_t*>(p.positions.f64.data()))) return have.id;
+      if (raw.size() == static_cast<std::size_t>(p.positions.size()) * sizeof(double) && std::equal(raw.begin(), raw.end(), reinterpret_cast<const std::uint8_t*>(p.positions.f64.data()))) return have.id;
     }
     throw Error(code::already_exists, sub.name() + ": the points " + p.name + " (" + path + ") exist with other coordinates; replace them first");
   }
@@ -1065,7 +1066,7 @@ std::string Unit::points(const PointsOut& p) {
   if (p.description) ms.cols.set("comment", *p.description);
   ms.cols.json("producer_json", producer_of(by_, p.output, p.producer));
   const Values& v = p.positions;
-  ms.populate = [&sub, &v, path, n](Store&, const std::string&) { sub.write_array(path, view(v.f64, {n})); };
+  ms.populate = [&sub, &v, path, n, xyz](Store&, const std::string&) { sub.write_array(path, xyz ? view(v.f64, {n, 3}) : view(v.f64, {n})); };
   return sub.manifold(std::move(ms));
 }
 

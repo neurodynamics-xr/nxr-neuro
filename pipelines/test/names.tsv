@@ -9,6 +9,9 @@ node	measurement.cellquadrature	-	composite
 node	measurement.collect	-	composite
 node	meeg.connection_weights	-	composite
 node	meeg.eeg_montage_1005	-	composite
+node	meeg.inion_from_landmarks	-	composite
+node	meeg.montage_labels	-	composite
+node	geometry.surface_parts	-	composite
 node	meeg.end_connectome	-	composite
 node	meeg.end_gate	-	composite
 node	signal.envelope	-	composite

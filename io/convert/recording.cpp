@@ -333,7 +333,7 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
   Json montage_record;
   if (!opt.montage.empty()) {
     const auto mrow = sub.db().one("SELECT id, producer_json FROM manifold WHERE subject_id = ? AND type = 'points' AND name = ? AND status = 'complete'", {nxr::io::V(sub.id()), nxr::io::V(opt.montage)});
-    if (!mrow) refuse("--montage " + opt.montage + ": the subject has no points manifold of that name (a montage is made by `create montage` and stored before the recording is imported)");
+    if (!mrow) refuse("--montage " + opt.montage + ": the subject has no points manifold of that name (a montage is made by `run montage` and stored before the recording is imported)");
     std::set<std::string> labels;
     for (const auto& r : sub.db().all("SELECT DISTINCT de.name AS name FROM selection s JOIN dictionary_entry de ON de.dictionary_id = s.dictionary_id WHERE s.manifold_id = ?", {nxr::io::V(nxr::io::text(*mrow, "id"))})) labels.insert(nxr::io::text(r, "name"));
     if (labels.empty()) refuse("--montage " + opt.montage + ": the manifold has no names labelling, so no channel can be matched");

@@ -1,0 +1,40 @@
+# THE STANDARD 10-05 ELECTRODE MONTAGE ON A TEMPLATE'S OWN SCALP: a recording without digitised positions can only be placed on a head by the standard system's names. The systems are RULES (positions at
+# fixed fractions of arcs between the nasion, the inion and the preauricular points), so the positions are computed on the head model's scalp, never read from a table (Oostenveld and Praamstra 2001, the 10-05
+# rule; the 10-10 names follow Jurcak, Tsuzuki and Dan 2007).
+#
+# THE GRAPH:  scalp (surface) --[surface_parts]--> vertices, faces;  vertices, faces, landmarks (the points NAS, LPA, RPA) --[inion_from_landmarks]--> four landmarks;
+#             vertices, faces, four landmarks --[eeg_montage_1005]--> positions [345 x 3];  positions --[montage_labels]--> names, system.
+# Stored: the points manifold `<name>` (positions in the scalp's coordinate system, its aliases T3 = T7, T4 = T8, T5 = P7, T6 = P8 in its producer), its names `<name>_names` (one level per point) and the partition
+# `<name>_system` (levels 10-20, 10-10, 10-05: the narrowest system a point belongs to; the 10-10 system is the levels 10-20 and 10-10 together, the 10-05 all). `import recording --montage <name>` reads it.
+#
+# What it cannot resolve: these are the SYSTEM's positions on this head model, not where a cap sits on a person; the inion is a stated convention (nxr::meeg::inionFromLandmarks, or the caller's `--inion`), not the bump the inion is.
+#
+#   nxr-neuro run montage --dataset <template package or dataset> --subject <template> [--scalp head --landmarks head_landmarks --name eeg_1005]
+pipeline: montage
+version: 1
+description: the standard 10-05 electrode montage on a template's scalp, with its names and its 10-20 / 10-10 / 10-05 system partition
+scope: subject
+
+inputs:
+  scalp:     {manifold: surface, where: {name: $scalp}}
+  landmarks: {manifold: points, where: {name: $landmarks}}
+
+parameters:
+  scalp: {default: head, meaning: "the template's scalp (a closed head surface) by name", unit: "-"}
+  landmarks: {default: head_landmarks, meaning: "the points manifold of the nasion, LPA and RPA (named NAS, LPA, RPA, in the scalp's coordinate system) by name", unit: "-"}
+  name: {default: eeg_1005, meaning: "the montage's stored name; its names are <name>_names and its systems <name>_system", unit: "-"}
+  inion: {default: null, meaning: "the inion [x, y, z] in the scalp's unit; null: nxr::meeg::inionFromLandmarks (the farthest crossing of the line from the nasion through the preauricular midpoint with the scalp)", unit: "scalp unit"}
+  tolerance: {default: 1e-7, meaning: "Cz stops when it moves less than this fraction of the nasion - inion distance", unit: fraction}
+  max_iterations: {default: 100, meaning: "the most Cz iterations before refusing", unit: iterations}
+
+steps:
+  before:
+    - {node: geometry.surface_parts, in: {surface: scalp}, out: [vertices, faces]}
+    - {node: meeg.inion_from_landmarks, in: {vertices: vertices, faces: faces, landmarks: landmarks}, with: {inion: $inion}, out: landmarks_with_inion}
+    - {node: meeg.eeg_montage_1005, in: {scalp_vertices: vertices, scalp_faces: faces, landmarks: landmarks_with_inion}, with: {tolerance: $tolerance, max_iterations: $max_iterations}, out: positions}
+    - {node: meeg.montage_labels, in: {positions: positions}, out: [names, system]}
+
+outputs:
+  positions: {kind: manifold, type: points, name: $name, derived_from: scalp.manifold.0}
+  names:     {kind: selection, type: partition, name: "$name_names", on: positions}
+  system:    {kind: selection, type: partition, name: "$name_system", on: positions}

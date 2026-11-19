@@ -201,6 +201,18 @@ SensorGeometry sensor_geometry(SubjectWriter& sub, const std::string& channels_i
   return g;
 }
 
+NamedPoints named_points(SubjectWriter& sub, const std::string& points_id) {
+  const auto m = manifold_with_geometry(sub.db(), points_id);
+  if (!m) missing("points manifold " + points_id + ": not among the subject's rows");
+  NamedPoints g;
+  g.id = points_id; g.name = text(*m, "name");
+  std::vector<std::int64_t> sh;
+  g.positions = read_all<double>(sub.store(), text(*m, "positions_path"), &sh);
+  if (sh.size() != 2 || sh[1] != 3) invalid(g.name + ": its positions are not [n x 3]");
+  g.names = family_of(sub, points_id, g.name + "_names");
+  return g;
+}
+
 // the length unit of a manifold's coordinate system ("" when it records none)
 std::string coordinate_unit_of(SubjectWriter& sub, const std::string& manifold_id) {
   return manifold_coordinate_unit(sub.db(), manifold_id);

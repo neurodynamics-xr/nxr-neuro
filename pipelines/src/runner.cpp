@@ -1141,6 +1141,15 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.meta["name"] = bundle; a.meta["id"] = text(row, "id"); a.meta["points_per_fiber"] = nP; a.meta["stored_precision"] = stored;
         a.meta["precision"] = stored;                                      // the nodes compute in the points' own precision and refuse a mix (no widening: the values are held as double only to carry them)
         constants[name] = std::move(a);
+      } else if (v.cls == "manifold" && text(row, "type") == "points" && nxr::pipelines::channel_types_of(sub, text(row, "id")).empty()) {   // points with no channel types (a template's landmarks): positions and names
+        const nxr::pipelines::NamedPoints g = nxr::pipelines::named_points(sub, text(row, "id"));
+        nxr::graph::Array a;
+        a.rows = static_cast<std::int64_t>(g.positions.size() / 3); a.cols = 3;
+        a.data = g.positions;
+        a.meta["name"] = g.name; a.meta["id"] = g.id; a.meta["names"] = g.names;
+        if (!nxr::io::is_null(row, "positions_path"))
+          a.meta["precision"] = nxr::io::ArrayReader::open(sub.store(), text(row, "positions_path")).dtype() == nxr::io::DType::Float64 ? "float64" : "float32";
+        constants[name] = std::move(a);
       } else if (v.cls == "manifold" && text(row, "type") == "points") {    // a channels manifold: its sensor geometry (positions; types, orientations, coils in meta)
         const nxr::pipelines::SensorGeometry g = nxr::pipelines::sensor_geometry(sub, text(row, "id"));
         nxr::graph::Array a;
