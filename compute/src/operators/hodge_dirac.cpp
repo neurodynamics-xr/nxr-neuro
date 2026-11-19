@@ -69,21 +69,10 @@ HodgeDirac assemble(const geometry::SurfaceArrays& surface, double star1Floor, d
     // A BOUNDARY edge's weight below −(rounding level) is GENUINELY negative (an obtuse angle opposite it; boundary edges never flip): counted in
     // `star1Negative`, whatever is done with it, so that a mode solve can refuse it (requireComplete). An interior edge was flipped to Delaunay: what is
     // left negative there is within the flip tolerance (`flipEps`), rounding by construction.
-    double tiny = 0.0;
-    if (nE > 0) {
-        double mean = 0.0;
-        for (int e = 0; e < nE; ++e) mean += std::abs(h.star1(e));
-        mean /= nE;
-        tiny = 1e-9 * mean;
-        for (gcs::Edge ed : surf.mesh().edges())
-            if (ed.isBoundary() && h.star1(static_cast<Eigen::Index>(ed.getIndex())) < -tiny) ++h.star1Negative;
-    }
-    if (!(star1Floor > 0.0))
-        for (int e = 0; e < nE; ++e)
-            if (h.star1(e) < tiny) { ++h.star1Clamped; h.star1(e) = tiny; }
-    if (star1Floor > 0.0)
-        for (int e = 0; e < nE; ++e)
-            if (h.star1(e) < star1Floor) { ++h.star1Clamped; h.star1(e) = star1Floor; }
+    const double tiny = star1RoundingLevel(h.star1);
+    for (gcs::Edge ed : surf.mesh().edges())
+        if (ed.isBoundary() && h.star1(static_cast<Eigen::Index>(ed.getIndex())) < -tiny) ++h.star1Negative;
+    h.star1Clamped = raiseStar1(h.star1, star1Floor);
     auto& mesh = surf.mesh();
     h.eulerCharacteristic = nV - nE + nF;
     h.boundaryLoops = static_cast<int>(mesh.nBoundaryLoops());
@@ -110,6 +99,18 @@ HodgeDirac assemble(const geometry::SurfaceArrays& surface, double star1Floor, d
     h.M.resize(N);
     h.M << h.star0, h.star1, h.star2;
     return h;
+}
+
+double star1RoundingLevel(const Eigen::VectorXd& star1) {
+    return star1.size() > 0 ? 1e-9 * star1.cwiseAbs().mean() : 0.0;
+}
+
+int raiseStar1(Eigen::VectorXd& star1, double star1Floor) {
+    const double lo = star1Floor > 0.0 ? star1Floor : star1RoundingLevel(star1);
+    int raised = 0;
+    for (Eigen::Index e = 0; e < star1.size(); ++e)
+        if (star1(e) < lo) { ++raised; star1(e) = lo; }
+    return raised;
 }
 
 void requireComplete(const HodgeDirac& h) {

@@ -151,6 +151,7 @@ int main() {
         const auto r = nxr::operators::hodgeDiracModes(h, 40, false, o);
         const nxr::signal::Modes md = nxr::signal::modesOf(r, h.nV, h.nE, h.nF);
         const nxr::signal::IntrinsicComplex c2 = nxr::signal::intrinsicComplex(s2);
+        EXPECT((c2.star1 - h.star1).cwiseAbs().maxCoeff() == 0.0, "the complex's star1 is the pencil's");
         const int K = static_cast<int>(md.mu.size());
         int nEx = 0; for (int k : md.kind) nEx += k == 0;
         EXPECT(K == 30 && md.P.rows() == n2 && md.X2.rows() == c2.nF && nEx > 0 && nEx < K, "modesOf: 30 modes, both kinds, the 0- and 2-form rows");
@@ -218,7 +219,13 @@ int main() {
         const double step = 1.0 / (n - 1);
         for (int i = 0; i < n; ++i) for (int j = 0; j < n; ++j) { P.push_back(j * step); P.push_back(i * step); P.push_back(0.0); }
         for (int i = 0; i + 1 < n; ++i) for (int j = 0; j + 1 < n; ++j) { const int a = i * n + j, b = a + 1, cc = a + n, d = cc + 1; T.insert(T.end(), {a, b, d, a, d, cc}); }
-        const nxr::signal::IntrinsicComplex g = nxr::signal::intrinsicComplex(nxr::geometry::surfaceArrays(P.data(), n * n, T.data(), static_cast<int>(T.size() / 3)));
+        const auto sg = nxr::geometry::surfaceArrays(P.data(), n * n, T.data(), static_cast<int>(T.size() / 3));
+        const nxr::signal::IntrinsicComplex g = nxr::signal::intrinsicComplex(sg);
+        {   // the grid's boundary edges face right angles: a raw weight of 0 (or -1e-16); the complex holds the pencil's raised weights, so the coexact
+            // parts of the modes are finite (a raw 0 gave inf, then NaN, on one platform)
+            const auto hg = nxr::operators::hodgedirac::assemble(sg);
+            EXPECT(hg.star1Clamped > 0 && (g.star1 - hg.star1).cwiseAbs().maxCoeff() == 0.0 && g.star1.minCoeff() > 0, "open grid: the complex's star1 is the pencil's, raised above 0");
+        }
         const Eigen::Vector3d u(0.3, -0.7, 0.0);
         Eigen::MatrixXd J(3 * g.nV, 1);
         for (int v = 0; v < g.nV; ++v) J.middleRows(3 * v, 3) = u;

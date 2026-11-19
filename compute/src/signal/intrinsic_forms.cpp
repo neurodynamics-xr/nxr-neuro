@@ -1,5 +1,6 @@
 #include "nxr/signal/intrinsic_forms.h"
 #include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
 #include "geometrycentral/surface/intrinsic_geometry_interface.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -26,7 +27,7 @@ void basisAt(const IntrinsicComplex& c, int v, Eigen::Vector3d& e1, Eigen::Vecto
 }
 }  // namespace
 
-IntrinsicComplex intrinsicComplex(const nxr::geometry::SurfaceArrays& arrays) {
+IntrinsicComplex intrinsicComplex(const nxr::geometry::SurfaceArrays& arrays, double star1Floor) {
     nxr::geometry::IntrinsicSurface surface(arrays);
     const auto K = surface.complex();
     IntrinsicComplex c;
@@ -38,6 +39,7 @@ IntrinsicComplex intrinsicComplex(const nxr::geometry::SurfaceArrays& arrays) {
     c.length = Eigen::Map<const VectorXd>(K.length.data(), c.nE);
     c.star0 = nxr::operators::vertexMass(arrays, nxr::operators::MassMatrixVariant::MixedVoronoi).diagonal();
     c.star1 = dec.hodge1.diagonal();
+    nxr::operators::hodgedirac::raiseStar1(c.star1, star1Floor);
     c.star2 = dec.hodge2.diagonal();
     c.angleTail = VectorXd::Constant(c.nE, std::numeric_limits<double>::quiet_NaN());
     c.angleTip = c.angleTail;
