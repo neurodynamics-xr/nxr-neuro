@@ -16,6 +16,7 @@
 #include "nxr/io.h"
 #include "nxr/io/catalogue.h"
 #include "nxr/io/errors.h"
+#include "nxr/io/finder.h"
 #include "nxr/io/task/dataset.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/default_subject.h"
@@ -27,6 +28,7 @@
 #include "nxr/pipelines/definition.h"
 #include "nxr/pipelines/listing.h"
 #include "nxr/pipelines/meeg.h"
+#include "nxr/pipelines/reading.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/signal/spectral.h"
 
@@ -401,14 +403,134 @@ StoredArray doubles(const std::string& name, const std::vector<double>& v) {
   return s;
 }
 
+StoredArray int64s(const std::string& name, const std::vector<std::int64_t>& v) {
+  StoredArray s;
+  s.name = name;
+  s.dtype = "int64";
+  s.shape = {static_cast<std::int64_t>(v.size())};
+  s.bytes.resize(v.size() * sizeof(std::int64_t));
+  if (!v.empty()) std::memcpy(s.bytes.data(), v.data(), s.bytes.size());
+  return s;
+}
+
+Json dictionary_json(const std::vector<task::DictionaryLevel>& levels) {
+  Json out = Json::array();
+  for (const auto& e : levels) out.push_back(Json{{"code", e.code}, {"name", e.name}});
+  return out;
+}
+
+// A TIME-RESOLVED FIELD read through the chunk service (the one door, reading.h): the rows and samples asked, chunk by chunk, into one array in the field's stored precision
+Stored read_series(SubjectWriter& sub, const task::Subject& ts, const task::Node& n, const finder::Value& v, const ReadRequest& rq) {
+  if (rq.reading != "samples" && rq.reading != "shape") refuse("read: reading is samples or shape (got '" + rq.reading + "')");
+  if (rq.start.has_value() != rq.stop.has_value()) refuse("read: a span of samples gives both start and stop, or neither (the whole field, read chunk by chunk)");
+  const Projectors projectors = projectors_from(rq.projectors);
+  ChunkSource src = nxr::pipelines::source_of(sub, n, v.rate, v.origin, rq.rows, std::nullopt, projectors);
+  for (const std::int32_t r : rq.rows)
+    if (r < 0 || r >= src.n_channels()) refuse("read: row " + std::to_string(r) + " is not one of the field's " + std::to_string(src.n_channels()) + " rows");
+  const io::Span span = nxr::pipelines::sample_span(src, rq.start.value_or(0), rq.stop.value_or(src.n_samples()));
+  std::string dtype = "float32";   // a recording read in place from its file is float32 (LinkedBlocks); a stored one keeps its array's
+  if (n.path && sub.store().exists(join_key(*n.path, "zarr.json")) && is_array_key(sub.store(), *n.path)) dtype = dtype_to_string(ArrayReader::open(sub.store(), *n.path).dtype());
+  const std::int64_t rows = src.rows() ? src.rows() : src.n_channels(), width = span.s1 - span.s0;
+  Json row_list = Json::array();
+  if (rq.rows.empty()) for (std::int64_t r = 0; r < rows; ++r) row_list.push_back(r);
+  else for (const auto r : rq.rows) row_list.push_back(r);
+  const auto factors = ts.factors(n.manifold_id.value_or(""));
+  std::optional<std::string> channels;
+  if (!factors.empty() && factors.front() != *v.time)
+    if (const auto m = ts.by_id(task::Cls::manifold, factors.front())) channels = m->name;
+  Stored out;
+  out.meta = Json{{"class", "field"}, {"name", n.name}, {"id", n.id}, {"kind", n.kind ? Json(*n.kind) : Json()}, {"unit", n.unit ? Json(*n.unit) : Json()},
+                  {"value_type", n.value_type ? Json(*n.value_type) : Json()}, {"producer", n.producer}, {"params", n.params}, {"rate", v.rate}, {"origin", v.origin},
+                  {"n_samples", src.n_samples()}, {"n_channels", src.n_channels()}, {"rows", row_list}, {"channels", channels ? Json(*channels) : Json()},
+                  {"dtype", dtype}, {"span", span_record(span, v.rate, v.origin)}, {"projectors", rq.projectors}, {"projection", src.projection_record()}, {"reading", rq.reading}};
+  if (const auto line = ts.by_id(task::Cls::manifold, *v.time)) out.meta["time"] = line->name;
+  if (rq.reading == "shape") return out;
+  StoredArray a;
+  a.name = "values";
+  a.dtype = dtype;
+  a.shape = {rows, width};
+  const bool single = dtype == "float32";
+  a.bytes.resize(static_cast<std::size_t>(rows * width) * (single ? sizeof(float) : sizeof(double)));
+  if (width > 0)
+    chunk_loop(src, span, [&](const Chunk& c) {
+      const std::int64_t at = c.first - span.s0;
+      for (std::int64_t r = 0; r < rows; ++r)
+        for (std::int64_t t = 0; t < c.n; ++t) {
+          const double x = c.data[static_cast<std::size_t>(r * c.n + t)];
+          const std::size_t i = static_cast<std::size_t>(r * width + at + t);
+          if (single) reinterpret_cast<float*>(a.bytes.data())[i] = static_cast<float>(x);
+          else reinterpret_cast<double*>(a.bytes.data())[i] = x;
+        }
+    });
+  out.arrays.push_back(std::move(a));
+  return out;
+}
+
+// A MANIFOLD: its positions and cells as stored, its axes, its element names; or one labelling family of it (codes per element and the dictionary)
+Stored read_manifold(SubjectWriter& sub, const task::Subject& ts, const task::Node& m, const ReadRequest& rq) {
+  Stored out;
+  if (rq.family) {
+    const auto row = nxr::io::selection::labelling_row(sub, *rq.family, m.id);
+    if (!row) throw Error(code::no_such_row, "manifold '" + m.name + "' has no labelling '" + *rq.family + "' (its selections: read the manifold without a family)");
+    const std::string id = text(*row, "id");
+    const auto members = ts.element_members(id);
+    out.arrays.push_back(int64s("codes", members.element_labels()));
+    const auto node = ts.by_id(task::Cls::selection, id);
+    Json dict = Json::array();
+    if (node && node->dictionary_id) dict = dictionary_json(ts.dictionary_entries(*node->dictionary_id));
+    else for (const auto& [code, nm] : members.names) dict.push_back(Json{{"code", code}, {"name", nm}});
+    out.meta = Json{{"class", "labelling"}, {"name", text(*row, "name")}, {"id", id}, {"family", *rq.family}, {"manifold", m.name}, {"manifold_id", m.id},
+                    {"n", static_cast<std::int64_t>(members.member_of.size())}, {"dictionary", dict}};
+    return out;
+  }
+  const task::Geometry g = ts.geometry(m.id);
+  if (g.positions_path) collect_arrays(sub.store(), *g.positions_path, "positions", out.arrays);
+  for (const auto& [rank, path] : g.cells) collect_arrays(sub.store(), path, "cells_" + std::to_string(rank), out.arrays);
+  Json axes = Json::array();
+  for (const auto& a : g.axes)
+    axes.push_back(Json{{"name", a.name ? Json(*a.name) : Json()}, {"n", a.n_vertices}, {"spacing", a.spacing ? Json(*a.spacing) : Json()}, {"origin", a.origin ? Json(*a.origin) : Json()},
+                        {"unit", a.unit ? Json(*a.unit) : Json()}});
+  Json names;   // the element names: the manifold's `<name>_names` labelling, when stored
+  if (const auto row = nxr::io::selection::labelling_row(sub, m.name + "_names", m.id)) {
+    const auto members = ts.element_members(text(*row, "id"));
+    names = Json::array();
+    for (const auto label : members.element_labels()) names.push_back(label < 0 ? std::string() : members.name_of(label));
+  }
+  out.meta = Json{{"class", "manifold"}, {"name", m.name}, {"id", m.id}, {"type", m.type ? Json(*m.type) : Json()}, {"n", m.n_vertices ? Json(*m.n_vertices) : Json()},
+                  {"coordinate_unit", g.coordinate_unit ? Json(*g.coordinate_unit) : Json()}, {"axes", axes}, {"names", names},
+                  {"selections", nxr::io::selection_names_on(sub, m.id)}, {"producer", m.producer}};
+  return out;
+}
+
 }  // namespace
 
 Stored read(const fs::path& dataset, const std::string& subject, const std::string& name, const std::optional<std::string>& measure, const std::optional<std::string>& of_field) {
+  ReadRequest rq;
+  rq.measure = measure;
+  rq.of_field = of_field;
+  return read(dataset, subject, name, rq);
+}
+
+Stored read(const fs::path& dataset, const std::string& subject, const std::string& name, const ReadRequest& rq) {
   DatasetWriter ds = open_for(dataset, subject, false);
   SubjectWriter sub = SubjectWriter::open(ds, subject);
   const task::Subject ts = task::Subject::of(sub);
+  const std::optional<std::string>& measure = rq.measure;
+  const std::optional<std::string>& of_field = rq.of_field;
+  const bool series_options = rq.start || rq.stop || !rq.rows.empty() || rq.reading != "samples" || rq.projectors != "active";
+  auto no_series = [&](const std::string& what) {
+    if (series_options) refuse("read: '" + name + "' is " + what + ", not a time-resolved field: start, stop, rows, projectors and reading do not apply");
+  };
+  if (rq.family) {
+    no_series("a manifold's labelling");
+    if (measure) refuse("read: family names a labelling of a manifold; measure names a measurement of a selection: not both");
+    const auto m = ts.by_id_or_name(task::Cls::manifold, name);
+    if (!m) throw Error(code::no_such_row, "subject " + subject + " holds no manifold named '" + name + "' (family names a labelling of a manifold)");
+    return read_manifold(sub, ts, *m, rq);
+  }
   Stored out;
   if (measure) {
+    no_series("a selection's measurement table");
     const auto sel = ts.by_id_or_name(task::Cls::selection, name);
     if (!sel) throw Error(code::no_such_row, "no selection named '" + name + "' in subject " + subject);
     Json q = Json{{"selectionId", sel->id}, {"measure", *measure}};
@@ -430,6 +552,7 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
     return out;
   }
   if (const auto st = ts.by_id_or_name(task::Cls::statistic, name)) {
+    no_series("a statistic");
     const StoredStatistic s = read_statistic(sub, st->name);
     StoredArray a;
     a.name = "values";
@@ -445,15 +568,38 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
   for (const task::Cls c : {task::Cls::field, task::Cls::operator_, task::Cls::selection}) {
     const auto n = ts.by_id_or_name(c, name);
     if (!n) continue;
+    if (c == task::Cls::field) {
+      const finder::Value v = ts.describe(*n);
+      if (v.time && v.rate > 0) return read_series(sub, ts, *n, v, rq);
+    }
+    no_series(std::string("a ") + task::to_string(c) + (c == task::Cls::field ? " with no time line" : ""));
     const std::optional<std::string> where = c == task::Cls::selection ? n->array_path : n->path;
-    if (!where) throw Error(code::unsupported, "'" + name + "' has no stored array (it is virtual: an analytic operator, a product, or a selection of spans)");
+    if (!where && c == task::Cls::selection && n->type == std::optional<std::string>("spans")) {   // a selection of SPANS (events, bad segments): its intervals, codes and dictionary
+      std::vector<double> start, stop;
+      std::vector<std::int64_t> codes;
+      for (const auto& sp : ts.spans(*n)) {
+        start.push_back(sp.start);
+        stop.push_back(sp.stop);
+        codes.push_back(sp.code.value_or(-1));
+      }
+      out.arrays = {doubles("start", start), doubles("stop", stop), int64s("code", codes)};
+      const auto line = n->manifold_id ? ts.by_id(task::Cls::manifold, *n->manifold_id) : std::nullopt;
+      out.meta = Json{{"class", "selection"}, {"name", n->name}, {"id", n->id}, {"type", "spans"}, {"unit", "s"}, {"line", line ? Json(line->name) : Json()},
+                      {"dictionary", n->dictionary_id ? dictionary_json(ts.dictionary_entries(*n->dictionary_id)) : Json::array()}, {"producer", n->producer}, {"params", n->params}};
+      return out;
+    }
+    if (!where) throw Error(code::unsupported, "'" + name + "' has no stored array (it is virtual: an analytic operator, a product, a tiling, or a set with nothing stored per element)");
     collect_arrays(sub.store(), *where, "", out.arrays);
     for (auto& a : out.arrays) if (a.name.empty()) a.name = "values";
     out.meta = Json{{"class", task::to_string(c)}, {"name", n->name}, {"id", n->id}, {"kind", n->kind ? Json(*n->kind) : Json()}, {"unit", n->unit ? Json(*n->unit) : Json()},
                     {"value_type", n->value_type ? Json(*n->value_type) : Json()}, {"producer", n->producer}, {"params", n->params}};
     return out;
   }
-  throw Error(code::no_such_row, "subject " + subject + " holds no statistic, field, operator or selection named '" + name + "'");
+  if (const auto m = ts.by_id_or_name(task::Cls::manifold, name)) {
+    no_series("a manifold");
+    return read_manifold(sub, ts, *m, rq);
+  }
+  throw Error(code::no_such_row, "subject " + subject + " holds no statistic, field, operator, selection or manifold named '" + name + "'");
 }
 
 fs::path synthetic_dataset(const fs::path& datastore, const std::string& name, const std::string& subject, const std::string& recording, int channels, double sfreq, double seconds, unsigned seed) {
@@ -491,6 +637,17 @@ fs::path synthetic_dataset(const fs::path& datastore, const std::string& name, c
       m.geometry = gs;
       m.populate = [&](nxr::io::Store&, const std::string&) { sub.write_array("sensor/sensors", view(pos, {M, 3}), {}, std::nullopt, "manifold", cid); };
       sub.manifold(std::move(m));
+      std::vector<std::int64_t> number(static_cast<std::size_t>(M));
+      std::vector<std::string> channel_names;
+      for (std::int64_t i = 0; i < M; ++i) {
+        number[static_cast<std::size_t>(i)] = i;
+        channel_names.push_back("C" + std::to_string(i));
+      }
+      nxr::bst::LabellingOptions names;   // the channel names, one level a channel (as an importer stores a montage's)
+      names.manifold_id = cid;
+      names.dictionary = "sensors_names";
+      names.description = "the channel names";
+      nxr::bst::labelling(sub, "sensor/sensors_names", number, channel_names, names);
       std::vector<std::int64_t> family(static_cast<std::size_t>(M), 0), quality(static_cast<std::size_t>(M), 0);
       quality.back() = 1;
       nxr::bst::label_set(sub, "sensor/sensors_labels", {{"type", family, {"MEG MAG"}, {}}, {"unit", family, {"T"}, {}}, {"quality", quality, {"good", "bad"}, {}}}, cid, "the montage families", std::nullopt,

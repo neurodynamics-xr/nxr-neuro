@@ -1,6 +1,7 @@
 // What the Python and MATLAB faces call (nxr/pipelines/face.h), on a small synthetic dataset made in a temp directory: the pipelines listed with their parameters, the
 // refusal of a run without a time range, `run psd` through the face, its stored result read back (a statistic, and the recording as a field), the lists, and, when the command is built,
 // the SAME result as `nxr-neuro run psd` (the same options: a cache hit on the face's own result, and the same bytes under another name).
+#include <map>
 #include <unistd.h>
 
 #include <cstdlib>
@@ -83,6 +84,58 @@ int main() {
   CHECK_EQ(r.meta["class"].get<std::string>(), std::string("field"));
   CHECK(r.arrays.size() == 1 && r.arrays[0].shape == (std::vector<std::int64_t>{3, 4000}) && r.arrays[0].dtype == "float32");
   CHECK_EQ(code_of([&] { face::read(folder, "S1", "nothing_of_that_name"); }), std::string("no_such_row"));
+  CHECK_EQ(r.meta["rate"].get<double>(), 100.0);
+  CHECK_EQ(r.meta["channels"].get<std::string>(), std::string("sensors"));
+  CHECK_EQ(r.meta["n_samples"].get<std::int64_t>(), static_cast<std::int64_t>(4000));
+  {   // a span and rows, through the chunk service (stored in chunks of 700 samples: the span crosses two chunk edges): the same values as the whole read's
+    face::ReadRequest rq2;
+    rq2.start = 1000;
+    rq2.stop = 2500;
+    rq2.rows = {2, 0};
+    const face::Stored p = face::read(folder, "S1", "rest", rq2);
+    CHECK(p.arrays.size() == 1 && p.arrays[0].shape == (std::vector<std::int64_t>{2, 1500}) && p.arrays[0].dtype == "float32");
+    const float* whole = reinterpret_cast<const float*>(r.arrays[0].bytes.data());
+    const float* part = reinterpret_cast<const float*>(p.arrays[0].bytes.data());
+    bool same = true;
+    for (int i = 0; i < 2; ++i)
+      for (int t = 0; t < 1500; ++t) same = same && part[i * 1500 + t] == whole[(i == 0 ? 2 : 0) * 4000 + 1000 + t];
+    CHECK(same);
+    CHECK_EQ(p.meta["span"]["start_sample"].get<std::int64_t>(), static_cast<std::int64_t>(1000));
+    face::ReadRequest shape;
+    shape.reading = "shape";
+    const face::Stored d = face::read(folder, "S1", "rest", shape);
+    CHECK(d.arrays.empty() && d.meta["n_channels"].get<std::int64_t>() == 3 && d.meta["origin"].get<double>() == 0.0);
+    face::ReadRequest bad = rq2;
+    bad.stop = 5000;
+    CHECK_EQ(code_of([&] { face::read(folder, "S1", "rest", bad); }), std::string("invalid_argument"));
+    bad = rq2;
+    bad.rows = {3};
+    CHECK_EQ(code_of([&] { face::read(folder, "S1", "rest", bad); }), std::string("invalid_argument"));
+  }
+  {   // the channel manifold: positions [3 x 3], the names; a labelling family: codes and the dictionary
+    const face::Stored m = face::read(folder, "S1", "sensors");
+    CHECK_EQ(m.meta["class"].get<std::string>(), std::string("manifold"));
+    CHECK(m.arrays.size() == 1 && m.arrays[0].name == "positions" && m.arrays[0].shape == (std::vector<std::int64_t>{3, 3}));
+    CHECK(m.meta["names"] == face::Json::array({"C0", "C1", "C2"}));
+    face::ReadRequest fam;
+    fam.family = "quality";
+    const face::Stored q = face::read(folder, "S1", "sensors", fam);
+    CHECK(q.arrays.size() == 1 && q.arrays[0].name == "codes" && q.arrays[0].dtype == "int64" && q.arrays[0].shape == (std::vector<std::int64_t>{3}));
+    std::map<std::int64_t, std::string> dict;
+    for (const auto& e : q.meta["dictionary"]) dict[e["code"].get<std::int64_t>()] = e["name"].get<std::string>();
+    const std::int64_t* codes = reinterpret_cast<const std::int64_t*>(q.arrays[0].bytes.data());
+    CHECK(dict[codes[0]] == "good" && dict[codes[1]] == "good" && dict[codes[2]] == "bad");
+    fam.family = "nothing";
+    CHECK_EQ(code_of([&] { face::read(folder, "S1", "sensors", fam); }), std::string("no_such_row"));
+  }
+  {   // a selection of spans: start, stop (s), code, the dictionary
+    const face::Stored b = face::read(folder, "S1", "rest_bad_segments");
+    CHECK(b.arrays.size() == 3 && b.arrays[0].name == "start" && b.arrays[1].name == "stop" && b.arrays[2].name == "code");
+    const double* start = reinterpret_cast<const double*>(b.arrays[0].bytes.data());
+    const double* stop = reinterpret_cast<const double*>(b.arrays[1].bytes.data());
+    CHECK(b.arrays[0].shape == (std::vector<std::int64_t>{1}) && start[0] == 12.0 && stop[0] == 15.0);
+    CHECK(b.meta["dictionary"].size() == 1 && b.meta["dictionary"][0]["name"] == "BAD");
+  }
 
   // the lists
   CHECK(has(face::datasets(root)["datasets"], "name", "demo"));

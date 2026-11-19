@@ -4,7 +4,7 @@
 //   run         a pipeline on a subject (`nxr-neuro run`): the same library calls, so a result made from any face is the same cached result
 //   pipelines   what `run` takes: the built-in `psd` and every shipped definition, with each parameter's meaning, default and unit
 //   datasets · subjects · results      `nxr-neuro list datasets | subjects | recordings | kernels | results`
-//   read        a stored field, statistic, operator or selection (and a selection's measurements) as arrays plus metadata
+//   read        a stored field, statistic, operator, selection or manifold (a selection's measurements, a recording's span and rows, a manifold's labelling) as arrays plus metadata
 //
 // A dataset is a folder: a catalogue of subject packages, or a one-database dataset. The time range of a run is REQUIRED: from and to (seconds) or all.
 #pragma once
@@ -91,13 +91,34 @@ struct MeasurementQuery {
 };
 /** {measure, selection, level, snapped: {the level's real size in its unit}, rows, members, values: float64 [rows x members] row-major as `StoredArray`-like {shape, data}, weight, unit, where}. Nothing is written. */
 Json measurement_query(const std::filesystem::path& dataset, const std::string& subject, const MeasurementQuery& query);
-/** The stored thing `name` of the subject (a statistic, field, operator or selection, by name or id), read whole. With `measure`, `name` is a selection and the answer is its measurement table
- *  (what the measure carries on each member, `of_field` naming the field when several are measured). Nothing is written (the dataset is opened for reading). */
+/** What `read` is asked beyond the name. Every member is optional; an option that does not apply to what `name` is (a span of a manifold, a family of a field) is refused. */
+struct ReadRequest {
+  std::optional<std::string> measure;      // `name` is a selection: its measurement table of this measure
+  std::optional<std::string> of_field;     // ... of this field, when several are measured over the selection
+  // A TIME-RESOLVED FIELD (a recording, a source series: [rows x samples] on its time line) is read through io's chunk service, one chunk at a time:
+  std::optional<std::int64_t> start, stop; // the samples [start, stop) of its time axis (both, or neither: the whole recording, still read chunk by chunk)
+  std::vector<std::int32_t> rows;          // its rows (channels), in the order given; empty: every row
+  std::string projectors = "active";       // the chunk service's option: "active" (the recording's active projectors applied, as every run reads it) or "none" (the samples as stored)
+  std::string reading = "samples";         // "samples", or "shape": the description only (rate, origin, samples, channels, unit, projection, provenance), no sample read
+  // A MANIFOLD (by name or id: its positions, its cells, its axes, its element names) or, with `family`, one LABELLING of it:
+  std::optional<std::string> family;       // the labelling of the manifold of that name (type, unit, quality, hemisphere, lobe, ...): its code per element and its dictionary
+};
+/** The stored thing `name` of the subject (a statistic, field, operator, selection or manifold, by name or id). Nothing is written (the dataset is opened for reading).
+ *  - a statistic, an operator, a field with no time line: read whole (`values`; a sparse operator `data`, `indices`, `indptr`);
+ *  - a time-resolved field: `values` [rows x samples] in its stored precision, the span and rows of `request`, through the chunk service (the active projectors applied unless
+ *    `projectors` is none); meta: rate (Hz), origin (s), n_samples, n_channels, rows, the channels' manifold, the span read, the projection applied, unit, producer;
+ *  - a selection with an array: `values`, its per-element array; a selection of SPANS (events, bad segments): `start`, `stop` (s, on its line's clock), `code` (-1: none) and meta
+ *    `dictionary` [{code, name}]; with `measure`, the measurement table (`code`, `value`, `weight`, `members`);
+ *  - a manifold: `positions` [n x 3] as stored (meta `coordinate_unit` says their unit), `cells_<rank>` when it has cells; meta: type, n, axes, `names` (its `<name>_names` labelling, one
+ *    name per element, when stored) and the selections that lie on it; with `family`: `codes` (int64, one per element, -1: none) and meta `dictionary` [{code, name}]. */
+Stored read(const std::filesystem::path& dataset, const std::string& subject, const std::string& name, const ReadRequest& request);
+/** the same with only a measure (the form the MATLAB binding calls) */
 Stored read(const std::filesystem::path& dataset, const std::string& subject, const std::string& name, const std::optional<std::string>& measure = std::nullopt,
             const std::optional<std::string>& of_field = std::nullopt);
 
 /** A small one-database dataset for tests and demos, made in `datastore` (named `name`, subject `subject`): `channels` channels of known signals (sinusoid, noise; the last bad) stored as the
- *  recording `recording` in chunks of 700 samples at `sfreq`, `seconds` long, with one bad span. Returns the dataset's folder. */
+ *  recording `recording` in chunks of 700 samples at `sfreq`, `seconds` long, on the channel manifold `sensors` (positions, the names C0, C1, ... and the labellings type, unit and
+ *  quality), with one bad span (`<recording>_bad_segments`, type BAD). Returns the dataset's folder. */
 std::filesystem::path synthetic_dataset(const std::filesystem::path& datastore, const std::string& name = "demo", const std::string& subject = "S1", const std::string& recording = "rest",
                                         int channels = 3, double sfreq = 100.0, double seconds = 40.0, unsigned seed = 21);
 
