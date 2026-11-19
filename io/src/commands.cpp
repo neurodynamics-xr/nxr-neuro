@@ -184,6 +184,7 @@ CommandResult compact_dataset(const CompactDatasetRequest& rq) {
   co.small_files = !rq.no_small_files;
   CommandResult r;
   r.result = nxr::io::compact_dataset(ds, co);
+  r.result.erase("stage");   // the report's own result marker: the command line adds it
   ds.close();
   return r;
 }
