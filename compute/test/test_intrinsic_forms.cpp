@@ -14,6 +14,8 @@
 #include "mesh_helpers.h"
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/signal/intrinsic_forms.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/eigen.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
@@ -136,6 +138,56 @@ int main() {
         bool bad = false;
         try { nxr::signal::patternFields(c2, mp, {{7, 2}}, Eigen::VectorXcd::Ones(1)); } catch (const std::invalid_argument&) { bad = true; }
         EXPECT(bad, "patternFields refuses a normal row of an exact mode");
+    }
+    {   // the Hodge–Dirac modes read through modesOf: projection and synthesis invert each other on the modes' span, d0 of the exact potential is the
+        // exact part, coexactStream is splitPhase's stream, phaseCurrent is |z_tail||z_tip| sin of the phase step; mismatched modes are refused
+        std::vector<double> V2; std::vector<int32_t> F2;
+        icosphere(2, V2, F2, 1.0);
+        const int n2 = static_cast<int>(V2.size() / 3), f2 = static_cast<int>(F2.size() / 3);
+        const auto s2 = nxr::geometry::surfaceArrays(V2.data(), n2, F2.data(), f2);
+        const auto h = nxr::operators::hodgedirac::assemble(s2);
+        nxr::operators::HodgeSolveOptions o; o.limit = 30;
+        const auto r = nxr::operators::hodgeDiracModes(h, 40, false, o);
+        const nxr::signal::Modes md = nxr::signal::modesOf(r, h.nV, h.nE, h.nF);
+        const nxr::signal::Complex c2 = nxr::signal::complexOf(s2);
+        const int K = static_cast<int>(md.mu.size());
+        int nEx = 0; for (int k : md.kind) nEx += k == 0;
+        EXPECT(K == 30 && md.P.rows() == n2 && md.X2.rows() == c2.nF && nEx > 0 && nEx < K, "modesOf: 30 modes, both kinds, the 0- and 2-form rows");
+        Eigen::MatrixXd coef = Eigen::MatrixXd::Zero(K, 2);
+        for (int k = 0; k < K; ++k) { coef(k, 0) = nd(rng); coef(k, 1) = nd(rng); }
+        const Eigen::MatrixXd w = nxr::signal::synthesizeOneForm(c2, md, coef);
+        const double eRT = (nxr::signal::projectOneForm(c2, md, w) - coef).cwiseAbs().maxCoeff();
+        EXPECT(eRT < 1e-8, "projectOneForm(synthesizeOneForm(c)) = c (" << eRT << ")");
+        Eigen::MatrixXd ce = coef;
+        for (int k = 0; k < K; ++k) if (md.kind[k] != 0) ce.row(k).setZero();
+        const double eP = (c2.d0 * nxr::signal::exactPotential(md, coef) - nxr::signal::synthesizeOneForm(c2, md, ce)).cwiseAbs().maxCoeff();
+        EXPECT(eP < 1e-10, "d0 exactPotential = the exact part (" << eP << ")");
+        const auto sp = nxr::signal::splitPhase(c2, md, w.col(0));
+        EXPECT((nxr::signal::coexactStream(c2, md, coef).col(0) - sp.stream).cwiseAbs().maxCoeff() < 1e-12, "coexactStream = splitPhase's stream");
+        Eigen::MatrixXcd z(n2, 2);
+        for (int v = 0; v < n2; ++v) {
+            z(v, 0) = std::polar(1.0 + 0.5 * V2[3 * v + 2], 3.0 * V2[3 * v]);
+            z(v, 1) = std::polar(2.0, -V2[3 * v + 1]);
+        }
+        const Eigen::MatrixXd J = nxr::signal::phaseCurrent(c2, z);
+        double eJ = 0;
+        for (int col = 0; col < 2; ++col) {
+            const Eigen::VectorXd dphi = nxr::signal::phaseOneForm(c2, z.col(col));
+            for (int e = 0; e < c2.nE; ++e) {
+                const double want = std::abs(z(c2.edges[2 * e], col)) * std::abs(z(c2.edges[2 * e + 1], col)) * std::sin(dphi(e));
+                eJ = std::max(eJ, std::abs(J(e, col) - want));
+            }
+        }
+        EXPECT(J.rows() == c2.nE && J.cols() == 2 && eJ < 1e-12, "phaseCurrent = |z_tail||z_tip| sin(phase step), one column a frame (" << eJ << ")");
+        bool refused = false;
+        try { (void)nxr::signal::modesOf(nxr::operators::hodgeDiracModes(h, 40, true, o), h.nV, h.nE, h.nF); } catch (const std::invalid_argument&) { refused = true; }
+        EXPECT(refused, "modesOf refuses a both-signs solve (negative mu)");
+        std::vector<double> V1; std::vector<int32_t> F1;
+        icosphere(1, V1, F1, 1.0);
+        const nxr::signal::Complex c1 = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V1.data(), static_cast<int>(V1.size() / 3), F1.data(), static_cast<int>(F1.size() / 3)));
+        refused = false;
+        try { (void)nxr::signal::projectOneForm(c1, md, Eigen::MatrixXd::Zero(c1.nE, 1)); } catch (const std::invalid_argument&) { refused = true; }
+        EXPECT(refused, "modes of another triangulation are refused");
     }
     {   // an OPEN surface (a flat grid, one boundary loop): every edge's direction at both ends, the boundary edges included, is the mesh edge's,
         // so flat of a constant field is the exact edge difference and sharp recovers it at every vertex, the boundary vertices included

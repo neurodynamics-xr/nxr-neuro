@@ -197,7 +197,16 @@ VectorXd vertexCirculation(const Complex& c, const VectorXd& w) {
   return out;
 }
 
+namespace {
+void checkModes(const Complex& c, const Modes& m) {
+    if (m.P.rows() != c.nV || m.X2.rows() != c.nF || m.P.cols() != m.mu.size() || m.X2.cols() != m.mu.size() || static_cast<Eigen::Index>(m.kind.size()) != m.mu.size())
+        throw std::invalid_argument("the modes do not match the intrinsic complex (" + std::to_string(c.nV) + " vertices, " + std::to_string(c.nF) +
+                                    " faces): the modes and the complex must come from the same triangulation");
+}
+}  // namespace
+
 MatrixXd projectOneForm(const Complex& c, const Modes& m, const MatrixXd& w) {
+    checkModes(c, m); if (w.rows() != c.nE) throw std::invalid_argument("projectOneForm: the 1-form has one row an intrinsic edge (the modes and the complex must come from the same triangulation)");
     const MatrixXd s1w = c.star1.asDiagonal() * w;                       // ⋆1 ω
     const MatrixXd ex = m.P.transpose() * (c.d0.transpose() * s1w);       // ⟨dP_k, ω⟩⋆1
     const MatrixXd co = m.X2.transpose() * (c.star2.asDiagonal() * (c.d1 * w));   // ⟨⋆1⁻¹ d1ᵀ ⋆2 X2_k, ω⟩⋆1 = X2_kᵀ ⋆2 d1 ω
@@ -207,6 +216,7 @@ MatrixXd projectOneForm(const Complex& c, const Modes& m, const MatrixXd& w) {
 }
 
 MatrixXd synthesizeOneForm(const Complex& c, const Modes& m, const MatrixXd& coef) {
+    checkModes(c, m); if (coef.rows() != m.mu.size()) throw std::invalid_argument("synthesizeOneForm: one coefficient row a mode");
     MatrixXd ce = coef, cc = coef;
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) {
         const bool exact = m.kind[static_cast<std::size_t>(k)] == 0;
@@ -217,12 +227,14 @@ MatrixXd synthesizeOneForm(const Complex& c, const Modes& m, const MatrixXd& coe
 }
 
 MatrixXd projectTwoForm(const Complex& c, const Modes& m, const MatrixXd& sigma) {
+    checkModes(c, m); if (sigma.rows() != c.nF) throw std::invalid_argument("projectTwoForm: the 2-form has one row an intrinsic face");
     MatrixXd out = 2.0 * (m.X2.transpose() * (c.star2.asDiagonal() * sigma));
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (m.kind[static_cast<std::size_t>(k)] == 0) out.row(k).setZero();
     return out;
 }
 
 MatrixXd synthesizeTwoForm(const Complex& c, const Modes& m, const MatrixXd& coef) {
+    checkModes(c, m); if (coef.rows() != m.mu.size()) throw std::invalid_argument("synthesizeTwoForm: one coefficient row a mode");
     (void)c;
     MatrixXd cc = coef;
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (m.kind[static_cast<std::size_t>(k)] == 0) cc.row(k).setZero();
@@ -230,9 +242,35 @@ MatrixXd synthesizeTwoForm(const Complex& c, const Modes& m, const MatrixXd& coe
 }
 
 MatrixXd exactPotential(const Modes& m, const MatrixXd& coef) {
+    if (coef.rows() != m.mu.size()) throw std::invalid_argument("exactPotential: one coefficient row a mode");
     MatrixXd ce = MatrixXd::Zero(coef.rows(), coef.cols());
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (m.kind[static_cast<std::size_t>(k)] == 0) ce.row(k) = coef.row(k) / m.mu(k);
     return m.P * ce;
+}
+
+MatrixXd coexactStream(const Complex& c, const Modes& m, const MatrixXd& coef) {
+    checkModes(c, m);
+    if (coef.rows() != m.mu.size()) throw std::invalid_argument("coexactStream: one coefficient row a mode");
+    MatrixXd cs = MatrixXd::Zero(coef.rows(), coef.cols());
+    for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (m.kind[static_cast<std::size_t>(k)] == 2) cs.row(k) = coef.row(k) / m.mu(k);
+    return vertexDensity(c, m.X2 * cs);
+}
+
+Modes modesOf(const nxr::operators::EigenResult& r, int nV, int nE, int nF) {
+    const Eigen::Index K = r.eigenvalues.size();
+    if (r.eigenvectors.rows() != static_cast<Eigen::Index>(nV) + nE + nF || r.eigenvectors.cols() != K || r.kind.size() != K)
+        throw std::invalid_argument("modesOf: the result's rows are not nV + nE + nF, or it has no kind per mode (a Hodge–Dirac mode solve's result)");
+    Modes m;
+    m.P = r.eigenvectors.topRows(nV);
+    m.X2 = r.eigenvectors.bottomRows(nF);
+    m.mu = r.eigenvalues;
+    m.kind.resize(static_cast<std::size_t>(K));
+    for (Eigen::Index k = 0; k < K; ++k) {
+        if (!(r.eigenvalues(k) > 0)) throw std::invalid_argument("modesOf: a mode with mu <= 0 (solve without both signs)");
+        if (r.kind(k) != 0 && r.kind(k) != 2) throw std::invalid_argument("modesOf: a harmonic mode (only exact and coexact modes are read)");
+        m.kind[static_cast<std::size_t>(k)] = r.kind(k);
+    }
+    return m;
 }
 
 Eigen::VectorXd weightedPotentialMesh(const Complex& c, const VectorXd& w, const VectorXd& omega) {
@@ -305,9 +343,7 @@ PhaseSplit splitPhase(const Complex& c, const Modes& m, const Eigen::VectorXd& w
   out.shareResidual = E > 0 ? std::max(0.0, 1 - out.shareTiming - out.shareRotation) : NAN;
   out.potential = exactPotential(m, ce).col(0);
   out.propagation = sharp(c, -out.exact);
-  Eigen::VectorXd cs = cc;
-  for (Eigen::Index k = 0; k < K; ++k) if (m.kind[static_cast<std::size_t>(k)] == 2) cs(k) /= m.mu(k);
-  out.stream = vertexDensity(c, m.X2 * cs).col(0);
+  out.stream = coexactStream(c, m, cc).col(0);
   Eigen::VectorXd num = Eigen::VectorXd::Zero(c.nV), den = Eigen::VectorXd::Zero(c.nV);
   for (int e = 0; e < c.nE; ++e) {
     const double r2 = c.star1(e) * std::pow(w(e) - out.exact(e), 2), w2 = c.star1(e) * w(e) * w(e);
@@ -315,6 +351,16 @@ PhaseSplit splitPhase(const Complex& c, const Modes& m, const Eigen::VectorXd& w
   }
   out.inconsistency = num.cwiseQuotient(den);
   return out;
+}
+
+MatrixXd phaseCurrent(const Complex& c, const Eigen::MatrixXcd& z) {
+  if (z.rows() != c.nV) throw std::invalid_argument("phaseCurrent: z has one row a vertex");
+  MatrixXd J(c.nE, z.cols());
+  for (int e = 0; e < c.nE; ++e) {
+    const Eigen::Index a = c.edges[2 * static_cast<std::size_t>(e)], b = c.edges[2 * static_cast<std::size_t>(e) + 1];
+    J.row(e) = (z.row(a).conjugate().cwiseProduct(z.row(b))).imag();
+  }
+  return J;
 }
 
 Eigen::VectorXd phaseOneForm(const Complex& c, const Eigen::VectorXcd& x) {

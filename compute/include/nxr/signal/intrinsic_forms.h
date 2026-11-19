@@ -18,6 +18,9 @@
 //   synthesizeOneForm       coefficients → the 1-form Σ c_k φ_k
 //   projectTwoForm        a 2-form → the coefficients a [K x m] in the coexact 2-form parts (⋆2-orthonormal to 1/2): a_k = 2 ⟨σ, χ_k/√2⟩⋆2; synthesizeTwoForm: back
 //   exactPotential  the exact part's potential: Σ_exact c_k P_k / μ_k, whose d0 IS the exact part of Σ c_k φ_k (a timing map, from a phase 1-form)
+//   coexactStream   the coexact part's stream function: the 2-form potential Σ_coexact c_k X2_k / μ_k at the vertices (vertexDensity)
+//   modesOf      the Hodge–Dirac mode solve's result (operators::hodgeDiracModes: rows 0-forms · 1-forms · 2-forms) as Modes
+//   phaseCurrent a complex vertex field z → the 1-form J_e = Im(conj(z_tail) z_tip) (the discrete phase current; phaseOneForm is its phase only)
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <cstdint>
@@ -25,6 +28,7 @@
 
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/surface_arrays.h"
+#include "nxr/operators/eigen.h"
 
 namespace nxr::signal {
 
@@ -89,6 +93,10 @@ Eigen::MatrixXd synthesizeOneForm(const Complex& c, const Modes& m, const Eigen:
 Eigen::MatrixXd projectTwoForm(const Complex& c, const Modes& m, const Eigen::MatrixXd& sigma);   // [K x m]; 0 on exact modes
 Eigen::MatrixXd synthesizeTwoForm(const Complex& c, const Modes& m, const Eigen::MatrixXd& coef);   // [nF x m]
 Eigen::MatrixXd exactPotential(const Modes& m, const Eigen::MatrixXd& coef);                  // [V x m] Σ_exact c_k P_k / μ_k
+Eigen::MatrixXd coexactStream(const Complex& c, const Modes& m, const Eigen::MatrixXd& coef);  // [V x m] vertexDensity(Σ_coexact c_k X2_k / μ_k)
+/** The modes of a Hodge–Dirac solve (positive μ, kinds 0 exact and 2 coexact; nV, nE, nF the pencil's): P the 0-form rows, X2 the 2-form rows.
+ *  Throws std::invalid_argument on a result whose rows are not nV + nE + nF, a negative μ (a `bothSigns` solve) or a harmonic mode. */
+Modes modesOf(const nxr::operators::EigenResult& r, int nV, int nE, int nF);
 
 /** THE WEIGHTED POTENTIAL FIT of a 1-form ω on the intrinsic edges (the linearised magnetic Laplacian: each edge's lag counted by its weight):
  *  φ minimising Σ_e ⋆1_e w_e (φ_tip − φ_tail − ω_e)², w [nE] ≥ 0 (e.g. each edge's cross-power, or coherence).
@@ -120,5 +128,8 @@ struct PhaseSplit {
 PhaseSplit splitPhase(const Complex& c, const Modes& m, const Eigen::VectorXd& w);
 /** The phase 1-form of a complex vertex field x [V]: w_e = arg(x_tip conj x_tail). */
 Eigen::VectorXd phaseOneForm(const Complex& c, const Eigen::VectorXcd& x);
+/** The phase current of complex vertex fields z [V x m] (each column a frame): J_e = Im(conj(z_tail) z_tip) = |z_tail| |z_tip| sin(arg z_tip − arg z_tail),
+ *  a 1-form [nE x m] on the intrinsic edges (tail → tip). Pointwise in time: one column a frame. */
+Eigen::MatrixXd phaseCurrent(const Complex& c, const Eigen::MatrixXcd& z);
 
 }  // namespace nxr::signal
