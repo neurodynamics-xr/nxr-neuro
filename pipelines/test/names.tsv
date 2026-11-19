@@ -192,6 +192,16 @@ python	operators_hodgeLadders	nxr::operators::hodgeLadders	ok
 python	operators_poisson	nxr::operators::poisson	ok
 python	signal_sharp	nxr::signal::sharp	ok
 python	signal_flat	nxr::signal::flat	ok
+python	signal_modesOf	nxr::signal::modesOf	ok
+python	signal_projectOneForm	nxr::signal::projectOneForm	ok
+python	signal_synthesizeOneForm	nxr::signal::synthesizeOneForm	ok
+python	signal_projectTwoForm	nxr::signal::projectTwoForm	ok
+python	signal_synthesizeTwoForm	nxr::signal::synthesizeTwoForm	ok
+python	signal_exactPotential	nxr::signal::exactPotential	ok
+python	signal_coexactStream	nxr::signal::coexactStream	ok
+python	signal_phaseCurrent	nxr::signal::phaseCurrent	ok
+python	signal_phaseOneForm	nxr::signal::phaseOneForm	ok
+python	signal_splitPhase	nxr::signal::splitPhase	ok
 python	signal_psd	nxr::signal::psd	ok
 python	signal_xpsd	nxr::signal::xpsd	ok
 python	signal_filter	nxr::signal::filter	ok

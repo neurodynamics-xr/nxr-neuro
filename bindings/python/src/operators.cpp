@@ -3,6 +3,7 @@
 #include <nanobind/eigen/dense.h>
 #include <nanobind/eigen/sparse.h>
 #include <nanobind/stl/optional.h>
+#include <nanobind/stl/complex.h>
 #include <nanobind/stl/vector.h>
 
 #include <map>
@@ -193,6 +194,90 @@ Eigen::MatrixXd flat(const nb::dict& surface, const Eigen::MatrixXd& J) {
   return nxr::signal::flat(c, J);
 }
 
+// the modes of the intrinsic forms (nxr::signal::Modes) <-> a dict: P [V, K], X2 [F, K], mu [K], kind [K]
+nb::dict modes_out(nxr::signal::Modes&& m) {
+  nb::dict out;
+  out["P"] = std::move(m.P); out["X2"] = std::move(m.X2); out["mu"] = std::move(m.mu);
+  out["kind"] = Eigen::VectorXi(Eigen::Map<const Eigen::VectorXi>(m.kind.data(), static_cast<Eigen::Index>(m.kind.size())));
+  return out;
+}
+
+nxr::signal::Modes modes_in(const nb::dict& d) {
+  nxr::signal::Modes m;
+  m.P = nb::cast<Eigen::MatrixXd>(field(d, "P"));
+  m.X2 = nb::cast<Eigen::MatrixXd>(field(d, "X2"));
+  m.mu = nb::cast<Eigen::VectorXd>(field(d, "mu"));
+  const Eigen::VectorXi kind = nb::cast<Eigen::VectorXi>(field(d, "kind"));
+  m.kind.assign(kind.data(), kind.data() + kind.size());
+  return m;
+}
+
+nb::dict modes_of(const Eigen::MatrixXd& eigenvectors, const Eigen::VectorXd& eigenvalues, const Eigen::VectorXi& kind, int nV, int nE, int nF) {
+  ops::EigenResult r;
+  r.eigenvectors = eigenvectors; r.eigenvalues = eigenvalues; r.kind = kind;
+  r.k = static_cast<int>(eigenvalues.size()); r.nConverged = r.k;
+  return modes_out(nxr::signal::modesOf(r, nV, nE, nF));
+}
+
+// each form function rebuilds the complex from the surface's arrays (no flip: the same triangulation as the modes')
+template <class F>
+Eigen::MatrixXd on_complex(const nb::dict& surface, F&& f) {
+  const geom::SurfaceArrays s = surface_in(surface);
+  nb::gil_scoped_release release;
+  const nxr::signal::Complex c = nxr::signal::complexOf(s);
+  return f(c);
+}
+
+Eigen::MatrixXd project_one_form(const nb::dict& surface, const nb::dict& modes, const Eigen::MatrixXd& w) {
+  const nxr::signal::Modes m = modes_in(modes);
+  return on_complex(surface, [&](const nxr::signal::Complex& c) { return nxr::signal::projectOneForm(c, m, w); });
+}
+Eigen::MatrixXd synthesize_one_form(const nb::dict& surface, const nb::dict& modes, const Eigen::MatrixXd& coef) {
+  const nxr::signal::Modes m = modes_in(modes);
+  return on_complex(surface, [&](const nxr::signal::Complex& c) { return nxr::signal::synthesizeOneForm(c, m, coef); });
+}
+Eigen::MatrixXd project_two_form(const nb::dict& surface, const nb::dict& modes, const Eigen::MatrixXd& sigma) {
+  const nxr::signal::Modes m = modes_in(modes);
+  return on_complex(surface, [&](const nxr::signal::Complex& c) { return nxr::signal::projectTwoForm(c, m, sigma); });
+}
+Eigen::MatrixXd synthesize_two_form(const nb::dict& surface, const nb::dict& modes, const Eigen::MatrixXd& coef) {
+  const nxr::signal::Modes m = modes_in(modes);
+  return on_complex(surface, [&](const nxr::signal::Complex& c) { return nxr::signal::synthesizeTwoForm(c, m, coef); });
+}
+Eigen::MatrixXd coexact_stream(const nb::dict& surface, const nb::dict& modes, const Eigen::MatrixXd& coef) {
+  const nxr::signal::Modes m = modes_in(modes);
+  return on_complex(surface, [&](const nxr::signal::Complex& c) { return nxr::signal::coexactStream(c, m, coef); });
+}
+Eigen::MatrixXd exact_potential(const nb::dict& modes, const Eigen::MatrixXd& coef) {
+  const nxr::signal::Modes m = modes_in(modes);
+  nb::gil_scoped_release release;
+  return nxr::signal::exactPotential(m, coef);
+}
+Eigen::MatrixXd phase_current(const nb::dict& surface, const Eigen::MatrixXcd& z) {
+  return on_complex(surface, [&](const nxr::signal::Complex& c) { return nxr::signal::phaseCurrent(c, z); });
+}
+Eigen::MatrixXd phase_one_form(const nb::dict& surface, const Eigen::VectorXcd& x) {
+  return on_complex(surface, [&](const nxr::signal::Complex& c) { return Eigen::MatrixXd(nxr::signal::phaseOneForm(c, x)); });
+}
+
+nb::dict split_phase(const nb::dict& surface, const nb::dict& modes, const Eigen::VectorXd& w) {
+  const nxr::signal::Modes m = modes_in(modes);
+  const geom::SurfaceArrays s = surface_in(surface);
+  nxr::signal::PhaseSplit p;
+  {
+    nb::gil_scoped_release release;
+    const nxr::signal::Complex c = nxr::signal::complexOf(s);
+    if (w.size() != c.nE) throw std::invalid_argument("splitPhase: the 1-form has " + std::to_string(w.size()) + " values; the intrinsic complex has " + std::to_string(c.nE) + " edges");
+    p = nxr::signal::splitPhase(c, m, w);
+  }
+  nb::dict out;
+  out["coef"] = p.coef; out["exact"] = p.exact; out["coexact"] = p.coexact;
+  out["shareTiming"] = p.shareTiming; out["shareRotation"] = p.shareRotation; out["shareResidual"] = p.shareResidual;
+  out["potential"] = p.potential; out["stream"] = p.stream; out["inconsistency"] = p.inconsistency;
+  out["propagation"] = p.propagation;   // [3V, 1], x y z a vertex
+  return out;
+}
+
 }  // namespace
 
 void bind_operators(nb::module_& m) {
@@ -206,6 +291,16 @@ void bind_operators(nb::module_& m) {
   m.def("operators_poisson", &poisson, arg("K"), arg("M"), arg("density_vertices"), arg("density_values"));
   m.def("signal_sharp", &sharp, arg("surface"), arg("w"));
   m.def("signal_flat", &flat, arg("surface"), arg("J"));
+  m.def("signal_modesOf", &modes_of, arg("eigenvectors"), arg("eigenvalues"), arg("kind"), arg("nV"), arg("nE"), arg("nF"));
+  m.def("signal_projectOneForm", &project_one_form, arg("surface"), arg("modes"), arg("w"));
+  m.def("signal_synthesizeOneForm", &synthesize_one_form, arg("surface"), arg("modes"), arg("coef"));
+  m.def("signal_projectTwoForm", &project_two_form, arg("surface"), arg("modes"), arg("sigma"));
+  m.def("signal_synthesizeTwoForm", &synthesize_two_form, arg("surface"), arg("modes"), arg("coef"));
+  m.def("signal_exactPotential", &exact_potential, arg("modes"), arg("coef"));
+  m.def("signal_coexactStream", &coexact_stream, arg("surface"), arg("modes"), arg("coef"));
+  m.def("signal_phaseCurrent", &phase_current, arg("surface"), arg("z"));
+  m.def("signal_phaseOneForm", &phase_one_form, arg("surface"), arg("x"));
+  m.def("signal_splitPhase", &split_phase, arg("surface"), arg("modes"), arg("w"));
 }
 
 }  // namespace nxrpy
