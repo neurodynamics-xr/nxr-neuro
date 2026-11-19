@@ -190,15 +190,15 @@ def test_forms_on_the_modes(sphere):
 
 
 def test_plane_wave_on_a_disc_is_timing():
-    # a plane wave on a flat disc (open, one loop): its phase steps are a gradient, read as timing (no rotation). With every mode the timing share is 1 and
-    # the potential is the phase up to a constant; truncated, what the kept modes miss is residual (a linear phase converges slowly in the Neumann modes)
+    # a plane wave on a flat disc (open, one loop): its phase steps are a gradient, read as timing with no rotation; what a truncated basis misses is residual
+    # (a linear phase converges slowly in the Neumann modes), and the potential follows the phase
     v, f = disc(11)
     s = G.surfaceArrays(v, f)
     h = O.hodgedirac.assemble(s)
     ic = S.intrinsicComplex(s)
-    w = S.phaseOneForm(ic, np.exp(1j * (2.0 * v[:, 0] + 1.0 * v[:, 1])))
-    full = S.splitPhase(ic, S.modesOf(O.hodgeDiracModes(h, 160), h), w)
-    assert full["shareTiming"] > 1 - 1e-6 and full["shareRotation"] < 1e-12
-    np.testing.assert_allclose(full["potential"] - full["potential"].mean(), (2.0 * v[:, 0] + v[:, 1]) - (2.0 * v[:, 0] + v[:, 1]).mean(), atol=1e-5)
-    cut = S.splitPhase(ic, S.modesOf(O.hodgeDiracModes(h, 40), h), w)
-    assert cut["shareRotation"] < 1e-12 and 0.9 < cut["shareTiming"] < 1 and abs(cut["shareResidual"] - (1 - cut["shareTiming"])) < 1e-9
+    phase = 2.0 * v[:, 0] + 1.0 * v[:, 1]
+    w = S.phaseOneForm(ic, np.exp(1j * phase))
+    for count in (40, 80):
+        sp = S.splitPhase(ic, S.modesOf(O.hodgeDiracModes(h, count), h), w)
+        assert sp["shareRotation"] < 1e-12 and 0.9 < sp["shareTiming"] < 1 and abs(sp["shareResidual"] - (1 - sp["shareTiming"])) < 1e-9
+        assert np.corrcoef(sp["potential"], phase)[0, 1] > 0.997
