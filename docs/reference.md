@@ -882,7 +882,18 @@ reference is nxr's `nxr/pipelines/` (`definition.py`, `registry.py`, `inputs.py`
   **`shape`: `morlet` (the DEFAULT) or `meyer`.** Morlet is the project's fixed-band rule (nxr `vortex.morlet_gain`, `bands_fixed`): a Gaussian in frequency,
   unit peak, centred on the band's ARITHMETIC centre (lo + hi)/2, the band's width hi − lo its full width at half maximum (σ = (hi − lo)/(2√(2 ln 2)); `filterbank::morletBand`),
   taken to taps as any gain; Re z is the band-passed signal. `meyer` (compact edges, `half_width` octaves, default 1/3) is the named option for analyses that split power across
-  bands: Morlet bands overlap and do not add up. Both options are in the step's parameters, so in the run's provenance and cache key. Not changed: `crossspectrum --estimator analytic`
+  bands: Morlet bands overlap and do not add up. Both options are in the step's parameters, so in the run's provenance and cache key.
+  **The phase current's `discretisation`** (`signal.field_form` with `form: phase_current`): `vertex_gradient` (the DEFAULT, the reference: nxr core_phase, Im(z̄ ∇z) with the
+  mesh's vertex gradient on the tangent plane) or `intrinsic_edges` (the same quantity on the edges of the surface's intrinsic Delaunay complex, Im(z̄_tail z_tip), back at the
+  vertices by `sharp`; the complex is built once in preparation with `eigen solve`'s default options). The same ports and measures either way; the option is in the provenance
+  and the cache key; any other form refuses it.
+- **`signal.phase_split`** (`form_steps.cpp`; spec `docs/specs/2026-11-19-intrinsic-form-nodes.md`): a complex scalar field on the surface a Hodge-Dirac package is solved on (the
+  glued surface of a cortex: `meeg.apply_kernel` with `glued`) and the package → per sample, at the vertices: `potential` (the timing potential φ, d0 φ = the exact part of the
+  phase 1-form, rad), `stream` (the coexact part's stream function), `propagation` (−∇φ, vector3), and the ⋆1 energies `phase_lag_energy`, `timing_energy`, `rotation_energy`,
+  `timing_misfit_energy` (`nxr::signal::phaseGradient` on the edges, `splitPhase`, `vertexEnergy`). The 1-forms stay inside the node. The runner binds the package's 2-form parts
+  and its complex's options (mollify, flip_eps, star1_floor, from the solve's provenance) with its eigenvectors, in preparation; the node rebuilds the same complex and refuses
+  2-form parts of another triangulation. The shares are measurements: each energy reduced (`measurement.reduce`, measure `sum` under the energy's name) over any partition,
+  `timing_share`, `rotation_share`, `residual_share`, `timing_inconsistency` derived at read (over a tile the parts are not orthogonal: a share may pass 1 there). Not changed: `crossspectrum --estimator analytic`
   keeps its Meyer band. Morlet is not compact: its tail leaks across DC and Nyquist for a wide band near either (the band is still checked below Nyquist). The definitions
   `cortical_band_cells` (lists) and `global_bursts` (lists) set `shape: meyer` (scale selection splits power across bands); `global_bursts`, `band_bursts`, `cortical_band_cells`,
   and `cortical_band_cells_current` take the new default, so their stored numbers differ from before 2026-11-14 (rerun with `--replace`).

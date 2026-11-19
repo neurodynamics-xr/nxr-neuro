@@ -1,7 +1,7 @@
 # The intrinsic forms as graph nodes (design, 2026-11-19)
 
-Status: **design only; not implemented.** One piece (the phase split) needs a decision on how the eigenmode package's 2-form parts reach a node (section 4).
-The other (the phase current on the intrinsic edges) needs no change to the type system and can be built as written once the design is accepted.
+Status: **implemented (2026-11-19), option B of section 4**: the runner binds the package's 2-form parts and its complex's options into the eigenmode constant it already
+binds (preparation; a node asks for it with `NodeSpec::reads_package_forms`). Built: the `discretisation` option of the `phase_current` form (3.1) and `signal.phase_split` (3.2).
 
 ## 1. What is asked
 
@@ -80,12 +80,13 @@ Three ways to get X2 to the node:
 | B | the package constant carries its 2-form parts: the runner, which already reads the eigenvectors and the glued surface of a package, also reads `<stem>_forms2` into the same constant (a second array of the constant, not a port) and the Delaunay options of the complex (from the package's provenance) | none: the package stays one operator input typed by its eigenvectors | a change to how the runner binds a package (one place, `runner.cpp`); the graph's `Array` holds one matrix today, so the constant needs a second array (or the node reads a second constant the runner adds under the same input) |
 | C | rebuild X2 in `prepare` from the complex and a fresh eigensolve | none | a solve per run: breaks "eigenmodes first" (stored modes are used, never re-solved) and wastes time. Rejected |
 
-**Recommendation: B.** It keeps edges and faces out of the type system (the PI's direction), and the package is already bound as one constant; it only adds its 2-form parts.
+**Chosen: B** (the package's full forms are part of the package constant: `meta.forms2` the stored float32 bytes, `meta.forms2_shape`, `meta.complex` the options; the
+complex rebuilt by `intrinsicComplex(surface, star1Floor)`, its ⋆1 raised as the pencil's). **Recommendation was B.** It keeps edges and faces out of the type system (the PI's direction), and the package is already bound as one constant; it only adds its 2-form parts.
 A is the right long-term answer if 1-forms and 2-forms are ever to be stored as Fields or passed between nodes (a `cells` manifold kind with the cell dimension), and is a
 type-system change the PI must decide.
 
-Per the round's stop rule (a design that needs a type-system change, or a change to an existing convention the PI has not seen, is written up, not built), neither node was built
-in this round. 3.1 needs no decision beyond accepting this design and can be built first.
+Tests: `test_phase_split` (the node through dispatch on a sphere with its modes; equal to the compute functions; independent of the blocks; shares from partition sums;
+refusals), `test_hodge_power` (the node through the runner on a solved package), `test_runner_execute` and `test_runner_plan` (the discretisation option).
 
 ## 5. Tests (when built)
 
