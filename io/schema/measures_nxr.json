@@ -1141,7 +1141,7 @@
     "timing_energy",
     "phase_lag_energy"
    ],
-   "description": "the share of a phase 1-form's ⋆1 energy its exact (timing) part holds over a member: timing_energy / phase_lag_energy. A RATIO of sums, derived at read (NaN where the member has no energy)"
+   "description": "the share of a phase 1-form's ⋆1 energy its exact (timing) part holds over a member: timing_energy / phase_lag_energy. A RATIO of sums, derived at read (NaN where the member has no energy). The parts are ⋆1-orthogonal over the whole complex only: over a tile their cross terms remain, so a tile's share may pass 1"
   },
   {
    "code": 1130,
@@ -1155,7 +1155,7 @@
     "rotation_energy",
     "phase_lag_energy"
    ],
-   "description": "the share of a phase 1-form's ⋆1 energy its coexact (rotation) part holds over a member: rotation_energy / phase_lag_energy. A RATIO of sums, derived at read"
+   "description": "the share of a phase 1-form's ⋆1 energy its coexact (rotation) part holds over a member: rotation_energy / phase_lag_energy. A RATIO of sums, derived at read (over a tile, as timing_share, it may pass 1: the cross terms of the parts remain)"
   },
   {
    "code": 1131,

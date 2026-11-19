@@ -10,6 +10,7 @@
 
 #include "nxr/graph/node.h"
 #include "nxr/pipelines/flow_steps.h"
+#include "nxr/pipelines/form_steps.h"
 #include "nxr/pipelines/pca_steps.h"
 #include "nxr/selection/selection.h"
 
@@ -78,6 +79,7 @@ void register_partition_nodes() {
     if (!r.find(n.name)) r.add(std::move(n));
   register_pca_nodes();
   register_flow_nodes();
+  register_form_nodes();
 }
 
 }  // namespace nxr::pipelines::graph

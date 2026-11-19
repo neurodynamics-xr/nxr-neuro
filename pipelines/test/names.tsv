@@ -66,6 +66,7 @@ node	signal.analytic_bands	-	composite
 node	signal.filter	nxr::signal::filter	ok
 node	signal.flow_activation	-	composite
 node	signal.flow_hodge_modes	-	composite
+node	signal.phase_split	-	composite
 node	signal.flow_max_amplitude	-	composite
 node	signal.flow_series	-	composite
 node	signal.flow_velocity	-	composite

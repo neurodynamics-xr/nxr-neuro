@@ -167,6 +167,7 @@ test_measurement_query	unit
 test_measures	unit
 test_meeg_pipelines	integration
 test_member_analytic	integration
+test_phase_split	integration
 test_mesh_bundles	unit
 test_migrate	unit
 test_migrate_measurement	unit

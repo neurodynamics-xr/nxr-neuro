@@ -303,6 +303,25 @@ Signature s_field_form() {
       });
 }
 
+// `signal.phase_split`: the phase of a complex scalar field on a surface split by a Hodge-Dirac package's modes, per sample; every output a real vertex field on x's domain
+// (the propagation a tangent vector3); the edges of the package's complex stay inside the node (docs/specs/2026-11-19-intrinsic-form-nodes.md)
+Signature s_phase_split() {
+  return sig(Move::pointwise)
+      .in("x", field({M, TF}).streamed())
+      .in("package", any_port().because("The Hodge-Dirac package (its eigenvectors operator) of the surface x lies on."))
+      .out("potential", like("x")).out("stream", like("x")).out("propagation", like("x"))
+      .out("phase_lag_energy", like("x")).out("timing_energy", like("x")).out("rotation_energy", like("x")).out("timing_misfit_energy", like("x"))
+      .refine([](Unified& u, const Json&) {
+        const PortType& x = u.type("x");
+        if (x.value != VT::complex) u.fail("x", "must be a complex scalar field (the analytic signal at the vertices): its phase is split");
+        if (!is_surface(x.domain.factors.front())) u.fail("x", "its first factor " + print(x.domain.factors.front()) + " is not a surface; the phase is split on a surface's intrinsic complex");
+        for (auto& [name, y] : u.out) {
+          y.nonlinear = true; y.complex_parts = false; y.quantity.clear();
+          y.value = name == "propagation" ? VT::vector3 : VT::real;
+        }
+      });
+}
+
 // ── the makers (spec section 1): each a `make` node reading no field; the grid's identity is the value's name ─────────────────────────────────────────────────────────────────────────────────────
 Signature s_select_time_grid() {
   return sig(Move::make)
@@ -758,6 +777,7 @@ const std::map<std::string, Signature>& table() {
     m["measurement.roll_up"] = s_roll_up();
     m["measurement.estimate"] = s_estimate();
     m["signal.field_form"] = s_field_form();
+    m["signal.phase_split"] = s_phase_split();
     m["select.time_grid"] = s_select_time_grid();
     m["select.dyadic_surface"] = s_select_dyadic_surface();
     m["select.bands"] = s_select_bands();
