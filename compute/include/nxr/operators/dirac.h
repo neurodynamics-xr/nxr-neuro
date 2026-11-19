@@ -73,7 +73,13 @@ struct HodgeDirac {
     Eigen::VectorXd star0, star1, star2;// diagonal Hodge stars (star1 after the floor)
     Eigen::VectorXd M;                  // [star0; star1; star2]
     int nV = 0, nE = 0, nF = 0;
-    int star1Clamped = 0;               // edges whose cotan weight was raised to the floor
+    double star1Floor = 0.0;            // the floor the caller named (0 = none)
+    int star1Clamped = 0;               // edges whose cotan weight was raised to the floor (rounding-level zeros and genuine negatives alike)
+    int star1Negative = 0;              // of those, the BOUNDARY edges whose raw cotan weight was genuinely negative (below −1e-9 of the mean |weight|): an
+                                        // obtuse angle opposite a boundary edge, which no flip can fix (boundary edges never flip); an interior edge's
+                                        // small negative weight is within the Delaunay flip tolerance and is not counted
+    // the topology of the operator mesh (the same as the input's): χ = nV − nE + nF = 2 − 2·genus − boundaryLoops
+    int eulerCharacteristic = 0, boundaryLoops = 0, genus = 0;
     double mollifyEps = 0.0;            // length added to every edge by mollify (0 = none needed)
     Eigen::MatrixXi faces;              // [nF, 3] the intrinsic triangulation's faces (vertex indices are the input's)
     geometry::IntrinsicRecord record;             // mollify, ε, flipEps, flips, gauge of the construction
@@ -84,6 +90,12 @@ struct HodgeDirac {
 // Uses the surface's operator mesh (the arrays' intrinsic triangulation).
 HodgeDirac assemble(const geometry::SurfaceArrays& surface, double star1Floor = 0.0, double mollify = 1e-6, double flipEps = 1e-6);
 Eigen::SparseMatrix<double> massMatrix(const HodgeDirac& h);   // diag(M)
+// The checks every Hodge–Dirac mode solve makes before it runs (hodgeDiracModes; the `eigen solve` pipeline's preparation). Throws core::Error:
+//  * ClosedMeshRequired unless the mesh is a closed genus-0 surface or a disc (genus 0, one boundary loop): the exact/coexact split builds no harmonic
+//    1-forms, which a surface with b > 1 boundary loops (b − 1 of them) or genus g > 0 (2g) has; their modes would be silently incomplete;
+//  * GeometryDegenerate when ⋆1 has genuinely negative weights (`star1Negative` > 0) and the caller named no floor (`h.star1Floor` = 0): raised to the
+//    rounding level, ⋆1⁻¹ would be huge in the coexact ladder and give spurious modes. A named floor is the caller's explicit choice and is accepted.
+void requireComplete(const HodgeDirac& h);
 } // namespace nxr::operators::hodgedirac
 
 namespace nxr::operators::spin {

@@ -2,7 +2,8 @@
 //   d1·d0 = 0; ⋆1 ≥ 0 (Delaunay); an unflipped edge's direction at each end is the mesh edge's (the signposts embedded through the input's edges);
 //   flat of a GRADIENT field ∇f (f = z, its tangential part) ≈ d0 f, the exact edge differences (the field integrated along each edge);
 //   sharp(flat(J)) ≈ J for smooth tangent fields (a gradient and a rotation n × ẑ), away from nothing (a closed sphere);
-//   area2form / vertexDensity: a constant density integrates to the area and comes back constant.
+//   area2form / vertexDensity: a constant density integrates to the area and comes back constant;
+//   on an OPEN grid: flat and sharp exact for a constant field at every edge and vertex, the boundary included.
 #include <cmath>
 #include <iostream>
 #include <complex>
@@ -135,6 +136,29 @@ int main() {
         bool bad = false;
         try { nxr::signal::patternFields(c2, mp, {{7, 2}}, Eigen::VectorXcd::Ones(1)); } catch (const std::invalid_argument&) { bad = true; }
         EXPECT(bad, "patternFields refuses a normal row of an exact mode");
+    }
+    {   // an OPEN surface (a flat grid, one boundary loop): every edge's direction at both ends, the boundary edges included, is the mesh edge's,
+        // so flat of a constant field is the exact edge difference and sharp recovers it at every vertex, the boundary vertices included
+        const int n = 7;
+        std::vector<double> P; std::vector<int32_t> T;
+        // positions as j * (1 / (n - 1)) (NumPy's linspace), not j / (n - 1): at some rim vertices the input's angle sum then lands one ulp under the
+        // intrinsic cone angle, the case where a boundary edge's direction once wrapped round through the exterior
+        const double step = 1.0 / (n - 1);
+        for (int i = 0; i < n; ++i) for (int j = 0; j < n; ++j) { P.push_back(j * step); P.push_back(i * step); P.push_back(0.0); }
+        for (int i = 0; i + 1 < n; ++i) for (int j = 0; j + 1 < n; ++j) { const int a = i * n + j, b = a + 1, cc = a + n, d = cc + 1; T.insert(T.end(), {a, b, d, a, d, cc}); }
+        const nxr::signal::Complex g = nxr::signal::complexOf(nxr::geometry::surfaceArrays(P.data(), n * n, T.data(), static_cast<int>(T.size() / 3)));
+        const Eigen::Vector3d u(0.3, -0.7, 0.0);
+        Eigen::MatrixXd J(3 * g.nV, 1);
+        for (int v = 0; v < g.nV; ++v) J.middleRows(3 * v, 3) = u;
+        const Eigen::MatrixXd w = nxr::signal::flat(g, J);
+        double worstFlat = 0;
+        for (int e = 0; e < g.nE; ++e) {
+            const Eigen::Vector3d ch = g.positions.row(g.edges[2 * e + 1]) - g.positions.row(g.edges[2 * e]);
+            worstFlat = std::max(worstFlat, std::abs(w(e, 0) - ch.dot(u)));
+        }
+        EXPECT(worstFlat < 1e-6, "open grid: flat of a constant field = the edge differences, boundary edges included (worst " << worstFlat << ")");
+        const Eigen::MatrixXd back = nxr::signal::sharp(g, w);
+        EXPECT((back - J).cwiseAbs().maxCoeff() < 1e-6, "open grid: sharp recovers the constant field at every vertex, boundary included");
     }
     std::cout << (failures ? "FAIL" : "PASS") << " test_intrinsic_forms (" << failures << " failures)\n";
     return failures ? 1 : 0;

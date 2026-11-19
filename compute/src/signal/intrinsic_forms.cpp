@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 
 namespace nxr::signal {
@@ -38,12 +39,19 @@ Complex complexOf(const nxr::geometry::SurfaceArrays& arrays) {
     c.star0 = nxr::operators::vertexMass(arrays, nxr::operators::MassMatrixVariant::MixedVoronoi).diagonal();
     c.star1 = dec.hodge1.diagonal();
     c.star2 = dec.hodge2.diagonal();
-    c.angleTail.resize(c.nE); c.angleTip.resize(c.nE);
+    c.angleTail = VectorXd::Constant(c.nE, std::numeric_limits<double>::quiet_NaN());
+    c.angleTip = c.angleTail;
     for (int h = 0; h < 3 * c.nF; ++h) {
         const int se = K.faceEdges[static_cast<std::size_t>(h)], e = std::abs(se) - 1;
         (se > 0 ? c.angleTail : c.angleTip)(e) = K.angle[static_cast<std::size_t>(h)];
     }
     c.coneAngle = Eigen::Map<const VectorXd>(K.angleSum.data(), c.nV);
+    // a boundary edge has one face: its halfedge runs along the edge (tail -> tip), and the end at its tip has no corner. Its direction there is the
+    // last of the tip's fan, at the tip's angle sum (a boundary vertex's angles run from its first boundary edge, 0, to its other one, the angle sum)
+    for (int e = 0; e < c.nE; ++e) {
+        if (std::isnan(c.angleTip(e))) c.angleTip(e) = c.coneAngle(c.edges[static_cast<std::size_t>(2 * e + 1)]);
+        if (std::isnan(c.angleTail(e))) c.angleTail(e) = c.coneAngle(c.edges[static_cast<std::size_t>(2 * e)]);
+    }
     c.reference.assign(K.reference.begin(), K.reference.end());
     attachEmbedding(c, surface);
     return c;
@@ -94,6 +102,9 @@ Eigen::Vector3d tangentAt(const Complex& c, int e, bool atTip) {
     const auto& hi = i + 1 < fan.size() ? fan[i + 1] : fan[0];
     double span = hi.first - lo.first, off = theta - lo.first;
     if (i + 1 >= fan.size()) span += cone;
+    // an angle within rounding of an input edge's IS that edge (exact): at a boundary vertex the last input edge sits at the angle sum, and an intrinsic
+    // edge there (the boundary edge, at the cone angle) must not wrap round through the exterior, where the boundary vertex's fan has no gap to cross
+    if (std::abs(off) <= 1e-9) return atTip ? Eigen::Vector3d(-lo.second) : lo.second;
     const double s = span > 0 ? off / span : 0.0;
     // rotate lo toward hi in the tangent plane by s of the angle between them (the actual angle, not the signpost's)
     const Eigen::Vector3d n = row3(c.normals, v);

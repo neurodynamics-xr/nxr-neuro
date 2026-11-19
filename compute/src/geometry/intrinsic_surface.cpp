@@ -502,7 +502,12 @@ std::vector<double> IntrinsicSurface::inputSignpostAngles() {
         for (int guard = 0; guard < 1 << 20; ++guard) {
             a[he.getIndex()] = sum;
             sum += g.cornerAngles[he.corner()];
-            if (he.next().next().twin() == v.halfedge() || !he.next().next().twin().isInterior()) break;
+            if (he.next().next().twin() == v.halfedge()) break;
+            if (!he.next().next().twin().isInterior()) {
+                // a boundary vertex: the fan ends at the boundary edge whose outgoing halfedge is exterior; its direction is at the vertex's angle sum
+                a[he.next().next().twin().getIndex()] = sum;
+                break;
+            }
             he = he.next().next().twin();
         }
     }
