@@ -387,7 +387,7 @@ the step is ever needed without Brainstorm; none of the "need" entries of this t
 |---|---|---|---|
 | 16 | the two halves | training [5 s, floor(T/2)], validation [ceil(T/2), T − 5 s], T the run's last time | have (spans are the caller's) |
 | 17 | spectra | `process_psd` on each band's region signals: Welch, 2 s windows, 50 % overlap, power, the release's units and window; 0.5-Hz bins | partial: Welch has (Brainstorm golden); not on region signals |
-| 18 | the spectral feature | 68 regions × 301 bins (0–150 Hz), as the notebooks read it; band notebooks: delta 8, theta 8, alpha 10, beta 34, gamma 40, high gamma 201 bins | **open**: how the 301 bins are assembled from the six band spectra is not in the release |
+| 18 | the spectral feature | 68 regions × 301 bins (0–150 Hz): each band's region spectrum cut to the band, the six side by side (delta 0–3.5 Hz, theta 4–7.5, alpha 8–12.5, beta 13–29.5, gamma 30–49.5, high gamma 50–150 inclusive: 8 + 8 + 10 + 34 + 40 + 201); the band notebooks read each band's cut alone | need (decided 2026-11-19, section 12.1) |
 | 19 | the connectome feature | per band, the region signals band-passed again (`process_bandpass` Compute, default), Hilbert transform, amplitude envelopes, Pearson correlation of every pair: 68 × 68; **no orthogonalisation** (the paper and the code agree) | need (AEC); the analytic signal has, the Hilbert of a Brainstorm band-pass does not |
 
 ### 11.4 The cohort (the notebooks)
@@ -413,9 +413,14 @@ statistics: Finn ES et al. (2015) Nat Neurosci 18:1664; Amico E, Goñi J (2018) 
 
 ## 12. Open points to settle before building (amendment 2026-11-19)
 
-1. **The spectral feature's 301 bins** (step 18): the release does not contain the export from the six band spectra to the 68 × 301 feature. One
-   reading fits the band notebooks' bin counts (each band's own spectrum over [previous band's high edge, its high edge), delta from 0 Hz, high gamma
-   to 150 Hz inclusive); it is an inference until the authors confirm it.
+1. **The spectral feature's 301 bins** (step 18). **Decided 2026-11-19:** each band's region spectrum is cut to the band and the six are placed
+   side by side, each 0.5-Hz bin taken from the source model of the band that contains it (delta from 0 Hz, high gamma to 150 Hz inclusive). The
+   release does not contain this export; the reading is the only one that reproduces the notebooks' table sizes (the band folders hold 8, 8, 10, 34,
+   40 and 201 bins, the full-band folder 301), and it is recorded in the provenance as an inference from the release.
+   **In nxr-neuro's terms:** the region partition and the band set are Selections the pipeline names, not constants of the method. The compute
+   functions take any partition (Desikan–Killiany, the dyadic tiles of the surface, another atlas) and any labelled band set (`select.bands`); the
+   definition's defaults are the reference's: LCMV per band, Desikan–Killiany (68), the region's first principal component, Welch 2 s / 50 %, the six
+   bands with the cut edges above. Another partition or band set is a different, named run, never a silent change.
 2. **D_self** (step 23): the notebook (which made the published numbers) or the paper's formula.
 3. **Quirks of the release that change numbers**: the projectors are applied to the subject's data covariance but not to the empty room's noise
    covariance; the connectome band-passes each band twice (sensor level, then again before the Hilbert transform); the halves' boundary takes T
