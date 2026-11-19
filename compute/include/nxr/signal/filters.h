@@ -21,15 +21,14 @@
 //     IIR ends = MATLAB's filtfilt: the signal extended by an odd reflection of 3 x (the filter length - 1) samples, the filter started from its steady state.
 // (MNE-Python's filter_data option set: not done.)
 //
-// STREAMING. `Filter::add(chunk)` takes [channels x samples] blocks of any size and returns the samples that are now FINAL: the output lags the input by the filter's
-// look-ahead (R samples), and `finish()` flushes the rest (with the record's end). Every output block is computed from the input window it needs (L samples behind, R ahead);
-// the record's two ends are treated as the reference treats them (ends are known: the window then begins at sample 0, or ends at the last). Memory: one chunk + L + R samples
-// per channel.
-//   FIR  L = R = (order)/2 : the output is the whole-record filter to rounding (~1e-12), for any chunk size.
-//   IIR  forward-backward filters have an infinite impulse response, so L = R = the sum over the stages of the length after which the impulse response has decayed to
-//        `tolerance` (absolute, relative to its L1 norm; default 1e-15); the stage is started from its steady state at the window's start. The output equals the whole-record
-//        filter to ~`tolerance` x the signal's variation (~1e-12 for signals of order 1-10), for any chunk size; at the record's ends it is exact.
-// Brainstorm's mean removal needs the RECORD's mean: a caller that streams passes the means of the window it filters (computed in a first pass, `RunningMean`).
+// WINDOWS ARE THE CALLER'S. `filter` takes one window of a record with its halo and returns the window's own samples: a caller that streams a recording (the chunk service, the
+// `signal.filter` node) hands it each chunk with design.lookBehind samples before and design.lookAhead after (or the record's end), and the output is the whole record's there, for any
+// chunk size; a whole array in memory is one window (`lowpass` ... `notch`). Stateless: windows in any order.
+//   FIR  look-behind = look-ahead = order/2: the whole-record filter to rounding (~1e-12).
+//   IIR  forward-backward filters have an infinite impulse response, so the halo is the sum over the stages of the length after which the impulse response has decayed to
+//        `tolerance` (relative to its L1 norm; default 1e-15); each stage starts from its steady state at the window's start. The whole-record filter to ~`tolerance` x the
+//        signal's variation; at the record's ends it is exact.
+// Brainstorm's mean removal needs the RECORD's channel means: the caller passes them (a measurement over the record's span; the whole-array verbs take the array's own means).
 #include <Eigen/Dense>
 #include <complex>
 #include <cstddef>
@@ -82,18 +81,6 @@ struct Design {
 
 /** The filter the options describe. Invalid edges (not 0 < edge < Nyquist, lower >= upper, ...) throw std::invalid_argument. */
 Design design(const FilterOptions& options);
-
-/** Channel means over what is fed (a first pass, for Brainstorm's mean removal). */
-class RunningMean {
-public:
-    explicit RunningMean(int channels) : sum_(Eigen::VectorXd::Zero(channels)) {}
-    void add(const Eigen::MatrixXd& chunk) { sum_ += chunk.rowwise().sum(); n_ += chunk.cols(); }
-    Eigen::VectorXd mean() const { return n_ ? Eigen::VectorXd(sum_ / static_cast<double>(n_)) : sum_; }
-    std::int64_t samples() const { return n_; }
-private:
-    Eigen::VectorXd sum_;
-    std::int64_t n_ = 0;
-};
 
 /** THE PURE FILTER (zero-phase: forward-backward IIR, centred FIR; Brainstorm's process_bandpass / process_notch): one window of a record, `w` [channels x width], whose OWN columns
  *  are [left, left + own); returns those own columns filtered. `atStart` / `atEnd`: the window reaches the record's first / last sample (its ends are padded as the option set says).
