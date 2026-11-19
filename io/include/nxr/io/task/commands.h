@@ -190,4 +190,181 @@ struct ReadDatasetRequest {
 /** without `array`: {subjects: [{name, path, kind}], arrays: [{subject, record, path, shape, dtype, checksum}]}; with it: {shape, dtype, checksum} and the array */
 CommandResult read_dataset(const ReadDatasetRequest& request);
 
+// ---- import (Brainstorm protocols; files in the field's formats into a subject package; BIDS; participants) ----
+
+/** `import list PROTOCOL`: {root, subjects} (the command line prints it as its `"stage": "protocol"` line) */
+struct ImportListRequest { std::string protocol; };
+CommandResult import_list(const ImportListRequest& request);
+
+/** `import scan PROTOCOL`: {kind, root, [wrote], the counts, view}; `summary`: the view left out (the counts only); `out` writes the view as JSON (`prefer`: protocol.mat | walk) */
+struct ImportScanRequest { std::string protocol; std::optional<std::string> prefer, out; bool summary = false; };
+CommandResult import_scan(const ImportScanRequest& request);
+
+/** `import subject` · `import template` · `import group` · `import templates`: a Brainstorm subject, template or group, or the templates folder, into a one-database dataset */
+struct ImportSubjectRequest { std::string protocol, subject, dataset; std::optional<double> resample; std::string created_by; };
+CommandResult import_subject(const ImportSubjectRequest& request, const Progress& progress = {});
+struct ImportTemplateRequest { std::string protocol, dataset; std::optional<std::vector<std::string>> surface; std::string created_by; };
+CommandResult import_template(const ImportTemplateRequest& request, const Progress& progress = {});
+struct ImportGroupRequest { std::string protocol, dataset; std::string created_by; };
+CommandResult import_group(const ImportGroupRequest& request, const Progress& progress = {});
+struct ImportTemplatesRequest { std::string source, dataset; std::optional<std::string> subject, trk, surface; std::string created_by; };
+CommandResult import_templates(const ImportTemplatesRequest& request);
+
+/** `import condition PROTOCOL`: one Brainstorm condition as a session (the subject made if absent) */
+struct ImportConditionRequest {
+  std::string protocol, subject, condition, dataset;
+  std::optional<std::string> surface, recording, channel_file;
+  std::optional<double> resample;
+  bool no_gain = false, all_surfaces = false, include_imported = false, no_raw = false;
+  std::optional<std::vector<std::string>> extra_surface;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult import_condition(const ImportConditionRequest& request, const Progress& progress = {});
+
+/** `import surface` (tess_*.mat files; progress: a `surface` line each) · `import mri` · `import inverse` · `import map` (a `map` line each) · `import resample` ·
+ *  `import badsegments` · `import events`: into a subject of a dataset */
+struct ImportSurfaceRequest { std::string dataset, subject; std::vector<std::string> file; std::optional<std::string> bst_root; std::vector<std::string> templates; std::string created_by; };
+CommandResult import_surface(const ImportSurfaceRequest& request, const Progress& progress = {});
+struct ImportMriRequest { std::string dataset, subject, anat; std::optional<std::vector<std::string>> only; std::vector<std::string> templates; std::string created_by; };
+CommandResult import_mri(const ImportMriRequest& request, const Progress& progress = {});
+struct ImportInverseRequest {
+  std::string dataset, subject, file, acquisition, bst_root;
+  std::optional<std::string> channels_id, surface_id, forward_id, name, channel_file;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult import_inverse(const ImportInverseRequest& request, const Progress& progress = {});
+struct ImportMapRequest {
+  std::string dataset, subject, bst_root;
+  std::vector<std::string> file;
+  std::optional<std::string> acquisition, provenance;   // provenance: a JSON file recorded with each map
+  bool replace = false;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult import_map(const ImportMapRequest& request, const Progress& progress = {});
+struct ImportResampleRequest { std::string dataset, subject, recording; double to = 0; std::optional<std::string> name; std::vector<std::string> templates; std::string created_by; };
+CommandResult import_resample(const ImportResampleRequest& request, const Progress& progress = {});
+struct ImportBadsegmentsRequest { std::string dataset, subject, from; bool replace = false; std::vector<std::string> templates; std::string created_by; };
+CommandResult import_badsegments(const ImportBadsegmentsRequest& request, const Progress& progress = {});
+using ImportEventsRequest = ImportBadsegmentsRequest;   // `from`: the protocol's data folder of the recording
+CommandResult import_events(const ImportEventsRequest& request, const Progress& progress = {});
+
+/** the origin of an imported file, as every file importer records it */
+struct FileOrigin {
+  std::optional<std::string> source_root;            // the recorded source is relative to it (default: the file's folder), never an absolute path
+  std::optional<std::string> licence, attribution;   // default "unknown"
+  bool anonymize = false;
+};
+/** `import recording` (FIF, EDF/BDF, BrainVision, EEGLAB, CTF, KIT; copied block by block, or linked `in_place`) into a subject package */
+struct ImportRecordingRequest {
+  std::string from, package;
+  std::optional<std::string> name, acquisition, format, montage;
+  FileOrigin origin;
+  bool in_place = false;
+};
+CommandResult import_recording(const ImportRecordingRequest& request, const Progress& progress = {});
+/** `import fif` (an MNE object file) · `import transform` (a head-to-MRI transform) */
+struct ImportFifRequest {
+  std::string from, package;
+  std::optional<std::string> kind, name, acquisition, channels, recording, surface;
+  FileOrigin origin;
+};
+CommandResult import_fif(const ImportFifRequest& request, const Progress& progress = {});
+struct ImportTransformRequest { std::string from, package; std::optional<std::string> name, channels; };
+CommandResult import_transform(const ImportTransformRequest& request, const Progress& progress = {});
+/** `import nifti` · `import freesurfer` · `import gifti` · `import cifti` */
+struct ImportNiftiRequest {
+  std::string from, package;
+  std::optional<std::string> name, kind, parcellation, label_names, field_kind, unit;
+  FileOrigin origin;
+};
+CommandResult import_nifti(const ImportNiftiRequest& request, const Progress& progress = {});
+struct ImportFreesurferRequest {
+  std::string from, package;
+  std::optional<std::string> name, orig, field_kind;
+  std::optional<std::vector<std::string>> surfaces, annotations, overlays;
+  FileOrigin origin;
+};
+CommandResult import_freesurfer(const ImportFreesurferRequest& request, const Progress& progress = {});
+struct ImportGiftiRequest {
+  std::string from, package;
+  std::optional<std::string> name, kind, surface, parcellation, field_kind, unit;
+  FileOrigin origin;
+};
+CommandResult import_gifti(const ImportGiftiRequest& request, const Progress& progress = {});
+struct ImportCiftiRequest {
+  std::string from, package;
+  std::optional<std::string> name, left, right, parcellation, field_kind, unit;
+  FileOrigin origin;
+};
+CommandResult import_cifti(const ImportCiftiRequest& request, const Progress& progress = {});
+
+/** `create recording --synthetic`: sine waves plus noise from a seed, into a subject package through the recording importer */
+struct CreateRecordingRequest {
+  std::string package;
+  bool synthetic = false;
+  std::optional<std::string> name, acquisition;
+  std::optional<std::int64_t> channels;
+  std::optional<double> sfreq, duration, amplitude, noise;
+  std::optional<std::uint64_t> seed;
+  std::optional<std::vector<double>> frequency;
+};
+CommandResult create_recording(const CreateRecordingRequest& request, const Progress& progress = {});
+
+/** `import bids`: a BIDS dataset (MEG, EEG, iEEG) into a new dataset of subject packages, with the participant variables */
+struct ImportBidsRequest {
+  std::string from, dataset;
+  std::vector<std::string> subject;        // labels, with or without `sub-`; empty: every subject
+  bool in_place = false, anonymize = false, no_participants = false;
+  std::optional<std::string> registered_by;
+  std::string created_by;                  // the default of registered_by
+};
+CommandResult import_bids(const ImportBidsRequest& request, const Progress& progress = {});
+
+/** `import participants` · `export participants`: the participant variables of a catalogue dataset from or to a TSV (and its JSON sidecar) */
+struct ParticipantsRequest { std::string dataset, tsv; std::optional<std::string> sidecar; };
+CommandResult import_participants(const ParticipantsRequest& request);
+CommandResult export_participants(const ParticipantsRequest& request);
+
+// ---- export (stored results as the field's standard files; the files are the command's purpose: the result names them) ----
+
+/** what an export records of the command that made it (its provenance): the program's version, the command as given, its options */
+struct ExportProvenance { std::string version, command; Json options = Json::object(); };
+/** a series' time range, in seconds on the recording's clock: `from` and `to`, or `all`; none for a map */
+struct ExportRange { std::optional<double> from, to; bool all = false; };
+
+struct ExportGiftiRequest {
+  std::string package, out;
+  std::optional<std::string> field, labelling, kind, surface_unit;
+  bool with_surface = false, hemispheres = false;
+  ExportRange range;
+  ExportProvenance provenance;
+};
+CommandResult export_gifti(const ExportGiftiRequest& request, const Progress& progress = {});
+struct ExportTsvRequest {
+  std::string package, out;
+  std::optional<std::string> statistic, partition, field;
+  std::optional<std::vector<std::string>> measures;
+  ExportProvenance provenance;
+};
+CommandResult export_tsv(const ExportTsvRequest& request, const Progress& progress = {});
+/** a source estimate (`field`: -lh.stc, -rh.stc) or a covariance statistic (`covariance`: -cov.fif); `forward` and `inverse` are refused, saying why */
+struct ExportFifRequest {
+  std::string package, out;
+  std::optional<std::string> field, covariance, forward, inverse;
+  ExportRange range;
+  ExportProvenance provenance;
+};
+CommandResult export_fif(const ExportFifRequest& request, const Progress& progress = {});
+struct ExportBidsDerivativesRequest {
+  std::string package, out, results;
+  std::optional<std::string> space, session, task, run, measurements;
+  bool with_surface = false, stc = false;
+  ExportRange range;
+  ExportProvenance provenance;
+};
+CommandResult export_bids_derivatives(const ExportBidsDerivativesRequest& request, const Progress& progress = {});
+
 }  // namespace nxr::io::task
