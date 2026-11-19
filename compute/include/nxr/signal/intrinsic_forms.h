@@ -13,11 +13,11 @@
 //   area2form    a vertex density → a 2-form on the intrinsic faces (the density integrated: area × the mean of the face's vertices); vertexDensity: back (each
 //                vertex the area-weighted mean of its faces' densities)
 //   Modes        the full forms: P [V x K] the 0-form parts ψ/√2 (the eigenvectors), X2 [F x K] the 2-form parts χ/√2, μ, kind (0 exact, 2 coexact)
-//   read1        a 1-form → the coefficients c [K x m] in the modes' 1-form parts φ_k (dψ/(μ√2) exact, ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2) coexact), orthonormal in ⋆1 to 1/2:
+//   projectOneForm        a 1-form → the coefficients c [K x m] in the modes' 1-form parts φ_k (dψ/(μ√2) exact, ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2) coexact), orthonormal in ⋆1 to 1/2:
 //                c_k = 2 ⟨ω, φ_k⟩⋆1 — inner products, no solve
-//   synth1       coefficients → the 1-form Σ c_k φ_k
-//   read2        a 2-form → the coefficients a [K x m] in the coexact 2-form parts (⋆2-orthonormal to 1/2): a_k = 2 ⟨σ, χ_k/√2⟩⋆2; synth2: back
-//   potential    the exact part's potential: Σ_exact c_k P_k / μ_k, whose d0 IS the exact part of Σ c_k φ_k (a timing map, from a phase 1-form)
+//   synthesizeOneForm       coefficients → the 1-form Σ c_k φ_k
+//   projectTwoForm        a 2-form → the coefficients a [K x m] in the coexact 2-form parts (⋆2-orthonormal to 1/2): a_k = 2 ⟨σ, χ_k/√2⟩⋆2; synthesizeTwoForm: back
+//   exactPotential  the exact part's potential: Σ_exact c_k P_k / μ_k, whose d0 IS the exact part of Σ c_k φ_k (a timing map, from a phase 1-form)
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <cstdint>
@@ -84,11 +84,11 @@ struct Modes {
     std::vector<int> kind;                     // [K] 0 exact · 2 coexact
 };
 
-Eigen::MatrixXd read1(const Complex& c, const Modes& m, const Eigen::MatrixXd& w);       // [K x m]; 0 on nothing (every mode has a 1-form part)
-Eigen::MatrixXd synth1(const Complex& c, const Modes& m, const Eigen::MatrixXd& coef);   // [nE x m]
-Eigen::MatrixXd read2(const Complex& c, const Modes& m, const Eigen::MatrixXd& sigma);   // [K x m]; 0 on exact modes
-Eigen::MatrixXd synth2(const Complex& c, const Modes& m, const Eigen::MatrixXd& coef);   // [nF x m]
-Eigen::MatrixXd potential(const Modes& m, const Eigen::MatrixXd& coef);                  // [V x m] Σ_exact c_k P_k / μ_k
+Eigen::MatrixXd projectOneForm(const Complex& c, const Modes& m, const Eigen::MatrixXd& w);       // [K x m]; 0 on nothing (every mode has a 1-form part)
+Eigen::MatrixXd synthesizeOneForm(const Complex& c, const Modes& m, const Eigen::MatrixXd& coef);   // [nE x m]
+Eigen::MatrixXd projectTwoForm(const Complex& c, const Modes& m, const Eigen::MatrixXd& sigma);   // [K x m]; 0 on exact modes
+Eigen::MatrixXd synthesizeTwoForm(const Complex& c, const Modes& m, const Eigen::MatrixXd& coef);   // [nF x m]
+Eigen::MatrixXd exactPotential(const Modes& m, const Eigen::MatrixXd& coef);                  // [V x m] Σ_exact c_k P_k / μ_k
 
 /** THE WEIGHTED POTENTIAL FIT of a 1-form ω on the intrinsic edges (the linearised magnetic Laplacian: each edge's lag counted by its weight):
  *  φ minimising Σ_e ⋆1_e w_e (φ_tip − φ_tail − ω_e)², w [nE] ≥ 0 (e.g. each edge's cross-power, or coherence).
@@ -101,7 +101,7 @@ Eigen::VectorXd weightedPotentialModes(const Complex& c, const Modes& m, const s
 /** A PATTERN in a band's coefficients on the cortex (spec docs/specs/2026-11-13-cycle-pattern.md). `rows` names each coefficient: (mode k, part), part 2 the
  *  normal current's 2-form coefficient (a coexact mode), part 1 the tangent current's 1-form coefficient (any mode); `m` [rows] complex. Returns three
  *  complex vertex fields [V]: S, the stream function of the tangent part's divergence-free (coexact) piece, Σ (c_k / μ_k) P_k; A, the potential of its
- *  curl-free (exact) piece, Σ (c_k / μ_k) P_k; ρ, the normal current, vertexDensity(synth2(a)). Throws std::invalid_argument on a row outside the modes
+ *  curl-free (exact) piece, Σ (c_k / μ_k) P_k; ρ, the normal current, vertexDensity(synthesizeTwoForm(a)). Throws std::invalid_argument on a row outside the modes
  *  or a normal row of an exact mode. */
 struct PatternFields { Eigen::VectorXcd S, A, rho; };
 PatternFields patternFields(const Complex& c, const Modes& m, const std::vector<std::pair<int, int>>& rows, const Eigen::VectorXcd& coef);

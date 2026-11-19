@@ -197,7 +197,7 @@ VectorXd vertexCirculation(const Complex& c, const VectorXd& w) {
   return out;
 }
 
-MatrixXd read1(const Complex& c, const Modes& m, const MatrixXd& w) {
+MatrixXd projectOneForm(const Complex& c, const Modes& m, const MatrixXd& w) {
     const MatrixXd s1w = c.star1.asDiagonal() * w;                       // ⋆1 ω
     const MatrixXd ex = m.P.transpose() * (c.d0.transpose() * s1w);       // ⟨dP_k, ω⟩⋆1
     const MatrixXd co = m.X2.transpose() * (c.star2.asDiagonal() * (c.d1 * w));   // ⟨⋆1⁻¹ d1ᵀ ⋆2 X2_k, ω⟩⋆1 = X2_kᵀ ⋆2 d1 ω
@@ -206,7 +206,7 @@ MatrixXd read1(const Complex& c, const Modes& m, const MatrixXd& w) {
     return out;
 }
 
-MatrixXd synth1(const Complex& c, const Modes& m, const MatrixXd& coef) {
+MatrixXd synthesizeOneForm(const Complex& c, const Modes& m, const MatrixXd& coef) {
     MatrixXd ce = coef, cc = coef;
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) {
         const bool exact = m.kind[static_cast<std::size_t>(k)] == 0;
@@ -216,20 +216,20 @@ MatrixXd synth1(const Complex& c, const Modes& m, const MatrixXd& coef) {
     return c.d0 * (m.P * ce) + c.star1.cwiseInverse().asDiagonal() * (c.d1.transpose() * (c.star2.asDiagonal() * (m.X2 * cc)));
 }
 
-MatrixXd read2(const Complex& c, const Modes& m, const MatrixXd& sigma) {
+MatrixXd projectTwoForm(const Complex& c, const Modes& m, const MatrixXd& sigma) {
     MatrixXd out = 2.0 * (m.X2.transpose() * (c.star2.asDiagonal() * sigma));
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (m.kind[static_cast<std::size_t>(k)] == 0) out.row(k).setZero();
     return out;
 }
 
-MatrixXd synth2(const Complex& c, const Modes& m, const MatrixXd& coef) {
+MatrixXd synthesizeTwoForm(const Complex& c, const Modes& m, const MatrixXd& coef) {
     (void)c;
     MatrixXd cc = coef;
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (m.kind[static_cast<std::size_t>(k)] == 0) cc.row(k).setZero();
     return m.X2 * cc;
 }
 
-MatrixXd potential(const Modes& m, const MatrixXd& coef) {
+MatrixXd exactPotential(const Modes& m, const MatrixXd& coef) {
     MatrixXd ce = MatrixXd::Zero(coef.rows(), coef.cols());
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (m.kind[static_cast<std::size_t>(k)] == 0) ce.row(k) = coef.row(k) / m.mu(k);
     return m.P * ce;
@@ -285,7 +285,7 @@ PatternFields patternFields(const Complex& c, const Modes& m, const std::vector<
   Eigen::MatrixXd re(K, 2);
   re.col(0) = cn.real();
   re.col(1) = cn.imag();
-  const Eigen::MatrixXd r = vertexDensity(c, synth2(c, m, re));
+  const Eigen::MatrixXd r = vertexDensity(c, synthesizeTwoForm(c, m, re));
   out.rho = r.col(0).cast<std::complex<double>>() + std::complex<double>(0, 1) * r.col(1).cast<std::complex<double>>();
   return out;
 }
@@ -294,16 +294,16 @@ PhaseSplit splitPhase(const Complex& c, const Modes& m, const Eigen::VectorXd& w
   if (w.size() != c.nE) throw std::invalid_argument("splitPhase: w has one value an intrinsic edge");
   const Eigen::Index K = m.mu.size();
   PhaseSplit out;
-  out.coef = read1(c, m, w).col(0);
+  out.coef = projectOneForm(c, m, w).col(0);
   Eigen::VectorXd ce = out.coef, cc = out.coef;
   for (Eigen::Index k = 0; k < K; ++k) (m.kind[static_cast<std::size_t>(k)] == 0 ? cc : ce)(k) = 0;
-  out.exact = synth1(c, m, ce).col(0);
-  out.coexact = synth1(c, m, cc).col(0);
+  out.exact = synthesizeOneForm(c, m, ce).col(0);
+  out.coexact = synthesizeOneForm(c, m, cc).col(0);
   const double E = w.dot(c.star1.asDiagonal() * w), Eex = out.exact.dot(c.star1.asDiagonal() * out.exact), Eco = out.coexact.dot(c.star1.asDiagonal() * out.coexact);
   out.shareTiming = E > 0 ? Eex / E : NAN;
   out.shareRotation = E > 0 ? Eco / E : NAN;
   out.shareResidual = E > 0 ? std::max(0.0, 1 - out.shareTiming - out.shareRotation) : NAN;
-  out.potential = potential(m, ce).col(0);
+  out.potential = exactPotential(m, ce).col(0);
   out.propagation = sharp(c, -out.exact);
   Eigen::VectorXd cs = cc;
   for (Eigen::Index k = 0; k < K; ++k) if (m.kind[static_cast<std::size_t>(k)] == 2) cs(k) /= m.mu(k);
