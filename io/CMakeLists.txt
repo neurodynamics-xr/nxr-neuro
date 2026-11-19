@@ -252,6 +252,7 @@ add_library(nxr_io
   src/selection_measurement.cpp
   src/task.cpp
   src/task_dataset.cpp
+  src/commands.cpp
   src/named_paths.cpp
   src/layout.cpp
   src/writer_lock.cpp
