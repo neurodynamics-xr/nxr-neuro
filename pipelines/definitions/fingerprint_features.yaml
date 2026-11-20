@@ -1,0 +1,67 @@
+# MEG BRAIN FINGERPRINTING, A PERSON'S TWO FEATURES OVER A SPAN (spec docs/specs/2026-11-16-meg-fingerprinting.md, section 11.3, steps 18 and 19, section 12.1; its amendment of 2026-11-19: the published
+# method is the default). The method: da Silva Castanheira J, Orozco Perez HD, Misic B, Baillet S (2021) Brief segments of neurophysiological activity enable individual differentiation. Nat Commun
+# 12:5713, doi:10.1038/s41467-021-25895-8; its authors' release megFingerprinting v1.0.0 (06fdba8). Every stored result carries this citation (producer_json.references).
+#
+# THE GRAPH (no data is streamed: the bands' statistics `fingerprint_band` stored, read by name):
+#   before:  select.bands                the band SET: each band's cut, its edges INCLUSIVE (a member holds its Welch bins lo to hi), by default the reference's: delta 0-3.5 Hz, theta 4-7.5, alpha 8-12.5,
+#                                        beta 13-29.5, gamma 30-49.5, high gamma 50-150  ->  bands
+#            stats.spectralFeature       step 18: each band's region spectrum cut to its band, the bands side by side (8 + 8 + 10 + 34 + 40 + 201 = 301 bins at 0.5 Hz)  ->  spectral [regions x bins]
+#            stats.connectomeFeature     step 19: the bands' amplitude envelope correlations on a band axis  ->  connectome [regions x regions x bands]
+# Stored: `<name>_spectral` and `<name>_connectome`, OF the recording: what `run fingerprint` reads as a member's target or database (`--vector flatten` for the spectral feature,
+# `--vector upper-triangle` for the connectome: per band the upper triangle with its diagonal).
+#
+# THE RUN ORDER, ONE SUBJECT (composition cannot write it as one definition: each band and each half is its own recording, kernel and span). The halves are step 16's: the training (database) half
+# A = [5 s, floor(T/2)] and the validation (target) half B = [ceil(T/2), T - 5 s], T the run's last time (the release takes T from the last band's file: every band is the same run, cut by the same
+# filter, so it is the run's own T here). The bands of the sensor band-pass are the reference's: delta 1-4, theta 4-8, alpha 8-13, beta 13-30, gamma 30-50, high gamma 50-150 Hz.
+#   for each band b (lower, upper):
+#     nxr-neuro run bandpass   --recording rest      --lower L --upper U --design brainstorm_2018 --all --name rest_b         (step 9; a FIR that removes the mean reads the channel means: `run measure --set channel_span_mean --all` first)
+#     nxr-neuro run bandpass   --recording emptyroom --lower L --upper U --design brainstorm_2018 --all --name emptyroom_b
+#     nxr-neuro run noisecov   --recording rest_b      --all --block-seconds <10000 samples> --divisor samples_minus_one --name rest_b_data_cov       (step 11)
+#     nxr-neuro run noisecov   --recording emptyroom_b --all --block-seconds <10000 samples> --divisor samples_minus_one --name emptyroom_b_noise_cov (step 12)
+#     nxr-neuro run lcmv       --data-cov rest_b_data_cov --noise-cov emptyroom_b_noise_cov --name lcmv_b                                         (step 14)
+#     for each half h in A, B (its span --from/--to):
+#       nxr-neuro run noisecov         --recording rest_b --from S --to E --name rest_b_h_cov
+#       nxr-neuro run region_pca       --recording rest_b --from S --to E --kernel lcmv_b --covariance rest_b_h_cov --partition desikan_killiany --name fp_h_b   (step 15)
+#       nxr-neuro run fingerprint_band --recording rest_b --from S --to E --map fp_h_b --lower L --upper U                                                  (steps 17, 19)
+#   for each half h:
+#     nxr-neuro run fingerprint_features --recording rest --stem fp_h                                                                                         (steps 18, 19)
+#   then, across the cohort (`run fingerprint`, steps 20-25): --target fp_B_spectral --database fp_A_spectral (and fp_B_connectome / fp_A_connectome with --vector upper-triangle).
+#
+# It cannot resolve: what each band's run cannot (fingerprint_band); a bin belongs to the band whose source model made it (the release does not hold this export: the cut is the only reading
+# that reproduces its notebooks' table sizes, recorded as an inference in the provenance).
+#
+#   nxr-neuro run fingerprint_features --dataset <folder> --subject sub-01 --recording rest --stem fp_A
+pipeline: fingerprint_features
+version: 1
+description: a person's spectral and connectome features over a span (MEG fingerprinting, steps 18 and 19), assembled from the bands' stored spectra and envelope correlations
+scope: subject
+
+inputs:
+  recording: {field: recording, where: {name: $recording}, hint: "the run the features are of"}
+  spectrum_{band}: {for: {band: $band_names}, statistic: any, where: {name: "${stem}_{band}_spectrum"}, hint: "each band's region spectrum (`nxr-neuro run fingerprint_band`)"}
+  aec_{band}: {for: {band: $band_names}, statistic: any, where: {name: "${stem}_{band}_aec"}, hint: "each band's amplitude envelope correlation (`nxr-neuro run fingerprint_band`)"}
+
+parameters:
+  recording: {default: required, meaning: "the run the features are of, by name", unit: "-"}
+  stem: {default: required, meaning: "the stem of the bands' statistics: <stem>_<band>_spectrum and <stem>_<band>_aec (fingerprint_band's names, its map named <stem>_<band>)", unit: "-"}
+  band_names: {default: [delta, theta, alpha, beta, gamma, high_gamma], meaning: "the bands, in order: one name each (the members of the band set)", unit: "-"}
+  bands: {default: ["0-3.5 Hz", "4-7.5 Hz", "8-12.5 Hz", "13-29.5 Hz", "30-49.5 Hz", "50-150 Hz"], meaning: "each band's cut of its spectrum, lo to hi INCLUSIVE (the reference's: 8 + 8 + 10 + 34 + 40 + 201 bins at 0.5 Hz)", unit: Hz, chart: linear}
+  name: {default: "{stem}", meaning: "the stem of the stored features: <name>_spectral and <name>_connectome", unit: "-"}
+
+steps:
+  before:
+    - {node: select.bands, with: {rule: frequency, bands: $bands, names: $band_names}, out: bands}
+    - {node: stats.spectralFeature, in: {spectra: {for: {band: $band_names}, each: "spectrum_{band}"}, bands: bands}, out: spectral}
+    - {node: stats.connectomeFeature, in: {matrices: {for: {band: $band_names}, each: "aec_{band}"}, bands: bands}, out: connectome}
+
+outputs:
+  spectral:
+    kind: statistic
+    name: "$name_spectral"
+    of: recording
+    axes: [{name: region}, {name: frequency}]
+  connectome:
+    kind: statistic
+    name: "$name_connectome"
+    of: recording
+    axes: [{name: region}, {name: region}, {name: band}]

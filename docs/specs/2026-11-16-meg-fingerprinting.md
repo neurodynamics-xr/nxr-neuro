@@ -386,9 +386,9 @@ the step is ever needed without Brainstorm; none of the "need" entries of this t
 | # | step | the reference | nxr-neuro |
 |---|---|---|---|
 | 16 | the two halves | training [5 s, floor(T/2)], validation [ceil(T/2), T − 5 s], T the run's last time | have (spans are the caller's) |
-| 17 | spectra | `process_psd` on each band's region signals: Welch, 2 s windows, 50 % overlap, power, the release's units and window; 0.5-Hz bins | partial: Welch has (Brainstorm golden); not on region signals |
-| 18 | the spectral feature | 68 regions × 301 bins (0–150 Hz): each band's region spectrum cut to the band, the six side by side (delta 0–3.5 Hz, theta 4–7.5, alpha 8–12.5, beta 13–29.5, gamma 30–49.5, high gamma 50–150 inclusive: 8 + 8 + 10 + 34 + 40 + 201); the band notebooks read each band's cut alone | need (decided 2026-11-19, section 12.1) |
-| 19 | the connectome feature | per band, the region signals band-passed again (`process_bandpass` Compute, default), Hilbert transform, amplitude envelopes, Pearson correlation of every pair: 68 × 68; **no orthogonalisation** (the paper and the code agree) | need (AEC); the analytic signal has, the Hilbert of a Brainstorm band-pass does not |
+| 17 | spectra | `process_psd` on each band's region signals: Welch, 2 s windows, 50 % overlap, power, the release's units and window; 0.5-Hz bins | have (2026-11-20): `run fingerprint_band` (`signal.linear_map` of the region map, `signal.psd --scaling brainstorm_2018`: bst_psd of 2018, \|2 X / n\|^2 at every bin); golden of that release |
+| 18 | the spectral feature | 68 regions × 301 bins (0–150 Hz): each band's region spectrum cut to the band, the six side by side (delta 0–3.5 Hz, theta 4–7.5, alpha 8–12.5, beta 13–29.5, gamma 30–49.5, high gamma 50–150 inclusive: 8 + 8 + 10 + 34 + 40 + 201); the band notebooks read each band's cut alone | have (2026-11-20): `run fingerprint_features` (`stats.spectralFeature`, the cuts a band set) |
+| 19 | the connectome feature | per band, the region signals band-passed again (`process_bandpass` Compute, default), Hilbert transform, amplitude envelopes, Pearson correlation of every pair: 68 × 68; **no orthogonalisation** (the paper and the code agree) | have (2026-11-20): `run fingerprint_band` (`signal.filter --design brainstorm_2018 --ends span`, `signal.hilbert`, `stats.cov`, `stats.correlation`; `--single-bandpass` the paper's reading) and `stats.connectomeFeature`; golden of the 2018 release, equal away from the half's ends (the release's Hilbert is an FFT over the whole half; here it streams) |
 
 ### 11.4 The cohort (the notebooks)
 
@@ -426,7 +426,8 @@ statistics: Finn ES et al. (2015) Nat Neurosci 18:1664; Amico E, Goñi J (2018) 
 3. **Quirks of the release that change numbers**: the projectors are applied to the subject's data covariance but not to the empty room's noise
    covariance; the connectome band-passes each band twice (sensor level, then again before the Hilbert transform); the halves' boundary takes T
    from the last band's file; the connectome keeps its constant diagonal. Reproduce them (the default reproduces the release) or follow the paper's
-   text where it is silent on them.
+   text where it is silent on them. **Built 2026-11-20:** the second band-pass is the default of `run fingerprint_band` (`--single-bandpass` the paper's reading); T is the run's last time (every
+   band is the same run filtered, so the last band's file has the run's T); the diagonal is kept (the connectome's upper triangle WITH its diagonal, `run fingerprint --vector upper-triangle`).
 4. **PCA solver**: scikit-learn's automatic solver is randomised at this size and unseeded; the golden for step 24 is then reproducible only to its
    tolerance.
 5. **The goldens' toolchain**: Brainstorm Oct-12-2018 is needed to make the per-subject goldens with the paper's defaults. **Done for steps 14 and 15 (2026-11-20):** the generator `meeg/test/golden/gen_lcmv_golden.m` runs Brainstorm at the last commit on or before 2018-10-12 (its `doc/version.txt`: 3.4 180911), found through `BRAINSTORM_2018_HOME`; it runs in MATLAB R2023b (the paper used 2017b: MATLAB's `svd` changed in 2018a, and the one sign-sensitive SVD of the 2016 code, of a source's whitened gain column, gives U = l / ‖l‖ in R2023b; its other SVDs are of symmetric matrices or signed by a majority rule).
