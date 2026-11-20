@@ -7,6 +7,7 @@
 #include "nxr/bst/fibers.h"
 #include "nxr/bst/inverse.h"
 #include "nxr/bst/maps.h"
+#include "nxr/bst/mat.h"
 #include "nxr/bst/mri.h"
 #include "nxr/bst/protocol.h"
 #include "nxr/bst/pyrepr.h"
@@ -77,6 +78,22 @@ std::string source_of(const std::string& file, const std::optional<std::string>&
 // the progress handed to an importer: the caller's, or one that says nothing (the importers call it unconditionally)
 Progress said(const Progress& progress) { return progress ? progress : Progress([](const Json&) {}); }
 
+// THE FILES A BRAINSTORM IMPORT SKIPPED because this build cannot read them (MATLAB v7.3 in the WebAssembly build; nxr/bst/mat.h): each named with its reason in the result's
+// `skipped` [{what, reason}] (beside what the import skips for its own reasons), and a `message` naming them. The job row keeps the result, so both are in it too.
+Json with_skipped(Json r, const nxr::bst::SkippedFiles& s) {
+  if (s.files().empty()) return r;
+  if (!r.contains("skipped") || !r["skipped"].is_array()) r["skipped"] = Json::array();
+  std::string names;
+  for (const auto& f : s.files()) {
+    bool listed = false;
+    for (const auto& x : r["skipped"]) listed = listed || (x.is_object() && x.value("what", std::string()) == f.file);
+    if (!listed) r["skipped"].push_back(Json{{"what", f.file}, {"reason", f.reason}});
+    names += (names.empty() ? "" : ", ") + fs::path(f.file).filename().string();
+  }
+  r["message"] = std::to_string(s.files().size()) + (s.files().size() == 1 ? " file" : " files") + " skipped (" + names + "): " + nxr::bst::kUnreadableV73;
+  return r;
+}
+
 void require_file(const std::string& file) {
   if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
 }
@@ -118,7 +135,8 @@ CommandResult import_subject(const ImportSubjectRequest& rq, const Progress& pro
 
 static CommandResult import_subject_work(const ImportSubjectRequest& rq, const Progress& progress) {
   DatasetWriter ds = open_one_database(rq.dataset, "import subject");
-  return result_of(nxr::bst::convert_subject(ds, rq.protocol, rq.subject, said(progress), rq.created_by, rq.resample));
+  const nxr::bst::SkippedFiles skipped;
+  return result_of(with_skipped(nxr::bst::convert_subject(ds, rq.protocol, rq.subject, said(progress), rq.created_by, rq.resample), skipped));
 }
 
 static CommandResult import_template_work(const ImportTemplateRequest& rq, const Progress& progress);
@@ -128,7 +146,8 @@ CommandResult import_template(const ImportTemplateRequest& rq, const Progress& p
 
 static CommandResult import_template_work(const ImportTemplateRequest& rq, const Progress& progress) {
   DatasetWriter ds = open_one_database(rq.dataset, "import template");
-  return result_of(nxr::bst::convert_template(ds, rq.protocol, rq.surface, said(progress), rq.created_by));
+  const nxr::bst::SkippedFiles skipped;
+  return result_of(with_skipped(nxr::bst::convert_template(ds, rq.protocol, rq.surface, said(progress), rq.created_by), skipped));
 }
 
 static CommandResult import_group_work(const ImportGroupRequest& rq, const Progress& progress);
@@ -138,7 +157,8 @@ CommandResult import_group(const ImportGroupRequest& rq, const Progress& progres
 
 static CommandResult import_group_work(const ImportGroupRequest& rq, const Progress& progress) {
   DatasetWriter ds = open_one_database(rq.dataset, "import group");
-  return result_of(nxr::bst::convert_group(ds, rq.protocol, said(progress), rq.created_by));
+  const nxr::bst::SkippedFiles skipped;
+  return result_of(with_skipped(nxr::bst::convert_group(ds, rq.protocol, said(progress), rq.created_by), skipped));
 }
 
 CommandResult import_templates(const ImportTemplatesRequest& rq) {
@@ -221,9 +241,10 @@ static CommandResult import_condition_work(const ImportConditionRequest& rq, con
     sub.emplace(SubjectWriter::create(ds, rq.subject, so));
   }
   Json r;
+  const nxr::bst::SkippedFiles skipped;
   sub->compose([&] { r = nxr::bst::convert_condition(*sub, root, rq.condition, plan, co, said(progress)); });
   if (!ds.is_package()) write_catalog(ds.root());
-  return result_of(std::move(r));
+  return result_of(with_skipped(std::move(r), skipped));
 }
 
 static CommandResult import_inverse_work(const ImportInverseRequest& rq, const Progress& progress);

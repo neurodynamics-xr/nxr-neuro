@@ -344,6 +344,20 @@ std::string subject_cortex(const fs::path& root, const std::string& subject, Sub
   value_error(subject + ": cannot tell which cortex the fibres were assigned on");
 }
 
+bool or_skip_unreadable_v73(SubjectWriter& sub, const Emit& emit, const std::function<void()>& body) {
+  const std::size_t mark = sub.mark();
+  try {
+    body();
+    return true;
+  } catch (const UnreadableV73& e) {
+    sub.rollback_to(mark);
+    const std::string file = py_path(e.file.string());
+    note_skipped(file, kUnreadableV73);
+    if (emit) emit(Json{{"stage", "skipped"}, {"what", file}, {"reason", kUnreadableV73}});
+    return false;
+  }
+}
+
 Json compose_subject(SubjectWriter& sub, const fs::path& root, const std::string& subject, const Emit& emit, std::optional<double> resample) {
   Json sessions = Json::array(), volumes = Json::array(), maps = Json::array(), fibers = Json::array(), connectomes = Json::array(), skipped = Json::array();
   auto skip = [&](const std::string& what, const std::string& reason) {
@@ -386,9 +400,11 @@ Json compose_subject(SubjectWriter& sub, const fs::path& root, const std::string
       for (const auto& [mf, series] : todo) {
         const std::size_t mark = sub.mark();
         try {   // the maps first: a confounds matrix takes its BOLD map's time Line
-          const Json info = series ? export_matrix_series(sub, mf, cond, &recording_map_hooks()) : export_source_map(sub, mf, root, cond, false, std::nullopt, &recording_map_hooks());
-          maps.push_back(info["name"]);
-          emit(with_stage("map", without_id(info)));
+          or_skip_unreadable_v73(sub, emit, [&] {
+            const Json info = series ? export_matrix_series(sub, mf, cond, &recording_map_hooks()) : export_source_map(sub, mf, root, cond, false, std::nullopt, &recording_map_hooks());
+            maps.push_back(info["name"]);
+            emit(with_stage("map", without_id(info)));
+          });
         } catch (const Error& e) {
           if (!is_one_of(e, {code::invalid_argument, code::not_found})) throw;
           sub.rollback_to(mark);
@@ -403,11 +419,18 @@ Json compose_subject(SubjectWriter& sub, const fs::path& root, const std::string
     const std::string cortex_file = subject_cortex(root, subject, sub);
     const std::string cname = surface_node_name(cortex_file);
     const std::string cpath = nxr::io::folder_for("surface", cname) + "/" + cname;
-    if (!sub.find("manifold", cpath)) export_surface(sub, anat / cortex_file, root.string(), false);
+    const bool cortex = sub.find("manifold", cpath) || or_skip_unreadable_v73(sub, emit, [&] { export_surface(sub, anat / cortex_file, root.string(), false); });
     for (const auto& ff : fibre_files) {
-      const Json info = export_fibers(sub, ff, subject, cpath, anat / cortex_file, emit);
-      fibers.push_back(info["name"]);
-      connectomes.push_back(info["connectome"]);
+      if (!cortex) {   // the fibres' ends lie on the cortex this build could not read
+        note_skipped(py_path(ff.string()), std::string("its cortex ") + cortex_file + " was skipped (" + kUnreadableV73 + ")");
+        emit(Json{{"stage", "skipped"}, {"what", py_path(ff.string())}, {"reason", "its cortex was skipped"}});
+        continue;
+      }
+      or_skip_unreadable_v73(sub, emit, [&] {   // a fibres file is often v7.3: skipped alone where it cannot be read
+        const Json info = export_fibers(sub, ff, subject, cpath, anat / cortex_file, emit);
+        fibers.push_back(info["name"]);
+        connectomes.push_back(info["connectome"]);
+      });
     }
   }
   return Json{{"subject", subject}, {"sessions", sessions}, {"volumes", volumes}, {"maps", maps}, {"fibers", fibers}, {"connectomes", connectomes}, {"skipped", skipped}};
@@ -459,17 +482,23 @@ Json convert_template(nxr::io::DatasetWriter& ds, const fs::path& root, const st
   Json names = Json::array(), vols = Json::array(), maps = Json::array(), skipped = Json::array();
   sub.compose([&] {
     for (std::size_t k = 0; k < files.size(); ++k) {
-      const auto info = export_surface(sub, src / files[k], root.string(), k == 0);
-      names.push_back(info.name);
-      emit(with_stage("surface", surface_json(info)));
+      const auto one = [&] {
+        const auto info = export_surface(sub, src / files[k], root.string(), names.empty());   // the first surface read is the primary one
+        names.push_back(info.name);
+        emit(with_stage("surface", surface_json(info)));
+      };
+      if (k + 1 < files.size() || !names.empty()) or_skip_unreadable_v73(sub, emit, one);
+      else one();   // the last chance of a cortex: refused as it stands
     }
     for (const Json& v : import_subjectimages(sub, src, std::nullopt, emit)) vols.push_back(v["name"]);
     for (const auto& mf : template_map_files(root)) {
       const std::size_t mark = sub.mark();
       try {
-        const Json info = export_map(sub, mf, root, std::nullopt, false, std::nullopt, &recording_map_hooks());
-        maps.push_back(info["name"]);
-        emit(with_stage("map", without_id(info)));
+        or_skip_unreadable_v73(sub, emit, [&] {
+          const Json info = export_map(sub, mf, root, std::nullopt, false, std::nullopt, &recording_map_hooks());
+          maps.push_back(info["name"]);
+          emit(with_stage("map", without_id(info)));
+        });
       } catch (const Error& e) {
         if (!is_one_of(e, {code::invalid_argument, code::not_found})) throw;
         sub.rollback_to(mark);
@@ -493,10 +522,12 @@ Json convert_group(nxr::io::DatasetWriter& ds, const fs::path& root, const Emit&
   Json wrote = Json::array();
   sub.compose([&] {
     for (const auto& f : files_of(src, "timefreq_", ".mat"))
-      if (const auto info = export_timefreq(sub, f, std::nullopt, true)) {
-        wrote.push_back((*info)["name"]);
-        emit(with_stage("field", without_id(*info)));
-      }
+      or_skip_unreadable_v73(sub, emit, [&] {
+        if (const auto info = export_timefreq(sub, f, std::nullopt, true)) {
+          wrote.push_back((*info)["name"]);
+          emit(with_stage("field", without_id(*info)));
+        }
+      });
   });
   return Json{{"id", sub.id()}, {"fields", wrote}};
 }

@@ -387,7 +387,7 @@ both ways (WASM writes, the CLI reads; the CLI writes, WASM reads).
 
 The command line as functions, in Node: `nxr-neuro <verb> <noun> --option VALUE` is `nxr.<verb>.<noun>({ option: VALUE })`, a Promise, for every command of the command table
 (`cli/command_table.cpp`), `nxr.run` and `nxr.open`; and the geometry compute on meshes in memory (`nxr.compute`), in the same module instance. The module is the C++ library
-under Emscripten (SQLite 3.51 from its amalgamation, zlib, the zstd c-blosc carries, WebAssembly exceptions; no HDF5, so a v7.3 `.mat` is refused by name); in Node it reads and
+under Emscripten (SQLite 3.51 from its amalgamation, zlib, the zstd c-blosc carries, WebAssembly exceptions; no HDF5, so a v7.3 `.mat` is refused by name, and a Brainstorm import skips it and names it: see *MATLAB v7.3 files in the WebAssembly build*); in Node it reads and
 writes the real disk (NODERAWFS). The browser's file connection (a folder the user grants) comes later. The old `Datastore` class (28 functions, its own SQL) and `wasmClient` are
 removed, with no aliases; the parity tests against the Studio's service went with them.
 
@@ -656,6 +656,14 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
 | `nxr-neuro import resample` | Resample a recording to a new sampling rate, as a new recording. | `convert resample` |
 | `nxr-neuro import badsegments` | Import a recording's bad segments from a file. | `convert badsegments` |
 | `nxr-neuro import events` | Import a recording's events from a file. | `convert events` |
+
+**MATLAB v7.3 files in the WebAssembly build.** A `.mat` saved with `-v7.3` is an HDF5 file. The native builds read it (matio over HDF5), as before. The WebAssembly build has no HDF5
+(and is 32-bit, with 4 GB at most), so there `import subject`, `import condition`, `import template` and `import group` **skip each v7.3 file and import the rest**, instead of
+rolling the whole subject back: a fibres file, a non-primary surface, a subject image, a recording, a time-frequency file, a kernel (or its head model) or a map. Each skipped file is
+named with the reason "MATLAB v7.3 (HDF5): not readable in this build; import it with a native build" in the command's result (`skipped` [{what, reason}] and a `message` naming
+them), as a `skipped` progress line, and in the import's job row (its `result`, which `list jobs` reads). The remedy is the native command line or Python package (or re-saving the
+file as v7). Nothing else is skipped silently: a file that cannot be read for another reason is refused as before, and so is a v7.3 file the import cannot go on without (the
+condition's channel file, the surface its kernels index, a template's only cortex), named with the same reason.
 
 ### `create`: Create a dataset or a subject
 
