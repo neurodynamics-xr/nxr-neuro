@@ -1,4 +1,5 @@
-// nxr-io — NumPy's .npy files, read (format versions 1–3, C order, little-endian or one-byte types): the files an external solver writes.
+// nxr-io — NumPy's .npy files, read (format versions 1–3, C order, little-endian or one-byte types) and written (version 1.0, C order, little-endian): the files an
+// external solver writes, and the command line's array format (`read <class> --out`, `add <class> --values`).
 //
 //   NpyFile f = NpyFile::open("fsaverage_hodge_exact_modes.npy");      // the header only
 //   std::vector<double> rows = f.rows<double>(0, 64);                   // rows [0, 64) of a 2-D array, converted to double
@@ -35,5 +36,11 @@ class NpyFile {
   std::size_t itemsize_ = 0;
   std::uint64_t data_offset_ = 0;
 };
+
+/** the store's name of a .npy dtype ("<f4" -> "float32", "|u1" -> "uint8", "|b1" -> "bool"); an Error for one io does not read */
+std::string npy_dtype_name(const std::string& descr);
+/** a .npy file (version 1.0, C order, little-endian) of `shape` holding `bytes`: the values of `dtype` as the store names it (float32, float64, int8 to int64,
+ *  uint8 to uint64, bool), little-endian; an Error when the bytes are not the shape's values of that dtype */
+void write_npy(const std::filesystem::path& path, const std::string& dtype, const std::vector<std::int64_t>& shape, const std::vector<std::uint8_t>& bytes);
 
 }  // namespace nxr::io

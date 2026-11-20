@@ -1,4 +1,4 @@
-// nxr-io — NumPy .npy files, read (see npy.h).
+// nxr-io — NumPy .npy files, read and written (see npy.h).
 #include "nxr/io/npy.h"
 
 #include <cstring>
@@ -138,5 +138,48 @@ template std::vector<double> NpyFile::rows<double>(std::int64_t, std::int64_t) c
 template std::vector<float> NpyFile::rows<float>(std::int64_t, std::int64_t) const;
 template std::vector<std::int64_t> NpyFile::rows<std::int64_t>(std::int64_t, std::int64_t) const;
 template std::vector<std::int32_t> NpyFile::rows<std::int32_t>(std::int64_t, std::int64_t) const;
+template std::vector<std::uint8_t> NpyFile::rows<std::uint8_t>(std::int64_t, std::int64_t) const;
+
+namespace {
+// numpy's descr of a store dtype, and back
+const std::vector<std::pair<std::string, std::string>>& dtype_descrs() {
+  static const std::vector<std::pair<std::string, std::string>> t = {{"float32", "<f4"}, {"float64", "<f8"}, {"int8", "|i1"}, {"int16", "<i2"}, {"int32", "<i4"}, {"int64", "<i8"},
+                                                                     {"uint8", "|u1"}, {"uint16", "<u2"}, {"uint32", "<u4"}, {"uint64", "<u8"}, {"bool", "|b1"}};
+  return t;
+}
+}  // namespace
+
+std::string npy_dtype_name(const std::string& descr) {
+  std::string d = descr;
+  if (d.size() == 3 && d[0] == '=') d[0] = d[2] == '1' ? '|' : '<';
+  if (d.size() == 3 && d[2] == '1' && d[0] == '<') d[0] = '|';
+  for (const auto& [name, de] : dtype_descrs()) if (de == d) return name;
+  throw Error(code::invalid_argument, "the .npy dtype '" + descr + "' is not one io reads (float32, float64, int8 to int64, uint8 to uint64, bool; little-endian)");
+}
+
+void write_npy(const fs::path& path, const std::string& dtype, const std::vector<std::int64_t>& shape, const std::vector<std::uint8_t>& bytes) {
+  std::string descr;
+  for (const auto& [name, de] : dtype_descrs()) if (name == dtype) descr = de;
+  if (descr.empty()) throw Error(code::invalid_argument, path.string() + ": no .npy dtype for '" + dtype + "'");
+  std::int64_t n = 1;
+  for (const auto d : shape) n *= d;
+  const std::size_t item = static_cast<std::size_t>(std::stoul(descr.substr(2)));
+  if (bytes.size() != static_cast<std::size_t>(n) * item)
+    throw Error(code::invalid_argument, path.string() + ": " + std::to_string(bytes.size()) + " bytes are not " + std::to_string(n) + " values of " + dtype);
+  std::string sh;
+  for (const auto d : shape) sh += std::to_string(d) + ", ";
+  if (!sh.empty()) sh.erase(sh.size() - (shape.size() > 1 ? 2 : 1));   // (n,) for one axis, (a, b) for more, () for none
+  std::string header = "{'descr': '" + descr + "', 'fortran_order': False, 'shape': (" + sh + "), }";
+  while ((10 + header.size() + 1) % 64) header += ' ';
+  header += '\n';
+  std::ofstream o(path, std::ios::binary | std::ios::trunc);
+  if (!o) throw Error(code::not_writable, path.string() + ": cannot be written");
+  o.write("\x93NUMPY\x01\x00", 8);
+  const unsigned char len[2] = {static_cast<unsigned char>(header.size() & 0xff), static_cast<unsigned char>(header.size() >> 8)};
+  o.write(reinterpret_cast<const char*>(len), 2);
+  o << header;
+  o.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+  if (!o) throw Error(code::not_writable, path.string() + ": a short write");
+}
 
 }  // namespace nxr::io

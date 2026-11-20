@@ -471,6 +471,23 @@ A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<val
 |---|---|---|
 | `nxr-neuro read dataset FOLDER` | Read an nxr dataset folder: list its arrays, or read one array or region. | `read` |
 | `nxr-neuro read crossspectrum` | Read coherency, phase, delay or phase-slope index from a stored band-resolved cross-spectrum. | `crossspectrum read` |
+| `nxr-neuro read field` | A stored field by name: its values (a time-resolved field over a stated time range), its manifold and cells. | |
+| `nxr-neuro read statistic` | A stored statistic by name: its values on its axes. | |
+| `nxr-neuro read operator` | A stored operator by name: dense values, or a sparse operator's `data`, `indices`, `indptr`. | |
+| `nxr-neuro read selection` | A stored selection by name: its per-element array, its spans and dictionary, or (`--measure M [--field F]`) its measurement table. | |
+| `nxr-neuro read manifold` | A stored manifold by name: positions, cells, axes, element names, coordinate system; or (`--family NAME`) one labelling. | |
+
+**`read <class>`** (spec `docs/specs/2026-11-19-io-service.md`, 4.1) reads ONE stored node by name or id: `--dataset D --subject S --name N`, the class named by the command (a name of
+another class is refused, naming the command that reads it). Nothing is written: the dataset is opened read-only and every file is left as it was. The result line is the node's
+record (`class`, `name`, `id`, unit, kind, producer, ...) with `arrays` [{name, dtype, shape}]. With `--out FILE.npy` the arrays are written as NumPy files (C order, little-endian,
+the stored precision: a float32 node is read as float32) and the result says where (`files`): one array to FILE itself; several to `<stem>.<array>.npy` (a sparse operator:
+`<stem>.data.npy`, `<stem>.indices.npy`, `<stem>.indptr.npy`, scipy.sparse.csr_matrix's arrays; a manifold: `positions` and `cells_<rank>`; spans: `start`, `stop`, `code`).
+A sparse operator is written as three .npy files rather than one .npz: the command line has one array format (.npy, read and written by io itself; a .npz is a zip archive
+io has no reader for), and the three arrays are exactly what `add operator --data --indices --indptr` takes back.
+- `read field`: a **time-resolved field** (a recording, a source series) needs its time range, `--from S --to S` (seconds or m:ss) or `--all`, and is read through the chunk
+  service one chunk at a time; `--rows I,J` picks rows in order, `--projectors active|none` (a recording's active projectors applied, or the samples as stored), `--shape-only` the
+  description alone. A field with no time line is read whole. The result names the field's `manifold` (and `manifold_id`) and `cell` ("0" vertices, "1" edges, "2" faces).
+- `read manifold`: `positions` [n x 3] and `cells_<rank>`, its `axes`, element `names`, and `coordinate_system` {name, unit, space} (the chart its positions are in).
 
 ### `query`: Query stored measurements
 
@@ -543,11 +560,26 @@ A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<val
 
 `reduce pyramid` is gone: the group reduce is the definition `run roll_up` (group scope; `--subjects A,B,C`, and `--into` for a catalogue dataset).
 
-### `add`: Add a surface to a subject
+### `add`: Add to a subject what was computed elsewhere
 
 | command | what it does | old spelling |
 |---|---|---|
-| `nxr-neuro add surface FILE` | Add a mesh file (OBJ, PLY or STL) to a subject as a surface. | `surface add` |
+| `nxr-neuro add surface FILE` | Add a mesh file (OBJ, PLY or STL), or `--vertices V.npy --faces F.npy` with `--name`, to a subject as a surface. | `surface add` |
+| `nxr-neuro add field` | Values on a manifold (`--manifold M --values V.npy`), optionally time-resolved on a line (`--time LINE`). | |
+| `nxr-neuro add selection` | A partition or set (`--members`), a pick (`--indices`) or spans on a line (`--spans`), `--type` naming which. | |
+| `nxr-neuro add statistic` | Values on named axes (`--axes NAME:MANIFOLD ...`), with `--measure` and `--method` from the registries, of a field (`--of-field`) or detached. | |
+| `nxr-neuro add measurements` | One value a member of a selection for each measure (`--measure NAME=V.npy ...`), of a field (`--field`) or the members' own. | |
+| `nxr-neuro add operator` | A map between two manifolds, dense (`--values` [to x from]) or sparse CSR (`--data --indices --indptr`). | |
+| `nxr-neuro add points` | A manifold of points: positions [n x 3] or one coordinate each [n]. | |
+| `nxr-neuro add line` | A closed-form line: `--n`, `--spacing`, `--origin`, `--unit`; `--dimension time` (seconds) makes a time line fields can be time-resolved on. | |
+
+**`add <class>`** (spec `docs/specs/2026-11-19-io-service.md`, 4.2) stores what a user computed, from .npy files, as ONE unit (all of it or nothing) through io's typed writes:
+- the arrays keep their precision (float32 stays float32; integers are stored as int32, refused when a value does not fit; a manifold's coordinates and measurement rows are float64);
+- they are checked against what they lie on, and a mismatch is refused saying what was expected: a field's first axis is its manifold's vertices (or edges, faces by `--cell`), a
+  time-resolved field's second its line's samples, a value type's components trail (complex [.. x 2], vector3 [.. x 3]); a partition's labels one an element; an operator
+  [to x from]; a measure one value a member;
+- each node records a producer naming the command, the program and the input files by NAME (never their paths), with `--description`;
+- a name already used in the subject is refused unless `--replace`, which moves the old node aside (never deletes it) and says where (`replaced`).
 
 Every pipeline command writes JSON lines (progress events, then one `"stage": "result"` line with `"cache": "hit" | "miss"`); a rerun with the same options is a cache hit, and `--replace` recomputes. Details of the dataset commands and of the format: `io/README.md`.
 

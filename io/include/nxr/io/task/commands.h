@@ -120,7 +120,8 @@ CommandResult delete_subject(const DeleteSubjectRequest& request);
 
 struct AddSurfaceRequest {
   std::string dataset, subject;
-  std::string file;                        // the mesh file (the positional FILE)
+  std::string file;                        // the mesh file (the positional FILE); or empty and
+  std::optional<std::string> vertices, faces;   // the surface from arrays: vertices [n x 3] and faces [m x 3] (0-based) as .npy files (both; then `name` is required)
   std::optional<std::string> name;
   double scale = 1.0;
   bool primary = false, no_primary = false;
@@ -128,6 +129,97 @@ struct AddSurfaceRequest {
   std::string created_by;
 };
 CommandResult add_surface(const AddSurfaceRequest& request, const Progress& progress = {});
+
+// ---- `add <class>`: what a user computed, stored as ONE unit (docs/specs/2026-11-19-io-service.md, 4.2) ----
+// Each reads its arrays from .npy files (C order, little-endian), keeps their precision (float32 stays float32), checks them against the manifold or selection they lie on
+// (a refusal says what was expected), and stores one node through io's typed writes (task::Unit) with a producer record naming the command, the program, the input FILES'
+// NAMES (never their paths) and the user's `description`. A name already used in the subject is refused unless `replace`: the old node is then moved aside, never deleted.
+// Result: {class, name, id, path, (replaced: where the old one went)} and what the command checked (n, shape, dtype).
+
+/** `add field`: values [n] or [n x components...] on a manifold (n its vertices, or its edges or faces by `cell`), or with `time` [n x samples x components...] on the
+ *  manifold and a time line (a time-resolved field, read back with `read field --from/--to | --all`) */
+struct AddFieldRequest {
+  std::string dataset, subject, name, manifold, values;   // values: the .npy file
+  std::optional<std::string> time;         // a time line (by name): the field is time-resolved
+  std::string value_type = "scalar";       // scalar · integer · complex · vector2 · vector3 · matrix3 · quaternion · hermitian3 (its components trail the element axes)
+  std::string kind = "added";              // what its values are
+  std::optional<std::string> unit, cell, derived_from, description;   // cell: "0" vertices (default), "1" edges, "2" faces
+  bool replace = false;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult add_field(const AddFieldRequest& request, const Progress& progress = {});
+
+/** `add selection`: a partition or set (a label per element, -1: none; `members`), a pick of elements in order (`indices`), or spans on a time line (`spans`: [k x 2] start,
+ *  stop or [k x 3] start, stop, code; in the line's unit); `entries` name the labels (codes) 0, 1, ... */
+struct AddSelectionRequest {
+  std::string dataset, subject, name, manifold, type;   // type: partition | set | indices | spans
+  std::optional<std::string> members, indices, spans;   // the .npy file of its type
+  std::vector<std::string> entries;
+  std::optional<std::string> description;
+  bool replace = false;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult add_selection(const AddSelectionRequest& request, const Progress& progress = {});
+
+/** `add statistic`: values on named axes, each running along a manifold (`axes`: NAME:MANIFOLD, one an axis, in order), of a field (`of_field`) or computed elsewhere (detached) */
+struct AddStatisticRequest {
+  std::string dataset, subject, name, measure, method, values;
+  std::vector<std::string> axes;           // NAME:MANIFOLD
+  std::string value_type = "scalar";
+  std::optional<std::string> of_field, partition, unit, description;
+  bool replace = false;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult add_statistic(const AddStatisticRequest& request, const Progress& progress = {});
+
+/** `add measurements`: one value a member of a selection for each measure ([members], in member order; stored as measurement rows, float64), of a field (or the members' own) */
+struct AddMeasurementsRequest {
+  std::string dataset, subject, selection;
+  std::optional<std::string> field, unit;
+  std::vector<std::string> measure;        // MEASURE=FILE.npy
+  bool replace = false;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult add_measurements(const AddMeasurementsRequest& request, const Progress& progress = {});
+
+/** `add operator`: a linear map from one manifold to another, dense (`values` [to x from]) or sparse CSR (`data`, `indices`, `indptr`: scipy.sparse's arrays, rows the
+ *  `to` manifold's elements, columns the `from` manifold's) */
+struct AddOperatorRequest {
+  std::string dataset, subject, name, from_manifold, to_manifold;
+  std::string kind = "added";              // what the operator is
+  std::optional<std::string> values, data, indices, indptr;
+  std::optional<std::string> description;
+  bool replace = false;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult add_operator(const AddOperatorRequest& request, const Progress& progress = {});
+
+/** `add points`: a manifold of points, positions [n x 3] (in `coordinate_system`, default scs) or one coordinate each [n] (default: a line of its own name) */
+struct AddPointsRequest {
+  std::string dataset, subject, name, positions;
+  std::optional<std::string> coordinate_system, description;
+  bool replace = false;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult add_points(const AddPointsRequest& request, const Progress& progress = {});
+
+/** `add line`: a closed-form line, `n` points `spacing` apart from `origin`, in `unit`; `dimension` time (a clock in s: a time line fields can be time-resolved on), frequency, ... */
+struct AddLineRequest {
+  std::string dataset, subject, name;
+  std::int64_t n = 0;
+  double spacing = 1, origin = 0;
+  std::string unit, dimension = "time";
+  bool replace = false;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult add_line(const AddLineRequest& request, const Progress& progress = {});
 
 // ---- subject packages and the catalogue ----
 

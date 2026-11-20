@@ -329,7 +329,11 @@ Geometry Subject::geometry(const std::string& manifold_id) const {
   const auto m = impl_->records().manifolds().read(manifold_id);
   if (!m) throw Error(code::no_such_row, "no manifold with id " + manifold_id);
   for (const auto& d : m->dimensions) g.axes.push_back({d.ordinal, d.n_vertices, d.name, d.unit, d.manifold_id, d.spacing, d.origin});
-  if (m->coordinate_system) g.coordinate_unit = m->coordinate_system->unit;
+  if (m->coordinate_system) {
+    g.coordinate_unit = m->coordinate_system->unit;
+    g.coordinate_system = m->coordinate_system->name;
+    if (const auto sp = impl_->db->one("SELECT name FROM space WHERE id = ?", {V(m->coordinate_system->space_id)})) g.space = text(*sp, "name");
+  }
   if (m->geometry) g.positions_path = m->geometry->positions_path;
   for (const auto& c : m->cells) g.cells.emplace_back(c.rank, c.path);
   return g;

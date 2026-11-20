@@ -73,12 +73,12 @@ int main() {
   CHECK_EQ(a["stored"][0]["name"].get<std::string>(), std::string("rest_psd_welch"));
   CHECK_EQ(face::run(folder, "S1", rq)["cache"].get<std::string>(), std::string("hit"));
 
-  // read it back: values [3 channels x 101 frequencies] in float64, the statistic's record
+  // read it back: values [3 channels x 101 frequencies] in the stored precision (float32, as the recording), the statistic's record
   const face::Stored s = face::read(folder, "S1", "rest_psd_welch");
   CHECK_EQ(s.meta["class"].get<std::string>(), std::string("statistic"));
   CHECK_EQ(s.meta["measure"].get<std::string>(), std::string("power_density"));
-  CHECK(s.arrays.size() == 1 && s.arrays[0].shape == (std::vector<std::int64_t>{3, 101}) && s.arrays[0].dtype == "float64");
-  CHECK_EQ(s.arrays[0].bytes.size(), static_cast<std::size_t>(3 * 101 * 8));
+  CHECK(s.arrays.size() == 1 && s.arrays[0].shape == (std::vector<std::int64_t>{3, 101}) && s.arrays[0].dtype == "float32");
+  CHECK_EQ(s.arrays[0].bytes.size(), static_cast<std::size_t>(3 * 101 * 4));
   // the recording as a field: [3 x 4000] float32
   const face::Stored r = face::read(folder, "S1", "rest");
   CHECK_EQ(r.meta["class"].get<std::string>(), std::string("field"));

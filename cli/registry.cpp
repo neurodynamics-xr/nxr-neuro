@@ -231,7 +231,10 @@ Table read_table() {
         else if (key == "group") cur->group = val;
         else if (key == "summary") cur->summary = val;
         else if (key == "example") cur->example = val;
-        else if (key == "pos") cur->positional = val;
+        else if (key == "pos") {
+          cur->positional = val;
+          if (!val.empty() && val.back() == '?') { cur->positional.pop_back(); cur->positional_optional = true; }
+        }
         else if (key == "span") cur->span = val == "yes";
         else if (key == "seconds") cur->seconds = val != "no";
         else if (key == "alias") { cur->alias = val != "no" && val != "refused"; cur->refused = val == "refused"; }
@@ -384,7 +387,10 @@ void build_leaf(CLI::App* verb_app, const CommandDoc& c, Leaf& l) {
   l.doc = &c;
   a->footer(leaf_footer(c));
   if (!c.group.empty()) a->group(c.group);
-  if (!c.positional.empty()) a->add_option(c.positional, l.pos)->required()->expected(1, 1)->type_name(c.positional);
+  if (!c.positional.empty()) {
+    CLI::Option* p = a->add_option(c.positional, l.pos)->type_name(c.positional);
+    if (c.positional_optional) p->expected(0, 1); else p->required()->expected(1, 1);
+  }
   for (const auto& u : c.options) {
     const OptionDoc& d = option_doc(u.name, c.path());
     l.bound.emplace_back();

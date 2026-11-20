@@ -36,7 +36,7 @@ def test_psd_is_the_pure_functions_result(dataset):
     assert [s["name"] for s in r.stored] == ["rest_psd_welch"]
     got = r.read()
     assert got.meta["class"] == "statistic" and got.meta["measure"] == "power_density"
-    assert got.values.shape == (CHANNELS, 101) and got.values.dtype == np.float64
+    assert got.values.shape == (CHANNELS, 101) and got.values.dtype == np.float32       # the stored precision (the recording's)
     x = nn.read(dataset, "S1", "rest").values
     assert x.shape == (CHANNELS, int(SECONDS * SFREQ)) and x.dtype == np.float32
     want = nn.compute.signal.psd(x, SFREQ, segment_samples=200, good=_good(x.shape[1]))     # scipy's set: hann (periodic), constant detrend, 50 % overlap, density

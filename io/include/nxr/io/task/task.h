@@ -87,6 +87,7 @@ struct Axis {
 struct Geometry {
   std::vector<Axis> axes;
   std::optional<std::string> coordinate_unit, positions_path;
+  std::optional<std::string> coordinate_system, space;       // the coordinate system its positions are in (its name: scs, clock, ...) and the space it is a chart of
   std::vector<std::pair<std::int64_t, std::string>> cells;   // (rank, path of the cell array)
 };
 

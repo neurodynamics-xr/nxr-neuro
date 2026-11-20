@@ -18,7 +18,7 @@ verb compute	Compute a node or a graph on arrays or files (reserved: not availab
 verb compile	Compile a pipeline definition without running it: expand it, type-check every connection, print the compiled graph with every value's type
 verb list	List datasets, subjects, recordings, kernels, results or pipelines
 verb show	Show a dataset or a subject
-verb read	Read stored arrays and derived readings
+verb read	Read stored arrays and derived readings: a stored field, statistic, operator, selection or manifold by name, as .npy files or JSON
 verb query	Query stored measurements
 verb export	Export stored results: measurements as a table, cortical maps as GIFTI
 verb import	Import data from Brainstorm into a dataset
@@ -27,7 +27,7 @@ verb delete	Delete a dataset or a subject
 verb compact	Compact a dataset
 verb recover	Recover a dataset after an interrupted write
 verb reduce	Reduce stored results across subjects
-verb add	Add a surface to a subject
+verb add	Add to a subject what was computed elsewhere: a surface, a field, a selection, a statistic, measurements, an operator, points or a line, from .npy files
 verb register	Register subject packages in a dataset's catalogue
 verb split	Split a one-database dataset into subject packages with a catalogue
 verb join	Join subject packages back into a one-database dataset
@@ -859,9 +859,10 @@ opts: --dataset* --node --subject* --templates+
 R"TBL(@ add surface
 old: surface add
 alias: refused
-summary: Add a mesh file (OBJ, PLY or STL) to a subject as a surface.
-pos: FILE
-opts: --dataset* --name --no-primary --primary --scale --subject* --templates+
+summary: Add a surface to a subject: a mesh file (OBJ, PLY or STL), or its vertices and faces as .npy files.
+pos: FILE?
+example: nxr-neuro add surface bunny.obj --dataset /data/study --subject sub-01
+opts: --dataset* --faces --name --no-primary --primary --scale --subject* --vertices --templates+
 )TBL",
 R"TBL(@ list recordings
 old: __list recordings
@@ -1093,6 +1094,172 @@ group: Surrogates
 summary: The vortex cores' tile crossings against lag-free surrogate draws (draws with early stopping): per-tile p and q, the run repeat.
 span: yes
 opts: --batch --chunks --dataset* --exceedances=--h --max-draws --min-crossings --min-draws --over --recording-a* --recording-b --replace --set+ --stage --start --stop --subject* --templates+
+)TBL",
+R"TBL(--name@read field	NAME	The stored field to read, by name or id.	required	-
+--templates@read field	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--out@read field	FILE.npy	Write the values as a .npy file (C order, little-endian, the stored precision) and print the result with the file's path.	none (the result only, as JSON)	-
+--rows@read field	I,J,...	The rows (channels) of a time-resolved field to read, by index, in the order given.	every row	-
+--projectors@read field	active|none	A recording's projectors when it is read: active applies its active projectors to every block loaded (as a run reads it), none reads the samples as stored.	active	-
+--shape-only@read field		Print the description of a time-resolved field (rate, origin, samples, channels, unit, projection) and read no sample.	off	-
+)TBL",
+R"TBL(--name@read statistic	NAME	The stored statistic to read, by name or id.	required	-
+--templates@read statistic	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--out@read statistic	FILE.npy	Write the values as a .npy file (C order, little-endian, the stored precision) and print the result with the file's path.	none (the result only, as JSON)	-
+)TBL",
+R"TBL(--name@read operator	NAME	The stored operator to read, by name or id.	required	-
+--templates@read operator	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--out@read operator	FILE.npy	Write the operator as .npy files: a dense one to FILE itself, a sparse one as <stem>.data.npy, <stem>.indices.npy and <stem>.indptr.npy (scipy.sparse.csr_matrix's arrays).	none (the result only, as JSON)	-
+)TBL",
+R"TBL(--name@read selection	NAME	The stored selection to read, by name or id.	required	-
+--templates@read selection	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--out@read selection	FILE.npy	Write its arrays as .npy files: one array to FILE itself; several (spans' start, stop and code; a measurement table's code, value, weight and members) as <stem>.<array>.npy.	none (the result only, as JSON)	-
+--measure@read selection	NAME	Read the selection's measurement table of this measure (code, value, weight, members a member) instead of its array or spans.	none (its array or spans)	-
+--field@read selection	NAME	With --measure: the field the measurement is of, when several are measured over the selection.	the only field measured	-
+)TBL",
+R"TBL(--name@read manifold	NAME	The stored manifold to read, by name or id.	required	-
+--templates@read manifold	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--out@read manifold	FILE.npy	Write its arrays as .npy files: one array to FILE itself; several (positions and cells_<rank>) as <stem>.<array>.npy.	none (the result only, as JSON)	-
+--family@read manifold	NAME	Read one labelling of the manifold (type, unit, quality, hemisphere, ...): a code per element and its dictionary.	none (its positions, cells, axes and names)	-
+)TBL",
+R"TBL(--templates@add field	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@add field	NAME	Name the field is stored under in the subject; a name already used is refused unless --replace.	required	-
+--description@add field	TEXT	A sentence on what the values are and how they were made, kept with the node and in its producer record.	none	-
+--manifold@add field	NAME	The manifold the field lies on, by name or id; the values' first axis is its vertices (or its edges or faces, by --cell).	required	-
+--values@add field	FILE.npy	The values: [n] or [n x components] (a value type's components trail), or with --time [n x samples (x components)]; float32 stays float32.	required	-
+--time@add field	LINE	A time line (by name, e.g. made by add line): the field is time-resolved, [n x samples], and is read back with read field --from/--to or --all.	none (a field with no time line)	-
+--value-type@add field	TYPE	The value at each element: scalar, integer, complex (re, im), vector2, vector3, matrix3, quaternion or hermitian3; its components trail the values' axes.	scalar	-
+--kind@add field	TEXT	What the values are (stored as the field's kind).	added	-
+--unit@add field	TEXT	The unit of the values.	none	-
+--cell@add field	0|1|2	The cells of the manifold the values sit on: 0 its vertices, 1 its edges, 2 its faces.	0	-
+--derived-from@add field	NAME	The stored field these values were computed from, by name or id (provenance).	none	-
+)TBL",
+R"TBL(--templates@add selection	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@add selection	NAME	Name the selection is stored under in the subject; a name already used is refused unless --replace.	required	-
+--description@add selection	TEXT	A sentence on what the values are and how they were made, kept with the node and in its producer record.	none	-
+--manifold@add selection	NAME	The manifold the selection lies on, by name or id (spans: a line).	required	-
+--type@add selection	partition|set|indices|spans	partition or set: a label per element (--members); indices: the elements picked, in order (--indices); spans: intervals on a line (--spans).	required	-
+--members@add selection	FILE.npy	partition, set: an integer label per element [n] (-1: in no member); stored as int32 member numbers with each member's label.	none	-
+--indices@add selection	FILE.npy	indices: the elements picked [k], integers, in order.	none	-
+--spans@add selection	FILE.npy	spans: [k x 2] (start, stop) or [k x 3] (start, stop, code; -1 no code), in the line's unit.	none	-
+--entries@add selection	NAME,...	The names of the labels (codes) 0, 1, 2, ... in order.	none	-
+)TBL",
+R"TBL(--templates@add statistic	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@add statistic	NAME	Name the statistic is stored under in the subject; a name already used is refused unless --replace.	required	-
+--description@add statistic	TEXT	A sentence on what the values are and how they were made, kept with the node and in its producer record.	none	-
+--measure@add statistic	NAME	What the values measure, from the statistics or measure registry (power_density, mean, ...).	required	-
+--method@add statistic	NAME	How they were computed, from the statistics registry (welch, ...).	required	-
+--values@add statistic	FILE.npy	The values, one axis a --axes entry in order (and a value type's components after them); float32 or float64.	required	-
+--axes@add statistic	NAME:MANIFOLD	Each axis of the values, in order: its name and the manifold it runs along (by name); repeat or give several.	required	-
+--value-type@add statistic	TYPE	The value at each entry: scalar, complex, vector2, vector3, matrix3, quaternion or hermitian3; its components trail the axes.	scalar	-
+--of-field@add statistic	NAME	The stored field the statistic is of, by name or id; without it the statistic is recorded as computed elsewhere (detached).	none (detached)	-
+--partition@add statistic	NAME	The selection whose members the statistic was computed over (provenance), by name or id.	none	-
+--unit@add statistic	TEXT	The unit of the values.	none	-
+)TBL",
+R"TBL(--templates@add measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--selection@add measurements	NAME	The selection whose members are measured, by name or id.	required	-
+--measure@add measurements	NAME=FILE.npy	A measure and its values, one a member in member order [members] (float32 or float64; stored as float64 measurement rows); repeat or give several.	required	-
+--field@add measurements	NAME	The stored field the measurements are of, by name or id.	none (the members' own)	-
+--unit@add measurements	TEXT	The unit of the measures' values.	none	-
+)TBL",
+R"TBL(--templates@add operator	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@add operator	NAME	Name the operator is stored under in the subject; a name already used is refused unless --replace.	required	-
+--description@add operator	TEXT	A sentence on what the values are and how they were made, kept with the node and in its producer record.	none	-
+--from-manifold@add operator	NAME	The manifold the operator maps from (its columns), by name or id.	required	-
+--to-manifold@add operator	NAME	The manifold the operator maps to (its rows), by name or id.	required	-
+--kind@add operator	TEXT	What the operator is (stored as its kind).	added	-
+--values@add operator	FILE.npy	A dense operator [to x from] (rows the --to-manifold's elements, columns the --from-manifold's); float32 or float64.	none (or --data, --indices, --indptr)	-
+--data@add operator	FILE.npy	A sparse CSR operator's nonzero values [nnz] (scipy.sparse.csr_matrix's data); float32 or float64.	none	-
+--indices@add operator	FILE.npy	A sparse CSR operator's column of each value [nnz] (scipy.sparse.csr_matrix's indices).	none	-
+--indptr@add operator	FILE.npy	A sparse CSR operator's row offsets [rows + 1] (scipy.sparse.csr_matrix's indptr).	none	-
+)TBL",
+R"TBL(--templates@add points	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@add points	NAME	Name the manifold of points is stored under in the subject; a name already used is refused unless --replace.	required	-
+--description@add points	TEXT	A sentence on what the values are and how they were made, kept with the node and in its producer record.	none	-
+--positions@add points	FILE.npy	The points: positions [n x 3], or one coordinate each [n]; stored in float64.	required	-
+--coordinate-system@add points	KEY	The coordinate system the positions are in (scs, mni, ...).	scs for [n x 3]; a system of the points' own name for [n]	-
+)TBL",
+R"TBL(--templates@add line	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@add line	NAME	Name the line is stored under in the subject; a name already used is refused unless --replace.	required	-
+--n@add line	N	The number of points of the line.	required	points
+--spacing@add line	X	The step between points, in --unit (a time line: 1 / its sampling rate).	required	-
+--origin@add line	X	The coordinate of the first point, in --unit.	0	-
+--unit@add line	TEXT	The unit of the line's coordinates (s for a time line, Hz for a frequency line).	required	-
+--dimension@add line	time|frequency|NAME	What the line runs along: time (a clock in seconds that fields can be time-resolved on), frequency, or another name.	time	-
+)TBL",
+R"TBL(--vertices@add surface	FILE.npy	The surface from arrays instead of a mesh FILE: the vertices [n x 3] (with --faces and --name).	none (the mesh FILE)	-
+--faces@add surface	FILE.npy	The surface from arrays: its triangles [m x 3], 0-based vertex indices (with --vertices).	none (the mesh FILE)	-
+)TBL",
+R"TBL(@ read field
+old: __read field
+summary: Read a stored field by name: its values (a time-resolved field over a stated time range, read one chunk at a time), its manifold and cells, as JSON or .npy.
+example: nxr-neuro read field --dataset /data/study --subject sub-01 --name rest --from 0 --to 10 --out rest.npy
+opts: --all --dataset* --from --name* --out --projectors --rows --shape-only --subject* --to --templates+
+)TBL",
+R"TBL(@ read statistic
+old: __read statistic
+summary: Read a stored statistic by name: its values on its axes, in the stored precision, as JSON or .npy.
+example: nxr-neuro read statistic --dataset /data/study --subject sub-01 --name rest_psd --out psd.npy
+opts: --dataset* --name* --out --subject* --templates+
+)TBL",
+R"TBL(@ read operator
+old: __read operator
+summary: Read a stored operator by name: dense values, or a sparse operator's data, indices and indptr, as JSON or .npy files.
+example: nxr-neuro read operator --dataset /data/study --subject sub-01 --name kernel --out kernel.npy
+opts: --dataset* --name* --out --subject* --templates+
+)TBL",
+R"TBL(@ read selection
+old: __read selection
+summary: Read a stored selection by name: its per-element array, or its spans and dictionary, or its measurement table of a measure.
+example: nxr-neuro read selection --dataset /data/study --subject sub-01 --name rest_bad_segments --out bad.npy
+opts: --dataset* --field --measure --name* --out --subject* --templates+
+)TBL",
+R"TBL(@ read manifold
+old: __read manifold
+summary: Read a stored manifold by name: its positions and cells, axes, element names and coordinate system, or one labelling of it.
+example: nxr-neuro read manifold --dataset /data/study --subject sub-01 --name cortex --out cortex.npy
+opts: --dataset* --family --name* --out --subject* --templates+
+)TBL",
+R"TBL(@ add field
+old: __add field
+summary: Store values computed elsewhere as a field on a manifold (optionally time-resolved on a time line), from a .npy file, as one unit.
+example: nxr-neuro add field --dataset /data/study --subject sub-01 --name thickness --manifold cortex --values thickness.npy --unit mm
+opts: --cell --dataset* --derived-from --description --kind --manifold* --name* --replace --subject* --time --unit --value-type --values* --templates+
+)TBL",
+R"TBL(@ add selection
+old: __add selection
+summary: Store a partition, set, pick of elements or spans on a line computed elsewhere, from a .npy file, as one unit.
+example: nxr-neuro add selection --dataset /data/study --subject sub-01 --name regions --manifold cortex --type partition --members regions.npy
+opts: --dataset* --description --entries --indices --manifold* --members --name* --replace --spans --subject* --type* --templates+
+)TBL",
+R"TBL(@ add statistic
+old: __add statistic
+summary: Store a statistic computed elsewhere (values on named axes, each along a manifold), from a .npy file, as one unit.
+example: nxr-neuro add statistic --dataset /data/study --subject sub-01 --name psd --measure power_density --method welch --values psd.npy --axes channel:sensors frequency:freq --of-field rest
+opts: --axes+* --dataset* --description --measure* --method* --name* --of-field --partition --replace --subject* --unit --value-type --values* --templates+
+)TBL",
+R"TBL(@ add measurements
+old: __add measurements
+summary: Store measurements computed elsewhere over a selection's members (one array a measure), from .npy files, as one unit.
+example: nxr-neuro add measurements --dataset /data/study --subject sub-01 --selection regions --field thickness --measure mean=mean.npy
+opts: --dataset* --field --measure+* --replace --selection* --subject* --unit --templates+
+)TBL",
+R"TBL(@ add operator
+old: __add operator
+summary: Store a linear operator between two manifolds computed elsewhere, dense or sparse (CSR), from .npy files, as one unit.
+example: nxr-neuro add operator --dataset /data/study --subject sub-01 --name smoother --from-manifold cortex --to-manifold cortex --data d.npy --indices i.npy --indptr p.npy
+opts: --data --dataset* --description --from-manifold* --indices --indptr --kind --name* --replace --subject* --to-manifold* --values --templates+
+)TBL",
+R"TBL(@ add points
+old: __add points
+summary: Store a manifold of points (positions or one coordinate each) from a .npy file, as one unit.
+example: nxr-neuro add points --dataset /data/study --subject sub-01 --name electrodes --positions electrodes.npy
+opts: --coordinate-system --dataset* --description --name* --positions* --replace --subject* --templates+
+)TBL",
+R"TBL(@ add line
+old: __add line
+summary: Store a closed-form line (a time line in seconds, a frequency line, ...): n points a spacing apart from an origin.
+example: nxr-neuro add line --dataset /data/study --subject sub-01 --name epoch_time --n 1000 --spacing 0.004 --unit s
+opts: --dataset* --dimension --n* --name* --origin --replace --spacing* --subject* --unit* --templates+
 )TBL",
   };
 }

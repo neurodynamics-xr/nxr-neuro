@@ -102,17 +102,24 @@ struct ReadRequest {
   std::vector<std::int32_t> rows;          // its rows (channels), in the order given; empty: every row
   std::string projectors = "active";       // the chunk service's option: "active" (the recording's active projectors applied, as every run reads it) or "none" (the samples as stored)
   std::string reading = "samples";         // "samples", or "shape": the description only (rate, origin, samples, channels, unit, projection, provenance), no sample read
+  std::optional<double> from, to;          // or the time range in seconds on the field's clock (both; not with start and stop), read chunk by chunk
+  bool all = false;                        // or the whole field, read chunk by chunk
+  bool range_required = false;             // a time-resolved field needs its range stated (from and to, start and stop, or all): the command line's rule (`read field`); a Refused otherwise
   // A MANIFOLD (by name or id: its positions, its cells, its axes, its element names) or, with `family`, one LABELLING of it:
   std::optional<std::string> family;       // the labelling of the manifold of that name (type, unit, quality, hemisphere, lobe, ...): its code per element and its dictionary
+  std::string cls;                         // only a node of this class: field | statistic | operator | selection | manifold (empty: the first of statistic, field, operator, selection, manifold)
+  std::vector<std::string> templates;      // where to look for the released templates a subject package is registered to
 };
 /** The stored thing `name` of the subject (a statistic, field, operator, selection or manifold, by name or id). Nothing is written (the dataset is opened for reading).
- *  - a statistic, an operator, a field with no time line: read whole (`values`; a sparse operator `data`, `indices`, `indptr`);
+ *  - a statistic, an operator, a field with no time line: read whole (`values`, in the stored precision; a sparse operator `data`, `indices`, `indptr`); a field's meta names its
+ *    manifold (`manifold`, `manifold_id`) and the cells its values sit on (`cell`: "0" vertices, "1" edges, "2" faces);
  *  - a time-resolved field: `values` [rows x samples] in its stored precision, the span and rows of `request`, through the chunk service (the active projectors applied unless
  *    `projectors` is none); meta: rate (Hz), origin (s), n_samples, n_channels, rows, the channels' manifold, the span read, the projection applied, unit, producer;
  *  - a selection with an array: `values`, its per-element array; a selection of SPANS (events, bad segments): `start`, `stop` (s, on its line's clock), `code` (-1: none) and meta
  *    `dictionary` [{code, name}]; with `measure`, the measurement table (`code`, `value`, `weight`, `members`);
  *  - a manifold: `positions` [n x 3] as stored (meta `coordinate_unit` says their unit), `cells_<rank>` when it has cells; meta: type, n, axes, `names` (its `<name>_names` labelling, one
- *    name per element, when stored) and the selections that lie on it; with `family`: `codes` (int64, one per element, -1: none) and meta `dictionary` [{code, name}]. */
+ *    name per element, when stored), its coordinate system (`coordinate_system` {name, unit, space}) and the selections that lie on it; with `family`: `codes` (int64, one per element,
+ *    -1: none) and meta `dictionary` [{code, name}]. */
 Stored read(const std::filesystem::path& dataset, const std::string& subject, const std::string& name, const ReadRequest& request);
 /** the same with only a measure (the form the MATLAB binding calls) */
 Stored read(const std::filesystem::path& dataset, const std::string& subject, const std::string& name, const std::optional<std::string>& measure = std::nullopt,
@@ -123,6 +130,28 @@ Stored read(const std::filesystem::path& dataset, const std::string& subject, co
  *  quality), with one bad span (`<recording>_bad_segments`, type BAD). Returns the dataset's folder. */
 std::filesystem::path synthetic_dataset(const std::filesystem::path& datastore, const std::string& name = "demo", const std::string& subject = "S1", const std::string& recording = "rest",
                                         int channels = 3, double sfreq = 100.0, double seconds = 40.0, unsigned seed = 21);
+
+// ---- `read <class>` (docs/specs/2026-11-19-io-service.md, 4.1): one stored node by name, as `read` above, the class named by the command. The result is the node's meta with
+// `arrays` [{name, dtype, shape}] (the arrays themselves in CommandResult::arrays); with `out`, the arrays are written as .npy files and `files` {name: path} says where:
+// one array to `out` itself, several (a sparse operator's data, indices and indptr; a manifold's positions and cells; spans' start, stop and code) to `<out stem>.<name>.npy`.
+using nxr::io::task::CommandResult;
+struct ReadNodeRequest {
+  std::string dataset, subject, name;
+  std::optional<double> from, to;          // field: the time range in seconds (both), or
+  bool all = false;                        // field: the whole field (a time-resolved field needs one of the two; read one chunk at a time)
+  std::vector<std::int32_t> rows;          // field: its rows, in order (empty: all)
+  std::string projectors = "active";       // field: active | none
+  bool shape_only = false;                 // field: its description only, no sample read
+  std::optional<std::string> measure, field;   // selection: its measurement table of this measure (of this field)
+  std::optional<std::string> family;       // manifold: one labelling of it
+  std::optional<std::string> out;          // the .npy file (or stem) the arrays are written to
+  std::vector<std::string> templates;
+};
+CommandResult read_field(const ReadNodeRequest& request);
+CommandResult read_statistic(const ReadNodeRequest& request);
+CommandResult read_operator(const ReadNodeRequest& request);
+CommandResult read_selection(const ReadNodeRequest& request);
+CommandResult read_manifold(const ReadNodeRequest& request);
 
 // ---- THE COMMANDS THAT NEED COMPUTE (docs/specs/2026-11-19-io-service.md, section 5): one function a command, the command line calling it as the faces will; the io-only
 // commands are nxr/io/task/commands.h. Each takes the command's options as a request and returns its result object (without "stage") and its arrays.
