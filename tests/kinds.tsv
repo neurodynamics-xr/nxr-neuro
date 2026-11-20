@@ -224,6 +224,7 @@ test_subject_descriptions	integration
 test_read_region	integration
 test_list_datasets	integration
 test_import_skip_v73	integration
+test_import_catalogue	integration
 test_pieces_deletes_jobs	integration
 test_readonly_readers	integration
 test_records	unit

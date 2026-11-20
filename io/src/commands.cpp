@@ -200,18 +200,14 @@ CommandResult create_subject(const CreateSubjectRequest& rq, const Progress& pro
   CommandResult r;
   if (is_catalogue_dataset(rq.dataset)) {   // a catalogue: a new package in the dataset's folder, registered
     const Catalogue cat = Catalogue::open(rq.dataset);
-    CreatePackageOptions po = cat.package_options();
-    po.subject.kind = rq.kind;
-    po.subject.created_by = rq.created_by;
-    po.built_by = rq.created_by;
-    const fs::path pkg = cat.folder() / (rq.name + kPackageSuffix);
-    DatasetWriter w = nxr::io::create_package(pkg, rq.name, po);
+    SubjectOptions so;
+    so.kind = rq.kind;
+    so.created_by = rq.created_by;
+    const fs::path pkg = member_package_path(cat, rq.name);
+    DatasetWriter w = create_member_package(cat, rq.name, so, rq.created_by);
     const std::string sid = Dataset::of(w).package_subject_id();
     w.close();
-    RegisterOptions ro;
-    ro.registered_by = rq.created_by;
-    const auto res = register_packages(rq.dataset, {pkg}, ro);
-    if (res.empty() || res[0].outcome == "refused") throw Error(code::invalid_argument, rq.name + ": " + (res.empty() ? std::string("not registered") : res[0].reason));
+    register_member(rq.dataset, pkg, rq.name, rq.created_by);
     r.result = Json{{"subject", rq.name}, {"kind", rq.kind}, {"id", sid}, {"path", pkg.filename().string()}};
     return r;
   }
@@ -267,8 +263,9 @@ CommandResult show_subject(const ShowSubjectRequest& rq, const Progress& progres
 CommandResult delete_subject(const DeleteSubjectRequest& rq) {
   if (rq.node) {   // one node, named CLASS:NAME (commands_delete.cpp); a catalogue's package opens through the catalogue
     DatasetWriter ds = is_catalogue_dataset(rq.dataset) ? open_dataset(rq.dataset, rq.subject, OpenOptions{}, rq.templates, {}) : open_one_database(rq.dataset, "delete subject");
-    return delete_node(ds, rq.subject, *rq.node, rq.created_by);
+    return delete_node(ds, rq.subject, *rq.node, rq.created_by, rq.by);
   }
+  if (rq.by) throw Refused("--by goes with --node: it names the author of the node to delete");
   DatasetWriter ds = open_one_database(rq.dataset, "delete subject");
   OpenSubjectOptions oo;
   oo.created_by = rq.created_by;

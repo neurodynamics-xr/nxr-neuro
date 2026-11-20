@@ -1,7 +1,8 @@
 // A READER never writes (issue 144): the face's reads, the command line's `show dataset` and `list` verbs, and io's `open_writer` / `open_package_writer` with `lock = false` open SQLite
 // read-only. A dataset at schema 50 (made here by putting 50 back) is read AS IT IS: the file is byte for byte and mtime for mtime the same afterwards, the rows are returned, the
 // tables 51 to 54 added are absent and the answer says so (no product factors, no statistics). Only a writable open, under the writer lock, migrates. A subject package made before
-// a table of its format (`origin`) is read as it is too. Synthetic data only.
+// a table of its format (`origin`) is read as it is too. A database in WAL mode that another connection holds (its commits still in the -wal) is read leaving the database file
+// and its -wal unchanged; only SQLite's shared-memory index (-shm), which WAL readers write too, may change. Synthetic data only.
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -150,6 +151,49 @@ int main() {
       DatasetWriter w = open_package_writer(pkg);
       CHECK_EQ(nxr::io::testing::Probe(w).count("sqlite_master", {{"name", Value(std::string("origin"))}}), 1);
       w.close();
+    }
+  }
+  // A DATABASE IN WAL MODE WITH A LIVE WRITER (a subject's small_files.sqlite another connection holds, its last commits still in the -wal): every read leaves the database file
+  // and its -wal byte for byte and mtime for mtime as they were. Only the -shm (SQLite's shared-memory wal-index, which WAL readers write too) may change: it holds no data.
+  {
+    fs::path small;
+    for (const auto& e : fs::recursive_directory_iterator(folder))
+      if (e.is_regular_file() && e.path().filename() == "small_files.sqlite") small = e.path();
+    CHECK(!small.empty());
+    if (!small.empty()) {
+      Database live = Database::open_plain(small);   // the other connection: WAL, no automatic checkpoint, a commit left in the -wal
+      const nxr::io::testing::Probe lp(live);
+      lp.tamper("PRAGMA journal_mode = WAL");
+      lp.tamper("PRAGMA wal_autocheckpoint = 0");
+      lp.tamper("CREATE TABLE IF NOT EXISTS wal_probe (a INTEGER)");
+      lp.tamper("INSERT INTO wal_probe VALUES (1)");
+      const fs::path wal = small.string() + "-wal";
+      CHECK(fs::is_regular_file(wal) && fs::file_size(wal) > 0);
+      const Stamp db_before = stamp(small), wal_before = stamp(wal);
+      {   // the face's readers and io's (lock = false), reading the subject's small keys
+        CHECK_EQ(face::subjects(folder)["subjects"].size(), std::size_t(1));
+        CHECK(face::results(folder, "S1", "recordings").size() >= 1);
+        OpenOptions o;
+        o.lock = false;
+        DatasetWriter ds = open_writer(folder, o);
+        SubjectWriter sub = SubjectWriter::open(ds, "S1");
+        task::Want want;
+        want.cls = task::Cls::manifold;
+        CHECK(!task::Subject::of(sub).find_all(want).empty());
+        ds.close();
+      }
+#ifdef NXR_TEST_CLI
+      {   // the command line's reads: a subject, a recording's time range, a surface region past the end (what the Studio's check did)
+        const std::string cli = NXR_TEST_CLI, d = folder.string(), log = (root / "wal.log").string();
+        CHECK_EQ(std::system((cli + " read subject --dataset " + d + " --subject S1 > " + log + " 2>&1").c_str()), 0);
+        CHECK_EQ(std::system((cli + " read field --dataset " + d + " --subject S1 --name rest --from 0 --to 1 >> " + log + " 2>&1").c_str()), 0);
+        std::system((cli + " read manifold --dataset " + d + " --subject S1 --name sensors --region 4294967295:4294967296 >> " + log + " 2>&1").c_str());
+        CHECK_EQ(std::system((cli + " list fields --dataset " + d + " --subject S1 >> " + log + " 2>&1").c_str()), 0);
+      }
+#endif
+      CHECK(stamp(small) == db_before);   // the database file: not a byte, not its mtime
+      CHECK(stamp(wal) == wal_before);    // the -wal: likewise
+      live.close();
     }
   }
   return nxrtest::finish("test_readonly_readers");

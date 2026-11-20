@@ -349,6 +349,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.dataset = o.str("dataset");
     q.subject = o.str("subject");
     q.node = o.maybe("node");
+    q.by = o.maybe("by");
     q.templates = o.list("templates");
     q.created_by = created_by;
     call([&] { return task::delete_subject(q); });

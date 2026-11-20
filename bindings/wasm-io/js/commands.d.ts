@@ -213,6 +213,7 @@ export interface ShowSubjectOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface DeleteSubjectOptions {
+  by?: string | number;
   dataset: string | number;
   node?: string | number;
   subject: string | number;

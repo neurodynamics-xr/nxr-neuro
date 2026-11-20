@@ -28,7 +28,7 @@ export const COMMANDS = [
   ["create", "subject", "", "dataset* kind name*"],
   ["list", "subjects", "", "dataset* subjects where"],
   ["show", "subject", "", "dataset* subject* templates+"],
-  ["delete", "subject", "", "dataset* node subject* templates+"],
+  ["delete", "subject", "", "by dataset* node subject* templates+"],
   ["add", "surface", "file?", "by dataset* faces name no_primary! primary! scale subject* templates+ vertices"],
   ["list", "recordings", "", "dataset* subject* templates+"],
   ["list", "kernels", "", "dataset* subject* templates+"],

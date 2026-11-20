@@ -67,7 +67,16 @@ std::string subject_cortex(const std::filesystem::path& root, const std::string&
 // Every part of the Brainstorm subject into the SubjectWriter `sub` (rows pending; the caller completes). Returns {subject, sessions, volumes, maps, fibers, connectomes, skipped}.
 Json compose_subject(nxr::io::SubjectWriter& sub, const std::filesystem::path& root, const std::string& subject, const Emit& emit, std::optional<double> resample = std::nullopt);
 
-// The whole subject as ONE composition: created pending, completed once (one drain), or removed whole. Returns nxr's result object (the summary, id, rows).
+// THE SUBJECT ROW AN IMPORT MAKES (its kind, source and creator): what convert_subject, convert_template and convert_group create in a one-database dataset, and what a
+// catalogue's new member package is made with (its subject row is then the one they fill). The template is the subject `template`, the group results the subject `group`.
+nxr::io::SubjectOptions subject_options(const std::filesystem::path& root, const std::string& subject, const std::string& created_by);
+nxr::io::SubjectOptions template_options(const std::filesystem::path& root, const std::string& created_by);
+nxr::io::SubjectOptions group_options(const std::filesystem::path& root, const std::string& created_by);
+constexpr const char* kTemplateSubject = "template";
+constexpr const char* kGroupSubject = "group";
+
+// The whole subject as ONE composition: created pending, completed once (one drain), or removed whole. In a package (a catalogue's member made for the import, its subject
+// row `subject_options`') the package's own subject is filled. Returns nxr's result object (the summary, id, rows).
 Json convert_subject(nxr::io::DatasetWriter& ds, const std::filesystem::path& root, const std::string& subject, const Emit& emit, const std::string& created_by,
                      std::optional<double> resample = std::nullopt);
 
