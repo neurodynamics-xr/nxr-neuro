@@ -58,5 +58,5 @@ jobs:
           cmake --build build --target nxr-neuro
       - name: WebAssembly build and smoke test
         run: bash -x bindings/wasm-io/smoke.sh "$PWD/build/wasm"
-      - name: Node tests of the JavaScript face (the whole module: the commands, the pipelines, the geometry compute)
+      - name: "Node tests of the JavaScript face (the whole module: the commands, the pipelines, the geometry compute)"
         run: bash -x bindings/wasm-io/test/run.sh "$PWD/build/wasm-node"
