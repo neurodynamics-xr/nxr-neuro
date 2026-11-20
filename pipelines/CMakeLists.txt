@@ -61,6 +61,7 @@ add_library(nxr_pipelines
   src/run_repeat.cpp
   src/surrogate_compare.cpp
   src/spatial_events_steps.cpp
+  src/gabor_steps.cpp
   src/point_events.cpp
   src/runner.cpp
   src/declared_outputs.cpp
@@ -406,6 +407,10 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_band_bursts PRIVATE nxr_pipelines)
   target_include_directories(test_band_bursts PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_band_bursts COMMAND test_band_bursts)
+  add_executable(test_gabor_bursts test/test_gabor_bursts.cpp)
+  target_link_libraries(test_gabor_bursts PRIVATE nxr_pipelines)
+  target_include_directories(test_gabor_bursts PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_gabor_bursts COMMAND test_gabor_bursts)
   add_executable(test_filter_pipeline test/test_filter_pipeline.cpp)
   target_link_libraries(test_filter_pipeline PRIVATE nxr_pipelines)
   target_include_directories(test_filter_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test)

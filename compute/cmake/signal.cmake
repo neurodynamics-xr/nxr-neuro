@@ -14,6 +14,7 @@ target_sources(nxr_compute PRIVATE
   src/signal/filters_iir.cpp
   src/signal/forms.cpp
   src/signal/fourier.cpp
+  src/signal/gabor.cpp
   src/signal/graphfilterbank.cpp
   src/signal/graphtransforms.cpp
   src/signal/graphfilterbank_operator.cpp
@@ -48,6 +49,13 @@ set_source_files_properties(src/signal/filters_fir.cpp PROPERTIES COMPILE_OPTION
 set_source_files_properties(src/signal/forms.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")   # a port of the Studio's fieldForms.ts / faceGradient.ts (no FMA in JavaScript)
 
 if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
+  add_executable(test_gabor test/test_gabor.cpp)
+  target_link_libraries(test_gabor PRIVATE nxr_compute)
+  add_test(NAME test_gabor COMMAND test_gabor)
+  add_executable(test_gabor_golden test/test_gabor_golden.cpp)
+  target_link_libraries(test_gabor_golden PRIVATE nxr_compute)
+  target_compile_definitions(test_gabor_golden PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+  add_test(NAME test_gabor_golden COMMAND test_gabor_golden)
   add_executable(test_intrinsic_forms test/test_intrinsic_forms.cpp)
   target_link_libraries(test_intrinsic_forms PRIVATE nxr_compute)
   add_test(NAME test_intrinsic_forms COMMAND test_intrinsic_forms)

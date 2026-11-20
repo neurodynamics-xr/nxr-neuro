@@ -51,4 +51,10 @@ BlockTransform wtBlock(const timefilterbank::Design& design, const Eigen::Matrix
  *  next_fast_len(width) (the gain at f_b = b fs / N: the continuous design, masked to the member's support). The window is taken periodic on N: the caller's halo keeps the ends out of the instants. */
 Eigen::MatrixXcd wt(const timefilterbank::TimeFilterbank& bank, int member, const Eigen::MatrixXd& x, const Eigen::VectorXd& at);
 
+/** wt of ONE member of an Analytic bank at EVERY D-th SAMPLE of the bank's grid (sample m·D, m = 0 .. nfft/D − 1), from the record's spectrum `spectrum` (timefilterbank::spectrum: [bins x C]): exactly the full-rate
+ *  coefficients there (not a filter: a band-limited complex signal is read at instants), computed on the member's own bins only by an inverse FFT of nfft/D points (the reference detector's channel_atoms):
+ *  W(mD) = (1/nfft) Σ_k X_k g_k e^{2πi k m D / nfft}. The member's support (its bins whose gain is above 1e-16 of its peak) must fit in nfft/D bins, and D must divide nfft (std::invalid_argument otherwise).
+ *  Returns [C x nfft/D]. MEMORY: C x nfft/D complex. */
+Eigen::MatrixXcd wtDecimated(const timefilterbank::TimeFilterbank& bank, int member, const Eigen::MatrixXcd& spectrum, int decimation);
+
 }  // namespace nxr::signal

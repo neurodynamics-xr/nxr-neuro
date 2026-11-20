@@ -101,7 +101,7 @@ One command, verb first: `nxr-neuro <verb> <what> [options]`.
 
 | verb | what it does |
 |---|---|
-| `run <pipeline>` | every pipeline on a subject: the built-in computations (psd, crossspectrum, phasegradient, nulls, ...), the selection makers (`select_dyadic_surface`, `select_time_grid`, `select_bands`, `select_product`, `glue`), the one measuring definition `measure` with its presets, and the shipped definitions (`run global_bursts --band "8-16 Hz" --all`) and your own definition file (`run my.yaml ...`); a definition's parameters are options, each with its meaning, default and unit in `--help` |
+| `run <pipeline>` | every pipeline on a subject: the built-in computations (psd, crossspectrum, phasegradient, nulls, ...), the selection makers (`select_dyadic_surface`, `select_time_grid`, `select_bands`, `select_product`, `glue`), the one measuring definition `measure` with its presets, and the shipped definitions (`run global_bursts --band "8-16 Hz" --all`, `run gabor_bursts --band "8-35 Hz" --all`: bursts per channel matched by Gabor atoms of free width) and your own definition file (`run my.yaml ...`); a definition's parameters are options, each with its meaning, default and unit in `--help` |
 | `compute <node>` | reserved for applying a node or a graph to arrays and files (not available yet) |
 | `list datasets\|subjects\|recordings\|kernels\|results\|pipelines` | what exists |
 | `list manifolds\|fields\|selections\|operators\|statistics\|dictionaries\|spaces\|acquisitions\|jobs` | the nodes of a subject, one description each, filtered and paged (`--name`, `--kind`, `--on`, `--limit`, `--after`, `--columns`) |

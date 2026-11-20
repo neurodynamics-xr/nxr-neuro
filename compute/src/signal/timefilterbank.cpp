@@ -31,7 +31,8 @@ Family familyOf(const std::string& name) {
     if (name == "amor") return Family::Amor;
     if (name == "bump") return Family::Bump;
     if (name == "power_partition") return Family::PowerPartition;
-    throw std::invalid_argument("time bank family '" + name + "' is not one of itersine, meyer, morlet, morse, amor, bump, power_partition");
+    if (name == "gabor") return Family::Gabor;
+    throw std::invalid_argument("time bank family '" + name + "' is not one of itersine, meyer, morlet, morse, amor, bump, power_partition, gabor");
 }
 Sides sidesOf(const std::string& name) {
     if (name == "analytic") return Sides::Analytic;
@@ -97,6 +98,43 @@ std::vector<double> centerFrequencies(CentreGrid grid, double lo, double hi, int
 
 Freqz freqz(const TimeFilterbank& bank) { return {gains(bank), bins(bank)}; }
 
+GaborGrid gaborGrid(double sigmaMin, double sigmaMax, int perOctave, double fMin, double fMax, double minFSigma) {
+    if (!(sigmaMin > 0) || !(sigmaMax >= sigmaMin)) throw std::invalid_argument("gaborGrid: 0 < sigmaMin <= sigmaMax (s)");
+    if (perOctave < 1) throw std::invalid_argument("gaborGrid: at least one width an octave");
+    if (!(fMin >= 0) || !(fMax >= fMin)) throw std::invalid_argument("gaborGrid: 0 <= fMin <= fMax (Hz)");
+    if (!(minFSigma >= 0)) throw std::invalid_argument("gaborGrid: minFSigma (f·σ) is at least 0");
+    GaborGrid g;
+    const int K = static_cast<int>(std::floor(perOctave * std::log2(sigmaMax / sigmaMin) + 1e-9));
+    for (int k = 0; k <= K; ++k) g.widths.push_back(sigmaMin * std::pow(2.0, static_cast<double>(k) / perOctave));
+    for (int k = 0; k <= K; ++k) {
+        const double s = g.widths[static_cast<std::size_t>(k)], sf = 1.0 / (2 * kPi * s), f0 = std::max(fMin - sf, minFSigma / s);
+        if (f0 > fMax) continue;
+        // numpy arange(f0, fMax + sf + 1e-9, sf / 2): the count ceil((stop - start) / step)
+        const double stop = fMax + sf + 1e-9, step = sf / 2;
+        const std::int64_t n = static_cast<std::int64_t>(std::ceil((stop - f0) / step));
+        for (std::int64_t i = 0; i < n; ++i) { g.atoms.push_back({s, f0 + static_cast<double>(i) * step}); g.widthOf.push_back(k); }
+    }
+    return g;
+}
+
+std::function<double(double)> morletLadderGain(double lo, double hi, double ladderMin, double ladderMax, int voices) {
+    if (!(ladderMin > 0) || !(ladderMax > ladderMin) || voices < 1) throw std::invalid_argument("morletLadderGain: 0 < ladderMin < ladderMax and voices >= 1");
+    const int K = static_cast<int>(std::lround(voices * std::log2(ladderMax / ladderMin)));
+    Design d(Family::Morlet, 1.0, Sides::Analytic);
+    for (int m = 0; m <= K; ++m) d.centres.push_back(ladderMin * std::pow(2.0, static_cast<double>(m) / voices));
+    d.cycles = 1 / (std::pow(2.0, 1.0 / (2 * voices)) - std::pow(2.0, -1.0 / (2 * voices)));
+    const TimeFilterbank bank = timeBank(d, 16, 2 * ladderMax * 4);       // the members' gains are continuous functions of f: the grid plays no part
+    auto sum = [bank](double f, double flo, double fhi) {
+        double s = 0;
+        for (const Member& m : bank.members) if (m.fc >= flo && m.fc <= fhi) { const double v = m.gain(f); s += v * v; }
+        return s;
+    };
+    double norm = 0;
+    const int n = 1 << 16;
+    for (int i = 0; i <= n; ++i) { const double f = 2 * ladderMin + (ladderMax / 2 - 2 * ladderMin) * i / n; norm = std::max(norm, sum(f, 0, std::numeric_limits<double>::infinity())); }
+    return [sum, lo, hi, norm](double f) { const double a = std::abs(f); return a > 0 ? sum(a, lo, hi) / norm : 0.0; };
+}
+
 std::size_t gridLength(std::size_t n, Padding padding) {
     if (n == 0) throw std::invalid_argument("timebank: an empty record");
     return padding == Padding::None ? n : next_fast_len(2 * n, true);
@@ -147,6 +185,7 @@ TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs) {
     const double sc = G;                     // tight families: unit-sum gains times G (so Σ g² = G²)
     TimeFilterbank b;
     b.family = d.family; b.gain = d.gain; b.sides = d.sides; b.edgeBins = d.edgeBins; b.nfft = nfft; b.fs = fs;
+    b.normalisation = d.family == Family::Gabor ? Normalisation::UnitEnergy : Normalisation::Peak;
 
     // a member given on |f|: analytic members live on f > 0; a two-sided bank splits them into one at +f and one at -f
     auto add = [&](Role role, double fc, double lo, double hi, std::function<double(double)> onAbs) {
@@ -232,6 +271,20 @@ TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs) {
                 if (!(af > 0)) return 0.0;
                 return sc * bandGains(Eigen::VectorXd::Constant(1, af), bands, Family::PowerPartition)(static_cast<Eigen::Index>(k), 0);
             });
+        }
+        b.total = kNaN;
+        break;
+    }
+    case Family::Gabor: {
+        // the unit-energy atom ψ = (πσ²)^(−1/4) e^(−t²/2σ²) e^(i2πft): Ψ(ν) = (πσ²)^(−1/4) √(2π) σ e^(−2π²σ²(ν−f)²), on ν > 0 (analytic), times G
+        if (!analytic) throw std::invalid_argument("timebank::design: Gabor atoms are analytic (one-sided) only");
+        if (d.atoms.empty()) throw std::invalid_argument("timebank::design: Gabor needs atoms (see gaborGrid)");
+        for (const auto& [s, f] : d.atoms) {
+            if (!(s > 0) || !(f > 0)) throw std::invalid_argument("timebank::design: a Gabor atom needs σ > 0 and f > 0");
+            const double c = G * std::pow(kPi * s * s, -0.25) * std::sqrt(2 * kPi) * s, sf = 1.0 / (2 * kPi * s);
+            Member m; m.role = Role::Band; m.sign = +1; m.fc = f; m.lo = std::max(0.0, f - sf); m.hi = f + sf; m.width = s;
+            m.gain = [c, s, f](double nu) { return nu > 0 ? c * std::exp(-2 * kPi * kPi * s * s * (nu - f) * (nu - f)) : 0.0; };
+            b.members.push_back(std::move(m));
         }
         b.total = kNaN;
         break;

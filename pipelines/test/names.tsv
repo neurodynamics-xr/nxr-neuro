@@ -55,6 +55,10 @@ node	select.bands	-	composite
 node	select.dyadic_surface	-	composite
 node	select.elements	-	composite
 node	select.events.cores	-	composite
+node	select.events.peaks	-	composite
+node	select.events.suppress	-	composite
+node	select.gabor_fit	-	composite
+node	signal.gabor	-	composite
 node	select.events.patches	-	composite
 node	select.events.regions	-	composite
 node	select.events.spans	-	composite

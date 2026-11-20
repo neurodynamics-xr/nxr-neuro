@@ -13,6 +13,8 @@
 //   (a measurement of tiles over the tiles of each event is `nxr::measurement::merge` / `roll_values` over the event's groups of tiles, by the measure's merge rule)
 //   eventDurations, eventIntervalNext   the events' own geometry in seconds: stop - start, and the next event's start sharing a row minus this stop
 //   median, mad   the median, and the robust SD 1.4826 · median |x − median| (nxr spindle_envelope's baseline)
+//   overlapGroups the events joined by overlap (union-find): two events are one group when their time intervals overlap and, when frequency boxes are given, their boxes overlap too; the windows of
+//                 events found on several rows (a global window where at least one channel bursts: spec docs/specs/2026-11-20-gabor-bursts.md, piece 9)
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -36,6 +38,10 @@ std::vector<Span> keepSpans(const std::vector<Span>& spans, std::int64_t minLeng
 std::vector<Span> halfWaves(const Eigen::Ref<const Eigen::VectorXd>& x, std::int64_t minLength, std::int64_t maxLength);
 double median(const Eigen::Ref<const Eigen::VectorXd>& x);
 double mad(const Eigen::Ref<const Eigen::VectorXd>& x);
+
+/** per event, its group's number (0, 1, ... in the order of each group's first event): events i and j are joined when [start_i, stop_i) and [start_j, stop_j) overlap and, when `fLow` and `fHigh` are
+ *  given (one each an event, or both empty), [fLow_i, fHigh_i] and [fLow_j, fHigh_j] overlap too; joined events chain (a group is a connected component). */
+std::vector<std::int64_t> overlapGroups(const std::vector<double>& start, const std::vector<double>& stop, const std::vector<double>& fLow = {}, const std::vector<double>& fHigh = {});
 
 // An event as a run of tiles [first, stop) of a tile level, found on `row` (-1: the mean over the rows, so on every row). The tiles of an event are the group of members it merges.
 struct TileEvent { std::int64_t first = 0, stop = 0, row = -1; };
