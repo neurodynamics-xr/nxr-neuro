@@ -431,6 +431,22 @@ developer options).
 `nxr-neuro compute` is reserved for applying a node or a graph to arrays and files (a later step of the compute-and-run spec); today it prints that it is not available, and `compute <pipeline>` is refused
 with the `run` spelling.
 
+### `compile`: Compile a pipeline definition without running it
+
+`nxr-neuro compile <definition> [--dataset D --subject S] [--set NAME=VALUE ...] [--signatures FILE.json] [--inputs FILE.json]` expands a definition (its `for:`, `when:`,
+`chain:` and `make:` written out for the parameters), checks every connection before any data, and prints the **compiled graph**: the nodes (name, section, kind, every
+parameter resolved), the edges (from an input or a node's output port to a node's input port), every value's type in the structured JSON form, the halo, the span grid, the
+outputs, and the inputs to bind. Nothing is read beyond metadata and nothing is written. The library function is `nxr::pipelines::face::compile` (one function, one command;
+the Python and WebAssembly faces will call it as `compile(definition, ...)`).
+- With `--dataset` and `--subject` the inputs are found and typed from the subject's stored records exactly as `run` finds them (the dataset is opened read-only), and the graph is
+  checked as `run` checks it: `bind` names the stored node each input that is not streamed is bound to, `streams` the recording the chunk loop reads.
+- Without them, `--inputs` gives each input's type (the structured form or the printed form); the graph is checked by the node signatures alone, so a node typed only by its
+  plan (today `signal.psd`, among others) is refused, and `halo` is null.
+- `--signatures` declares nodes another program implements (a renderer's sinks) by their signatures: checked with nxr-neuro's nodes, never run. A definition naming a node that is
+  neither registered nor declared is refused; a declared signature never replaces a registered node.
+
+A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<value> = <printed type>, from <use>)`), exit status 1.
+
 ### `list`: List datasets, subjects, recordings, kernels, results or pipelines
 
 | command | what it does | old spelling |
@@ -946,6 +962,18 @@ A `PortType` says what a port carries before any data flows. Beside C1's members
 | `transition` | an operator of kind `transition`: a change of coordinate system of one space |
 
 The printed form (`print`, `parse_type`) is the one used by messages and `--dry-run`: `field<cortex(kernel) × frames(tiling); complex vector3; current; band 8-12 Hz morlet; level tiles@5>`. A manifold prints as `label(id)`, a made one `label(~use.output)`, an anonymous one `#n`, a restriction `M|selection`, a member set `members(P)`, a derived one `relation(M)`. `unify` binds the variables of a signature to the terms they meet; its only rules are equality of ids, anonymous numbers, member sets, restrictions and derived terms, a variable's role (a time variable binds a time line only), and one subsumption at an operator's source (a kernel from a restriction reads the whole manifold, or the same restriction).
+
+**The structured JSON form** (`nxr/graph/type_json.h`: `to_json`, `port_type_from_json`) carries what the printed form leaves out, for programs that build on the types:
+`{"class", "value", "complex_parts", "components", "domain": {"factors": [manifold, ...], "cells"}, "target", "axis", "streamed", "sfreq", "rows", "quantity", "unit",
+"resolution": {"band", "band_shape", "ladder", "levels", "spatial_shape"}, "nonlinear", "spin", "gauge", "selection", "of", "transition", "typed", "text"}`, a manifold as
+`{"form", "key", "label", "kind", "role", "coordinate_system": {"space", "name", "unit"}, "n", "spacing", "origin", "rate", "unit", "of", "by", "irregular", "text"}`. A string is
+read as the printed form. The two forms are held equivalent by `test_graph_type_json`: a type read back from its JSON prints as the type did. `facts` are never part of it.
+
+**External signatures** (`external_nodes`): a node another program implements is declared as JSON in the terms of the registered signatures:
+`{"nodes": [{"name": "render.surface", "kind": "array", "move": "pointwise", "inputs": [{"port": "field", "class": "field", "on": [{"form": "variable", "key": "S", "kind": "surface"}],
+"value": ["real"], "components": 1}, {"port": "surface", "class": "manifold", "on": ["S"]}], "outputs": [], "parameters": [{"name": "colormap", "default": "viridis", ...}]}]}`.
+An input pattern takes a class, its domain's factors (`on`; an operator's `to`), value types, `streamed`, `linear`, `optional`, `over`, quantities and `components`; a variable's
+`kind` binds only a manifold of that kind. Such a node is checked by the shared checker like any other and refuses to run.
 
 ### Signatures and the shared checker (`signature.h`, `checker.cpp`, `signatures.cpp`; step T2)
 
