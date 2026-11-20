@@ -1,14 +1,14 @@
 {
   "name": "@nxr/neuro",
   "version": "0.1.0",
-  "description": "nxr-neuro in WebAssembly: the nxr dataset format (read, write, Brainstorm import), the analyses (MEG/EEG source imaging, spectra, flow, eigenmodes) and geometry compute, in one module. Node host (its file layer is Node's).",
+  "description": "nxr-neuro in WebAssembly: every command of the nxr-neuro command line as nxr.<verb>.<noun>(options) (datasets, subjects, add and read each class, imports, exports, pipelines) and the geometry compute, in one module. Node host (its file layer is Node's).",
   "type": "module",
   "main": "./index.mjs",
   "types": "./index.d.ts",
   "exports": {
     ".": { "types": "./index.d.ts", "import": "./index.mjs", "default": "./index.mjs" }
   },
-  "files": ["index.mjs", "index.d.ts", "compute.mjs", "nxr_io.mjs", "nxr_io.wasm"],
+  "files": ["index.mjs", "index.d.ts", "commands.mjs", "commands.d.ts", "arrays.mjs", "compute.mjs", "nxr_io.mjs", "nxr_io.wasm"],
   "engines": { "node": ">=22" },
   "nxr": { "databaseSchema": 50 },
   "license": "UNLICENSED",
