@@ -92,6 +92,7 @@ struct Manifold {
   bool irregular = false;                             // members of an IRREGULAR selection (events, scouts, an atlas: no levels): a statistic across them is a summary, never a level roll-up
   bool rest = false;                                  // variable: stands for all the other factors of a domain (R)
   bool subsume = false;                               // variable at an operator's source: also accepts a restriction of what it is bound to (`apply`'s one implicit move)
+  bool kinded = false;                                // variable: its kind is declared (an external signature's `"kind": "surface"`): it binds only a manifold of that kind
 };
 
 // the builders. A stored manifold, by label and id; an anonymous one; the variables of a signature; one a node makes; a restriction; a member set; a derived one.

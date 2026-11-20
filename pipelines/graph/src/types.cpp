@@ -597,6 +597,10 @@ bool unify(const ManifoldRef& pattern, const ManifoldRef& actual, Bindings& b, s
       why = std::string(pattern->role == Role::time ? "a time line" : "a time line or a frame line") + " was expected where " + print(actual) + " lies";
       return false;
     }
+    if (pattern->kinded && actual->kind != pattern->kind) {           // a variable restricted to a kind refuses another kind where it meets it, not at a later port
+      why = print(actual) + " is a " + to_string(actual->kind) + "; this node reads one on a " + to_string(pattern->kind) + " (" + pattern->key + ")";
+      return false;
+    }
     auto it = b.vars.find(pattern->key);
     if (it == b.vars.end()) { b.vars[pattern->key] = actual; return true; }
     const ManifoldRef& bound = it->second;

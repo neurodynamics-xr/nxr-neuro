@@ -125,7 +125,12 @@ int main() {
     on_sensors.domain = dom({ng::manifold_id("sensors", "rest", ng::ManifoldKind::points)});
     ng::PortType sensors = surf;
     sensors.domain = on_sensors.domain;
-    CHECK(has(refusal([&] { ng::type_check(surface_graph(), {{"map", on_sensors}, {"cortex", sensors}}, Json::object(), lookup); }), "this node takes a surface"));
+    CHECK(has(refusal([&] { ng::type_check(surface_graph(), {{"map", on_sensors}, {"cortex", sensors}}, Json::object(), lookup); }), "this node reads one on a surface"));
+    // a field on a volume given with a surface: refused at the field's port, where the variable meets the volume, not at the surface's (issue 164)
+    ng::PortType on_volume = map;
+    on_volume.domain = dom({ng::manifold_id("mri", "t1", ng::ManifoldKind::volume)});
+    const std::string wv = refusal([&] { ng::type_check(surface_graph(), {{"map", on_volume}, {"cortex", surf}}, Json::object(), lookup); });
+    if (!(has(wv, "port `field`") && has(wv, "mri(t1) is a volume; this node reads one on a surface"))) { std::printf("  refusal: %s\n", wv.c_str()); CHECK(false); }
     ng::PortType vec = map;
     vec.value = ng::ValueType::vector3; vec.components = 3;
     CHECK(has(refusal([&] { ng::type_check(surface_graph(), {{"map", vec}, {"cortex", surf}}, Json::object(), lookup); }), "this node reads real"));
