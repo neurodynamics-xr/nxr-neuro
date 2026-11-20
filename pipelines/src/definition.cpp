@@ -459,7 +459,7 @@ Definition parse(const Json& written, const std::string& source, const std::stri
   }
 
   std::set<std::string> known(defined.begin(), defined.end());
-  bool accumulates = false;
+  bool accumulates = false, ends_in_sink = false;
   for (const std::string sec : {"before", "do", "after"}) {
     const Json raw = sec == "do" ? (chunks.is_object() ? chunks.value("do", Json()) : Json()) : steps.value(sec, Json());
     if (!raw.is_null() && !raw.is_array()) err(where, "steps." + section_label(sec) + ": a list of steps");
@@ -504,6 +504,7 @@ Definition parse(const Json& written, const std::string& source, const std::stri
         if (known.count(o)) err(w, "out: '" + o + "' is already defined");
         known.insert(o);
       }
+      if (makes.empty()) ends_in_sink = true;                              // a sink (a render, an export another program implements): it makes nothing to store
       out.push_back(StepUse{st.name, ins, with, outs, sec, Json()});
     }
   }
@@ -513,7 +514,8 @@ Definition parse(const Json& written, const std::string& source, const std::stri
   if (d.over && !accumulates && !writes_recording && d.kind != "chain") err(where, "steps.chunks: nothing leaves the loop without an accumulate step or a recording output");
 
   const Json outputs = doc.contains("outputs") && !doc["outputs"].is_null() ? doc["outputs"] : Json::object();
-  if (!outputs.is_object() || outputs.empty()) err(where, "outputs: at least one (what the pipeline stores)");
+  if (!outputs.is_object()) err(where, "outputs: a mapping of name → what is stored");
+  if (outputs.empty() && !ends_in_sink) err(where, "outputs: at least one (what the pipeline stores), unless its steps end in sink nodes (nodes that make nothing: compile it; run has nothing to store)");
   for (const auto& [k, spec] : outputs.items()) {
     const std::string w = where + ": outputs." + k;
     if (!known.count(k) || inputs.contains(k)) err(w, "not made by any step");

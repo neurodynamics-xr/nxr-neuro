@@ -1515,6 +1515,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
 
 std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Definition& d, const Json& set, const RunOptions& opt, bool dry_run,
                       const std::function<void(const Json&)>& progress) {
+  if (d.outputs.empty()) refuse("run " + d.name + ": the definition stores nothing (its steps end in sink nodes): compile it instead; run has nothing to store");
   const auto plans = plan_runs(d, sub.db(), sub.id(), set, opt.preset, [&sub](const std::string& recording) { return nxr::pipelines::channel_facts(sub, recording); });     // every run planned before any is executed
   std::vector<Json> out;
   for (const auto& P : plans) {
@@ -1585,6 +1586,7 @@ GroupInputs stack_members(const std::vector<GroupMember>& members, const std::ve
 
 std::vector<Json> run_group(nxr::io::DatasetWriter& group_ds, nxr::io::SubjectWriter& group_sub, const std::vector<GroupMember>& members, const Definition& d, const Json& set, const RunOptions& opt, bool dry_run,
                             const std::function<void(const Json&)>& progress) {
+  if (d.outputs.empty()) refuse("run " + d.name + ": the definition stores nothing (its steps end in sink nodes): compile it instead; run has nothing to store");
   if (d.scope != "group") refuse(d.name + ": a group run takes a definition of scope group (this one is scope " + d.scope + ")");
   if (members.empty()) refuse(d.name + ": a group run states its subjects (--subjects A,B,C, or a stored group selection by name): there is no default");
   for (const auto& m : members) if (!m.sub || !m.ds) refuse(d.name + ": member '" + m.name + "' is not open");

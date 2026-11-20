@@ -82,7 +82,7 @@ Json to_json(const ManifoldRef& m) {
   j["form"] = form_name(m->form);
   if (!m->key.empty()) j["key"] = m->key;
   if (!m->label.empty()) j["label"] = m->label;
-  j["kind"] = to_string(m->kind);
+  if (m->form != Manifold::Form::variable || m->kinded) j["kind"] = to_string(m->kind);   // a variable names a kind only when it is restricted to one
   j["role"] = to_string(m->role);
   if (m->cs) j["coordinate_system"] = cs_json(*m->cs);
   if (m->n > 0) j["n"] = m->n;
@@ -107,7 +107,7 @@ ManifoldRef manifold_from_json(const Json& j) {
   m.form = j.contains("form") ? enum_of(j["form"], kForms, form_name, w + ".form") : Manifold::Form::id;
   m.key = text_of(j, "key", w);
   m.label = text_of(j, "label", w);
-  if (j.contains("kind")) m.kind = enum_of(j["kind"], kKinds, static_cast<const char* (*)(ManifoldKind)>(to_string), w + ".kind");
+  if (j.contains("kind")) { m.kind = enum_of(j["kind"], kKinds, static_cast<const char* (*)(ManifoldKind)>(to_string), w + ".kind"); m.kinded = m.form == Manifold::Form::variable; }
   else if (m.form == Manifold::Form::members) m.kind = ManifoldKind::members;
   if (j.contains("role")) m.role = enum_of(j["role"], kRoles, static_cast<const char* (*)(Role)>(to_string), w + ".role");
   if (j.contains("coordinate_system") && !j["coordinate_system"].is_null()) m.cs = cs_of(j["coordinate_system"], w + ".coordinate_system");
