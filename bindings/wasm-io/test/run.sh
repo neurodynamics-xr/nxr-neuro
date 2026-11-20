@@ -5,7 +5,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 W="${1:-$ROOT/build/wasm}"
-export EMSDK_PYTHON="${EMSDK_PYTHON:-/opt/homebrew/bin/python3.14}"
+if [ -z "${EMSDK_PYTHON:-}" ] && [ -x /opt/homebrew/bin/python3.14 ]; then export EMSDK_PYTHON=/opt/homebrew/bin/python3.14; fi   # a macOS default only where it exists (CI sets up its own)
 if [ ! -f "$W/build.ninja" ]; then
   emcmake cmake -S "$ROOT" -B "$W" -G Ninja -DNXR_NEURO_BUILD_COMPUTE=ON -DNXR_NEURO_BUILD_MEEG=ON -DNXR_NEURO_BUILD_PIPELINES=ON \
     -DNXR_NEURO_BUILD_BINDINGS=OFF -DNXR_NEURO_BUILD_CLI=OFF -DNXR_NEURO_BUILD_TESTS=OFF >/dev/null
