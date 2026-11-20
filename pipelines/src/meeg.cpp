@@ -164,6 +164,11 @@ RecordingInput read_recording(SubjectWriter& sub, const std::string& name, bool 
 
 // the type of each channel of a channels manifold (its 'type' labelling); empty when there is none
 std::vector<std::string> channel_types_of(SubjectWriter& sub, const std::string& channels_id) { return family_of(sub, channels_id, "type"); }
+// the name of each channel of a channels manifold (its `<manifold>_names` labelling, as an importer stores a montage's); empty when there is none
+std::vector<std::string> channel_names_of(SubjectWriter& sub, const std::string& channels_id) {
+  const auto m = sub.db().read("manifold", channels_id);
+  return m ? family_of(sub, channels_id, text(*m, "name") + "_names") : std::vector<std::string>();
+}
 
 // THE SENSOR GEOMETRY of a channels manifold (what a head model reads; a node is handed it): positions [M x 3], the 'type' of each channel, the orientations
 // `<name>_orientation` when stored, and the coils `<name>_coils` (positions, `<name>_coils_orientation`) with their weights `<name>_coil_weights` (CSR [channels x coils])

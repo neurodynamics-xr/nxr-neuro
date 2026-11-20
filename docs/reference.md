@@ -900,6 +900,13 @@ convention picks by its own rule (Brainstorm: status 1 and 2, so a projector set
 projector). The choice is made by the runner when it binds the covariance's channels (the node applies what it is handed); the names and statuses handed are in the kernel's cache
 key and in its provenance (`computed.projectors`: which went where, and `choice`). With MNE-Python's conventions, a projector the covariance's recording was read with is folded into
 the covariance only when it is among those handed.
+**A covariance of another channel set.** A session's channels are stored per recording session, as separate channel sets; an empty-room covariance (`run noisecov` on the
+empty-room recording) lies on the empty room's set, the head model on the run's. `run inverse --noise-cov` takes such a covariance and matches it to the head model's channels
+**by name**, as Brainstorm does: when the runner binds the covariance, its rows and columns are restricted and reordered to the head model's channels, in the head model's order
+(a permutation and selection, nothing computed). Every head-model channel of a type the covariance covers must be in the covariance's channel set: otherwise the run is refused,
+naming the missing channels. The covariance's channels the head model does not have are dropped; head-model channels its pick left out (bad in the empty room) are not covered.
+The projectors handed are the head model's channel set's (the run's, chosen by `--projectors`), never the covariance's set's. The match is in the kernel's provenance
+(`computed.noise_cov_channels`: the covariance's channel set, the mapping by name, the dropped channels) and both channel sets are in its cache key.
 Goldens: `meeg/test/golden/gen_kernel_projectors_golden.py`/`.m` (one active SSP projector, both covariances), checked to 1e-12 (measured 4e-15 against Brainstorm, 6e-14 against MNE-Python).
 The kernel and its `_channels`, `_noise_cov`, `_whitener` and `_source_rr/_nn` are stored as the importer stores them, so a reader tells a computed kernel from an imported one by its producer string
 only. The maths is written from the papers, not translated from Brainstorm (GPLv3); Brainstorm and MNE-Python are reference outputs (goldens in `meeg/test/golden/`, with their generators).

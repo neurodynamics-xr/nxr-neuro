@@ -69,6 +69,8 @@ HodgePackageForms hodge_package_forms(nxr::io::SubjectWriter& sub, const HodgePa
 struct NamedPoints { std::string id, name; std::vector<double> positions; std::vector<std::string> names; };
 NamedPoints named_points(nxr::io::SubjectWriter& sub, const std::string& points_id);
 std::vector<std::string> channel_types_of(nxr::io::SubjectWriter& sub, const std::string& channels_id);
+// The name of each channel of a channels manifold (its `<manifold>_names` labelling); empty when there is none.
+std::vector<std::string> channel_names_of(nxr::io::SubjectWriter& sub, const std::string& channels_id);
 
 // How many connected pieces the faces make (a cortex: its two hemispheres; a mesh or a sphere: one).
 int connected_pieces(const std::vector<std::int32_t>& faces, std::int64_t n_vertices);
