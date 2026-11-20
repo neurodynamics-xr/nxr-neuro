@@ -439,7 +439,10 @@ parameter resolved), the edges (from an input or a node's output port to a node'
 outputs, and the inputs to bind. Nothing is read beyond metadata and nothing is written. The library function is `nxr::pipelines::face::compile` (one function, one command;
 the Python and WebAssembly faces will call it as `compile(definition, ...)`).
 - With `--dataset` and `--subject` the inputs are found and typed from the subject's stored records exactly as `run` finds them (the dataset is opened read-only), and the graph is
-  checked as `run` checks it: `bind` names the stored node each input that is not streamed is bound to, `streams` the recording the chunk loop reads.
+  checked as `run` checks it: `bind` names the stored node each input that is not streamed is bound to, `streams` the recording the chunk loop reads. A stored field takes the
+  type its record gives (its manifolds, cell, value type, components, unit, time line); a `kind` outside the quantity vocabulary (an imported map's) leaves only its quantity
+  unset, so a node reading a named quantity refuses it and one reading any quantity takes it. A stored manifold given as an input is typed `manifold<name(id)>`, with its kind,
+  size and coordinate system.
 - Without them, `--inputs` gives each input's type (the structured form or the printed form); the graph is checked by the node signatures alone, so a node typed only by its
   plan (today `signal.psd`, among others) is refused, and `halo` is null.
 - `--signatures` declares nodes another program implements (a renderer's sinks) by their signatures: checked with nxr-neuro's nodes, never run. A definition naming a node that is
