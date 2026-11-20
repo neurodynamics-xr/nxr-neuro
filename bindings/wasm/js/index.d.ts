@@ -365,11 +365,6 @@ export interface NxrCompute {
   'geometry.signedHeat'(surface: Surface, curves: Ints[], isLoop?: boolean, levelSet?: SignedHeatLevelSet, tCoef?: number): Float64Array[]
   'geometry.smoothFace'(surface: Surface, nSym?: number, alignToCurvature?: boolean): Float64Array
   'geometry.smoothVertex'(surface: Surface, nSym?: number, alignToCurvature?: boolean): SmoothVertexFieldResult
-  /** Sinusoidal stripes aligned to a 2-RoSy field, returned as 3D line segments. */
-  'geometry.compute'(surface: Surface, vertexFieldRaw: Float64Array, uniformFrequency: number, connectOnSingularities?: boolean): SegmentsResult
-  /** Stripe pattern with a per-vertex frequency (length V). */
-  'geometry.computeFreq'(surface: Surface, vertexFieldRaw: Float64Array, frequencies: Float64Array, connectOnSingularities?: boolean): SegmentsResult
-
   'synthesis.delta'(nV: number, sourceVerts: Ints, sourceValues: Floats): Float64Array
   /** M: the mass (COO); eig: M-orthonormal modes (an eigensolve with normalize); u0: [nV] */
   'synthesis.heatDiffusion'(M: SparseMatrixCOO, eig: EigenResult, u0: Float64Array, timesteps: Floats, alpha?: number): TimeSeriesField
@@ -479,16 +474,6 @@ export interface UvGroup {
   /** Boundary First Flattening — throws on closed meshes. */
   bff(): Float64Array
   logMap(sourceVertex: number, strategy?: LogMapStrategy): LogMapResult
-  stripe(
-    vertexFieldRaw:           Float64Array,
-    uniformFrequency:         number,
-    connectOnSingularities?:  boolean,
-  ): SegmentsResult
-  stripeFreq(
-    vertexFieldRaw:           Float64Array,
-    frequencies:              Float64Array,
-    connectOnSingularities?:  boolean,
-  ): SegmentsResult
 }
 
 export interface InterpolateGroup {
@@ -586,18 +571,6 @@ export interface ManifoldFunctional {
   uv: {
     bff(mctx: ManifoldContext): Float64Array
     logMap(mctx: ManifoldContext, sourceVertex: number, strategy?: LogMapStrategy): LogMapResult
-    stripe(
-      mctx: ManifoldContext,
-      vertexFieldRaw: Float64Array,
-      uniformFrequency: number,
-      connectOnSingularities?: boolean,
-    ): SegmentsResult
-    stripeFreq(
-      mctx: ManifoldContext,
-      vertexFieldRaw: Float64Array,
-      frequencies: Float64Array,
-      connectOnSingularities?: boolean,
-    ): SegmentsResult
   }
   interpolate: {
     transport(

@@ -284,8 +284,6 @@ const char* const kRetiredCommands[][2] = {
     {"heat", "geometry.heat"},
     {"smoothFace", "geometry.smoothFace"},
     {"smoothVertex", "geometry.smoothVertex"},
-    {"compute", "geometry.compute"},
-    {"computeFreq", "geometry.computeFreq"},
     {"assembleDECOperators", "operators.assembleDECOperators"},
     {"assembleConnectionLaplacian", "operators.assembleConnectionLaplacian"},
     {"trivialConnectionLaplacian", "operators.assembleTrivialConnectionLaplacian"},
@@ -314,6 +312,8 @@ const char* const kRetiredCommands[][2] = {
 };
 // The context of the surface class is gone with the class (the surface is data, `geometry.surfaceArrays`, passed to each command): these commands are removed, not renamed.
 const char* const kRemovedContextCommands[] = {"create", "destroy", "topology", "geometry", "gauge", "bundle", "operators", "embedded", "intrinsic", "extrinsic", "facets"};
+// The stripe-pattern commands are removed (geometry-central\'s stripe patterns are not reproducible run to run and read out of bounds), not renamed.
+const char* const kRemovedStripeCommands[] = {"compute", "computeFreq", "geometry.compute", "geometry.computeFreq", "uv.stripe", "uv.stripeFreq"};
 // "compute.filter.<kind>" became "compute.signal.<kind>"
 bool retired(const std::string& cmd, std::string& renamed) {
   for (const auto& r : kRetiredCommands) if (cmd == r[0]) { renamed = r[1]; return true; }
@@ -393,6 +393,11 @@ bool refusedCommand(const std::string& cmd, std::string& message) {
   for (const char* r : kRemovedContextCommands)
     if (cmd == r) {
       message = "The command \"" + cmd + "\" was removed with the surface class: the surface is now the data of \"geometry.surfaceArrays\" (nxr_compute('geometry.surfaceArrays', V, F)), passed as the first argument to each command.";
+      return true;
+    }
+  for (const char* r : kRemovedStripeCommands)
+    if (cmd == r) {
+      message = "The command \"" + cmd + "\" was removed: the stripe-pattern feature is gone from nxr-neuro.";
       return true;
     }
   return false;

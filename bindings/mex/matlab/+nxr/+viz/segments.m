@@ -4,7 +4,7 @@ function h = segments(positions, opts)
 %   h = nxr.viz.segments(positions, Name, Value, ...)
 %
 %   `positions` is the [2N x 3] "endpoint pairs" layout produced by the
-%   line-type nxr outputs — isolines, stripe patterns, streamlines, and
+%   line-type nxr outputs — isolines, streamlines, and
 %   geodesic paths (rows 2k-1 and 2k are the ends of segment k). Drawn as a
 %   single NaN-separated polyline for efficiency.
 %

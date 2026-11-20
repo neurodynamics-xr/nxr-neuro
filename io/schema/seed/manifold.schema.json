@@ -676,11 +676,10 @@
 
   "parametrization": {
     "attributes": {
-      "description": "Coordinate atlases on the manifold. uv is a global parametrization (BFF); cross_field, line_field, stripes are local / anisotropic coordinate systems aligned to per-face or per-vertex frames.",
+      "description": "Coordinate atlases on the manifold. uv is a global parametrization (BFF); cross_field, line_field are local / anisotropic coordinate systems aligned to per-face or per-vertex frames.",
       "references": [
         "Sawhney & Crane TOG 2017 (BFF)",
-        "Knöppel-Crane SIGGRAPH 2013 (n-RoSy)",
-        "Knöppel-Crane SIGGRAPH 2015 (stripe patterns)"
+        "Knöppel-Crane SIGGRAPH 2013 (n-RoSy)"
       ]
     },
     "uv": {
@@ -736,25 +735,6 @@
         },
         "complexity": "O(V^1.5)",
         "references": ["Knöppel-Crane SIGGRAPH 2013"]
-      }
-    },
-    "stripes": {
-      "attributes": {
-        "description": "Sinusoidal stripe pattern aligned to a 2-RoSy line field, returned as the zero level set of a per-corner phase function. N is the number of segments (mesh- and frequency-dependent); each segment is two endpoint xyz triples in row-major order.",
-        "shape": "[2*N, 3]",
-        "dtype": "float64",
-        "storage": "row_major",
-        "memory_bytes": "8 * 6 * N",
-        "depends_on": ["parametrization/line_field"],
-        "implemented_by": {
-          "cpp":        "nxr::compute::computeStripePattern(ctx, vertexFieldRaw, freq).positions",
-          "node_addon": "ctx.computeStripePattern(vertexFieldRaw, freq).positions",
-          "wasm":       "ctx.computeStripePattern(vertexFieldRaw, freq).positions",
-          "mex":        "nxr_compute('computeStripePattern', V, F, vertexFieldRaw, freq).positions"
-        },
-        "complexity": "O(F)",
-        "units": "world units",
-        "references": ["Knöppel-Crane SIGGRAPH 2015"]
       }
     }
   },
