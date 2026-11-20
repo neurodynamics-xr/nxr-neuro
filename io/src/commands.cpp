@@ -101,6 +101,9 @@ CommandResult show_dataset(const ShowDatasetRequest& rq, const Progress& progres
     auto opt = [&](const char* c) { return is_null(d, c) ? Json() : Json(text(d, c)); };
     r.result = Json{{"dataset", text(d, "name")}, {"id", text(d, "id")}, {"path", cat.folder().string()}, {"form", "catalogue"}, {"subjects", total}, {"kinds", kinds},
                     {"source_tool", opt("source_tool")}, {"source_protocol", opt("source_protocol")}, {"created_utc", opt("created_utc")}};
+    Json unavailable = Json::array();
+    r.result["nodes"] = class_counts(rq.dataset, progress, &unavailable);
+    if (!unavailable.empty()) r.result["nodes_unavailable"] = unavailable;
     return r;
   }
   Lease lease = open_reader(rq.dataset, std::nullopt, {}, progress);
@@ -114,6 +117,7 @@ CommandResult show_dataset(const ShowDatasetRequest& rq, const Progress& progres
   auto opt = [&](const char* c) { return is_null(ds.row(), c) ? Json() : Json(text(ds.row(), c)); };
   r.result = Json{{"dataset", text(ds.row(), "name")}, {"id", ds.id()}, {"path", text(ds.row(), "path")}, {"schema_version", schema_version()},
                   {"subjects", total}, {"kinds", kinds}, {"source_tool", opt("source_tool")}, {"source_protocol", opt("source_protocol")}, {"created_utc", opt("created_utc")}};
+  r.result["nodes"] = class_counts(rq.dataset, progress, nullptr);
   return r;
 }
 
