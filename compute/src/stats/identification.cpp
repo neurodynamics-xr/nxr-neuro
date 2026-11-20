@@ -26,6 +26,44 @@ Index first_max_row(const MatrixXd& r, Index i) { Index at = 0; for (Index j = 1
 Index first_max_col(const MatrixXd& r, Index j) { Index at = 0; for (Index i = 1; i < r.rows(); ++i) if (r(i, j) > r(at, j)) at = i; return at; }
 }  // namespace
 
+SpectralFeature spectralFeature(const std::vector<Eigen::MatrixXd>& spectra, double df, double f0, const std::vector<std::array<double, 2>>& bands) {
+  if (spectra.empty() || spectra.size() != bands.size())
+    throw std::invalid_argument("spectralFeature: one spectrum a band (" + std::to_string(spectra.size()) + " spectra, " + std::to_string(bands.size()) + " bands)");
+  if (!(df > 0)) throw std::invalid_argument("spectralFeature: the frequency resolution is positive");
+  const Eigen::Index R = spectra[0].rows(), K = spectra[0].cols();
+  for (std::size_t b = 1; b < spectra.size(); ++b)
+    if (spectra[b].rows() != R || spectra[b].cols() != K)
+      throw std::invalid_argument("spectralFeature: band " + std::to_string(b) + "'s spectrum is " + std::to_string(spectra[b].rows()) + " x " + std::to_string(spectra[b].cols()) + ", the first " + std::to_string(R) + " x " + std::to_string(K));
+  SpectralFeature f;
+  std::vector<std::pair<std::size_t, Eigen::Index>> kept;      // (band, bin)
+  const double eps = 1e-9 * df;
+  for (std::size_t b = 0; b < bands.size(); ++b) {
+    std::int64_t c = 0;
+    for (Eigen::Index k = 0; k < K; ++k) {
+      const double fk = f0 + static_cast<double>(k) * df;
+      if (fk >= bands[b][0] - eps && fk <= bands[b][1] + eps) { kept.emplace_back(b, k); f.frequencies.push_back(fk); ++c; }
+    }
+    if (c == 0) throw std::invalid_argument("spectralFeature: band " + std::to_string(b) + " [" + std::to_string(bands[b][0]) + ", " + std::to_string(bands[b][1]) + "] Hz holds no bin");
+    f.counts.push_back(c);
+  }
+  f.values.resize(R, static_cast<Eigen::Index>(kept.size()));
+  for (std::size_t j = 0; j < kept.size(); ++j) f.values.col(static_cast<Eigen::Index>(j)) = spectra[kept[j].first].col(kept[j].second);
+  return f;
+}
+
+std::vector<double> connectomeFeature(const std::vector<Eigen::MatrixXd>& M) {
+  if (M.empty()) throw std::invalid_argument("connectomeFeature: at least one band's matrix");
+  const Eigen::Index r = M[0].rows();
+  const std::size_t B = M.size();
+  for (std::size_t b = 0; b < B; ++b)
+    if (M[b].rows() != r || M[b].cols() != r) throw std::invalid_argument("connectomeFeature: band " + std::to_string(b) + "'s matrix is " + std::to_string(M[b].rows()) + " x " + std::to_string(M[b].cols()) + ", not " + std::to_string(r) + " x " + std::to_string(r));
+  std::vector<double> v(static_cast<std::size_t>(r * r) * B);
+  for (Eigen::Index i = 0; i < r; ++i)
+    for (Eigen::Index j = 0; j < r; ++j)
+      for (std::size_t b = 0; b < B; ++b) v[static_cast<std::size_t>(i * r + j) * B + b] = M[b](i, j);
+  return v;
+}
+
 MatrixXd featureTable(const MatrixXd& members, const std::vector<std::int64_t>& shape, FeatureLayout layout) {
     std::int64_t size = 1;
     for (const auto s : shape) {

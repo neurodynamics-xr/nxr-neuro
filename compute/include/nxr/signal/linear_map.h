@@ -27,4 +27,11 @@ inline Eigen::MatrixXcd linearMap(const Eigen::MatrixXcd& weights, const Eigen::
     return Z;
 }
 
+/** A REAL operator: Y = W X, W [R x C], X [C x T], Y [R x T] real (a region map: one row a region's signal). */
+inline Eigen::MatrixXd linearMap(const Eigen::MatrixXd& weights, const Eigen::MatrixXd& X) {
+    if (weights.cols() != X.rows())
+        throw std::invalid_argument("linearMap: the operator acts on " + std::to_string(weights.cols()) + " channels, the data has " + std::to_string(X.rows()));
+    return weights * X;
+}
+
 }  // namespace nxr::signal

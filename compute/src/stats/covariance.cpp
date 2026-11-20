@@ -1,6 +1,7 @@
 // nxr::stats — the chunk-wise sample covariance (docs/specs/2026-11-10-neuro-forward-inverse.md, section 7).
 #include "nxr/stats/covariance.h"
 
+#include <cmath>
 #include <stdexcept>
 #include <string>
 
@@ -61,6 +62,18 @@ Eigen::MatrixXd cov(const Eigen::MatrixXd& x, const CovarianceOptions& opt) {
   CovarianceEstimate e(static_cast<int>(x.rows()), opt);
   e.add(x);
   return e.covariance();
+}
+
+Eigen::MatrixXd correlation(const Eigen::MatrixXd& C) {
+  if (C.rows() != C.cols()) throw std::invalid_argument("correlation: the covariance is square (" + std::to_string(C.rows()) + " x " + std::to_string(C.cols()) + ")");
+  Eigen::VectorXd s(C.rows());
+  for (Eigen::Index i = 0; i < C.rows(); ++i) {
+    if (!(C(i, i) > 0)) throw std::invalid_argument("correlation: row " + std::to_string(i) + " has no variance (" + std::to_string(C(i, i)) + ")");
+    s[i] = 1.0 / std::sqrt(C(i, i));
+  }
+  Eigen::MatrixXd R = s.asDiagonal() * C * s.asDiagonal();
+  R.diagonal().setOnes();
+  return R;
 }
 
 }  // namespace nxr::stats
