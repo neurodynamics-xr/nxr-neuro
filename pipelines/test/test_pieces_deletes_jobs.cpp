@@ -584,5 +584,45 @@ int main() {
     CHECK_EQ(after.size(), std::size_t(3));
   }
 
+  // ---- `delete subject --node --by`: a client deletes only what it saved (the node's created_by, as `add --by` records it); without --by any node goes, as before
+  {
+    auto line_by = [&](const std::string& name, const std::optional<std::string>& author) {
+      task::AddLineRequest l;
+      base(l, name);
+      l.n = 4;
+      l.spacing = 1.0;
+      l.unit = "s";
+      l.by = author;
+      task::add_line(l);
+    };
+    auto del_by = [&](const std::string& node, const std::optional<std::string>& author) {
+      task::DeleteSubjectRequest q;
+      q.dataset = D;
+      q.subject = "S1";
+      q.node = node;
+      q.by = author;
+      q.created_by = by;
+      return task::delete_subject(q);
+    };
+    line_by("saved_by_client", std::string("a-client"));
+    line_by("saved_by_program", std::nullopt);
+    const std::string other = thrown([&] { del_by("manifold:saved_by_client", std::string("another-client")); });
+    CHECK(has(other, "invalid_argument") && has(other, "'a-client'") && has(other, "was not deleted"));
+    CHECK(named(list("manifolds"), "saved_by_client") != nullptr);                                  // still there
+    const std::string program = thrown([&] { del_by("manifold:saved_by_program", std::string("a-client")); });
+    CHECK(has(program, "invalid_argument") && has(program, "'" + by + "'"));                        // the program's node: named by its author, the program
+    CHECK(named(list("manifolds"), "saved_by_program") != nullptr);
+    CHECK_EQ(del_by("manifold:saved_by_client", std::string("a-client")).result["removed"].get<std::string>(), std::string("saved_by_client"));
+    CHECK(named(list("manifolds"), "saved_by_client") == nullptr);
+    CHECK_EQ(del_by("manifold:saved_by_program", std::nullopt).result["removed"].get<std::string>(), std::string("saved_by_program"));   // no --by: unchanged
+    task::DeleteSubjectRequest whole;
+    whole.dataset = D;
+    whole.subject = "S1";
+    whole.by = std::string("a-client");
+    whole.created_by = by;
+    CHECK(has(thrown([&] { task::delete_subject(whole); }), "refused: --by goes with --node"));      // --by names a node's author: never the whole subject
+    CHECK(!read()["manifolds"].empty());                                                               // the subject is still there
+  }
+
   return nxrtest::finish("test_pieces_deletes_jobs");
 }

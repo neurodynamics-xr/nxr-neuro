@@ -105,7 +105,7 @@ Cls cls_of(const std::string& cls) {
 
 }  // namespace
 
-CommandResult delete_node(DatasetWriter& ds, const std::string& subject, const std::string& node, const std::string& created_by) {
+CommandResult delete_node(DatasetWriter& ds, const std::string& subject, const std::string& node, const std::string& created_by, const std::optional<std::string>& by_author) {
   OpenSubjectOptions oo;
   oo.created_by = created_by;
   SubjectWriter sub = SubjectWriter::open(ds, subject, oo);
@@ -135,6 +135,13 @@ CommandResult delete_node(DatasetWriter& ds, const std::string& subject, const s
       t = hits[0];
       by = "name";
     }
+  }
+  if (by_author) {   // only what this author saved: the node's own `created_by` (`add <class> --by`)
+    const auto row = db.one("SELECT created_by FROM " + t->cls + " WHERE id = ?", {V(t->id)});
+    const std::string author = row && !is_null(*row, "created_by") ? text(*row, "created_by") : std::string();
+    if (author != *by_author)
+      throw Error(code::invalid_argument, t->cls + " " + t->name + " was saved by " + (author.empty() ? std::string("no recorded author") : "'" + author + "'") + ", not '" + *by_author +
+                                              "': --by deletes only the nodes that author saved (" + t->cls + " " + t->name + " was not deleted)");
   }
   const std::vector<std::string> deps = dependants(db, t->cls, t->id, sub.id());
   if (!deps.empty())

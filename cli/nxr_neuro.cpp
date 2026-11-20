@@ -157,11 +157,12 @@ int subject_main(const std::vector<std::string>& argv) {
     emit_result(call(prog, [&] { return task::create_subject(rq, progress()); }).result);
     return 0;
   }
-  const Args a = parse(prog, rest, {"--dataset", "--subject", "--node"}, {}, {"--dataset", "--subject"});
+  const Args a = parse(prog, rest, {"--dataset", "--subject", "--node", "--by"}, {}, {"--dataset", "--subject"});
   task::DeleteSubjectRequest rq;
   rq.dataset = a.get("--dataset");
   rq.subject = a.get("--subject");
   rq.node = a.maybe("--node");
+  rq.by = a.maybe("--by");
   rq.templates = values_of(a, "--templates");
   rq.created_by = stamp();
   emit_result(call(prog, [&] { return task::delete_subject(rq); }).result);

@@ -144,12 +144,15 @@ struct DeleteSubjectRequest {
    *  class only, is accepted too (a name several classes hold is refused, naming the CLASS:NAME forms). What the node owns goes with it (a manifold's geometry and topology, a field's arrays and measurements,
    *  a selection's members and weights array, and the operator a deleted field was made by when nothing else uses it); a node other nodes depend on is refused, naming them. */
   std::optional<std::string> node;
+  /** with `node` only: the author the node must have been saved by (its `created_by`, as `add <class> --by` records it); a node another author saved is refused, naming its author, so a
+   *  client deletes only what it saved. Absent: any node is deleted. */
+  std::optional<std::string> by;
   std::vector<std::string> templates;
   std::string created_by;
 };
 CommandResult delete_subject(const DeleteSubjectRequest& request);
-/** `delete subject --node`'s work on an opened dataset (commands_delete.cpp) */
-CommandResult delete_node(DatasetWriter& ds, const std::string& subject, const std::string& node, const std::string& created_by);
+/** `delete subject --node`'s work on an opened dataset (commands_delete.cpp); `by`: the author the node must have (DeleteSubjectRequest::by) */
+CommandResult delete_node(DatasetWriter& ds, const std::string& subject, const std::string& node, const std::string& created_by, const std::optional<std::string>& by = std::nullopt);
 
 /** `read subject` (docs/specs/2026-11-20-data-layer-queries.md, 3.1): every node's DESCRIPTION, no arrays, as nxr-neuro's typed model: {schema: "nxr-neuro-subject@1", subject: {id, name, kind, template},
  *  manifolds, fields, selections, operators, statistics, dictionaries, spaces, acquisitions: [description...]} (only the `classes` asked for), each node named and nested, never a table row (docs/reference.md,

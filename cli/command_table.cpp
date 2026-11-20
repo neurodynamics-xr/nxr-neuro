@@ -72,6 +72,7 @@ R"TBL(--atlas-finest	QUANTITY	The finest tile of the default subject's group tre
 --by@add line	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
 --by@add product	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
 --by@add dictionary	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@delete subject	TEXT	With --node: delete the node only if this author saved it (its created_by, as `add <class> --by` records it); a node another author saved is refused, naming its author. So a client deletes only what it saved.	none (any node is deleted)	-
 --block-frames	N	How many frames the steps after a frame tiling process at once; limits memory only, the result does not change (0 = the whole chunk's frames).	256	frames
 --block-frames@run	N	How many frames the steps after a frame tiling process at once; limits memory only, the result does not change (0 = the whole chunk's frames).	256	frames
 --block-samples	N	Samples processed at a time, which sets memory use only and does not change the result (run: width for the steps after the last filter, 0 = whole chunk)	run: 1024	samples
@@ -880,7 +881,7 @@ R"TBL(@ delete subject
 old: subject delete
 alias: refused
 summary: Delete a subject, or one of its nodes (--node CLASS:NAME), from a dataset.
-opts: --dataset* --node --subject* --templates+
+opts: --by --dataset* --node --subject* --templates+
 )TBL",
 R"TBL(@ add surface
 old: surface add
