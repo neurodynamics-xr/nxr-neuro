@@ -101,7 +101,7 @@ The descriptions are nxr-neuro's typed model: named, nested and versioned (`sche
 ## 5. Plan (scoped tests; synthetic data only)
 
 1. `read subject` and `list <class>`, with `show dataset`'s counts. Test: round trips on a synthetic dataset; paging; filters; no column name of the schema in a result.
-2. The `add` options (3.3, 3.4), dictionaries (3.5), `edit manifold` (3.6). Test: one round trip each.
+2. The `add` options (3.3, 3.4), dictionaries (3.5), `edit manifold` (3.6). Test: one round trip each. **Done (2026-11-20):** `add product`, `add line --coordinates --kinds`, the options of `add field | selection | operator`, `add dictionary`, `edit dictionary`, `edit manifold`; each option is stored in an existing column (docs/reference.md, "The options of `add`, dictionaries and `edit`"); test `test_add_options`.
 3. Writes in pieces and deletes by class (3.7), jobs (3.8). Test: an unfinished write is invisible and rolled back; a refused delete names its dependants.
 
 Each step adds its commands to the command table, so the command line, Python and JavaScript get them together. The coverage tests already enforce this.

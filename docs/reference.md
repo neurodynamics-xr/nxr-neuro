@@ -239,7 +239,7 @@ the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subcl
 (also `FileNotFoundError`); an option name that is not one of the library's is a `ValueError`.
 
 **The dataset API: the command line as functions** (spec `docs/specs/2026-11-19-io-service.md`). `nxr-neuro <verb> <noun> --option VALUE` is
-`nn.<verb>.<noun>(option=VALUE)`, for every command of the command table (`cli/command_table.cpp`): `nn.create`, `nn.list`, `nn.show`, `nn.delete`, `nn.read`, `nn.add`,
+`nn.<verb>.<noun>(option=VALUE)`, for every command of the command table (`cli/command_table.cpp`): `nn.create`, `nn.list`, `nn.show`, `nn.delete`, `nn.read`, `nn.add`, `nn.edit`,
 `nn.query`, `nn.import_`, `nn.export`, `nn.register`, `nn.verify`, `nn.release`, `nn.split`, `nn.join`, `nn.compact`, `nn.recover`, `nn.migrate`, and `nn.compile` and
 `nn.run` (verbs with no noun).
 - **Names.** The command line's options with dashes as underscores (`--from-sphere` is `from_sphere`; `export bids-derivatives` is `nn.export.bids_derivatives`); a Python
@@ -577,12 +577,12 @@ their own) are not keys: `type` says them. `kind` is the stored kind (a field's,
 
 | class | description (besides `id`, `name`, `kind`, `type`) |
 |---|---|
-| manifold | `label`, `primary`, `acquisition`, `size` {vertices, edges, faces, volumes}, `factors` (a product's, by name), `component_of`, `component_ordinal`, `derived_from`, `derived_by`, `stored`, `provenance` |
+| manifold | `label`, `description`, `primary`, `acquisition`, `coordinates` {system, unit, kinds} (the coordinate system its points are in; `kinds` when each point of a line carries a code), `size` {vertices, edges, faces, volumes}, `factors` (a product's, by name), `component_of`, `component_ordinal`, `derived_from`, `derived_by`, `stored`, `provenance` |
 | field | `label`, `acquisition`, `description`, `stored`, `lineage` {derived_from, of_field, of_operator, by_operator, function, contributions [{field, weight}]}, `provenance` |
-| selection | `label`, `acquisition`, `description`, `elements`, `members` (their count), `of_field`, `stored`, `dictionary` (its name), `entries` [{code, name, colour}], `provenance` |
+| selection | `label`, `acquisition`, `description`, `elements`, `members` (their count), `of_field`, `weights` (one weight a member is stored), `stored`, `dictionary` (its name), `entries` [{code, name, colour, label, description}], `provenance` |
 | operator | `label`, `acquisition`, `description`, `from` and `to` {manifold, selection}, `method`, `parameters`, `shape` {rows, columns, nonzeros}, `stored`, `lineage` {derived_from, of_statistic, inverts, inverse_kind}, `provenance` |
 | statistic | `measure`, `method`, `label`, `acquisition`, `description`, `of_field`, `of_statistic`, `partition`, `members`, `members_skipped`, `dof`, `axes` [{name, manifold, selection, size, unit}], `stored`, `provenance` (its `type` is untyped past its class, value and unit: its domain is typed by the node that made it) |
-| dictionary | `name`, `scope`, `description`, `entries` [{code, name, colour, measurement, unit, function, params}], `provenance` (the subject's own and the dataset-wide ones its selections use); no `type` |
+| dictionary | `name`, `scope`, `description`, `entries` [{code, name, colour (#rrggbb), label, description, measurement, unit, function, params}], `provenance` (the subject's own, the dataset's, and the app's its selections use); no `type` |
 | space | `name`, `geometry`, `rank`, `parameters`, `description`, `coordinate_systems` [{name, unit, reference, transition, description}]; no `type` |
 | acquisition | `name` (its label), `session`, `task`, `run`, `acq`, `processing`, `split`; no `type` |
 
@@ -683,13 +683,22 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
 | command | what it does | old spelling |
 |---|---|---|
 | `nxr-neuro add surface FILE` | Add a mesh file (OBJ, PLY or STL), or `--vertices V.npy --faces F.npy` with `--name`, to a subject as a surface. | `surface add` |
-| `nxr-neuro add field` | Values on a manifold (`--manifold M --values V.npy`), optionally time-resolved on a line (`--time LINE`). | |
-| `nxr-neuro add selection` | A partition or set (`--members`), a pick (`--indices`) or spans on a line (`--spans`), `--type` naming which. | |
+| `nxr-neuro add field` | Values on a manifold (`--manifold M --values V.npy`), optionally time-resolved on a line (`--time LINE`); its lineage with `--by-operator`, `--contribution SUBJECT:FIELD[:WEIGHT]`, `--producer JSON`. | |
+| `nxr-neuro add selection` | A partition or set (`--members`), a pick (`--indices`) or spans on a line (`--spans`), `--type` naming which; `--of-field`, `--weights V.npy`, `--producer JSON`. | |
 | `nxr-neuro add statistic` | Values on named axes (`--axes NAME:MANIFOLD ...`), with `--measure` and `--method` from the registries, of a field (`--of-field`) or detached. | |
 | `nxr-neuro add measurements` | One value a member of a selection for each measure (`--measure NAME=V.npy ...`), of a field (`--field`) or the members' own. | |
-| `nxr-neuro add operator` | A map between two manifolds, dense (`--values` [to x from]) or sparse CSR (`--data --indices --indptr`). | |
+| `nxr-neuro add operator` | A map between two manifolds, dense (`--values` [to x from]), sparse CSR (`--data --indices --indptr`) or analytic (`--layout analytic --method NAME --params JSON`, no matrix); `--from-selection`. | |
 | `nxr-neuro add points` | A manifold of points: positions [n x 3] or one coordinate each [n]. | |
-| `nxr-neuro add line` | A closed-form line: `--n`, `--spacing`, `--origin`, `--unit`; `--dimension time` (seconds) makes a time line fields can be time-resolved on. | |
+| `nxr-neuro add line` | A closed-form line: `--n`, `--spacing`, `--origin`, `--unit`; `--dimension time` (seconds) makes a time line fields can be time-resolved on. With `--coordinates C.npy --dimension eigenvalue [--kinds K.npy]`, a line whose points are not evenly spaced. | |
+| `nxr-neuro add product` | The product manifold of stored factors (`--name N --factors A,B`: a line over time, a surface over time). | |
+| `nxr-neuro add dictionary` | A dictionary of codes of the dataset or a subject (`--name N --scope dataset\|subject --entries E.json`). | |
+
+### `edit`: Edit what a subject holds without touching its arrays
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro edit manifold` | A manifold's label, description and primary flag (`--name N [--primary yes\|no] [--label TEXT] [--description TEXT]`). | |
+| `nxr-neuro edit dictionary` | One entry of a dictionary (`--name N --entry CODE [--name-of] [--label] [--colour] [--description] [--params]`), or every entry (`--entries E.json --replace`). | |
 
 **`add <class>`** (spec `docs/specs/2026-11-19-io-service.md`, 4.2) stores what a user computed, from .npy files, as ONE unit (all of it or nothing) through io's typed writes:
 - the arrays keep their precision (float32 stays float32; integers are stored as int32, refused when a value does not fit; a manifold's coordinates and measurement rows are float64);
@@ -698,6 +707,31 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
   [to x from]; a measure one value a member;
 - each node records a producer naming the command, the program and the input files by NAME (never their paths), with `--description`;
 - a name already used in the subject is refused unless `--replace`, which moves the old node aside (never deletes it) and says where (`replaced`).
+
+**The options of `add`, dictionaries and `edit`** (spec `docs/specs/2026-11-20-data-layer-queries.md`, 3.3 to 3.6; each is one unit, in `io/src/commands_add.cpp` and `commands_edit.cpp`; the
+refusals store nothing). Each option is stored in a column the schema already has:
+- **`add line --coordinates C.npy --dimension eigenvalue --unit U [--kinds K.npy]`** stores a line whose points are not evenly spaced: the coordinates [n] (float32 or float64, stored as float64)
+  must be strictly increasing, else refused; its topology is a path and its geometry stored, in a coordinate system of the dimension's name (a line space). `--kinds` is one integer code a point,
+  stored beside the coordinates and named in the manifold's producer record. Only `eigenvalue` (an operator's spectrum) is accepted: the layout places a line by its role (time, frequency or
+  eigen), and a field on the product of a line with another line needs a folder; `read manifold` gives `positions` (the coordinates) and `kinds`; `read subject` describes the line with
+  `coordinates` {system, unit, kinds}.
+- **`add product --name N --factors A,B`** makes the product manifold of stored factors in axis order; a factor that does not exist is refused (`no_such_row`), as is a name in use or factors that
+  already make a product under another name. A field added on a factor with `--time` makes the same product.
+- **`add field --by-operator NAME`** records the operator that made the field (its lineage `by_operator`); **`--contribution SUBJECT:FIELD[:WEIGHT]`** (repeatable) names the fields a mapped field is
+  made from (the subject by name, in the dataset; the weight a trailing number, default 1) as its `contributions`; **`--producer JSON`** adds the maker's facts to the producer record (not under the
+  keys the command records itself: `command`, `program`, `inputs`, `output`, `cache`).
+- **`add selection --of-field NAME`** names the field (a recording) the selection belongs to; **`--weights W.npy`** is one weight a member (a set's labelled members, the picks, the spans), stored beside
+  the selection and named in its parameters (`weights`; `read selection` gives the array `weights`, `read subject` the flag `weights`); **`--producer JSON`** as above.
+- **`add operator --layout analytic --method NAME [--params JSON] [--from-selection NAME]`** stores an operator by its method, with no matrix (`stored` false, no array to read); `--from-selection` names the
+  selection of the from manifold it reads, for any layout.
+- **`add dictionary --name N --scope dataset|subject [--subject S] --entries E.json`**: the entries are a JSON list (the file, or the text itself; in Python and JavaScript a list of objects) of
+  `{code, name, label, colour, description, params}`; codes are unique and a colour is `#rrggbb`, else refused; a dictionary of that name and scope that exists is refused. `--subject` opens the unit
+  (required for a subject scope and for a catalogue of packages; a one-database dataset's dataset-scope dictionary needs none). The label and the description are kept with the entry's attributes; `read
+  subject` and `list dictionaries` give each entry as `{code, name, colour, label, description, measurement, unit, function, params}`.
+- **`edit dictionary --name N [--subject S] --entry CODE [--name-of TEXT] [--label TEXT] [--colour #rrggbb] [--description TEXT] [--params JSON]`** changes one entry (an empty text clears a label or description);
+  **`--entries E.json --replace`** replaces every entry, and refuses to drop a code a selection reads. The subject's dictionary of that name is found first, then the dataset's; the app's are the program's own and are not edited.
+- **`edit manifold --name N [--primary yes|no] [--label TEXT] [--description TEXT]`**: making a surface primary clears the previous primary surface of the subject in the same unit; only a surface is
+  primary, else refused. A manifold's `label` and `description` are in `read subject` (`description` is the manifold's comment).
 
 Every pipeline command writes JSON lines (progress events, then one `"stage": "result"` line with `"cache": "hit" | "miss"`); a rerun with the same options is a cache hit, and `--replace` recomputes. Details of the dataset commands and of the format: `io/README.md`.
 
