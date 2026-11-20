@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "commands.h"
-#include "nxr/io/writer_lock.h"
+#include "handle.h"
 #include "nxr/pipelines/face.h"
 
 namespace nb = nanobind;
@@ -22,24 +22,17 @@ namespace {
 
 using nxr::io::Json;
 
-/** the dataset's writer lock, held by a handle until release() (or its collection; io's atexit releases what is left) */
-struct HeldLock {
-  nxr::io::WriterLock lock;
-  std::string file() const { return lock ? lock.file().string() : std::string(); }
-  void release() { if (lock) lock.release(); }
-};
-
 }  // namespace
 
 void bind_commands(nb::module_& m) {
   m.def(
       "_command",
-      [](const std::string& verb, const std::string& noun, const std::string& options, nb::object progress, nb::object arrays) {
+      [](const std::string& verb, const std::string& noun, const std::string& options, nb::object progress, nb::object in_memory, HandlePtr handle) {
         const Json opts = Json::parse(options);
         // the arrays in memory: [(option, name, dtype, shape, bytes)] (no temporary file; the name is what the producer records)
         nxr::bindings::Arrays held;
-        if (!arrays.is_none())
-          for (nb::handle item : arrays) {
+        if (!in_memory.is_none())
+          for (nb::handle item : in_memory) {
             nb::tuple t = nb::cast<nb::tuple>(item);
             std::vector<std::int64_t> shape;
             for (nb::handle d : nb::cast<nb::tuple>(t[3])) shape.push_back(nb::cast<std::int64_t>(d));
@@ -55,7 +48,7 @@ void bind_commands(nb::module_& m) {
         nxr::io::task::CommandResult r;
         {
           nb::gil_scoped_release release;
-          r = nxr::bindings::command(verb, noun, opts, say, nxr::pipelines::face::stamp(), held);
+          r = nxr::bindings::command(verb, noun, opts, say, nxr::pipelines::face::stamp(), held, handle ? handle->handle.get() : nullptr);
         }
         nb::list arrays;
         for (const auto& a : r.arrays) {
@@ -65,21 +58,21 @@ void bind_commands(nb::module_& m) {
         }
         return nb::make_tuple(r.result.dump(), arrays);
       },
-      nb::arg("verb"), nb::arg("noun"), nb::arg("options"), nb::arg("progress").none(), nb::arg("arrays").none() = nb::none(),
+      nb::arg("verb"), nb::arg("noun"), nb::arg("options"), nb::arg("progress").none(), nb::arg("in_memory").none() = nb::none(), nb::arg("handle").none() = nb::none(),
       "The command `nxr-neuro VERB NOUN` with its options (JSON text) and its arrays in memory: (the result as JSON text, [(name, dtype, shape, bytes)]).");
 
-  nb::class_<HeldLock>(m, "_HeldLock")
-      .def_prop_ro("file", &HeldLock::file)
-      .def("release", &HeldLock::release);
-  m.def(
-      "_writer_lock",
-      [](const std::string& dataset) {
-        auto h = std::make_unique<HeldLock>();
-        h->lock = nxr::io::acquire_writer_lock(dataset, nxr::pipelines::face::stamp());
-        return h.release();
-      },
-      nb::arg("dataset"), nb::rv_policy::take_ownership, "Take the dataset folder's writer lock (refused while another live writer holds it).");
-  m.attr("_writer_lock_env") = nxr::io::kWriterLockEnv;
+  nb::class_<PyHandle>(m, "_Handle")
+      .def(
+          "__init__",
+          [](PyHandle* self, const std::string& dataset, bool write) {
+            using nxr::io::task::Handle;
+            new (self) PyHandle{std::make_unique<Handle>(dataset, write ? Handle::Mode::write : Handle::Mode::read, nxr::pipelines::face::stamp())};
+          },
+          nb::arg("dataset"), nb::arg("write"),
+          "A dataset opened once: its read-only databases kept open between calls; write=True takes the writer lock now and holds it until close().")
+      .def_prop_ro("closed", [](const PyHandle& h) { return h.handle->closed(); })
+      .def_prop_ro("file", [](const PyHandle& h) { return h.handle->lock_file(); })
+      .def("close", [](PyHandle& h) { h.handle->close(); });
 }
 
 }  // namespace nxrpy

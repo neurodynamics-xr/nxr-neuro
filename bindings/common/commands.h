@@ -18,6 +18,7 @@
 
 #include "nxr/io/json_text.h"
 #include "nxr/io/task/commands.h"
+#include "nxr/io/task/handle.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/face.h"
 
@@ -152,7 +153,8 @@ class CommandOptions {
 
 /** The command `verb noun` with its options: the library's result and arrays. `created_by` is the producer stamp (the face's: "nxr-neuro <version> / C++17"). */
 inline task::CommandResult command(const std::string& verb, const std::string& noun, const Json& options, const task::Progress& progress, const std::string& created_by,
-                                   const Arrays& arrays = {}) {
+                                   const Arrays& arrays = {}, task::Handle* handle = nullptr) {
+  const task::HandleScope through(handle);   // a handle: the call works through its open readers and borrows its writer lock (nxr/io/task/handle.h)
   CommandOptions o("nxr-neuro " + verb + (noun.empty() ? "" : " " + noun), options, arrays);
   const std::string c = verb + " " + noun;
   task::CommandResult r;
@@ -862,6 +864,40 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     throw task::Refused("nxr-neuro has no command '" + verb + (noun.empty() ? "" : " " + noun) + "'");
   }
   return r;
+}
+
+/** `run PIPELINE` on a subject, or a group: `args` is {pipeline, dataset, subject, parameters, from, to, all, replace, dry_run, preset, subjects, into}; the result as JSON.
+ *  A handle: the same as `command`. */
+inline Json run(const Json& args, const task::Progress& progress, task::Handle* handle = nullptr) {
+  const task::HandleScope through(handle);
+  auto text = [&](const char* k) { return args.contains(k) && args[k].is_string() ? args[k].get<std::string>() : std::string(); };
+  auto number = [&](const char* k) { return args.contains(k) && args[k].is_number() ? std::optional<double>(args[k].get<double>()) : std::nullopt; };
+  auto flag = [&](const char* k) { return args.contains(k) && args[k].is_boolean() && args[k].get<bool>(); };
+  const Json parameters = args.contains("parameters") && args["parameters"].is_object() ? args["parameters"] : Json::object();
+  std::vector<std::string> subjects;
+  if (args.contains("subjects") && args["subjects"].is_array()) for (const auto& x : args["subjects"]) subjects.push_back(x.get<std::string>());
+  const std::string dataset = text("dataset"), subject = text("subject"), into = text("into");
+  if (!subjects.empty() || !into.empty()) {   // a group run: the members and the group package are the caller's
+    face::GroupRunRequest rq;
+    rq.pipeline = text("pipeline");
+    rq.parameters = parameters;
+    rq.subjects = subjects;
+    rq.into = into;
+    rq.replace = flag("replace");
+    rq.preset = text("preset");
+    rq.dry_run = flag("dry_run");
+    return face::run_group(dataset, rq, progress);
+  }
+  face::RunRequest rq;
+  rq.pipeline = text("pipeline");
+  rq.parameters = parameters;
+  rq.from = number("from");
+  rq.to = number("to");
+  rq.all = flag("all");
+  rq.replace = flag("replace");
+  rq.preset = text("preset");
+  rq.dry_run = flag("dry_run");
+  return face::run(dataset, subject, rq, progress);
 }
 
 }  // namespace nxr::bindings

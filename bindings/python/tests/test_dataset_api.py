@@ -179,3 +179,13 @@ def test_a_write_handle_holds_the_lock_across_processes(demo):
     r = nn.open(demo)                                                          # a read handle takes no lock
     assert r.read.field(subject="S1", name="rest", from_=0.0, to=1.0).arrays["values"].shape == (CHANNELS, 100)
     assert other_process("while_read") == 0
+
+
+def test_a_read_handle_keeps_its_database_open_and_sees_what_is_stored_meanwhile(demo):
+    with nn.open(demo) as d:
+        assert d.read.manifold(subject="S1", name="sensors")["class"] == "manifold"
+        assert d.list.recordings(subject="S1")
+        nn.add.line(dataset=demo, subject="S1", name="stored_between", n=4, spacing=1.0, unit="s")   # another call, no handle, while the handle's reader is open
+        assert d.read.manifold(subject="S1", name="stored_between")["class"] == "manifold"
+    with pytest.raises(nn.InvalidArgumentError, match="closed"):
+        d.read.manifold(subject="S1", name="sensors")
