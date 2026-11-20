@@ -114,6 +114,8 @@ def test_add_each_class_and_read_it_back(demo, tmp_path):
     np.testing.assert_array_equal(read("selection", "parts", measure="mean", field="w").arrays["value"], [1.5, -2.0])
     q = nn.query.measurements(dataset=demo, subject="S1", selection="parts", measure="max", field="w", where="io")   # a stored ingredient, read as stored
     assert [row["value"] for row in q["result"]["rows"]] == [3.0, -1.25]
+    q = nn.query.measurements(dataset=demo, subject="S1", selection="parts", measure="max", field="w")              # the default, in memory: the same values
+    assert q["result"]["values"]["data"] == [3.0, -1.25]
 
     v = (0.5 * np.arange(12)).astype(np.float32).reshape(CHANNELS, 4)
     add("statistic", name="psd", measure="power_density", method="welch", axes=["channel:sensors", "frequency:freq"], of_field="rest", values=v)

@@ -308,6 +308,17 @@ static void registry() {
   EXPECT(std::abs(tr - 5.0 / 5.0) < 1e-12, "travelling index: |sum j| / sqrt(power x gradient power), got " << tr);
 }
 
+// ingredients holding only some measures (a stored max, nothing else): a measure reads only its own ingredient, and one not held is refused, never read past its end
+static void partial_ingredients() {
+  ms::Ingredients g;
+  g.rows = 1; g.members = 2;
+  g.max = {3.0, -1.25};
+  EXPECT(val(g, 0, "max") == 3.0 && val(g, 1, "max") == -1.25, "partial: max read without a weight");
+  bool refused = false;
+  try { val(g, 0, "mean"); } catch (const std::invalid_argument&) { refused = true; }
+  EXPECT(refused, "partial: mean refused when sum and weight are not held");
+}
+
 int main() {
   every_row_at_once();
   overlapping_members();
@@ -320,6 +331,7 @@ int main() {
   coarser_levels();
   summarize_and_estimate();
   registry();
+  partial_ingredients();
   std::cout << (fails ? "FAILED " : "ok ") << fails << "\n";
   return fails ? 1 : 0;
 }
