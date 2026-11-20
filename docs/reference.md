@@ -261,7 +261,8 @@ the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subcl
   takes `subjects=[...]` and `into=`. Returns {pipeline, subject, cache, stored, runs, seconds}; read what was stored with `nn.read.<class>`.
 - **`nn.open(dataset, mode="read")`**: a handle whose methods are the same functions with the dataset bound (`d.read.field(subject=..., name=..., all=True)`,
   `d.run("psd", "S1", all=True)`, `d.compile(...)`). `mode="write"` takes the dataset folder's writer lock now and holds it until `close()` (a context manager; released at
-  exit): the handle's commands borrow it (io's handshake `NXR_WRITER_LOCK_HELD`, lent by the library's `task::Handle`), another process's write is refused (`WriterLockHeld`).
+  exit): the handle's commands borrow it (io's handshake `NXR_WRITER_LOCK_HELD`, lent by the library's `task::Handle`), another process's write is refused (`WriterLockHeld`),
+  and so is another write in the same process that does not go through the handle (in JavaScript also from another instance of the WebAssembly module: the locks a process holds are recorded on `globalThis`, shared by every instance).
   The library keeps the subject's database open between the handle's reading calls (`task::Handle`, `open_reader`: read-only, no lock, no migration); a write command opens
   its own database for the length of its unit, since a package's record and content hash are finished when its writer closes.
 - **Refused, naming the new form** (the first wheel's calls; no aliases): `nn.read(dataset, subject, name, ...)` (now `nn.read.<class>`, a recording's range as `from_`/`to`
