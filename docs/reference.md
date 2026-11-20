@@ -558,6 +558,8 @@ io has no reader for), and the three arrays are exactly what `add operator --dat
   service one chunk at a time; `--rows I,J` picks rows in order, `--projectors active|none` (a recording's active projectors applied, or the samples as stored), `--shape-only` the
   description alone. A field with no time line is read whole. The result names the field's `manifold` (and `manifold_id`) and `cell` ("0" vertices, "1" edges, "2" faces).
 - `read manifold`: `positions` [n x 3] and `cells_<rank>`, its `axes`, element `names`, and `coordinate_system` {name, unit, space} (the chart its positions are in).
+- `read selection` of spans gives `start`, `stop` (in the line's unit) and `code`, one a member; a **tiling** (a closed-form spans selection: an origin, a width, a hop and a count, no span stored) gives
+  the same arrays, its members made from its rule (the last cut at the line's end; `code` the member number), and its rule stays in `params`.
 
 ### Queries over a dataset: `read subject`, `list <class>`, the counts of `show dataset` (`io/src/commands_query.cpp`; spec `docs/specs/2026-11-20-data-layer-queries.md`, 3.1 and 3.2)
 
