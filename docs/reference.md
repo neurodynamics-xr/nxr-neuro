@@ -458,6 +458,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run sourcepsd` | The band power maps of the sources (the Welch PSD of the sources, grouped in bands). | `sourcepsd compute` |
 | `nxr-neuro run sourcepsd_bins` | The power of the sources at every Welch bin of one band (nothing reduced over frequency), through a named kernel. | `sourcepsd compute --resolve bins` |
 | `nxr-neuro run pca` | The principal components across the members of a stored statistic (members by features), with scores, explained variance and centring. | `pca compute` |
+| `nxr-neuro run fingerprint` | Brain fingerprinting across a cohort (a group run, `--subjects A,B,C`): from each member's two stored features, the correlation, accuracy both ways, self-identifiability, edgewise reliability and the PCA reconstruction curve. | (the definition) |
 | `nxr-neuro run sourcetensor` | The band cross-spectral tensor of the current, its Stokes quaternion, normal power and share. | `sourcetensor compute` |
 | `nxr-neuro run crossspectrum` | The sensor cross-spectral density per band (Welch, or per time window with the analytic estimator). | `crossspectrum compute` |
 | `nxr-neuro run quadrature` | The quadrature spectrum of the sources per band: fraction, energy map and leading pairs (the definition `quadrature`). | (the definition) |
@@ -1840,6 +1841,38 @@ is a STATISTIC: "field -> selection/measurements -> statistic. the statistic is 
   the input's stored precision. **Reconstruction at k** is derived at read: `nxr::stats::reconstruct(scores, components, mean, scale, k)`. `nxr::stats` is tested against numpy's SVD
   (`compute/test/golden/gen_pca_golden.py`). **What it cannot show:** a component is a direction of variance in THIS sample; with n members at most n - 1 exist and the leading ones of a small sample are not stable
   estimates of a population's.
+- **Brain fingerprinting, the cohort statistics** (`run fingerprint`, a GROUP definition, `pipelines/definitions/fingerprint.yaml`; the nodes `stats.featureTable`, `stats.identification`, `stats.pca`,
+  `stats.identificationCurve`; the maths `compute/include/nxr/stats/identification.h`; spec `docs/specs/2026-11-16-meg-fingerprinting.md`, 11.4, steps 20-25). **Why:** before a pattern measured in one person
+  can be related to their cognition, age or disease it has to be stable within the person and distinct between people; identification measures exactly that, on one footing for every feature.
+  **The reference for every default is the published method** (decided 2026-11-19): da Silva Castanheira J, Orozco Perez HD, Mišić B, Baillet S (2021) *Brief segments of neurophysiological activity
+  enable individual differentiation*, Nat Commun 12:5713, doi:10.1038/s41467-021-25895-8, as its authors' release megFingerprinting v1.0.0 (06fdba8) computes it (the notebooks `4_PSD_fingerprinting_*`,
+  `4_AEC_fingerprinting_*`), the identification statistics after Finn et al. (2015) Nat Neurosci 18:1664 and Amico & Goñi (2018) Sci Rep 8:8254. Written from the paper and the notebooks' documented
+  behaviour; the release (GPL-3) is only RUN by the golden generator (`compute/test/golden/gen_fingerprint_golden.py`, which finds it through `NXR_MEGFINGERPRINTING`). Every stored result carries the
+  citation (`producer_json.references`).
+  - **Run:** `nxr-neuro run fingerprint --dataset D --subjects A,B,C --target fp_B --database fp_A [--vector flatten|upper-triangle] [--self-identifiability all|others] [--steps notebook|[k,...]]
+    [--name STEM] [--into GROUP]`. The members are the caller's (no default); each member's target (the release's validation half) and database (its training half) are stored statistics found
+    by name in every member, read and stacked by the runner (a member missing either is refused by name; every member's feature has one shape, the same axes and one unit, else refused naming
+    the member). The results go to the dataset's default subject (a catalogue: the group package `--into`). A rerun with the same members' inputs and options is a cache hit. The spec's
+    proposed `compute fingerprint` verb is not needed: the definition and `run` cover it (`compute` is for a node on handed data).
+  - **Step 20, the feature vectors** (`--vector`): `flatten` (default) keeps the stored values row-major and raw, no log and no normalisation (a region x bin spectrum: 68 x 301 in the release);
+    `upper-triangle` keeps, per trailing slice (a band), the upper triangle of the leading square WITH its constant diagonal (the release's quirk, kept), slices concatenated (a connectome: 2346 per
+    band). The release orders a connectome's regions by name (a pandas pivot); here they keep the stored order (no statistic depends on the order of the features).
+  - **Steps 21-23:** each vector z-scored across its features (ddof 0); Pearson's r of every target with every database vector (`<name>_correlation`, [target member x database member]); accuracy
+    both ways, reported separately (argmax per row: target from database; per column: database from target; chance 1/n: `<name>_accuracy`); per member r_ii and D_self (`<name>_self`): default `all`,
+    the notebooks' (each row of r z-scored over all n entries, the member included, ddof 0; it made the published numbers), named option `others`, the paper's formula over the other members (ddof 0).
+  - **Step 24, the PCA reconstruction curve:** target and database stacked (2n x p), the node `stats.pca` (an EXACT thin SVD of the centred table; stored as `<name>_pca`, `_pca_scores`,
+    `_pca_variance`, `_pca_centring`), reconstructed at each k with the mean, identified again; k in `--steps` (default the release's: 2, 5, then 10, 20, ... below 2n; a k above the table's rank uses
+    the rank, its extra components being zero); the best k is the first of the largest mean reconstructed D_self (`<name>_curve`, [step x (components, used, both accuracies, mean D_self)]).
+    **Deviation from the release, stated:** the release's scikit-learn `PCA(k)` uses its automatic solver, which is RANDOMISED (and unseeded) for k below 80 % of min(2n, p) on tables larger than
+    500 x 500, so the release's own curve varies from run to run; nxr-neuro's is deterministic. The golden holds it equal to the release run with the full solver to rounding, and to the release's
+    randomised solver within 1e-5 on the synthetic cohort (measured 1.4e-6 on the mean D_self; accuracies and the best k identical).
+  - **Step 25, edgewise reliability** (`<name>_edgewise`, and at the best k `<name>_reconstructed_edgewise`, with `<name>_reconstructed_self`): on the z-scored features, ICC(1,1) one-way random
+    effects with k = 2; Finn's differential power (strict >, p floored at 1/(2(n − 1)), the sum of −ln p); group consistency (the mean over members of the products).
+  - **What it cannot resolve:** identification is not neural by construction: anatomy, the head's position in the helmet, the kernel built from them, recurring artefacts (muscle, heart, eyes) and the
+    day's noise are individual and enter the features; within a session they are shared by both halves, so within-session accuracy is an upper bound of between-session accuracy. Accuracy falls as
+    the cohort grows and depends on its make-up: numbers from cohorts of different size are not comparable, and D_self is relative to its cohort. Neighbouring regions share signal through the
+    kernel, so the features are far fewer independent measurements than their number. The curve and its best k are fitted on the data they score (optimistic). The edgewise statistics are on
+    features z-scored within each vector: the reliability of a feature's place in a person's profile, not of its absolute value. A spectrum is not a pattern's speed or direction.
 - **Next** (the spec's order): the other spectral producers, the histogram, Brainstorm's sensor-level timefreq on import. (`run psd`'s PSD is a statistic since 2026-11-13; checked
   against the code 2026-11-14: the `<recording>_psd_welch` Field of the spec's table is already gone.)
 
