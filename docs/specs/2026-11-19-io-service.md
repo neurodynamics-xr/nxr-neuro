@@ -1,5 +1,7 @@
 # The dataset API in Python and WebAssembly: the command line's verbs, read and write (spec, 2026-11-19)
 
+**Extended 2026-11-20** by [2026-11-20-data-layer-queries.md](2026-11-20-data-layer-queries.md): nxr-neuro is the data layer; no client opens the database or the stores; the queries clients use (`read subject`, `list <class>`, writes in pieces, deletes by class).
+
 Status: **design, no code.** Decided by the maintainers (2026-11-19):
 1. the Python binding and the WebAssembly binding each expose nxr-neuro's dataset io **in full**, reading AND writing;
 2. **the audience is anyone who works with nxr-neuro datasets**, as the command line's is. The bindings are built for that audience, not shaped
