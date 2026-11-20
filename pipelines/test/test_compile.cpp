@@ -72,6 +72,25 @@ const char* kSurfaceSink = R"({"nodes": [{"name": "scope.surface", "kind": "arra
   "inputs": [{"port": "field", "class": "field", "on": [{"form": "variable", "key": "S", "kind": "surface"}], "value": ["real"], "components": 1},
              {"port": "surface", "class": "manifold", "on": ["S"]}],
   "outputs": [{"port": "shown", "like": "field"}], "parameters": []}]})";
+// the same sink with no output (a renderer draws; it makes nothing), and a definition that ends in it and stores nothing (issue 159)
+const char* kSurfaceSinkOnly = R"({"nodes": [{"name": "scope.surface", "kind": "array", "move": "pointwise",
+  "inputs": [{"port": "field", "class": "field", "on": [{"form": "variable", "key": "S", "kind": "surface"}], "value": ["real"], "components": 1},
+             {"port": "surface", "class": "manifold", "on": ["S"]}],
+  "parameters": []}]})";
+const char* kSinkOnlyDefinition = R"(pipeline: surface_draw
+version: 1
+description: a stored field drawn on a stored surface by an external sink; nothing is stored
+scope: subject
+inputs:
+  map: {field: any, where: {name: $map}}
+  surface: {manifold: surface, where: {name: $surface}}
+parameters:
+  map: {default: none, meaning: "the stored field's name", unit: "-"}
+  surface: {default: none, meaning: "the surface's name", unit: "-"}
+steps:
+  before:
+    - {node: scope.surface, in: {field: map, surface: surface}}
+)";
 const char* kSurfaceDefinition = R"(pipeline: surface_check
 version: 1
 description: a stored field drawn on a stored surface by an external sink
@@ -289,6 +308,29 @@ outputs:
     Json kr;
     if (const std::string w = refusal([&] { kr = face::compile(known).result; }); !w.empty()) { std::printf("  refused: %s\n", w.c_str()); CHECK(false); }
     if (!kr.is_null()) CHECK(kr["plans"][0]["graph"]["values"]["map"]["quantity"] == "power" && kr["plans"][0]["graph"]["values"]["map"]["unit"] == "W");
+    // a definition ending in a sink declares no stored output: compile accepts it, run refuses it (nothing to store)
+    face::CompileRequest draw = sq;
+    write(root / "surface_draw.yaml", kSinkOnlyDefinition);
+    draw.definition = (root / "surface_draw.yaml").string();
+    draw.signatures = Json::parse(kSurfaceSinkOnly);
+    Json dr;
+    if (const std::string w = refusal([&] { dr = face::compile(draw).result; }); !w.empty()) { std::printf("  refused: %s\n", w.c_str()); CHECK(false); }
+    if (!dr.is_null()) CHECK(dr["plans"][0]["graph"]["nodes"].size() == 1 && dr["plans"][0]["graph"]["nodes"][0]["node"] == "scope.surface");
+    {
+      const graph::ExternalNodes scope(ng::external_nodes(Json::parse(kSurfaceSinkOnly)));
+      const graph::Definition d = graph::load((root / "surface_draw.yaml").string());
+      CHECK(d.outputs.empty());
+      nxr::io::DatasetWriter ds = nxr::io::open_writer(folder);
+      nxr::io::SubjectWriter sub = nxr::io::SubjectWriter::open(ds, "S1");
+      const std::string w = refusal([&] { graph::run(ds, sub, d, Json{{"map", "pet_suvr"}, {"surface", "cortex"}}, graph::RunOptions{}, true); });
+      if (!has(w, "stores nothing")) { std::printf("  run refusal: %s\n", w.c_str()); CHECK(false); }
+    }
+    // without a sink, a definition with no output is still refused
+    write(root / "no_output.yaml", std::string(kSinkOnlyDefinition).substr(0, std::string(kSinkOnlyDefinition).find("steps:")) + "steps:\n  before: []\n");
+    face::CompileRequest bare = draw;
+    bare.definition = (root / "no_output.yaml").string();
+    const std::string wb = refusal([&] { face::compile(bare); });
+    if (!has(wb, "outputs: at least one")) { std::printf("  refusal: %s\n", wb.c_str()); CHECK(false); }
   }
 
   fs::remove_all(root);
