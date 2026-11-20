@@ -147,6 +147,7 @@ void add_definition(Table& t, const std::string& noun, const std::string& defini
   for (const auto& [k, _] : d.parameters.items()) params.insert(dashed(k));
   for (const char* name : {"--dataset", "--subject", "--replace", "--dry-run", "--block-samples", "--block-frames", "--chunks", "--start", "--stop", "--projectors"}) {
     if (params.count(name + 2)) continue;   // a parameter of that name takes the option
+    if (d.scope == "group" && std::string(name) == "--subject") continue;   // a group definition names its members (its parameter `subjects`), never one subject
     OptionUse u;
     u.name = name;
     u.required = std::string(name) == "--dataset" || std::string(name) == "--subject";
