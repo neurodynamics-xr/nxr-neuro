@@ -1185,6 +1185,138 @@
     "one_form_energy"
    ],
    "description": "the share of a 1-form's ⋆1 energy its exact part leaves over a member: exact_misfit_energy / one_form_energy (0: a potential explains the whole form; on a single vertex, the share over its edges). A RATIO of sums, derived at read"
+  },
+  {
+   "code": 1067,
+   "name": "atom_time",
+   "merge": "none",
+   "form": "member",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's centre, the recording's clock (the tile's centre; the fit refines frequency and width, never time) (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1068,
+   "name": "atom_frequency",
+   "merge": "none",
+   "form": "member",
+   "unit": "Hz",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's frequency, refined by a parabola through log|W| (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1069,
+   "name": "atom_width",
+   "merge": "none",
+   "form": "member",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's width sigma (its envelope e^(-t^2/2 sigma^2)), refined by a parabola through log|W| in log width (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1070,
+   "name": "atom_fwhm",
+   "merge": "none",
+   "form": "member",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's duration: the full width at half maximum, 2.355 sigma (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1071,
+   "name": "atom_cycles",
+   "merge": "none",
+   "form": "member",
+   "unit": "cycles",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's cycles at half maximum, 2.355 sigma f (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1072,
+   "name": "atom_amplitude",
+   "merge": "none",
+   "form": "member",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's amplitude, 2|W| / (pi^(1/4) sqrt(sigma)): the amplitude of the Gaussian burst it matches, in the series' unit (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1073,
+   "name": "atom_phase",
+   "merge": "none",
+   "form": "member",
+   "unit": "rad",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's phase arg W, of cos(2 pi f (t - t0) + phase) (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1074,
+   "name": "atom_coefficient",
+   "merge": "none",
+   "form": "member",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's |W|, the unit-energy coefficient (the series' unit times sqrt(s)) (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1075,
+   "name": "atom_width_peak",
+   "merge": "none",
+   "form": "member",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "1 when the atom's |W| peaks along width too (larger than at the neighbouring widths, inside the grid's widths), else 0 (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1076,
+   "name": "atom_r2",
+   "merge": "none",
+   "form": "member",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the R^2 of the atom against the band's signal in its half-maximum window: the share of the band's signal there that one atom explains (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1077,
+   "name": "onset",
+   "merge": "none",
+   "form": "member",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "an event's onset, the recording's clock, by the rule its run names (the tangent on its envelope, or the atom's half maximum) (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1078,
+   "name": "offset",
+   "merge": "none",
+   "form": "member",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "an event's offset, the recording's clock, by the rule its run names (the tangent on its envelope, or the atom's half maximum) (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
   }
  ]
 }
