@@ -70,7 +70,7 @@ CommandResult compile(const CompileRequest& rq) {
     o.lock = false;
     DatasetWriter ds = is_catalogue_dataset(*rq.dataset) ? open_subject_package(*rq.dataset, *rq.subject, o, {}) : open_writer(*rq.dataset, o);
     SubjectWriter sub = SubjectWriter::open(ds, *rq.subject);
-    const auto runs = refusing([&] { return g::plan_runs(d, sub.db(), sub.id(), set, preset, [&sub](const std::string& recording) { return channel_facts(sub, recording); }); });
+    const auto runs = refusing([&] { return g::plan_runs(d, sub, set, preset); });
     for (const auto& P : runs) {
       Json bind = Json::array(), streams = Json::array();
       const Json found = finder::describe(P.found);

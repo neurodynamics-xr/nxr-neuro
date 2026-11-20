@@ -113,5 +113,7 @@ std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, c
 
 /** every run of `d` on the subject planned (one per anchor match), none executed */
 std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, const std::string& subject_id, const Json& set, const std::string& preset = std::string(), const ChannelFacts& channels = nullptr);
+/** the same on an open subject, its channel facts read from it: what `compile` and a caller outside the runner use (the database handle stays in the runner) */
+std::vector<Plan> plan_runs(const Definition& d, nxr::io::SubjectWriter& sub, const Json& set, const std::string& preset = std::string());
 
 }  // namespace nxr::pipelines::graph

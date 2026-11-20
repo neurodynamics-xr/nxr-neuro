@@ -85,7 +85,7 @@ int main() {
     o.lock = false;
     nxr::io::DatasetWriter ds = nxr::io::open_writer(folder, o);
     nxr::io::SubjectWriter sub = nxr::io::SubjectWriter::open(ds, "S1");
-    const auto plans = graph::plan_runs(graph::load("psd"), sub.db(), sub.id(), Json{{"recording", "rest"}}, "", [&sub](const std::string& rec) { return channel_facts(sub, rec); });
+    const auto plans = graph::plan_runs(graph::load("psd"), sub, Json{{"recording", "rest"}});
     CHECK(plans.size() == 1 && plans[0].checked);
     if (!plans.empty() && plans[0].checked) {
       const ng::Checked& k = *plans[0].checked;

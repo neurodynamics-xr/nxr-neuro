@@ -301,6 +301,10 @@ std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, co
   return out;
 }
 
+std::vector<Plan> plan_runs(const Definition& d, nxr::io::SubjectWriter& sub, const Json& set, const std::string& preset) {
+  return plan_runs(d, sub.db(), sub.id(), set, preset, [&sub](const std::string& recording) { return nxr::pipelines::channel_facts(sub, recording); });
+}
+
 namespace {
 using nxr::io::text;
 using nxr::io::V;
