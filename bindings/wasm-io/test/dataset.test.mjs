@@ -50,6 +50,25 @@ test('datasets, subjects and packages', { skip }, async () => {
   } finally { done(); }
 });
 
+test('read subject and list each class', { skip }, async () => {
+  const { nxr, demo: D, done } = await demo();
+  try {
+    const sub = await nxr.read.subject({ dataset: D, subject: 'S1' });
+    assert.equal(sub.schema, 'nxr-neuro-subject@1');
+    const rest = sub.fields.find((f) => f.name === 'rest');
+    assert.equal(rest.type.sfreq, SFREQ);
+    const keys = (x) => (Array.isArray(x) ? x.flatMap(keys) : x && typeof x === 'object' ? Object.entries(x).flatMap(([k, v]) => [k, ...keys(v)]) : []);
+    assert.deepEqual(keys(sub).filter((k) => k.endsWith('_id') || k.endsWith('_json')), []);
+    assert.equal('manifolds' in (await nxr.read.subject({ dataset: D, subject: 'S1', classes: ['fields'] })), false);
+    const first = await nxr.list.manifolds({ dataset: D, subject: 'S1', limit: 1 });
+    assert.equal(first.rows.length, 1);
+    const more = await nxr.list.manifolds({ dataset: D, subject: 'S1', after: first.next });
+    assert.deepEqual([...first.rows, ...more.rows].map((r) => r.name), sub.manifolds.map((m) => m.name));
+    assert.deepEqual((await nxr.list.fields({ dataset: D, subject: 'S1', name: 'res', columns: 'name' })).rows, [{ name: 'rest' }]);
+    assert.equal((await nxr.show.dataset({ dataset: D })).nodes.fields, sub.fields.length);
+  } finally { done(); }
+});
+
 test('read each class; a time range is required', { skip }, async () => {
   const { nxr, NxrError, demo: D, done } = await demo();
   try {

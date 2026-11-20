@@ -104,7 +104,8 @@ One command, verb first: `nxr-neuro <verb> <what> [options]`.
 | `run <pipeline>` | every pipeline on a subject: the built-in computations (psd, crossspectrum, phasegradient, nulls, ...), the selection makers (`select_dyadic_surface`, `select_time_grid`, `select_bands`, `select_product`, `glue`), the one measuring definition `measure` with its presets, and the shipped definitions (`run global_bursts --band "8-16 Hz" --all`) and your own definition file (`run my.yaml ...`); a definition's parameters are options, each with its meaning, default and unit in `--help` |
 | `compute <node>` | reserved for applying a node or a graph to arrays and files (not available yet) |
 | `list datasets\|subjects\|recordings\|kernels\|results\|pipelines` | what exists |
-| `show dataset\|subject`, `read`, `query`, `export` | one thing in detail, stored arrays, measurements, a table for statistics |
+| `list manifolds\|fields\|selections\|operators\|statistics\|dictionaries\|spaces\|acquisitions\|jobs` | the nodes of a subject, one description each, filtered and paged (`--name`, `--kind`, `--on`, `--limit`, `--after`, `--columns`) |
+| `show dataset\|subject`, `read`, `query`, `export` | one thing in detail (`show dataset` counts each class of node; `read subject` describes every node of a subject, no arrays), stored arrays, measurements, a table for statistics |
 | `import <what>` | from a Brainstorm protocol |
 | `migrate measurements` | bring a dataset made before schema 53 to one measurement table (in place, resumable, `--dry-run`; the old statistics are kept) |
 | `create`, `delete`, `compact`, `recover`, `add` | a dataset's and a subject's housekeeping (a group's reduce is `run roll_up`) |

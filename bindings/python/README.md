@@ -35,6 +35,8 @@ nn.compile("psd", dataset="study", subject="sub-01", set={"recording": "rest"}) 
 r = nn.run("psd", "study", "sub-01", recording="rest", from_=0.0, to=60.0)         # a pipeline: the command line's `run`
 r["stored"], r["cache"]                                                            # what was stored; "computed" | "hit"
 nn.list.pipelines()                                                                # what run takes, each parameter with its meaning, default and unit
+nn.read.subject(dataset="study", subject="S1")                                  # every node's description (manifolds, fields, ...), no arrays
+nn.list.fields(dataset="study", subject="S1", name="rest", limit=20, columns="name,unit")   # the nodes of one class: filtered, paged (`next` -> `after=`), only the columns asked for
 ```
 
 `nn.run(pipeline, dataset, subject, from_=, to= | all=True, replace=, dry_run=, preset=, **parameters)`: the time range is required (seconds on the recording's clock);

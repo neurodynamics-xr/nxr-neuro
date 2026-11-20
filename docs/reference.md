@@ -515,7 +515,7 @@ the Python and WebAssembly faces will call it as `compile(definition, ...)`).
 
 A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<value> = <printed type>, from <use>)`), exit status 1.
 
-### `list`: List datasets, subjects, recordings, kernels, results or pipelines
+### `list`: List datasets, subjects, the nodes of a subject (by class), recordings, kernels, results or pipelines
 
 | command | what it does | old spelling |
 |---|---|---|
@@ -524,19 +524,21 @@ A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<val
 | `nxr-neuro list recordings` | List the recordings of a subject. |  |
 | `nxr-neuro list kernels` | List the inverse kernels of a subject. |  |
 | `nxr-neuro list results` | List the fields and statistics the computations stored for a subject. |  |
+| `nxr-neuro list manifolds` · `fields` · `selections` · `operators` · `statistics` · `dictionaries` · `spaces` · `acquisitions` · `jobs` | The nodes of one class of a subject, one description each (or only the columns asked for), filtered and paged by a cursor (below). | |
 | `nxr-neuro list pipelines` | List the pipelines `run` takes (the hand-wired ones and the definitions) and the steps the definitions are made of. | (`run --list`, refused) |
 
 ### `show`: Show a dataset or a subject
 
 | command | what it does | old spelling |
 |---|---|---|
-| `nxr-neuro show dataset` | Show a dataset: its subjects by kind, its source and its creation date. | `dataset show` |
+| `nxr-neuro show dataset` | Show a dataset: its subjects by kind, its source and its creation date, and the count of each class of node (`nodes`). | `dataset show` |
 | `nxr-neuro show subject` | Show how many manifolds, fields, operators and selections a subject holds. | `subject show` |
 
 ### `read`: Read stored arrays and derived readings
 
 | command | what it does | old spelling |
 |---|---|---|
+| `nxr-neuro read subject` | Everything a subject holds as one index: every node's description, no arrays (below). | |
 | `nxr-neuro read dataset FOLDER` | Read an nxr dataset folder: list its arrays, or read one array or region. | `read` |
 | `nxr-neuro read crossspectrum` | Read coherency, phase, delay or phase-slope index from a stored band-resolved cross-spectrum. | `crossspectrum read` |
 | `nxr-neuro read field` | A stored field by name: its values (a time-resolved field over a stated time range), its manifold and cells. | |
@@ -556,6 +558,54 @@ io has no reader for), and the three arrays are exactly what `add operator --dat
   service one chunk at a time; `--rows I,J` picks rows in order, `--projectors active|none` (a recording's active projectors applied, or the samples as stored), `--shape-only` the
   description alone. A field with no time line is read whole. The result names the field's `manifold` (and `manifold_id`) and `cell` ("0" vertices, "1" edges, "2" faces).
 - `read manifold`: `positions` [n x 3] and `cells_<rank>`, its `axes`, element `names`, and `coordinate_system` {name, unit, space} (the chart its positions are in).
+
+### Queries over a dataset: `read subject`, `list <class>`, the counts of `show dataset` (`io/src/commands_query.cpp`; spec `docs/specs/2026-11-20-data-layer-queries.md`, 3.1 and 3.2)
+
+nxr-neuro is the data layer: a client (an application's interface, an analysis script) asks it what a dataset holds and gets nxr-neuro's typed description of each node, never a row of the
+catalogue. The schema and the store layout can change without changing these results. Every call opens the dataset read-only and leaves every file as it was; all of it runs in io (no SQL
+in a face), so the command line, Python (`nn.read.subject`, `nn.list.fields`, ...) and JavaScript (`nxr.read.subject`, ...) give the same result.
+
+**`read subject --dataset D --subject S [--classes manifolds,fields,...] [--related]`** returns
+`{"schema": "nxr-neuro-subject@1", "subject": {id, name, kind, template}, "manifolds": [...], "fields": [...], "selections": [...], "operators": [...], "statistics": [...],
+"dictionaries": [...], "spaces": [...], "acquisitions": [...]}`, each array the descriptions of that class in name order (`--classes` keeps only the classes named). A description is named, nested
+and typed: a node is named, never numbered; what it refers to is named by its name (`"manifold": "sensors"`; a node of another subject is `SUBJECT:NAME`); no key is a column of the schema
+(`*_id`, `*_json`). Only complete nodes are described. `id` is the node's identity (stable across calls). **Every typed node carries `type`: the JSON `compile` gives a value** (the type
+system's: `class`, `domain` with its factor manifolds (`kind`, `topology`, `coordinate_system` {space, name, unit}, `n`, `origin`, `spacing`, `unit`), `value` (real, complex, ...), `components`, `unit`,
+`quantity`, `sfreq` for a stream); a manifold's `type` is its manifold term. It is built the way the runner types a stored input, so a client reads a stored node and a compiled graph's value in one
+vocabulary, and the same stored field has the same `type` in `read subject` and in `compile`. The storage words (`value_type`, `cells`, `data_type`, `layout`, and a domain, unit or components of
+their own) are not keys: `type` says them. `kind` is the stored kind (a field's, an operator's, a selection's type, a manifold's type); `type.quantity` is the typed quantity. The other keys:
+
+| class | description (besides `id`, `name`, `kind`, `type`) |
+|---|---|
+| manifold | `label`, `primary`, `acquisition`, `size` {vertices, edges, faces, volumes}, `factors` (a product's, by name), `component_of`, `component_ordinal`, `derived_from`, `derived_by`, `stored`, `provenance` |
+| field | `label`, `acquisition`, `description`, `stored`, `lineage` {derived_from, of_field, of_operator, by_operator, function, contributions [{field, weight}]}, `provenance` |
+| selection | `label`, `acquisition`, `description`, `elements`, `members` (their count), `of_field`, `stored`, `dictionary` (its name), `entries` [{code, name, colour}], `provenance` |
+| operator | `label`, `acquisition`, `description`, `from` and `to` {manifold, selection}, `method`, `parameters`, `shape` {rows, columns, nonzeros}, `stored`, `lineage` {derived_from, of_statistic, inverts, inverse_kind}, `provenance` |
+| statistic | `measure`, `method`, `label`, `acquisition`, `description`, `of_field`, `of_statistic`, `partition`, `members`, `members_skipped`, `dof`, `axes` [{name, manifold, selection, size, unit}], `stored`, `provenance` (its `type` is untyped past its class, value and unit: its domain is typed by the node that made it) |
+| dictionary | `name`, `scope`, `description`, `entries` [{code, name, colour, measurement, unit, function, params}], `provenance` (the subject's own and the dataset-wide ones its selections use); no `type` |
+| space | `name`, `geometry`, `rank`, `parameters`, `description`, `coordinate_systems` [{name, unit, reference, transition, description}]; no `type` |
+| acquisition | `name` (its label), `session`, `task`, `run`, `acq`, `processing`, `split`; no `type` |
+
+`provenance` is {source, comment, created_utc, created_by, modified_utc, modified_by}. `type` is built by the pipelines' face (`face::read_subject`, `face::list_class`); io reads and pages
+the rows (a build without the pipelines gives `"type": null`; a node the type system refuses to type, such as a tangent field with no gauge record, gives `"type": {"refused": "<why>"}`).
+
+`--related` adds `"related": [{subject, kind, relation, description}]`: the subjects this one refers to, with `relation` `template` (the template its anatomy is taken from), `source` and
+`target` (the owners of the manifolds its operators map from and to: a registration's two templates) and `domain` (of the manifolds its fields lie on), each with its description as far as
+the database holds it (a one-database dataset holds the whole subject; a package holds the anchor rows of its template).
+
+**`list <class> --dataset D [--subject S] [--name TEXT] [--kind TEXT] [--on MANIFOLD] [--limit N] [--after CURSOR] [--columns a,b,...]`**, `<class>` one of `manifolds`, `fields`,
+`selections`, `operators`, `statistics`, `dictionaries`, `spaces`, `acquisitions`, `jobs`, returns `{"schema": "nxr-neuro-list@1", "class", "subject", "rows", "next"}`. A row is the class's
+description, exactly as `read subject` gives it, with the `subject` it belongs to first; with `--columns` it holds only the named keys of the description (and `subject`), in that order,
+and a name that is not one is refused with the valid ones. A catalogue of packages is listed one subject at a time (`--subject` is required); a one-database dataset without `--subject` lists
+every subject's nodes. The filters are named options, never SQL: `--name` the nodes whose name contains TEXT (case-insensitive; `%` and `_` are ordinary characters), `--kind` a field's kind, a
+manifold's, selection's or operator's type or kind, a statistic's measure, a dictionary's scope, a space's geometry or a job's kind, `--on` the nodes that lie on the manifold of that name (a
+field on it or on a product of it, a selection on it, an operator from or to it, a statistic with an axis along it, the manifolds built on it: its products, components and derivations).
+Rows come in name order; `--limit N` gives N rows a page and `next`, an opaque cursor (null after the last row), is passed back as `--after` for the following page: every row comes exactly
+once. `list jobs` reads the `job` table (what ran, when, the program and the outcome): rows appear when `run` and `import` record them (a later step); until then it is empty.
+`list recordings`, `list kernels` and `list results` are unchanged.
+
+**`show dataset`** gains `nodes`: {manifolds, fields, selections, operators, statistics, dictionaries, spaces, acquisitions, jobs}, the count of each class summed over the dataset's
+subjects (as `list` returns them); for a catalogue it opens each package read-only, and one that cannot be opened is named in `nodes_unavailable`.
 
 ### `query`: Query stored measurements
 

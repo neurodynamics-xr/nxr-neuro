@@ -109,3 +109,9 @@ inline OpenOptions reader() {
 }
 
 }  // namespace nxr::io::task::commands_detail
+
+namespace nxr::io::task {
+/** the count of each class of node a dataset holds (summed over its subjects; `show dataset`): {manifolds, fields, selections, operators, statistics, dictionaries, spaces, acquisitions, jobs}; a package of a
+ *  catalogue that cannot be opened is named in `unavailable` */
+Json class_counts(const std::string& dataset, const Progress& progress, Json* unavailable);
+}  // namespace nxr::io::task

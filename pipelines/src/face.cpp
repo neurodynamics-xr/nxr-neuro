@@ -32,6 +32,8 @@
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/reading.h"
 #include "nxr/pipelines/runner.h"
+#include "nxr/pipelines/step_nodes.h"
+#include "nxr/graph/type_json.h"
 #include "nxr/signal/spectral.h"
 
 namespace nxr::pipelines::face {
@@ -814,6 +816,30 @@ fs::path synthetic_dataset(const fs::path& datastore, const std::string& name, c
   const fs::path folder = ds.folder();
   ds.close();
   return folder;
+}
+
+// `read subject` and `list <class>`: io reads the rows and pages them; the type of each node is the type system's, built the way the runner types a stored input (`port_of` over io's
+// description, then the JSON `compile` prints): one conversion, not a second one.
+namespace {
+task::NodeTyper node_typer() {
+  return [](const std::string& cls, const nxr::io::finder::Value& v) -> Json {
+    nxr::io::finder::Value x = v;
+    if (cls == "field" && x.time && x.rate > 0) x.chunked = true;   // a time-resolved field is read as a stream, as the runner's input over the chunk loop is
+    const nxr::graph::PortType t = nxr::pipelines::graph::port_of(x);
+    if (cls == "manifold" && !t.domain.factors.empty()) return nxr::graph::to_json(t.domain.factors.front());   // a manifold's type is its term
+    return nxr::graph::to_json(t);
+  };
+}
+}  // namespace
+CommandResult read_subject(const task::ReadSubjectRequest& request, const Progress& progress) {
+  task::ReadSubjectRequest q = request;
+  q.typer = node_typer();
+  return task::read_subject(q, progress);
+}
+CommandResult list_class(const task::ListClassRequest& request, const Progress& progress) {
+  task::ListClassRequest q = request;
+  q.typer = node_typer();
+  return task::list_class(q, progress);
 }
 
 }  // namespace nxr::pipelines::face

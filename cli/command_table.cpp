@@ -183,6 +183,11 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --layout@export measurements	split|wide	split writes one table per condition and statistic with a column per member; wide writes one table with a column per condition, member and statistic	split	-
 --levels	L,...	Spatial tile levels of the scale space the blur is measured over.	2,3,4,5,6,7,8	levels
 --limit	N	Maximum number of rows returned	none	rows
+--after	CURSOR	The cursor a listing gave (its `next`): the rows after it.	none (the first page)	-
+--columns	a,b,...	Only these columns of each row, in this order.	all columns	-
+--on	MANIFOLD	Only the nodes that lie on the manifold of this name.	all	-
+--classes	A,B,...	Only these classes of nodes.	all classes	-
+--related		Also the subjects this one refers to.	off	-
 --limit@query measurements	N	The most rows to return.	none (all rows)	rows
 --limits	LO-HI	Frequency limits of the filter bank for the itersine and meyer families.	see the command's description	Hz
 --list	V,V,...	run: list the available pipeline definitions and their steps (flag); pointspread: native vertex indices to use as the source sample instead of --vertices	run: off; pointspread: none	-
@@ -1260,6 +1265,136 @@ old: __add line
 summary: Store a closed-form line (a time line in seconds, a frequency line, ...): n points a spacing apart from an origin.
 example: nxr-neuro add line --dataset /data/study --subject sub-01 --name epoch_time --n 1000 --spacing 0.004 --unit s
 opts: --dataset* --dimension --n* --name* --origin --replace --spacing* --subject* --unit* --templates+
+)TBL",
+R"TBL(--subject@list manifolds	NAME	The subject whose the manifolds are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list manifolds	TEXT	Only the the manifolds whose name contains TEXT (case-insensitive).	all names	-
+--kind@list manifolds	TEXT	Only the the manifolds of this manifold type (surface, line, points, product, ...).	all kinds	-
+--on@list manifolds	MANIFOLD	Only the the manifolds that lie on the manifold of this name (a field on it or on a product of it, an operator from or to it, a statistic with an axis along it, the manifolds built on it).	all	-
+--limit@list manifolds	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list manifolds	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list manifolds	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--templates@list manifolds	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--subject@list fields	NAME	The subject whose the fields are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list fields	TEXT	Only the the fields whose name contains TEXT (case-insensitive).	all names	-
+--kind@list fields	TEXT	Only the the fields of this field kind (recording, source_estimate, ...).	all kinds	-
+--on@list fields	MANIFOLD	Only the the fields that lie on the manifold of this name (a field on it or on a product of it, an operator from or to it, a statistic with an axis along it, the manifolds built on it).	all	-
+--limit@list fields	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list fields	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list fields	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--templates@list fields	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--subject@list selections	NAME	The subject whose the selections are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list selections	TEXT	Only the the selections whose name contains TEXT (case-insensitive).	all names	-
+--kind@list selections	TEXT	Only the the selections of this selection type (partition, set, spans, ...).	all kinds	-
+--on@list selections	MANIFOLD	Only the the selections that lie on the manifold of this name (a field on it or on a product of it, an operator from or to it, a statistic with an axis along it, the manifolds built on it).	all	-
+--limit@list selections	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list selections	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list selections	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--templates@list selections	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--subject@list operators	NAME	The subject whose the operators are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list operators	TEXT	Only the the operators whose name contains TEXT (case-insensitive).	all names	-
+--kind@list operators	TEXT	Only the the operators of this operator kind.	all kinds	-
+--on@list operators	MANIFOLD	Only the the operators that lie on the manifold of this name (a field on it or on a product of it, an operator from or to it, a statistic with an axis along it, the manifolds built on it).	all	-
+--limit@list operators	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list operators	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list operators	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--templates@list operators	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--subject@list statistics	NAME	The subject whose the statistics are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list statistics	TEXT	Only the the statistics whose name contains TEXT (case-insensitive).	all names	-
+--kind@list statistics	TEXT	Only the the statistics of this statistic measure (power_density, ...).	all kinds	-
+--on@list statistics	MANIFOLD	Only the the statistics that lie on the manifold of this name (a field on it or on a product of it, an operator from or to it, a statistic with an axis along it, the manifolds built on it).	all	-
+--limit@list statistics	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list statistics	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list statistics	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--templates@list statistics	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--subject@list dictionaries	NAME	The subject whose the dictionaries are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list dictionaries	TEXT	Only the the dictionaries whose name contains TEXT (case-insensitive).	all names	-
+--kind@list dictionaries	TEXT	Only the the dictionaries of this dictionary scope (app, dataset, subject, user).	all kinds	-
+--limit@list dictionaries	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list dictionaries	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list dictionaries	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--templates@list dictionaries	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--subject@list spaces	NAME	The subject whose the spaces are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list spaces	TEXT	Only the the spaces whose name contains TEXT (case-insensitive).	all names	-
+--kind@list spaces	TEXT	Only the the spaces of this space geometry (line, circle, plane, sphere, torus, volume).	all kinds	-
+--limit@list spaces	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list spaces	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list spaces	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--templates@list spaces	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--subject@list acquisitions	NAME	The subject whose the acquisitions are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list acquisitions	TEXT	Only the the acquisitions whose name contains TEXT (case-insensitive).	all names	-
+--limit@list acquisitions	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list acquisitions	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list acquisitions	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--templates@list acquisitions	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--subject@list jobs	NAME	The subject whose the jobs are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--kind@list jobs	TEXT	Only the the jobs of this job kind.	all kinds	-
+--limit@list jobs	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list jobs	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list jobs	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--templates@list jobs	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--classes@read subject	A,B,...	Only these classes of nodes: manifolds, fields, selections, operators, statistics, dictionaries, spaces, acquisitions.	all eight classes	-
+--related@read subject		Also the subjects this one refers to (its template, and the owners of the manifolds its operators map between and its fields lie on), each with its description.	off	-
+--templates@read subject	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+)TBL",
+R"TBL(@ list manifolds
+old: __list manifolds
+summary: List the manifolds of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list manifolds --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --on --subject --templates+
+)TBL",
+R"TBL(@ list fields
+old: __list fields
+summary: List the fields of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list fields --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --on --subject --templates+
+)TBL",
+R"TBL(@ list selections
+old: __list selections
+summary: List the selections of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list selections --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --on --subject --templates+
+)TBL",
+R"TBL(@ list operators
+old: __list operators
+summary: List the operators of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list operators --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --on --subject --templates+
+)TBL",
+R"TBL(@ list statistics
+old: __list statistics
+summary: List the statistics of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list statistics --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --on --subject --templates+
+)TBL",
+R"TBL(@ list dictionaries
+old: __list dictionaries
+summary: List the dictionaries of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list dictionaries --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --subject --templates+
+)TBL",
+R"TBL(@ list spaces
+old: __list spaces
+summary: List the spaces of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list spaces --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --subject --templates+
+)TBL",
+R"TBL(@ list acquisitions
+old: __list acquisitions
+summary: List the acquisitions of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list acquisitions --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --limit --name --subject --templates+
+)TBL",
+R"TBL(@ list jobs
+old: __list jobs
+summary: List the jobs of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list jobs --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --subject --templates+
+)TBL",
+R"TBL(@ read subject
+old: __read subject
+summary: Read what a subject holds as one index: every node's description (manifolds, fields, selections, operators, statistics, dictionaries, spaces, acquisitions), no arrays.
+example: nxr-neuro read subject --dataset /data/study --subject sub-01 --classes fields,manifolds
+opts: --classes --dataset* --related --subject* --templates+
 )TBL",
   };
 }

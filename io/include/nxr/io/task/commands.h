@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "nxr/io/finder.h"
 #include "nxr/io/json_text.h"
 #include "nxr/io/writer.h"
 
@@ -144,6 +145,37 @@ struct DeleteSubjectRequest {
   std::string created_by;
 };
 CommandResult delete_subject(const DeleteSubjectRequest& request);
+
+/** `read subject` (docs/specs/2026-11-20-data-layer-queries.md, 3.1): every node's DESCRIPTION, no arrays, as nxr-neuro's typed model: {schema: "nxr-neuro-subject@1", subject: {id, name, kind, template},
+ *  manifolds, fields, selections, operators, statistics, dictionaries, spaces, acquisitions: [description...]} (only the `classes` asked for), each node named and nested, never a table row (docs/reference.md,
+ *  "Queries over a dataset"); with `related`, `related`: [{subject, kind, relation, description}] for the subjects this one refers to (its template, the owners of the manifolds its operators map between
+ *  and its fields lie on: a registration's source and target) */
+/** What types a node: given a class (manifold | field | selection | operator | statistic) and io's description of the stored node, its TYPE as nxr-neuro's type system writes it (the JSON `compile`
+ *  gives a value). io cannot depend on the type system, so the pipelines' face supplies it (nxr/pipelines/face.h `read_subject`, `list_class`); without one a description has `"type": null`. */
+using NodeTyper = std::function<Json(const std::string& cls, const finder::Value& value)>;
+struct ReadSubjectRequest {
+  std::string dataset, subject;
+  std::optional<std::vector<std::string>> classes;   // manifolds | fields | selections | operators | statistics | dictionaries | spaces | acquisitions; default: all
+  bool related = false;
+  std::vector<std::string> templates;
+  NodeTyper typer;
+};
+CommandResult read_subject(const ReadSubjectRequest& request, const Progress& progress = {});
+
+/** `list <class>` (3.2): the nodes of one class of a subject (`subject` is required for a catalogue; a one-database dataset lists every subject's, each row naming its own), `cls` one of
+ *  manifolds | fields | selections | operators | statistics | dictionaries | spaces | acquisitions | jobs. Each row is the class's description (as in `read subject`) with its `subject` first, or only the
+ *  `columns` asked for. `name`: the nodes whose name contains TEXT (case-insensitive); `kind`: a field's kind, a manifold's, selection's or operator's type or kind, a statistic's measure, a dictionary's scope, a space's
+ *  geometry, a job's kind; `on`: the nodes that lie on the manifold of that name (a field on it or on a product of it, a selection on it, an operator from or to it, a statistic with an axis along it, the manifolds built on it).
+ *  Ordered by name; `limit` rows a page, the `next` cursor (opaque, null at the end) given back as `after`. Result: {schema: "nxr-neuro-list@1", class, subject, rows, next}. */
+struct ListClassRequest {
+  std::string cls, dataset;
+  std::optional<std::string> subject, name, kind, on, after;
+  std::optional<std::int64_t> limit;
+  std::optional<std::vector<std::string>> columns;
+  std::vector<std::string> templates;
+  NodeTyper typer;
+};
+CommandResult list_class(const ListClassRequest& request, const Progress& progress = {});
 
 struct AddSurfaceRequest {
   std::string dataset, subject;
