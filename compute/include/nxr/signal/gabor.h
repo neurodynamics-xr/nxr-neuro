@@ -1,6 +1,6 @@
 #pragma once
-// nxr::signal — ONE GABOR ATOM fitted to a burst (spec docs/specs/2026-11-20-gabor-bursts.md, pieces 4, 5 and 7; ported from the lab's staging detector `gabor.py`: direct, refine, is_burst,
-// and `spacetime.py`: fit_r2).
+// nxr::signal — ONE GABOR ATOM fitted to a burst (spec docs/specs/2026-11-20-gabor-bursts.md, pieces 4, 5 and 7; ported from the reference detector: direct, refine, is_burst,
+// and fit_r2).
 //
 // PURE MATHS: a series (any: a sensor channel, a source; the functions never know which), its rate, an atom (t0, f, σ) in, numbers out. The bank of atoms on a grid is the time filter bank's Gabor
 // family (timefilterbank.h, Family::Gabor); here one atom at a CONTINUOUS (t0, f, σ), by the inner product itself.

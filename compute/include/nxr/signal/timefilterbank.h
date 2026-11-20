@@ -12,7 +12,7 @@
 //            Meyer     the Studio's / nxr's dyadic frame (dyadicFrame.ts, frames.py window_frame): Meyer-edged octave bands.        (tight)
 //            Morlet    a Gaussian in frequency, unit peak, width fc/cycles (Studio kernels.ts `morlet`, nxr kernels.morlet_hat).      (not tight)
 //            Morse · Amor · Bump   the continuous-wavelet banks of MATLAB's cwtfilterbank (Rheome's reference path, +ingest/bank.m).  (not tight)
-//            Gabor     unit-energy Gabor atoms with a FREE width: one member an atom (σ, f), the matched filter of a Gaussian burst (gaborGrid; the lab's staging detector,
+//            Gabor     unit-energy Gabor atoms with a FREE width: one member an atom (σ, f), the matched filter of a Gaussian burst (gaborGrid; the reference detector,
 //                      docs/specs/2026-11-20-gabor-bursts.md). Analytic only.                                                          (not tight)
 //   gain     a positive number G (1, 2, ...) — ONE meaning in every family but Gabor: the PEAK in-band response of each member (below). Recorded on the bank.
 //            Gabor has its own NORMALISATION (recorded on the bank, `normalisation`): G times the UNIT-ENERGY atom, Ψ(ν) = G (πσ²)^(−1/4) √(2π) σ e^(−2π²σ²(ν−f)²) on ν > 0, so that
@@ -75,7 +75,7 @@ struct Design {
     // Morlet · Morse · Amor · Bump: the member centres, Hz (required; see logCentres / cwtCentres)
     std::vector<double> centres; double cycles = 6;       // Morlet: width fc / cycles
     double gamma = 3, timeBandwidth = 60;                 // Morse (MATLAB's default (3, 60)): β = timeBandwidth / γ
-    // Gabor: the atoms (σ in s, f in Hz), one member each, in the order given (gaborGrid makes the staging detector's grid); required
+    // Gabor: the atoms (σ in s, f in Hz), one member each, in the order given (gaborGrid makes the reference detector's grid); required
     std::vector<std::pair<double, double>> atoms;
 };
 
@@ -121,7 +121,7 @@ std::vector<double> windowEdges(std::size_t nfft, double fs, const std::optional
 enum class CentreGrid { Studio, Cwt };
 std::vector<double> centerFrequencies(CentreGrid grid, double lo, double hi, int voices, double fs = 0);
 
-/** THE GABOR GRID (the staging detector's `widths` and `channel_atoms`): widths σ_k = sigmaMin·2^(k/perOctave), k = 0 .. ⌊perOctave·log2(sigmaMax/sigmaMin)⌋; at each width the frequencies
+/** THE GABOR GRID (the reference detector's `widths` and `channel_atoms`): widths σ_k = sigmaMin·2^(k/perOctave), k = 0 .. ⌊perOctave·log2(sigmaMax/sigmaMin)⌋; at each width the frequencies
  *  from max(fMin − σ_f, minFSigma/σ) to fMax + σ_f in steps of σ_f/2 (σ_f = 1/(2πσ): a margin of one σ_f, so a peak at the band's edge is told from a maximum); a width whose first frequency is above fMax
  *  has none. minFSigma (f·σ; 0.5 is about 1.2 cycles at half maximum) keeps the Gaussian off DC. Atoms are width-major, ascending f within a width. Throws on 0 >= sigmaMin > sigmaMax, perOctave < 1, fMin > fMax. */
 struct GaborGrid {

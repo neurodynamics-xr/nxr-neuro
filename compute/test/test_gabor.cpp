@@ -51,7 +51,7 @@ std::pair<double, double> nearest(const tb::GaborGrid& g, double s, double f) {
 
 int main() {
   std::cout << "test_gabor\n";
-  // ── the grid (the staging detector's widths and channel_atoms) ──
+  // ── the grid (the reference detector's widths and channel_atoms) ──
   {
     const tb::GaborGrid g = tb::gaborGrid(0.025, 0.64, 4, 8, 35, 0.5);
     EXPECT(g.widths.size() == 19 && std::abs(g.widths[0] - 0.025) < 1e-15 && std::abs(g.widths[18] - 0.025 * std::pow(2.0, 4.5)) < 1e-12, "19 widths, 25 ms · 2^(k/4), the last 2^4.5 times the first (at most 640 ms)");

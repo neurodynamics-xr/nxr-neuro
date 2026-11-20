@@ -1,4 +1,4 @@
-// nxr::signal — one Gabor atom fitted to a burst (gabor.h). The maths of the lab's staging detector (gabor.py: direct, refine, is_burst; spacetime.py: fit_r2), written here.
+// nxr::signal — one Gabor atom fitted to a burst (gabor.h). The maths of the reference detector (direct, refine, is_burst, fit_r2), written here.
 #include "nxr/signal/gabor.h"
 
 #include <algorithm>

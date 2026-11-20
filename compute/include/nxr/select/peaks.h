@@ -1,6 +1,6 @@
 #pragma once
-// nxr::select — POINT EVENTS ON A GRID: the candidates of a matched-filter detection and their suppression (spec docs/specs/2026-11-20-gabor-bursts.md, pieces 3 and 6; the lab's staging detector
-// `gabor.py`: peaks, merge).
+// nxr::select — POINT EVENTS ON A GRID: the candidates of a matched-filter detection and their suppression (spec docs/specs/2026-11-20-gabor-bursts.md, pieces 3 and 6; the reference
+// detector's peaks and merge).
 // PURE MATHS: a grid of values and the caller's levels in, positions out; points with their own resolution in, the kept ones out. The levels are the caller's (a statistic over a time partition,
 // handed in as numbers): nothing here reduces over time.
 //

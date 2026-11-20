@@ -1,4 +1,4 @@
-// nxr::select — the tangent edges of a burst on its envelope (edges.h); the maths of the lab's staging detector (spacetime.py tangent_edges), written here.
+// nxr::select — the tangent edges of a burst on its envelope (edges.h); the maths of the reference detector (tangent_edges), written here.
 #include "nxr/select/edges.h"
 
 #include <algorithm>

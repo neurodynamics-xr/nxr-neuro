@@ -1,6 +1,6 @@
 #pragma once
-// nxr::select — WHERE A BURST STARTS AND ENDS ON ITS ENVELOPE: the tangent edges (spec docs/specs/2026-11-20-gabor-bursts.md, piece 8; the lab's staging detector `spacetime.py` tangent_edges and
-// `sttangent.py`).
+// nxr::select — WHERE A BURST STARTS AND ENDS ON ITS ENVELOPE: the tangent edges (spec docs/specs/2026-11-20-gabor-bursts.md, piece 8; the reference detector's
+// tangent_edges).
 // PURE MATHS: an envelope (any amplitude series: the caller reads it, e.g. by an atom at the burst's frequency), the burst's centre and half width in its samples, in; the edges in (fractional)
 // samples of that series, out. The function never knows where the envelope came from.
 //
