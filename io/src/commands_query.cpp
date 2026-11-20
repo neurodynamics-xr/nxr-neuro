@@ -62,10 +62,11 @@ struct Ctx {
   mutable std::map<std::string, std::string> cache;
   const NodeTyper* typer = nullptr;
   Ctx(const Database& d, std::string id, std::string name, const NodeTyper* t = nullptr) : db(d), subject_id(std::move(id)), subject_name(std::move(name)), typer(t) {}
-  // the node's TYPE in the type system's JSON, from io's description of the row (null: no typer, or the node cannot be typed)
+  // the node's TYPE in the type system's JSON, from io's description of the row. Null: no typer (a build without the pipelines). A node the type system refuses to type
+  // (e.g. a tangent field with no gauge record) is not dropped and does not fail the read: its type is {"refused": the type system's message}, never a silent null.
   Json typed(const char* cls, const Row& r) const {
     if (!typer || !*typer) return Json();
-    try { return (*typer)(cls, finder::value_of(db, cls, r)); } catch (const std::exception&) { return Json(); }
+    try { return (*typer)(cls, finder::value_of(db, cls, r)); } catch (const std::exception& e) { return Json{{"refused", e.what()}}; }
   }
 
   // the name a row of `table` goes by, as a reference: NAME, or SUBJECT:NAME when it belongs to another subject
