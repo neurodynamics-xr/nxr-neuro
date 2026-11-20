@@ -563,7 +563,7 @@ io has no reader for), and the three arrays are exactly what `add operator --dat
   shape and dtype, and the `--region` (or, for a time-resolved field, the time range) that fits. A large curve of fibres, read whole, is refused this way at once instead of failing
   to allocate.
 - `read field`: a **time-resolved field** (a recording, a source series) needs its time range, `--from S --to S` (seconds or m:ss) or `--all`, and is read through the chunk
-  service one chunk at a time; `--rows I,J` picks rows in order, `--projectors active|none` (a recording's active projectors applied, or the samples as stored), `--shape-only` the
+  service one chunk at a time; `--rows I,J` picks rows in order, `--projectors active|none|NAME[,NAME...]` (a recording's active projectors applied, the samples as stored, or exactly the projectors named, whatever their stored status; an unknown name is refused, listing the valid ones; the record `projection` lists `chosen` and `applied`), `--shape-only` the
   description alone. A field with no time line is read whole. The result names the field's `manifold` (and `manifold_id`) and `cell` ("0" vertices, "1" edges, "2" faces).
 - `read manifold`: `positions` [n x 3] and `cells_<rank>`, its `axes`, element `names`, and `coordinate_system` {name, unit, space} (the chart its positions are in).
 - `read selection` of spans gives `start`, `stop` (in the line's unit) and `code`, one a member; a **tiling** (a closed-form spans selection: an origin, a width, a hop and a count, no span stored) gives
@@ -716,6 +716,7 @@ condition's channel file, the surface its kernels index, a template's only corte
 | command | what it does | old spelling |
 |---|---|---|
 | `nxr-neuro edit manifold` | A manifold's label, description and primary flag (`--name N [--primary yes\|no] [--label TEXT] [--description TEXT]`). | |
+| `nxr-neuro edit operator` | A stored projector's status, active or inactive (`--name N --status 0\|1 [--note TEXT] [--by TEXT]`). | |
 | `nxr-neuro edit dictionary` | One entry of a dictionary (`--name N --entry CODE [--name-of] [--label] [--colour] [--description] [--params]`), or every entry (`--entries E.json --replace`). | |
 
 **`add <class>`** (spec `docs/specs/2026-11-19-io-service.md`, 4.2) stores what a user computed, from .npy files, as ONE unit (all of it or nothing) through io's typed writes:
@@ -790,6 +791,10 @@ refusals store nothing). Each option is stored in a column the schema already ha
   **`--entries E.json --replace`** replaces every entry, and refuses to drop a code a selection reads. The subject's dictionary of that name is found first, then the dataset's; the app's are the program's own and are not edited.
 - **`edit manifold --name N [--primary yes|no] [--label TEXT] [--description TEXT]`**: making a surface primary clears the previous primary surface of the subject in the same unit; only a surface is
   primary, else refused. A manifold's `label` and `description` are in `read subject` (`description` is the manifold's comment).
+- **`edit operator --name N --status 0|1 [--note TEXT] [--by TEXT]`** sets a stored PROJECTOR's status (1 active, 0 inactive), in one unit: its parameters' `status` (the store's attributes
+  follow the row) and an entry appended to its provenance (`producer_json.edits`: `by`, `utc`, `note`, `from`, `to`); nothing is removed, and setting it back appends another entry. Afterwards
+  `--projectors active` (the default of `read field`, every `run` and `run inverse`'s Brainstorm conventions) no longer applies a status-0 projector, and the cache keys change with what is applied;
+  a projector NAMED in `--projectors` is applied whatever its status. Only a projector has a status: another kind of operator is refused, as is a status 2 projector (already in the samples).
 
 Every pipeline command writes JSON lines (progress events, then one `"stage": "result"` line with `"cache": "hit" | "miss"`); a rerun with the same options is a cache hit, and `--replace` recomputes. Details of the dataset commands and of the format: `io/README.md`.
 
@@ -831,8 +836,12 @@ one place a recording is read and looped over.
 - **The projectors.** An import stores the samples as recorded and the recording's projectors (SSP, ICA) as Operators with their status. The chunk service applies
   the ACTIVE ones (status 1) to every block it loads, by default, as Brainstorm's `in_fread` and MNE-Python's reading do: the selected SSP vectors stacked and
   re-orthogonalised together (a vector whose singular value is below 1% of the largest is dropped), the others (ICA) in the file's order. `--projectors none` reads
-  the samples as recorded. What was applied is in each run's provenance (`run.projectors`) and, when the recording has active projectors, in its cache key. A
-  projector is idempotent (P P = P), so samples that already carry one are read back unchanged up to rounding.
+  the samples as recorded. `--projectors NAME[,NAME...]` (every `run`, `run noisecov` included, and `read field`; in Python and JavaScript a list or comma-separated text)
+  applies exactly the projectors named, by their Operator names on the channels, **whatever their stored status**: the caller chose them. They are composed by the same
+  rule, in the file's order; a name that is not one of the channels' projectors is refused, listing the valid ones. What was applied is in each run's provenance
+  (`run.projectors`: the option, the active ones, the chosen ones, those applied) and, when the recording has active projectors or a choice is named, in its cache key:
+  another choice is another stored result. A projector's status is changed with `edit operator --status 0|1`: `active` then applies the new set, and the cache key,
+  which lists what was applied, changes with it. A projector is idempotent (P P = P), so samples that already carry one are read back unchanged up to rounding.
 - **What is recorded.** Each producer record states the span (`analysis_window.chunks`) and the chunks read (`chunks_read`, first and last).
 - **The halo** (the Studio's `haloOf`): samples of context a computation needs on each side of its span, so its edges are computed with real samples, never a
   reflection. The service reads them from the neighbouring chunks and clips them where the recording ends (`with_halo`). Its size is the computation's: optical
@@ -885,6 +894,12 @@ chunk). The defaults reproduce Brainstorm's default output (depth exponent 0.5, 
 on all the channels, applied to the gain and to both sides of the noise covariance, then the good channels and the average reference. MNE-Python (`--mne`, `make_inverse_operator`):
 every projector of the channels (the average reference one of them) on the picked channels, each vector renormalised; the covariance projected with those and with the ones its
 recording was read with; the gain used as it is; the kernel ending with the projector. A covariance of the data as recorded and one of the projected data give the same kernel.
+**Which projectors** (`run inverse --projectors`, the run's option): `active`, the default, hands the kernel every projector of the channels with its stored status and each
+convention picks by its own rule (Brainstorm: status 1 and 2, so a projector set to 0 with `edit operator` is left out; MNE-Python: every one, active or not); `none` hands none;
+`NAME[,NAME...]` hands exactly those, **applied whatever their stored status**, on both conventions' paths (the covariance's preparation and, for MNE-Python, the kernel's end
+projector). The choice is made by the runner when it binds the covariance's channels (the node applies what it is handed); the names and statuses handed are in the kernel's cache
+key and in its provenance (`computed.projectors`: which went where, and `choice`). With MNE-Python's conventions, a projector the covariance's recording was read with is folded into
+the covariance only when it is among those handed.
 Goldens: `meeg/test/golden/gen_kernel_projectors_golden.py`/`.m` (one active SSP projector, both covariances), checked to 1e-12 (measured 4e-15 against Brainstorm, 6e-14 against MNE-Python).
 The kernel and its `_channels`, `_noise_cov`, `_whitener` and `_source_rr/_nn` are stored as the importer stores them, so a reader tells a computed kernel from an imported one by its producer string
 only. The maths is written from the papers, not translated from Brainstorm (GPLv3); Brainstorm and MNE-Python are reference outputs (goldens in `meeg/test/golden/`, with their generators).

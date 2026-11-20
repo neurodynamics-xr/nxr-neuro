@@ -1,4 +1,4 @@
-// `add dictionary`, `edit dictionary` and `edit manifold` (docs/specs/2026-11-20-data-layer-queries.md, 3.5 and 3.6): a dictionary of codes made from a list of entries, an entry or the whole list
+// `add dictionary`, `edit dictionary`, `edit manifold` and `edit operator` (a projector's status) (docs/specs/2026-11-20-data-layer-queries.md, 3.5 and 3.6): a dictionary of codes made from a list of entries, an entry or the whole list
 // changed, a manifold's label, description and primary flag changed. Each is ONE unit (task::Unit): everything it changes, or nothing. An edit changes a node's description, never its arrays.
 #include <algorithm>
 #include <cctype>
@@ -198,6 +198,20 @@ CommandResult edit_manifold(const EditManifoldRequest& rq, const Progress& progr
     if (row && !is_null(*row, "label")) out["label"] = text(*row, "label");
     if (row && !is_null(*row, "comment")) out["description"] = text(*row, "comment");
     return out;
+  });
+}
+
+CommandResult edit_operator(const EditOperatorRequest& rq, const Progress& progress) {
+  if (!rq.status) throw Refused("nothing to change: give --status 0|1 (a projector's status: 0 inactive, 1 active)");
+  if (*rq.status != "0" && *rq.status != "1") throw Refused("--status " + *rq.status + " (0 inactive or 1 active)");
+  const int status = *rq.status == "1" ? 1 : 0;
+  return in_unit_of(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_for("edit operator", rq.created_by), progress, [&](const Subject& ts, Unit& u, SubjectWriter&) {
+    const auto o = ts.by_id_or_name(Cls::operator_, rq.name);
+    if (!o) throw Error(code::no_such_row, "the subject holds no operator named '" + rq.name + "'");
+    if (o->kind != std::optional<std::string>("projector"))
+      throw Refused("'" + o->name + "' is an operator of kind " + o->kind.value_or("?") + ": --status applies to projector operators only (the SSP and ICA projectors on a recording's channels)");
+    const Json entry = u.edit_projector_status(o->id, status, rq.note, rq.by);
+    return Json{{"class", "operator"}, {"name", o->name}, {"id", o->id}, {"kind", "projector"}, {"status", status}, {"changed", !entry.is_null()}, {"edit", entry}};
   });
 }
 

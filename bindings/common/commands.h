@@ -533,6 +533,17 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.templates = o.list("templates");
     q.created_by = created_by;
     call([&] { return task::edit_manifold(q, progress); });
+  } else if (c == "edit operator") {
+    task::EditOperatorRequest q;
+    q.dataset = o.str("dataset");
+    q.subject = o.str("subject");
+    q.name = o.str("name");
+    q.status = o.maybe("status");                                       // 0 or 1 (a number or its text)
+    q.note = o.maybe("note");
+    q.by = o.maybe("by");
+    q.templates = o.list("templates");
+    q.created_by = created_by;
+    call([&] { return task::edit_operator(q, progress); });
   } else if (c == "edit dictionary") {
     task::EditDictionaryRequest q;
     q.dataset = o.str("dataset");
@@ -691,7 +702,10 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.to = o.number("to");
     q.all = o.flag("all");
     for (const auto& r : o.commas("rows")) q.rows.push_back(static_cast<std::int32_t>(std::stol(r)));
-    if (const auto p = o.maybe("projectors")) q.projectors = *p;
+    if (const auto p = o.maybe_commas("projectors")) {                 // active | none | the projectors' names (a list, or comma-separated text)
+      q.projectors.clear();
+      for (const auto& n : *p) q.projectors += (q.projectors.empty() ? "" : ",") + n;
+    }
     q.shape_only = o.flag("shape_only");
     call([&] { return face::read_field(q); });
   } else if (c == "read statistic") {

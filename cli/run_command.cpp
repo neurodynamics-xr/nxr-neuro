@@ -10,7 +10,8 @@
 //   --set        a parameter overridden, NAME=VALUE with VALUE read as YAML (8, [15, 29], dSPM); repeatable (what `--<parameter> VALUE` is turned into).
 //                `--set NAME` alone chooses one of the definition's presets (named parameter sets): defaults < the preset < the caller's own values
 //   --chunks / --start --stop   the span read (io's chunk service: one chunk by default)
-//   --projectors active|none   the recording's active projectors applied to every block loaded (active, the default) or the samples as recorded (none)
+//   --projectors active|none|NAME[,NAME...]   the channels' projectors: the recording's active ones applied to every block loaded (active, the default), the samples as recorded
+//                (none), or exactly the projectors named, whatever their stored status; the same choice selects the projectors handed to a node that applies them (the inverse kernel)
 //   --replace    another job's outputs of the same names are moved aside (never deleted) and replaced; without it they are refused. A rerun with the same
 //                definition, parameters, inputs and span is a cache hit (nothing computed).
 //   --dry-run    the plan: inputs found, every arrow checked, every output's place known; nothing read beyond the rows, nothing written
@@ -108,8 +109,7 @@ int run_main(const std::vector<std::string>& rest) {
   if (const auto v = a.maybe("--block-samples")) o.block_samples = std::stoll(*v);
   if (const auto v = a.maybe("--block-frames")) o.block_frames = std::stoll(*v);
   if (const auto v = a.maybe("--projectors")) {
-    if (*v != "active" && *v != "none") usage(prog, "--projectors is active (the recording's active projectors applied on load, the default) or none (the samples as recorded)");
-    o.projectors = nxr::io::projectors_from(*v);
+    try { o.projectors = nxr::io::projectors_from(*v); } catch (const nxr::io::Error& e) { usage(prog, std::string("--projectors: ") + e.what()); }
   }
   DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;

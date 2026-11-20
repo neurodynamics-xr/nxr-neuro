@@ -81,8 +81,11 @@ struct RunOptions {
    *  in frame order. The result does not depend on it (a frame's value is its own); only memory does. MEMORY held by the tail: (the tail's rows, e.g. the glued vertices x the levels x the components a
    *  vertex) x block_frames x 8 bytes per complex value alive at once, a few times over (the operator's product in double, the float copy). The steps BEFORE the tiling see the sensors only. 0: the whole chunk's frames. */
   std::int64_t block_frames = 256;
-  /** the recording's projectors on load (the chunk service): active (the default: its status-1 projectors applied to every block) or none (the samples as recorded). What was applied
-   *  is in the run's provenance (`run.projectors`) and, when the recording has active projectors, in its cache key. */
+  /** the channels' projectors (the caller's choice of data). On load (the chunk service): active (the default: the recording's status-1 projectors applied to every block), none (the samples
+   *  as recorded), or named (exactly those projectors, whatever their stored status). What was applied is in the run's provenance (`run.projectors`) and, when the recording has active
+   *  projectors or a choice is named, in its cache key. The same choice selects the projector Operators the runner hands with a statistic over channels (`meta.projectors`, read by a node
+   *  that applies them as its reference does: the inverse kernel): active hands them all (the node's reference rule picks by status), none hands none, named hands those named with their
+   *  status set to active; what is handed (names and statuses) is in the cache key. */
   nxr::io::Projectors projectors = nxr::io::Projectors::active;
 };
 /** The per-subject inputs of a GROUP run (a definition of `scope: group`), stacked over the member subjects: for each `per_subject` selection input, the members' measurements (the measures the run's `measures`

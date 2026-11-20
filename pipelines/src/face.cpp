@@ -107,6 +107,17 @@ Json run(const fs::path& dataset, const std::string& subject, const RunRequest& 
     Json params = rq.parameters;
     std::string preset = rq.preset;
     if (params.is_object() && params.contains("preset") && !d.parameters.contains("preset")) { preset = params["preset"].get<std::string>(); params.erase("preset"); }
+    // likewise the run-wide `projectors` (the command line's --projectors): active | none | the projectors' names, a list or comma-separated text
+    std::optional<std::string> projectors;
+    if (params.is_object() && params.contains("projectors") && !d.parameters.contains("projectors")) {
+      const Json& pj = params["projectors"];
+      std::string t;
+      if (pj.is_array()) { for (const auto& x : pj) { if (!x.is_string()) refuse("projectors: a list of the projectors' names (text)"); t += (t.empty() ? "" : ",") + x.get<std::string>(); } }
+      else if (pj.is_string()) t = pj.get<std::string>();
+      else refuse("projectors is active, none, or the projectors' names (a list or comma-separated text)");
+      projectors = t;
+      params.erase("projectors");
+    }
     for (auto it = params.begin(); it != params.end(); ++it)
       if (!d.parameters.contains(it.key())) {
         std::string all;
@@ -119,6 +130,7 @@ Json run(const fs::path& dataset, const std::string& subject, const RunRequest& 
     if (rq.all) o.chunks = "all";
     o.replace = rq.replace;
     o.preset = preset;
+    if (projectors) o.projectors = projectors_from(*projectors);
     for (const Json& r : g::run(ds, sub, d, params, o, rq.dry_run, say)) {
       const bool hit = r.value("hit", false);
       all_hit = all_hit && hit;

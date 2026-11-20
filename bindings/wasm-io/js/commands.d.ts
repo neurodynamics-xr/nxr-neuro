@@ -1014,6 +1014,17 @@ export interface EditDictionaryOptions {
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
+export interface EditOperatorOptions {
+  by?: string | number;
+  dataset: string | number;
+  name: string | number;
+  note?: string | number;
+  status: string | number;
+  subject: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
 
 export interface Verbs {
   create: {
@@ -1139,6 +1150,7 @@ export interface Verbs {
   edit: {
     manifold: (options: EditManifoldOptions) => Promise<Result>;
     dictionary: (options: EditDictionaryOptions) => Promise<Result>;
+    operator: (options: EditOperatorOptions) => Promise<Result>;
   };
   compile: { (definition: string, options?: Omit<CompileOptions, 'definition'>): Promise<Result>; (options: CompileOptions): Promise<Result> };
 }

@@ -232,29 +232,70 @@ void ChunkSource::project(std::shared_ptr<const LoadProjection> p, Json record) 
   projection_record_ = std::move(record);
 }
 
-const char* to_string(Projectors p) { return p == Projectors::none ? "none" : "active"; }
-Projectors projectors_from(const std::string& name) {
-  if (name == "active") return Projectors::active;
-  if (name == "none") return Projectors::none;
-  throw Error(code::invalid_argument, "projectors is active (the recording's active projectors applied on load, the default) or none (the samples as recorded), not '" + name + "'");
+std::string to_string(const Projectors& p) {
+  if (p.choice == Projectors::Choice::none) return "none";
+  if (p.choice == Projectors::Choice::active) return "active";
+  std::string out;
+  for (const auto& n : p.names) out += (out.empty() ? "" : ",") + n;
+  return out;
+}
+Projectors projectors_from(const std::string& text) {
+  if (text == "active") return Projectors::active;
+  if (text == "none") return Projectors::none;
+  std::vector<std::string> names;
+  std::size_t at = 0;
+  while (true) {
+    const std::size_t c = text.find(',', at);
+    std::string n = text.substr(at, c == std::string::npos ? std::string::npos : c - at);
+    const auto a = n.find_first_not_of(" \t"), b = n.find_last_not_of(" \t");
+    n = a == std::string::npos ? std::string() : n.substr(a, b - a + 1);
+    if (n.empty())
+      throw Error(code::invalid_argument, "projectors is active (the recording's active projectors applied on load, the default), none (the samples as recorded) or the projectors' names "
+                                          "NAME[,NAME...] (exactly those applied, whatever their status), not '" + text + "'");
+    if (std::find(names.begin(), names.end(), n) == names.end()) names.push_back(n);
+    if (c == std::string::npos) break;
+    at = c + 1;
+  }
+  return Projectors::named(std::move(names));
+}
+
+void check_projector_names(const Projectors& option, const std::vector<std::string>& stored) {
+  if (option.choice != Projectors::Choice::named) return;
+  std::string valid;
+  for (const auto& n : stored) valid += (valid.empty() ? "" : ", ") + n;
+  for (const auto& n : option.names)
+    if (std::find(stored.begin(), stored.end(), n) == stored.end())
+      throw Error(code::invalid_argument, "projectors: '" + n + "' is not one of the channels' projectors (" + (valid.empty() ? std::string("they have none") : "the projectors: " + valid) + ")");
 }
 
 ProjectionOf load_projection(const Database& db, const Store& store, const Row& recording, Projectors option) {
   ProjectionOf out;
+  const bool named = option.choice == Projectors::Choice::named;
   const auto mid = opt_text(recording, "manifold_id");
-  if (!mid) return out;
-  const auto f = db.one("SELECT d.manifold_id AS manifold_id FROM manifold p JOIN geometry_dimension d ON d.geometry_id = p.geometry_id WHERE p.id = ? ORDER BY d.ordinal LIMIT 1", {V(*mid)});
-  if (!f) return out;
-  const std::vector<nxr::bst::StoredProjector> ps = nxr::bst::stored_projectors(db, store, text(*f, "manifold_id"));
+  const auto f = mid ? db.one("SELECT d.manifold_id AS manifold_id FROM manifold p JOIN geometry_dimension d ON d.geometry_id = p.geometry_id WHERE p.id = ? ORDER BY d.ordinal LIMIT 1", {V(*mid)})
+                     : std::optional<Row>();
+  const std::vector<nxr::bst::StoredProjector> ps = f ? nxr::bst::stored_projectors(db, store, text(*f, "manifold_id")) : std::vector<nxr::bst::StoredProjector>();
+  std::vector<std::string> stored;
+  for (const auto& p : ps) stored.push_back(p.name);
+  check_projector_names(option, stored);
   Json active = Json::array();
   for (const auto& p : ps) if (p.status == 1) active.push_back(p.name);
-  if (active.empty()) return out;
+  if (active.empty() && !named) return out;
   out.record = Json{{"option", to_string(option)}, {"active", active}, {"applied", Json::array()},
-                    {"rule", "Brainstorm in_fread: the status-1 projectors, SSP vectors stacked and re-orthogonalised (singular values below 1% of the largest dropped), the others in the file's order"}};
-  if (option == Projectors::none) return out;
+                    {"rule", named ? "the projectors named by the caller, whatever their stored status; SSP vectors stacked and re-orthogonalised (singular values below 1% of the largest dropped), "
+                                     "the others in the file's order"
+                                   : "Brainstorm in_fread: the status-1 projectors, SSP vectors stacked and re-orthogonalised (singular values below 1% of the largest dropped), the others in the file's order"}};
+  if (named) out.record["chosen"] = option.names;
+  if (option.choice == Projectors::Choice::none) return out;
+  std::vector<nxr::bst::StoredProjector> sel;                         // named: those projectors, as if active (the caller chose them); active: all, the rule picks status 1
+  if (named) {
+    for (const auto& p : ps)
+      if (std::find(option.names.begin(), option.names.end(), p.name) != option.names.end()) { nxr::bst::StoredProjector q = p; q.status = 1; sel.push_back(std::move(q)); }
+  }
+  const std::vector<nxr::bst::StoredProjector>& use = named ? sel : ps;
   std::vector<std::string> used;
   nxr::bst::ProjectorRule rule;                                       // status 1, every channel, the vectors as stored (Brainstorm's BuildProjector(Projector, 1))
-  std::vector<double> m = nxr::bst::joint_projector(ps, rule, &used);
+  std::vector<double> m = nxr::bst::joint_projector(use, rule, &used);
   out.record["applied"] = used;
   if (m.empty()) return out;
   auto lp = std::make_shared<LoadProjection>();

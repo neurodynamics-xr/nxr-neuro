@@ -96,6 +96,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("add", "dictionary", "", "by dataset* description entries* name* scope* subject templates+"),
     # edit
     ("edit", "manifold", "", "dataset* description label name* primary subject* templates+"),
+    ("edit", "operator", "", "by dataset* name* note status* subject* templates+"),
     ("edit", "dictionary", "", "colour dataset* description entries entry label name* name_of params replace! subject templates+"),
     # import
     ("import", "list", "protocol", ""),
@@ -380,7 +381,8 @@ def run(pipeline: str, dataset=None, subject: str | None = None, *, from_: float
     The time range is REQUIRED and the caller's: `from_` and `to` in seconds on the recording's clock (both), or `all=True` (the whole recording, still read one chunk at a
     time); none is refused. The pipeline's parameters are keyword arguments (`nxr_neuro.list.pipelines()` lists each one's meaning, default and unit); `preset` names one of
     its parameter sets (the command line's `--set NAME`). `replace=True` moves another job's outputs of the same names aside (never deleted); `dry_run=True` plans only. A group
-    definition runs over `subjects` (names, in order) into the group package `into`. `progress` receives each progress line as a dict.
+    definition runs over `subjects` (names, in order) into the group package `into`. `progress` receives each progress line as a dict. `projectors` (the command line's
+    --projectors) is "active" (the default), "none", or the projectors' names (a list or comma-separated text: exactly those applied, whatever their stored status).
 
     Returns the result: {pipeline, subject, cache ("hit" | "computed"), stored: [{output, name, id, path}], runs, seconds}. Read what was stored with `nxr_neuro.read.<class>`.
     """
