@@ -1,13 +1,15 @@
 name: wasm
 
-# Build the WebAssembly data client and run its smoke test against the native command. ONLY when the binding itself changes
-# (bindings/wasm-io/**, this workflow), on version tags and on demand: C++ changes never run it.
+# Build the WebAssembly module, run its smoke test against the native command, and the Node tests of the JavaScript face (the command table's coverage and the dataset round
+# trips on synthetic data). ONLY when the binding itself changes (bindings/wasm-io/**, bindings/wasm/** (the geometry compute compiled into the same module), bindings/common/**, this workflow), on version tags and on demand: C++ changes never run it.
 on:
   push:
     tags: ["v*"]
   pull_request:
     paths:
       - "bindings/wasm-io/**"
+      - "bindings/wasm/**"
+      - "bindings/common/**"
       - ".github/workflows/wasm.yml"
   workflow_dispatch:
 
@@ -57,3 +59,5 @@ jobs:
           cmake --build build --target nxr-neuro
       - name: WebAssembly build and smoke test
         run: bash -x bindings/wasm-io/smoke.sh "$PWD/build/wasm"
+      - name: "Node tests of the JavaScript face (the whole module: the commands, the pipelines, the geometry compute)"
+        run: bash -x bindings/wasm-io/test/run.sh "$PWD/build/wasm-node"

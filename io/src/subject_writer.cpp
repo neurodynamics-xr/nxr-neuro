@@ -402,7 +402,7 @@ std::string SubjectWriter::frame(const FrameSpec& f) {
       sid = text(*sp, "id");
     } else {
       sid = uuid7();
-      db_->insert("space", {{"id", sid}, {"subject_id", id_}, {"name", f.space}, {"geometry", std::string("volume")}, {"rank", V(3)}, {"parameters_json", std::monostate{}},
+      db_->insert("space", {{"id", sid}, {"subject_id", id_}, {"name", f.space}, {"geometry", f.space_geometry}, {"rank", V(space_rank(f.space_geometry))}, {"parameters_json", std::monostate{}},
                             {"description", f.space_description.empty() ? Value(std::monostate{}) : Value(f.space_description)}});
     }
     if (const auto c = db_->one("SELECT id FROM coordinate_system WHERE space_id = ? AND name = ?", {sid, f.name})) {

@@ -88,7 +88,7 @@ Json list_datasets(const fs::path& datastore) {
 DatasetWriter::DatasetWriter(Database db, fs::path root, Row row, WriterLock lock, bool package)
     : lock_(std::move(lock)), db_(std::make_unique<Database>(std::move(db))), root_(std::move(root)), row_(std::move(row)) {
   if (package) return;
-  store_ = std::make_unique<DatastoreStore>(root_);
+  store_ = std::make_unique<DatastoreStore>(root_, SmallFileOptions{kSmallFileThreshold, db_->read_only()});   // a reader's subjects' small-file stores are opened read-only too: a read never writes (#146)
   store_->set_small_files(text(row_, "path"), store_format_number(*db_) >= 52);
 }
 DatasetWriter::DatasetWriter(DatasetWriter&&) noexcept = default;
@@ -247,7 +247,7 @@ DatasetWriter open_writer(const fs::path& folder_in, const OpenOptions& opt) {
   }
   std::optional<Database> db;
   try {
-    db.emplace(Database::open(folder / kDatasetFile));
+    db.emplace(Database::open(folder / kDatasetFile, false, "nxr-convert", opt.read_only.value_or(!opt.lock)));
   } catch (...) {
     held.release();
     throw;

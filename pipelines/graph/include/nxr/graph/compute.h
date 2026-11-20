@@ -48,7 +48,7 @@ class ArrayTyper {
  private:
   int next_ = 1;
   std::map<std::string, ManifoldRef> labelled_;
-  ManifoldRef factor(const std::string& name, const std::string& label, std::int64_t n, ManifoldKind kind, Role role, std::optional<double> spacing,
+  ManifoldRef factor(const std::string& name, const std::string& label, std::int64_t n, ManifoldKind kind, bool time_axis, std::optional<double> spacing,
                      const ArrayMeta& m);
 };
 

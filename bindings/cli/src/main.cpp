@@ -121,7 +121,6 @@ int cmdSmoke() {
 
     Eigen::MatrixXd faceField = nxr::geometry::connection::smoothFace(surface, 4);
     auto vfield = nxr::geometry::connection::smoothVertex(surface, 2);
-    auto stripes = nxr::geometry::parametrization::stripes::compute(surface, vfield.vertexFieldRaw, 8.0);
 
     const double dt = elapsedMs(t0);
 
@@ -131,7 +130,7 @@ int cmdSmoke() {
               << "  center=" << center.transpose() << "\n";
     std::cout << "[smoke]   signedHeat range=[" << sd.minCoeff() << ", " << sd.maxCoeff() << "]\n";
     std::cout << "[smoke]   smoothFace nF=" << faceField.rows()
-              << "  stripes segs=" << stripes.segmentCount << "\n";
+              << "  smoothVertex nV=" << vfield.vertexVectors.rows() << "\n";
     std::cout << "[smoke]   nV=" << surface.nV() << "  nF=" << surface.nF()
               << "  totalArea=" << ops.totalArea << "\n";
     std::cout << "[smoke]   eigenvalues (k=" << eig.k << " post-removeDC):";

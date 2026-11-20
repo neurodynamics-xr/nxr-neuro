@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "nxr-neuro: measuring the spatiotemporal patterns of cortical activity from MEG/EEG. The pure functions, the file-format readers and the pipeline level (run, list, read), over NumPy arrays."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["numpy>=1.26"]
+dependencies = ["numpy>=1.26", "scipy>=1.11"]   # scipy: the sparse operators come back as scipy.sparse matrices
 license = "BSD-3-Clause"
 authors = [{ name = "the Neurodynamics-XR contributors" }]
 classifiers = [

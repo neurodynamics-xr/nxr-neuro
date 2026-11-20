@@ -329,7 +329,11 @@ Geometry Subject::geometry(const std::string& manifold_id) const {
   const auto m = impl_->records().manifolds().read(manifold_id);
   if (!m) throw Error(code::no_such_row, "no manifold with id " + manifold_id);
   for (const auto& d : m->dimensions) g.axes.push_back({d.ordinal, d.n_vertices, d.name, d.unit, d.manifold_id, d.spacing, d.origin});
-  if (m->coordinate_system) g.coordinate_unit = m->coordinate_system->unit;
+  if (m->coordinate_system) {
+    g.coordinate_unit = m->coordinate_system->unit;
+    g.coordinate_system = m->coordinate_system->name;
+    if (const auto sp = impl_->db->one("SELECT name FROM space WHERE id = ?", {V(m->coordinate_system->space_id)})) g.space = text(*sp, "name");
+  }
   if (m->geometry) g.positions_path = m->geometry->positions_path;
   for (const auto& c : m->cells) g.cells.emplace_back(c.rank, c.path);
   return g;
@@ -640,6 +644,10 @@ std::string Unit::replace(Cls cls, const std::string& path, bool replace, const 
     moved = a.second;
   };
   move_aside(cls == Cls::selection ? opt_text(*r, "array_path").value_or("") : opt_text(*r, "path").value_or(""));
+  if (cls == Cls::selection) {   // the weights array a selection keeps beside its own (named in its parameters) is moved aside with it, not left behind or removed with the row (issue 182)
+    const Json params = Json::parse(opt_text(*r, "params_json").value_or("{}"), nullptr, false);
+    if (params.is_object() && params.contains("weights") && params["weights"].is_string()) move_aside(params["weights"].get<std::string>());
+  }
   if (cls == Cls::selection && text(*r, "type") == "ladder") {
     // a grid's ladder: its level rows go with it, and their arrays and nodes (tile codes, areas, centres, adjacency), as they were written together, are MOVED ASIDE with it (--replace
     // never deletes; a constant-Q ladder's levels hold no node)
@@ -669,6 +677,7 @@ std::string Unit::field(const FieldOut& f) {
   if (f.derived_from_id) fs.cols.set("derived_from_id", *f.derived_from_id);
   if (f.of_operator_id) fs.cols.set("of_operator_id", *f.of_operator_id);
   if (f.by_operator_id) fs.cols.set("by_operator_id", *f.by_operator_id);
+  for (const auto& c : f.contributions) fs.contributions.push_back(ContributionSpec{c.weight, c.subject_id, c.source_field_id});
   fs.cols.set("source", by_.tool);
   fs.cols.json("producer_json", producer_of(by_, f.output, f.producer));
   return impl_->writer->field(std::move(fs));
@@ -702,7 +711,14 @@ std::string Unit::operator_(const OperatorOut& o) {
   need_open(open_);
   OperatorSpec op;
   op.name = o.name; op.path = path_of(o); op.kind = o.kind; op.from_manifold_id = o.from_manifold_id;
-  if (o.sparse) {
+  if (o.analytic) {   // by its method: no array, no path (the schema's analytic layout)
+    if (o.analytic->method.empty()) throw Error(code::invalid_argument, "operator " + o.name + ": an analytic operator names its method");
+    if (o.sparse || !o.data.shape.empty()) throw Error(code::invalid_argument, "operator " + o.name + ": an analytic operator holds no array");
+    op.path = std::nullopt;
+    op.layout = "analytic";
+    op.n_rows = o.analytic->n_rows; op.n_cols = o.analytic->n_cols;
+    op.cols.set("method", o.analytic->method);
+  } else if (o.sparse) {
     const OperatorOut::Sparse& sp = *o.sparse;
     if (sp.layout != "csr" && sp.layout != "csc") throw Error(code::invalid_argument, "operator " + o.name + ": a sparse operator is csr or csc");
     const std::int64_t major = sp.layout == "csr" ? sp.n_rows : sp.n_cols, nnz = o.data.size();
@@ -941,6 +957,11 @@ std::string Unit::selection(const SelectionOut& s) {
     throw Error(code::invalid_argument, "selection " + s.name + ": type " + s.type + " (partition, set, indices, spans, tiling, cells, grid or product)");
   }
   for (std::size_t k = 0; k < s.entries.size(); ++k) d.lookup.push_back(selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});   // the codes' names
+  if (!s.weights.shape.empty()) {   // one weight a member, beside the selection's array and named in its parameters (as a kernel's `weights` array is)
+    const std::string wpath = at.path.value_or(std::string()) + ".weights";
+    sub.write_array(wpath, view_of(s.weights, "selection " + s.name + " weights"));
+    params["weights"] = wpath;
+  }
   if (s.of_field_id) at.of_field_id = *s.of_field_id;
   if (s.description) at.description = *s.description;
   if (s.label) at.label = *s.label;
@@ -952,10 +973,56 @@ std::string Unit::selection(const SelectionOut& s) {
   return selection::save(sub, d, at).id;
 }
 
+namespace {
+// a line whose points are not evenly spaced: its coordinates stored (geometry stored, topology a path), its coordinate system a line space of the dimension's name; `kinds`, one code a point, beside them
+std::string stored_line(SubjectWriter& sub, Database& db, const LineOut& l, const By& by) {
+  const std::int64_t n = static_cast<std::int64_t>(l.coordinates.size());
+  if (!l.kinds.empty() && static_cast<std::int64_t>(l.kinds.size()) != n)
+    throw Error(code::invalid_argument, "line " + l.name + ": " + std::to_string(l.kinds.size()) + " kinds for " + std::to_string(n) + " coordinates (one code a point)");
+  for (std::int64_t i = 0; i < n; ++i) {
+    if (!std::isfinite(l.coordinates[static_cast<std::size_t>(i)])) throw Error(code::invalid_argument, "line " + l.name + ": coordinate " + std::to_string(i) + " is not a finite number");
+    if (i > 0 && !(l.coordinates[static_cast<std::size_t>(i)] > l.coordinates[static_cast<std::size_t>(i - 1)]))
+      throw Error(code::invalid_argument, "line " + l.name + ": the coordinates are not strictly increasing (point " + std::to_string(i) + " does not exceed point " + std::to_string(i - 1) + ")");
+  }
+  if (db.one("SELECT m.id AS id FROM manifold m WHERE m.subject_id = ? AND m.name = ?", {V(sub.id()), V(l.name)}))
+    throw Error(code::already_exists, sub.name() + ": the subject already holds a manifold named " + l.name);
+  SubjectWriter::FrameSpec fs;
+  fs.space = l.dimension; fs.name = l.dimension; fs.unit = l.unit; fs.space_geometry = "line";
+  fs.description = "the " + l.dimension + " line's own coordinates";
+  fs.space_description = "the " + l.dimension + " line, R\xc2\xb9";
+  sub.frame(fs);
+  ManifoldSpec ms;
+  ms.name = l.name;
+  ms.path = folder_for("line", "", l.folder) + "/" + safe_name(l.name);
+  ms.type = "line";
+  ms.n_vertices = n;
+  ms.topology = {"path", 1, 1, std::nullopt, {}};
+  GeometrySpec g;
+  g.form = "stored";
+  g.cs_key = l.dimension;
+  g.positions_path = *ms.path + "/coordinates";
+  ms.geometry = g;
+  ms.cols.set("n_edges", n > 0 ? n - 1 : 0);
+  if (l.acquisition_id) ms.cols.set("acquisition_id", *l.acquisition_id); else ms.cols.null("acquisition_id");
+  Json producer = by.producer.is_object() ? by.producer : Json::object();
+  producer["dimension"] = l.dimension;
+  producer["unit"] = l.unit;
+  if (!l.kinds.empty()) producer["kinds"] = *ms.path + "/kinds";   // the array of codes, named so that a store's tidy-up keeps it
+  ms.cols.json("producer_json", producer);
+  const std::string path = *ms.path;
+  ms.populate = [&sub, &l, path, n](Store&, const std::string&) {
+    sub.write_array(path + "/coordinates", view(l.coordinates, {n}));
+    if (!l.kinds.empty()) sub.write_array(path + "/kinds", view(l.kinds, {n}));
+  };
+  return sub.manifold(std::move(ms));
+}
+}  // namespace
+
 std::string Unit::line(const LineOut& l) {
   need_open(open_);
   SubjectWriter& sub = *impl_->writer;
   Database& db = *impl_->db;
+  if (!l.coordinates.empty()) return stored_line(sub, db, l, by_);
   auto named = [&](const std::string& n) { return db.one("SELECT m.id AS id FROM manifold m WHERE m.subject_id = ? AND m.name = ? AND m.type = 'line'", {V(impl_->id), V(n)}); };
   auto fits = [&](const std::string& lid) {
     const auto d = db.one("SELECT d.spacing AS spacing, d.n_vertices AS n, d.origin AS origin FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? AND d.ordinal = 0", {V(lid)});
@@ -1114,7 +1181,102 @@ std::string Unit::cell_complex(const ComplexOut& o) {
 std::string Unit::product(const ProductOut& p) {
   need_open(open_);
   if (p.factors.size() < 2) throw Error(code::invalid_argument, "product: two factors or more");
-  return impl_->writer->product(p.factors, p.acquisition_id);
+  return impl_->writer->product(p.factors, p.acquisition_id, true, p.name);
+}
+
+// ---- dictionaries and edits ----
+namespace {
+std::string colour_json(const std::array<int, 3>& c) { return jdump(Json::array({c[0], c[1], c[2]})); }
+// the entry's `attributes_json`: the label and the description it carries beyond the schema's own columns
+void put_attribute(Json& attributes, const char* key, const std::optional<std::string>& value) {
+  if (!value) return;
+  if (value->empty()) attributes.erase(key); else attributes[key] = *value;
+}
+Row entry_row(const std::string& dictionary_id, const DictionaryOut::Entry& e, std::int64_t ordinal) {
+  Json attributes = Json::object();
+  put_attribute(attributes, "label", e.label);
+  put_attribute(attributes, "description", e.description);
+  Row r = {{"dictionary_id", dictionary_id}, {"code", V(e.code)}, {"name", e.name}, {"ordinal", V(ordinal)}};
+  if (e.colour) r["color_json"] = colour_json(*e.colour);
+  if (!e.params.is_null()) r["params_json"] = jdump(e.params);
+  if (!attributes.empty()) r["attributes_json"] = jdump(attributes);
+  return r;
+}
+}  // namespace
+
+std::string Unit::dictionary(const DictionaryOut& d) {
+  need_open(open_);
+  if (d.scope != "subject" && d.scope != "dataset") throw Error(code::invalid_argument, "dictionary " + d.name + ": the scope is subject or dataset");
+  if (d.name.empty()) throw Error(code::invalid_argument, "a dictionary needs a name");
+  Database& db = *impl_->db;
+  const bool ds_scope = d.scope == "dataset";
+  const std::string owner = ds_scope ? impl_->writer->dataset().id() : impl_->id;
+  if (db.one(std::string("SELECT id FROM dictionary WHERE scope = ? AND ") + (ds_scope ? "dataset_id" : "subject_id") + " = ? AND name = ?", {V(d.scope), V(owner), V(d.name)}))
+    throw Error(code::already_exists, "a " + d.scope + " dictionary named '" + d.name + "' already exists (edit dictionary changes it)");
+  std::set<std::int64_t> codes;
+  for (const auto& e : d.entries) if (!codes.insert(e.code).second) throw Error(code::invalid_argument, "dictionary " + d.name + ": the code " + std::to_string(e.code) + " is used by two entries");
+  const std::string id = uuid7(), now = now_utc(false);
+  Row r = {{"id", id}, {"name", d.name}, {"scope", d.scope}, {"description", V(d.description)}, {ds_scope ? "dataset_id" : "subject_id", owner},
+           {"created_utc", now}, {"created_by", by_.tool}, {"modified_utc", now}, {"modified_by", by_.tool}};
+  db.insert("dictionary", r);
+  std::int64_t k = 0;
+  for (const auto& e : d.entries) db.insert("dictionary_entry", entry_row(id, e, k++));
+  return id;
+}
+
+void Unit::edit_manifold(const std::string& manifold_id, const std::optional<bool>& primary, const std::optional<std::string>& label, const std::optional<std::string>& description) {
+  need_open(open_);
+  Database& db = *impl_->db;
+  const auto m = db.one("SELECT subject_id, type, name FROM manifold WHERE id = ?", {V(manifold_id)});
+  if (!m) throw Error(code::no_such_row, "manifold " + manifold_id + ": no such row");
+  if (primary && *primary && text(*m, "type") != "surface") throw Error(code::invalid_argument, "'" + text(*m, "name") + "' is a " + text(*m, "type") + ": only a surface is primary");
+  if (primary && *primary) db.execute("UPDATE manifold SET is_primary = 0 WHERE subject_id = ? AND type = ? AND is_primary = 1 AND id <> ?", {V(text(*m, "subject_id")), V(text(*m, "type")), V(manifold_id)});
+  if (primary) db.execute("UPDATE manifold SET is_primary = ? WHERE id = ?", {V(*primary ? 1 : 0), V(manifold_id)});
+  if (label) db.execute("UPDATE manifold SET label = ? WHERE id = ?", {label->empty() ? V(nullptr) : V(*label), V(manifold_id)});
+  if (description) db.execute("UPDATE manifold SET comment = ? WHERE id = ?", {description->empty() ? V(nullptr) : V(*description), V(manifold_id)});
+  db.execute("UPDATE manifold SET modified_utc = ?, modified_by = ? WHERE id = ?", {V(now_utc(false)), V(by_.tool), V(manifold_id)});
+}
+
+void Unit::edit_dictionary_entry(const std::string& dictionary_id, std::int64_t code_of_entry, const EntryEdit& e) {
+  need_open(open_);
+  Database& db = *impl_->db;
+  const auto row = db.one("SELECT name, attributes_json FROM dictionary_entry WHERE dictionary_id = ? AND code = ?", {V(dictionary_id), V(code_of_entry)});
+  if (!row) throw Error(code::no_such_row, "the dictionary has no entry with the code " + std::to_string(code_of_entry));
+  if (e.name) {
+    if (e.name->empty()) throw Error(code::invalid_argument, "an entry's name cannot be empty");
+    db.execute("UPDATE dictionary_entry SET name = ? WHERE dictionary_id = ? AND code = ?", {V(*e.name), V(dictionary_id), V(code_of_entry)});
+  }
+  if (e.colour) db.execute("UPDATE dictionary_entry SET color_json = ? WHERE dictionary_id = ? AND code = ?", {V(colour_json(*e.colour)), V(dictionary_id), V(code_of_entry)});
+  if (!e.params.is_null()) db.execute("UPDATE dictionary_entry SET params_json = ? WHERE dictionary_id = ? AND code = ?", {V(jdump(e.params)), V(dictionary_id), V(code_of_entry)});
+  if (e.label || e.description) {
+    Json attributes = Json::parse(opt_text(*row, "attributes_json").value_or("{}"), nullptr, false);
+    if (!attributes.is_object()) attributes = Json::object();
+    put_attribute(attributes, "label", e.label);
+    put_attribute(attributes, "description", e.description);
+    db.execute("UPDATE dictionary_entry SET attributes_json = ? WHERE dictionary_id = ? AND code = ?", {attributes.empty() ? V(nullptr) : V(jdump(attributes)), V(dictionary_id), V(code_of_entry)});
+  }
+  db.execute("UPDATE dictionary SET modified_utc = ?, modified_by = ? WHERE id = ?", {V(now_utc(false)), V(by_.tool), V(dictionary_id)});
+}
+
+void Unit::replace_dictionary_entries(const std::string& dictionary_id, const std::vector<DictionaryOut::Entry>& entries) {
+  need_open(open_);
+  Database& db = *impl_->db;
+  std::set<std::int64_t> codes;
+  for (const auto& e : entries) if (!codes.insert(e.code).second) throw Error(code::invalid_argument, "the code " + std::to_string(e.code) + " is used by two entries");
+  if (selection::lookup_in_use(db, dictionary_id))   // a selection's members are read with these codes: none of them may go
+    for (const Row& r : db.all("SELECT code FROM dictionary_entry WHERE dictionary_id = ?", {V(dictionary_id)}))
+      if (!codes.count(integer(r, "code"))) throw Error(code::invalid_argument, "the code " + std::to_string(integer(r, "code")) + " is read by a selection: the new entries keep every code in use");
+  db.execute("DELETE FROM dictionary_entry WHERE dictionary_id = ?", {V(dictionary_id)});
+  std::int64_t k = 0;
+  for (const auto& e : entries) db.insert("dictionary_entry", entry_row(dictionary_id, e, k++));
+  db.execute("UPDATE dictionary SET modified_utc = ?, modified_by = ? WHERE id = ?", {V(now_utc(false)), V(by_.tool), V(dictionary_id)});
+}
+
+void Unit::remove_unstored(Cls cls, const std::string& id) {
+  need_open(open_);
+  const auto n = impl_->db->one(std::string("SELECT path FROM ") + to_string(cls) + " WHERE id = ?", {V(id)});
+  if (n && !is_null(*n, "path")) throw Error(code::invalid_argument, std::string("remove_unstored: the ") + to_string(cls) + " has arrays");
+  impl_->writer->remove(to_string(cls), id);
 }
 
 }  // namespace nxr::io::task

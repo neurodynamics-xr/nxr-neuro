@@ -14,7 +14,7 @@ provenance stored with the result.
 - **not the Python analysis code:** `nxr` stays the reference that the C++ is tested against.
 - **no Brainstorm code:** Brainstorm is GPLv3; the maths here is written from the papers, and Brainstorm's outputs are only goldens.
 
-**Not done yet:** the default subject's option resolutions, HCP-1065 and Frequency manifold; BEM head models (sphere models only); MNE-Python's filter option set; modalities other than MEG/EEG; bindings for `io` beyond its pure formats and the pipeline level (`run`, `list`, `read`; the Python face and the MATLAB binding carry `run` for `psd` and the definitions: the other hand-wired pipelines follow).
+**Not done yet:** the default subject's option resolutions, HCP-1065 and Frequency manifold; BEM head models (sphere models only); MNE-Python's filter option set; modalities other than MEG/EEG; the dataset API in MATLAB (the Python and JavaScript faces carry every command; MATLAB carries `run`, `list`, `read`; `run` in the faces takes the definitions: the other hand-wired pipelines follow).
 
 ## Layout
 
@@ -25,7 +25,7 @@ nxr-neuro/
   pipelines/   nxr_pipelines the glue: read with io, compute with compute, write with io, cached; every verb of the command below (the surface: eigen, frames, tiles; the sensors:
                filters, psd, noisecov; the sources: headmodel, inverse, sourcepsd, quadrature, hodgepower; the patterns: flow_modes, speedspectrum)
   meeg/        nxr_meeg      MEG/EEG source imaging: whitener, depth weights, unconstrained minimum-norm kernel, chunk-wise noise covariance; Eigen only; no file I/O
-  bindings/    MEX, Node (N-API), wasm and a CLI smoke around nxr_compute (Python and MATLAB also carry the pipeline level: `run`, `list`, `read` through `pipelines/face.h`); python/: the wheel (nxr_compute, io/formats and the pipeline level)
+  bindings/    MEX, Node (N-API), wasm and a CLI smoke around nxr_compute (Python and WebAssembly carry every command of the command line, MATLAB the pipeline level `run`, `list`, `read`, through `pipelines/face.h` and io's task commands); python/: the wheel (nxr_compute, io/formats and the dataset API)
   cli/         the one command `nxr-neuro`
   cmake/       shared CMake (Eigen 3.4)
   CMakeLists.txt   the one top-level build
@@ -228,13 +228,47 @@ tools (`bindings/python/pyproject.toml`): nanobind 3.1.0, scikit-build-core 1.1.
     cd bindings/python && python -m build --wheel      # or: pip wheel .   (CMake, a C++17 compiler and the fetched dependencies, as the main build)
 
 A binding only binds: each Python function is one call into the library (`nxr_compute` for the maths, `nxr_io_formats` for the formats); the options
-carry the library's names and defaults, and their docstrings are the options structs' comments. This slice does **not** read the dataset format: `open`,
-`subject`, `nn.compute.<verb>` (the command's `compute` verbs), the importers and the exporters come with it.
+carry the library's names and defaults, and their docstrings are the options structs' comments. The dataset format is read and written through the dataset API below
+(every command of the command line as a function).
 
 **Arrays.** A signal is `[channels, samples]`, C-ordered. float32 and float64 are accepted (anything else is converted to float64); the library computes
 in float64 and the result comes back in the input's precision. float64 results are handed over without a copy and may be Fortran-ordered. The C++ releases
 the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subclasses `FormatError`, `UnsupportedError` (also `NotImplementedError`),
-`InvalidArgumentError` (also `ValueError`), `IOError_` (also `OSError`), `NotConvergedError`, `CancelledError`; an option name that is not one of the library's is a `ValueError`.
+`InvalidArgumentError` (also `ValueError`), `IOError_` (also `OSError`), `NotConvergedError`, `CancelledError`, and io's codes: `WriterLockHeld`, `NotWritable`
+(also `PermissionError`), `SchemaVersionError`, `NotADatabaseError`, `NoSuchRow` and `Ambiguous` (also `LookupError`), `AlreadyExists` (also `FileExistsError`), `NotFound`
+(also `FileNotFoundError`); an option name that is not one of the library's is a `ValueError`.
+
+**The dataset API: the command line as functions** (spec `docs/specs/2026-11-19-io-service.md`). `nxr-neuro <verb> <noun> --option VALUE` is
+`nn.<verb>.<noun>(option=VALUE)`, for every command of the command table (`cli/command_table.cpp`): `nn.create`, `nn.list`, `nn.show`, `nn.delete`, `nn.read`, `nn.add`, `nn.edit`,
+`nn.query`, `nn.import_`, `nn.export`, `nn.register`, `nn.verify`, `nn.release`, `nn.split`, `nn.join`, `nn.compact`, `nn.recover`, `nn.migrate`, and `nn.compile` and
+`nn.run` (verbs with no noun).
+- **Names.** The command line's options with dashes as underscores (`--from-sphere` is `from_sphere`; `export bids-derivatives` is `nn.export.bids_derivatives`); a Python
+  keyword takes a trailing underscore: the verb `import` is the module `nn.import_`, the option `--from` is `from_`. The positional argument (`import subject PROTOCOL`,
+  `read dataset FOLDER`, `compile DEFINITION`, `import templates TEMPLATES_DIR` as `templates_dir`) is the one positional parameter; every option is given by name.
+- **Values.** A flag is a boolean; a repeatable option (`--templates DIR ...`) a list; an option the command line takes comma-separated (`--subjects A,B`, `--rows 0,2`) a
+  list or that text. Required options are required; an option left out takes the command line's default (the library fills the same request). Arrays go in as NumPy
+  arrays (any array-like, in its own precision) or a path to a .npy file: the face hands them to the library in memory (dtype, shape, bytes; no temporary file), under the name the
+  producer records (named after the option, `values.npy`). `add measurements --measure NAME=FILE.npy` is `measure={"NAME": array}`; `compile --set NAME=VALUE` is
+  `set={"NAME": value}` (or the command line's strings), `--signatures` and `--inputs` a dict (or the JSON file's path).
+- **Results.** The command's result object (its `"stage": "result"` line) as an `nn.Result`, a dict; where the command line writes an array to a file or prints its
+  checksum (`read <class>`, `read dataset --array`), the array is in `Result.arrays` (NumPy, C order, its stored dtype). `export ...` writes its files and returns their
+  paths, as `read <class>` does with `out`. `progress=callable` receives each progress line as a dict. `nn.list.pipelines()` gives the pipelines `run` takes as objects with
+  `.help()`.
+- **Binding.** One native call (`_core._command(verb, noun, options)`) converts the options to the command's library request (`bindings/common/commands.h`: conversion only,
+  shared with the WebAssembly face) and calls the command's function once (`nxr/io/task/commands.h`, `nxr/pipelines/face.h`); an option the command does not take is refused.
+  The GIL is released while the library runs.
+- **`nn.run(pipeline, dataset, subject, *, from_=, to= | all=True, replace=, dry_run=, preset=, **parameters)`**: the time range is required (seconds); a group definition
+  takes `subjects=[...]` and `into=`. Returns {pipeline, subject, cache, stored, runs, seconds}; read what was stored with `nn.read.<class>`.
+- **`nn.open(dataset, mode="read")`**: a handle whose methods are the same functions with the dataset bound (`d.read.field(subject=..., name=..., all=True)`,
+  `d.run("psd", "S1", all=True)`, `d.compile(...)`). `mode="write"` takes the dataset folder's writer lock now and holds it until `close()` (a context manager; released at
+  exit): the handle's commands borrow it (io's handshake `NXR_WRITER_LOCK_HELD`, lent by the library's `task::Handle`), another process's write is refused (`WriterLockHeld`).
+  The library keeps the subject's database open between the handle's reading calls (`task::Handle`, `open_reader`: read-only, no lock, no migration); a write command opens
+  its own database for the length of its unit, since a package's record and content hash are finished when its writer closes.
+- **Refused, naming the new form** (the first wheel's calls; no aliases): `nn.read(dataset, subject, name, ...)` (now `nn.read.<class>`, a recording's range as `from_`/`to`
+  in seconds), `nn.run(..., start=, stop=)` (now `from_=`, `to=`), `nn.list.results(dataset, subject, kind)` (now `nn.list.results | recordings | kernels`),
+  `nn.list.subjects(names=)` (now `subjects=`). `nn.Stored` and `nn.RunResult` are removed.
+- **The coverage test** (`bindings/python/tests/test_commands.py`) reads `cli/command_table.cpp` and fails when a command has no function, a function's arguments differ from
+  the command's options (names, the positional, required, flags), or a function has no command.
 
 **`nn.compute`** (the pure functions: no file, no dataset, no recording):
 *(Named `nn.ops` in the first wheel; renamed `compute` by the maintainers' decision of 2026-11-17, the same in MATLAB as `nxr.compute`. `nn.ops` stays one release as a deprecated alias that warns. Pipelines will be `run`, later.)*
@@ -244,8 +278,31 @@ the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subcl
 | `compute.signal.psd(x, sfreq, segment_samples=256, overlap=0.5, window="hann", periodic=True, detrend="constant", scaling="density", good=None)` | `nxr::signal::spectral::Welch` | Welch's PSD; with those defaults equal to `scipy.signal.welch(nperseg=256)`; `good` leaves out segments touching a bad sample |
 | `compute.signal.xpsd(x, sfreq, bins, ..., mean=True, quadrature=False)` | `nxr::signal::spectral::CrossWelch` | the cross-spectral density between channels, per group of bins; optionally its imaginary part |
 | `compute.signal.lowpass`, `highpass`, `bandpass`, `bandstop`, `notch` | `nxr::signal::filters` | Brainstorm's zero-phase FIR and IIR filters, options as `FilterOptions` |
+| `compute.signal.decimate(x, q, order=0, left=0, width=None, offset=0)`, `decimationHalo(q, order=0)` | `nxr::signal::decimate`, `decimationHalo` | the signal at rate / q: a window-method low-pass (order 20 q, Hamming, edge at the new Nyquist frequency) applied centred, then every q-th sample (`scipy.signal.decimate(x, q, ftype='fir', zero_phase=True)`); on a block with `decimationHalo(q)` samples of context on each side, the decimated chunks laid end to end are the whole signal's. Nothing above the new Nyquist frequency survives; the band just below it is attenuated by the transition |
 | `compute.stats.pca(x, scale="none")`, `compute.stats.reconstruct(...)` | `nxr::stats` | principal components of observations x features (scikit-learn's `svd_solver="full"`, sign convention fixed) and the rank-k reconstruction |
 | `compute.operators.eigen(vertices, faces, k, ...)` | `nxr::geometry::solve::eigen` | the Laplace-Beltrami eigenpairs of a triangle mesh (cotangent Laplacian, mixed-Voronoi mass; the shift ladder by default) |
+| `compute.geometry.surfaceArrays(vertices, faces, intrinsic_delaunay=True, mollify=1e-6, flip_eps=1e-6, surface="")` | `nxr::geometry::surfaceArrays` | the surface as data, made once: the input mesh and its intrinsic mollified Delaunay triangulation (with its record: ε, flips, boundary vertices), a dict of arrays passed to every surface function below (nothing is cached; no function flips again) |
+| `compute.geometry.complex(surface)` | `nxr::geometry::IntrinsicSurface::complex` | the operator mesh in the face-corner layout: intrinsic faces, edges (tail → tip), signed face edges, lengths, signpost angles, cone angles |
+| `compute.geometry.meshTopology(surface)`, `eulerCharacteristic(surface)` | `nxr::geometry::meshTopology`, `eulerCharacteristic` | the input's halfedge topology as arrays (boundary edges and vertices from `heIsInterior`), and χ |
+| `compute.geometry.vertexFrames(surface)`, `frames(surface)` | `nxr::geometry::vertexFrames`, `frames` | the tangent frame (e1, e2 = n × e1, n) per vertex (the gauge) and per input face |
+| `compute.geometry.heat(surface, sources, t_coef=1.0, mesh="intrinsic")` | `nxr::geometry::heat` | heat-method geodesic distances from a source set, or one column per set |
+| `compute.geometry.logMap(surface, source, strategy="affine_local", t_coef=1.0)` | `nxr::geometry::transport::logMap` | the log map (geodesic polar coordinates of every vertex, norm = geodesic distance) at a source vertex, or a list of them on one solver, in the vertex's tangent frame (`sourceE1`, `sourceE2`, `sourceNormal` in R^3) |
+| `compute.geometry.logMap(surface, (face, (w0, w1, w2)), ...)` | `nxr::geometry::transport::logMap (`FacePoint`)` | the same at a point of an INPUT face (a list of pairs: one solver): the blend of the three corners' log maps carried into the face's plane (geometry-central's face-point rule; first order in the face size, exact at a corner, where it equals the vertex form). One frame in R^3: the heaviest corner's rotated into the face's plane (`sourceNormal` = the face normal), and `sourcePoint` = sum w_k p_k. Weights non-negative summing to 1 (1e-9), a face outside the mesh: refused. On a fine unit sphere at a face centroid the distance error is about a tenth of taking the nearest vertex's log map |
+| `compute.operators.assembleManifoldOperators(surface, mass="mixedVoronoi")` | `nxr::operators::assembleManifoldOperators` | the cotan Laplacian, the mass, the dual areas and the vertex normals of the operator mesh (sparse matrices as `scipy.sparse`) |
+| `compute.operators.assembleDECOperators(surface)` | `nxr::operators::assembleDECOperators` | d0, d1, ⋆0, ⋆1 (raw, not floored), ⋆2 and ⋆1⁻¹ of the operator mesh; d0's rows are `complex`'s edges |
+| `compute.operators.hodgedirac.assemble(surface, star1_floor=0.0, mollify=1e-6, flip_eps=1e-6)` | `nxr::operators::hodgedirac::assemble` | the Hodge–Dirac pencil (K, M) with d0, d1, the stars, the complex, the construction's record, the topology (χ, boundary loops, genus) and the ⋆1 counts (`star1Clamped`, `star1Negative`: boundary edges opposite an obtuse angle) |
+| `compute.operators.hodgeDiracModes(pencil, count, both_signs=False, **solve options)` | `nxr::operators::hodgeDiracModes` | the modes by the exact/coexact split: μ, the vectors (0-, 1-, 2-form rows), kind (0 exact, 2 coexact). Refused on a mesh other than a closed genus-0 surface or a disc (no harmonic 1-forms are built), and on genuinely negative ⋆1 unless a floor was named |
+| `compute.operators.hodgeLadders(L0, M0, S2, M2, count, **solve options)` | `nxr::operators::hodgeLadders` | the exact and coexact ladders separately, the λ cut and the merge by μ |
+| `compute.operators.poisson(K, M, density_vertices, density_values)` | `nxr::operators::poisson` | K φ = −M (ρ − ρ̄) |
+| `compute.signal.intrinsicComplex(surface)` | `nxr::signal::intrinsicComplex` | the intrinsic triangulation as a cell complex (edges tail → tip, faces, lengths, d0, d1, the three stars, the signposts placing its edges in R³), built once and passed to every function below |
+| `compute.signal.sharp(complex, w)`, `flat(complex, J)` | `nxr::signal::sharp`, `flat` | a 1-form on the intrinsic edges ↔ a tangent vector field at the vertices (in R³), through the signposts' embedding; exact for a constant field on a flat mesh, the boundary included |
+| `compute.signal.phaseCurrent(operator, z, normals=None, components=1)`, `phaseGradient(complex, x)` or `phaseGradient(j, p)`, `vertexGradient(positions, faces)` | `nxr::signal::phaseCurrent`, `phaseGradient`, `vertexGradient` | the phase current Im(z̄ dz) and the phase gradient dφ, ONE quantity each, discretised by the operator the caller passes: the intrinsic complex (a signed number an edge: Im(conj(z_tail) z_tip), arg(x_tip conj(x_tail))) or a vertex gradient (a vector a vertex, the reference: Im(z̄ ∇z), j / \|z\|²) |
+| `compute.signal.modesOf(modes, pencil)` | `nxr::signal::modesOf` | a Hodge–Dirac solve's result as the forms read it: P (0-form parts), X2 (2-form parts), μ, kind |
+| `compute.signal.projectOneForm(complex, modes, w)`, `synthesizeOneForm(complex, modes, coef)` | `nxr::signal::projectOneForm`, `synthesizeOneForm` | a 1-form ↔ its coefficients in the modes' 1-form parts (inner products in ⋆1, no solve); zeroing rows by kind gives the curl-free or divergence-free part, by μ a band-limited form |
+| `compute.signal.projectTwoForm(...)`, `synthesizeTwoForm(...)` | `nxr::signal::projectTwoForm`, `synthesizeTwoForm` | the same for a 2-form on the intrinsic faces, against the coexact modes' 2-form parts |
+| `compute.signal.exactPotential(modes, coef)`, `coexactStream(complex, modes, coef)` | `nxr::signal::exactPotential`, `coexactStream` | the scalar potential Φ (d0 Φ = the exact part) and the stream function Ψ of the coexact part, at the vertices |
+| `compute.signal.splitPhase(complex, modes, w)` | `nxr::signal::splitPhase` | a 1-form on the intrinsic edges (a phase step, a phase current, any edge values) split by the modes into its exact (curl-free) and coexact (divergence-free) parts, POINTWISE only: the coefficients, the parts, the potential, the stream function, the propagation direction. The shares and the misfit share are derived measures of reductions (below). **Boundary condition (a fact of the method, not an option):** on an open surface the potential is Neumann (zero normal flux) and the stream function Dirichlet (zero on the rim); a closed surface has no boundary. **Reading:** for a phase-step input (`phaseGradient`) the exact part is the timing (its potential a time-of-arrival map, potential / ω) and the coexact part the rotation (winding at phase singularities); for an amplitude-weighted phase current (`phaseCurrent`) the exact part is the curl-free part of the current, not a timing. **What it cannot resolve:** a phase step per edge is taken in (−π, π], so a wave with more than half a cycle per edge aliases |
+| `compute.signal.vertexEnergy(complex, w)` | `nxr::signal::vertexEnergy` | the ⋆1 energy of a 1-form at the vertices (each edge's ⋆1 w² half at each end): a tile's energy is the SUM over its vertices. Summed over a partition's members, the energies of w, of the exact part, of the coexact part and of w − exact are the measures `one_form_energy`, `exact_energy`, `coexact_energy`, `exact_misfit_energy`; the derived measures `exact_share`, `coexact_share`, `residual_share` and `exact_misfit_share` are their ratios, computed at read |
 | `compute.select.median(x)`, `mad(x)` | `nxr::select::median`, `mad` | the median, and the robust SD 1.4826 * median absolute deviation, of a 1-D series |
 | `compute.select.crossings(x, entry, exit)`, `mergeSpans(spans, gap)`, `keepSpans(spans, min_length, max_length)` | `nxr::select::crossings`, `mergeSpans`, `keepSpans` | spans where a series is above a hysteresis threshold, joined across short gaps, kept by length (samples); a span is `start, stop, peak, value` arrays (0-based, stop exclusive) |
 | `compute.select.detectBursts(amplitude, step, enter_sd=1.5, exit_sd=1.0, merge_s=0.1, min_s=0.4, max_s=inf, baseline=None)` | `nxr::select::detectBursts` | the bursts of an amplitude series: robust baseline, hysteresis, merge, length; the spans with the baseline, levels and durations used |
@@ -264,7 +321,9 @@ or float64 as the file holds them. **The span is always stated** (`start` and `s
 `(data, header)` (the file's axes, x first, with the 4 x 4 affine), `read_gifti(path)` a dictionary of arrays with their intents, metadata, labels and transforms, `read_tsv(path)` a dictionary of columns.
 
 **Tests** (`bindings/python/tests`, pytest; synthetic data only): Welch against `scipy.signal.welch` and a NumPy cross-spectrum; the filters against their passbands, stopbands and zero phase; PCA against the NumPy SVD with
-the sign convention; the sphere's eigenvalues l(l+1); the readers against the MNE-Python, nibabel and pandas goldens of `io/formats/test` and their refusals.
+the sign convention; the sphere's eigenvalues l(l+1); the readers against the MNE-Python, nibabel and pandas goldens of `io/formats/test` and their refusals; the dataset API's coverage test against the command table, the old forms' refusals, and on synthetic datasets: datasets, subjects
+and packages created, listed and shown, every class added from arrays and read back byte for byte, `compile`, `run` with `from_`/`to`, and the writer lock of a write handle
+refusing another process.
 
 ## The MATLAB face (`+nxr`, `bindings/mex`; spec `docs/specs/2026-11-17-interoperability.md`)
 
@@ -323,11 +382,40 @@ Bindings: MATLAB MEX builds when MATLAB is found (`build/bindings/mex/nxr_comput
 **nxr-io in WebAssembly** (2026-11-11): under Emscripten `io/` builds whole, the Brainstorm importers with matio (no HDF5), with SQLite 3.51 from its amalgamation (the schema's views need 3.44 or newer; Emscripten's port is 3.39), zlib from Emscripten,
 the zstd c-blosc carries, and WebAssembly exceptions (io reports errors by throwing). `bindings/wasm-io/smoke.sh` builds it and checks it against the native CLI
 both ways (WASM writes, the CLI reads; the CLI writes, WASM reads).
-**`wasmClient(datastore)`** (`bindings/wasm-io/js/index.mjs`, spec `docs/specs/2026-11-11-wasm-io.md`) is the Cortical Flow Studio's `DataClient` backed by this
-module, so the Studio can use nxr-neuro wherever it uses a data client. Step 1 (done): status, a subject's bundle (`nxr/io/bundle.h`, a port of the Studio's
-`bundleOf`), views, rows, array reads (as stored, cast, sliced) and array create/put/delete; step 2 has subject edit and delete, fields, selections, measurements, operators, manifolds, dictionaries, jobs, `layout` and imports — every call — and dataset create, delete and catalog. Imports run the command line's own `convert` code compiled into the module, with matio (no HDF5: a v7.3 `.mat` is refused by name); and every analysis verb (eigen solve, head model, noise covariance, inverse kernel, PSDs, filters, flow) runs the same way, `compute`, `meeg` and `pipelines` compiled in; and the geometry compute on meshes in memory (the Manifold API: operators, eigenmodes, frames, geodesics, transport…) in the same instance — `nxrNeuro()` gives `compute` and `client(root)` (8.5 MB); the other row writes throw `unsupported` until they are ported.
-`bindings/wasm-io/test/parity.sh <studio checkout>` compares it with the Studio's own `bundleOf`, queries and `read` on a synthetic dataset folder (143 read checks, the stored statistics included), and its writes with the Studio's own service on two copies (118 checks: every database, every file and the drained zarr.json), its imports with the Studio's running the native `nxr-neuro` (9 checks), and its analyses with the native command (18 checks: bit-equal or to the last places; an eigensolve to its tolerance). The checks read a store's keys, not its files, so they hold at store format 51 (files) and 52 (a subject's small keys as rows of its `small_files.sqlite`: `bindings/wasm-io/test/store_keys.mjs`). In Node it
-reads and writes the real disk; the browser's file connection (a folder the user grants) comes later.
+## The JavaScript face (`@nxr/neuro`, `bindings/wasm-io`; spec `docs/specs/2026-11-19-io-service.md`, step 5)
+
+The command line as functions, in Node: `nxr-neuro <verb> <noun> --option VALUE` is `nxr.<verb>.<noun>({ option: VALUE })`, a Promise, for every command of the command table
+(`cli/command_table.cpp`), `nxr.run` and `nxr.open`; and the geometry compute on meshes in memory (`nxr.compute`), in the same module instance. The module is the C++ library
+under Emscripten (SQLite 3.51 from its amalgamation, zlib, the zstd c-blosc carries, WebAssembly exceptions; no HDF5, so a v7.3 `.mat` is refused by name); in Node it reads and
+writes the real disk (NODERAWFS). The browser's file connection (a folder the user grants) comes later. The old `Datastore` class (28 functions, its own SQL) and `wasmClient` are
+removed, with no aliases; the parity tests against the Studio's service went with them.
+
+    import { nxrNeuro } from '@nxr/neuro'
+    const nxr = await nxrNeuro()
+    await nxr.create.dataset({ dataset: 'study/demo' })
+    await nxr.create.subject({ dataset: 'study/demo', name: 'sub-01' })
+    await nxr.add.field({ dataset: 'study/demo', subject: 'sub-01', name: 'w', manifold: 'sensors', values: new Float32Array([0.5, -1.25, 3]) })
+    const r = await nxr.read.field({ dataset: 'study/demo', subject: 'sub-01', name: 'w' })   // r.arrays.values: a Float32Array with .shape and .dtype
+
+- **Names.** The command line's options with dashes as underscores (`--from-sphere` is `from_sphere`; `export bids-derivatives` is `nxr.export.bids_derivatives`); JavaScript needs
+  no trailing underscore (`nxr.import.bids({ from })`, `nxr.import.subject(...)`). The positional argument (`protocol`, `folder`, `file`, `definition`, `templates_dir`) is a key of
+  the options or the first argument (`nxr.read.dataset(folder, { array })`). A flag is a boolean; a repeatable option an array.
+- **Arrays in** are typed arrays (their precision is kept), `{ data, shape, dtype? }`, or the path of a .npy file; the face hands them to the library in memory, under the name the
+  producer records (`values.npy`). `add measurements --measure` is `measure: { NAME: array }`; `compile --set` is `set: { NAME: value }`.
+- **Arrays out.** The command's result object (its `"stage": "result"` line); where the command line writes an array to a file or prints its checksum, the object has `arrays`:
+  typed arrays by name in the stored precision (a 64-bit integer array is a `BigInt64Array`), each with `shape` and `dtype`. `progress` (a function) receives each progress line.
+- **Errors** are an `NxrError` with the library's `.code` (`invalid_argument`, `no_such_row`, `ambiguous`, `already_exists`, `not_found`, `writer_lock_held`, `not_writable`,
+  `schema_version`, ...).
+- **`nxr.run(pipeline, { dataset, subject, from, to | all, replace, dry_run, preset, subjects, into, ...parameters })`**: the time range is required (seconds); `nxr.list.pipelines()`.
+- **`nxr.open(dataset, mode = 'read')`**: a handle with the verbs' functions and the dataset bound (`d.read.field({ subject, name })`, `d.run('psd', { subject, all: true })`,
+  `d.close()`). The library keeps the subject's database open between reading calls (read-only); `'write'` takes the dataset's writer lock now and holds it until `close()`.
+- **One native call** (`command(handle, verb, noun, optionsJson, arrays, progress)` in `bindings/wasm-io/src/binding.cpp`) converts through `bindings/common/commands.h`, the same
+  code as the Python face; the face has no SQL and no logic. `js/commands.mjs` and `js/commands.d.ts` are generated from the command table (`node tools/command_table.mjs`).
+- **Tests.** `bindings/wasm-io/test/run.sh [<wasm build folder>]` builds the module and runs `test/commands.test.mjs` (every command has its function with the table's options, no
+  function without a command, the generated files are current) and `test/dataset.test.mjs` (create, add and read each class, query measurements, compile and run, the writer lock
+  across processes) with `node --test`, on synthetic datasets. `bindings/wasm-io/smoke.sh` still builds the io-only module and checks it against the native command both ways.
+- **What the Cortical Flow Studio used** (`Datastore`: views, rows, key-level array access, the repositories' row-level writes, `layout`, jobs) has no public equivalent by design
+  (spec, Appendix B); the Studio's opt-in `NXR_BACKEND=nxr-neuro` backend is rewritten onto this API in the Studio's own step.
 
 ## The command `nxr-neuro`
 
@@ -394,7 +482,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | command | what it does |
 |---|---|
 | `nxr-neuro run <built-in>` | one of the commands in the table above |
-| `nxr-neuro run <definition> --dataset D --subject S [--<parameter> VALUE ...] (--from T --to T \| --all) [--replace] [--dry-run]` | a shipped definition (`band_bursts`, `global_bursts`, `cortical_band_cells`, `spatial_events`, ...) on a subject |
+| `nxr-neuro run <definition> --dataset D --subject S [--<parameter> VALUE ...] (--from T --to T \| --all) [--replace] [--dry-run]` | a shipped definition (`band_bursts`, `gabor_bursts`, `global_bursts`, `cortical_band_cells`, `spatial_events`, ...) on a subject |
 | `nxr-neuro run FILE.yaml ...` | your own definition, the same options |
 
 A definition's parameters are options, `--<parameter> VALUE` with dashes for underscores (`--space-level 5`, `--band '[8,16]'`; VALUE is read as YAML); `--set NAME=VALUE` is gone (refused, naming
@@ -408,7 +496,26 @@ developer options).
 `nxr-neuro compute` is reserved for applying a node or a graph to arrays and files (a later step of the compute-and-run spec); today it prints that it is not available, and `compute <pipeline>` is refused
 with the `run` spelling.
 
-### `list`: List datasets, subjects, recordings, kernels, results or pipelines
+### `compile`: Compile a pipeline definition without running it
+
+`nxr-neuro compile <definition> [--dataset D --subject S] [--set NAME=VALUE ...] [--signatures FILE.json] [--inputs FILE.json]` expands a definition (its `for:`, `when:`,
+`chain:` and `make:` written out for the parameters), checks every connection before any data, and prints the **compiled graph**: the nodes (name, section, kind, every
+parameter resolved), the edges (from an input or a node's output port to a node's input port), every value's type in the structured JSON form, the halo, the span grid, the
+outputs, and the inputs to bind. Nothing is read beyond metadata and nothing is written. The library function is `nxr::pipelines::face::compile` (one function, one command;
+the Python and WebAssembly faces will call it as `compile(definition, ...)`).
+- With `--dataset` and `--subject` the inputs are found and typed from the subject's stored records exactly as `run` finds them (the dataset is opened read-only), and the graph is
+  checked as `run` checks it: `bind` names the stored node each input that is not streamed is bound to, `streams` the recording the chunk loop reads. A stored field takes the
+  type its record gives (its manifolds, cell, value type, components, unit, time line); a `kind` outside the quantity vocabulary (an imported map's) leaves only its quantity
+  unset, so a node reading a named quantity refuses it and one reading any quantity takes it. A stored manifold given as an input is typed `manifold<name(id)>`, with its kind,
+  size and coordinate system.
+- Without them, `--inputs` gives each input's type (the structured form or the printed form); the graph is checked by the node signatures alone, so a node typed only by its
+  plan (today `signal.psd`, among others) is refused, and `halo` is null.
+- `--signatures` declares nodes another program implements (a renderer's sinks) by their signatures: checked with nxr-neuro's nodes, never run. A definition naming a node that is
+  neither registered nor declared is refused; a declared signature never replaces a registered node.
+
+A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<value> = <printed type>, from <use>)`), exit status 1.
+
+### `list`: List datasets, subjects, the nodes of a subject (by class), recordings, kernels, results or pipelines
 
 | command | what it does | old spelling |
 |---|---|---|
@@ -417,21 +524,88 @@ with the `run` spelling.
 | `nxr-neuro list recordings` | List the recordings of a subject. |  |
 | `nxr-neuro list kernels` | List the inverse kernels of a subject. |  |
 | `nxr-neuro list results` | List the fields and statistics the computations stored for a subject. |  |
+| `nxr-neuro list manifolds` · `fields` · `selections` · `operators` · `statistics` · `dictionaries` · `spaces` · `acquisitions` · `jobs` | The nodes of one class of a subject, one description each (or only the columns asked for), filtered and paged by a cursor (below). | |
 | `nxr-neuro list pipelines` | List the pipelines `run` takes (the hand-wired ones and the definitions) and the steps the definitions are made of. | (`run --list`, refused) |
 
 ### `show`: Show a dataset or a subject
 
 | command | what it does | old spelling |
 |---|---|---|
-| `nxr-neuro show dataset` | Show a dataset: its subjects by kind, its source and its creation date. | `dataset show` |
+| `nxr-neuro show dataset` | Show a dataset: its subjects by kind, its source and its creation date, and the count of each class of node (`nodes`). | `dataset show` |
 | `nxr-neuro show subject` | Show how many manifolds, fields, operators and selections a subject holds. | `subject show` |
 
 ### `read`: Read stored arrays and derived readings
 
 | command | what it does | old spelling |
 |---|---|---|
+| `nxr-neuro read subject` | Everything a subject holds as one index: every node's description, no arrays (below). | |
 | `nxr-neuro read dataset FOLDER` | Read an nxr dataset folder: list its arrays, or read one array or region. | `read` |
 | `nxr-neuro read crossspectrum` | Read coherency, phase, delay or phase-slope index from a stored band-resolved cross-spectrum. | `crossspectrum read` |
+| `nxr-neuro read field` | A stored field by name: its values (a time-resolved field over a stated time range), its manifold and cells. | |
+| `nxr-neuro read statistic` | A stored statistic by name: its values on its axes. | |
+| `nxr-neuro read operator` | A stored operator by name: dense values, or a sparse operator's `data`, `indices`, `indptr`. | |
+| `nxr-neuro read selection` | A stored selection by name: its per-element array, its spans and dictionary, or (`--measure M [--field F]`) its measurement table. | |
+| `nxr-neuro read manifold` | A stored manifold by name: positions, cells, axes, element names, coordinate system; or (`--family NAME`) one labelling. | |
+
+**`read <class>`** (spec `docs/specs/2026-11-19-io-service.md`, 4.1) reads ONE stored node by name or id: `--dataset D --subject S --name N`, the class named by the command (a name of
+another class is refused, naming the command that reads it). Nothing is written: the dataset is opened read-only and every file is left as it was. The result line is the node's
+record (`class`, `name`, `id`, unit, kind, producer, ...) with `arrays` [{name, dtype, shape}]. With `--out FILE.npy` the arrays are written as NumPy files (C order, little-endian,
+the stored precision: a float32 node is read as float32) and the result says where (`files`): one array to FILE itself; several to `<stem>.<array>.npy` (a sparse operator:
+`<stem>.data.npy`, `<stem>.indices.npy`, `<stem>.indptr.npy`, scipy.sparse.csr_matrix's arrays; a manifold: `positions` and `cells_<rank>`; spans: `start`, `stop`, `code`).
+A sparse operator is written as three .npy files rather than one .npz: the command line has one array format (.npy, read and written by io itself; a .npz is a zip archive
+io has no reader for), and the three arrays are exactly what `add operator --data --indices --indptr` takes back.
+- `read field`: a **time-resolved field** (a recording, a source series) needs its time range, `--from S --to S` (seconds or m:ss) or `--all`, and is read through the chunk
+  service one chunk at a time; `--rows I,J` picks rows in order, `--projectors active|none` (a recording's active projectors applied, or the samples as stored), `--shape-only` the
+  description alone. A field with no time line is read whole. The result names the field's `manifold` (and `manifold_id`) and `cell` ("0" vertices, "1" edges, "2" faces).
+- `read manifold`: `positions` [n x 3] and `cells_<rank>`, its `axes`, element `names`, and `coordinate_system` {name, unit, space} (the chart its positions are in).
+
+### Queries over a dataset: `read subject`, `list <class>`, the counts of `show dataset` (`io/src/commands_query.cpp`; spec `docs/specs/2026-11-20-data-layer-queries.md`, 3.1 and 3.2)
+
+nxr-neuro is the data layer: a client (an application's interface, an analysis script) asks it what a dataset holds and gets nxr-neuro's typed description of each node, never a row of the
+catalogue. The schema and the store layout can change without changing these results. Every call opens the dataset read-only and leaves every file as it was; all of it runs in io (no SQL
+in a face), so the command line, Python (`nn.read.subject`, `nn.list.fields`, ...) and JavaScript (`nxr.read.subject`, ...) give the same result.
+
+**`read subject --dataset D --subject S [--classes manifolds,fields,...] [--related]`** returns
+`{"schema": "nxr-neuro-subject@1", "subject": {id, name, kind, template}, "manifolds": [...], "fields": [...], "selections": [...], "operators": [...], "statistics": [...],
+"dictionaries": [...], "spaces": [...], "acquisitions": [...]}`, each array the descriptions of that class in name order (`--classes` keeps only the classes named). A description is named, nested
+and typed: a node is named, never numbered; what it refers to is named by its name (`"manifold": "sensors"`; a node of another subject is `SUBJECT:NAME`); no key is a column of the schema
+(`*_id`, `*_json`). Only complete nodes are described. `id` is the node's identity (stable across calls). **Every typed node carries `type`: the JSON `compile` gives a value** (the type
+system's: `class`, `domain` with its factor manifolds (`kind`, `topology`, `coordinate_system` {space, name, unit}, `n`, `origin`, `spacing`, `unit`), `value` (real, complex, ...), `components`, `unit`,
+`quantity`, `sfreq` for a stream); a manifold's `type` is its manifold term. It is built the way the runner types a stored input, so a client reads a stored node and a compiled graph's value in one
+vocabulary, and the same stored field has the same `type` in `read subject` and in `compile`. The storage words (`value_type`, `cells`, `data_type`, `layout`, and a domain, unit or components of
+their own) are not keys: `type` says them. `kind` is the stored kind (a field's, an operator's, a selection's type, a manifold's type); `type.quantity` is the typed quantity. The other keys:
+
+| class | description (besides `id`, `name`, `kind`, `type`) |
+|---|---|
+| manifold | `label`, `description`, `primary`, `acquisition`, `coordinates` {system, unit, kinds} (the coordinate system its points are in; `kinds` when each point of a line carries a code), `size` {vertices, edges, faces, volumes}, `factors` (a product's, by name), `component_of`, `component_ordinal`, `derived_from`, `derived_by`, `stored`, `provenance` |
+| field | `label`, `acquisition`, `description`, `stored`, `lineage` {derived_from, of_field, of_operator, by_operator, function, contributions [{field, weight}]}, `provenance` |
+| selection | `label`, `acquisition`, `description`, `elements`, `members` (their count), `of_field`, `weights` (one weight a member is stored), `stored`, `dictionary` (its name), `entries` [{code, name, colour, label, description}], `provenance` |
+| operator | `label`, `acquisition`, `description`, `from` and `to` {manifold, selection}, `method`, `parameters`, `shape` {rows, columns, nonzeros}, `stored`, `lineage` {derived_from, of_statistic, inverts, inverse_kind}, `provenance` |
+| statistic | `measure`, `method`, `label`, `acquisition`, `description`, `of_field`, `of_statistic`, `partition`, `members`, `members_skipped`, `dof`, `axes` [{name, manifold, selection, size, unit}], `stored`, `provenance` (its `type` is untyped past its class, value and unit: its domain is typed by the node that made it) |
+| dictionary | `name`, `scope`, `description`, `entries` [{code, name, colour (#rrggbb), label, description, measurement, unit, function, params}], `provenance` (the subject's own, the dataset's, and the app's its selections use); no `type` |
+| space | `name`, `geometry`, `rank`, `parameters`, `description`, `coordinate_systems` [{name, unit, reference, transition, description}]; no `type` |
+| acquisition | `name` (its label), `session`, `task`, `run`, `acq`, `processing`, `split`; no `type` |
+
+`provenance` is {source, comment, created_utc, created_by, modified_utc, modified_by}. `type` is built by the pipelines' face (`face::read_subject`, `face::list_class`); io reads and pages
+the rows (a build without the pipelines gives `"type": null`; a node the type system refuses to type, such as a tangent field with no gauge record, gives `"type": {"refused": "<why>"}`).
+
+`--related` adds `"related": [{subject, kind, relation, description}]`: the subjects this one refers to, with `relation` `template` (the template its anatomy is taken from), `source` and
+`target` (the owners of the manifolds its operators map from and to: a registration's two templates) and `domain` (of the manifolds its fields lie on), each with its description as far as
+the database holds it (a one-database dataset holds the whole subject; a package holds the anchor rows of its template).
+
+**`list <class> --dataset D [--subject S] [--name TEXT] [--kind TEXT] [--on MANIFOLD] [--limit N] [--after CURSOR] [--columns a,b,...]`**, `<class>` one of `manifolds`, `fields`,
+`selections`, `operators`, `statistics`, `dictionaries`, `spaces`, `acquisitions`, `jobs`, returns `{"schema": "nxr-neuro-list@1", "class", "subject", "rows", "next"}`. A row is the class's
+description, exactly as `read subject` gives it, with the `subject` it belongs to first; with `--columns` it holds only the named keys of the description (and `subject`), in that order,
+and a name that is not one is refused with the valid ones. A catalogue of packages is listed one subject at a time (`--subject` is required); a one-database dataset without `--subject` lists
+every subject's nodes. The filters are named options, never SQL: `--name` the nodes whose name contains TEXT (case-insensitive; `%` and `_` are ordinary characters), `--kind` a field's kind, a
+manifold's, selection's or operator's type or kind, a statistic's measure, a dictionary's scope, a space's geometry or a job's kind, `--on` the nodes that lie on the manifold of that name (a
+field on it or on a product of it, a selection on it, an operator from or to it, a statistic with an axis along it, the manifolds built on it: its products, components and derivations).
+Rows come in name order; `--limit N` gives N rows a page and `next`, an opaque cursor (null after the last row), is passed back as `--after` for the following page: every row comes exactly
+once. `list jobs` reads the `job` table (what ran, when, the program and the outcome): rows come from `run` and `import` (see *Writes in pieces, deletes by class and jobs*).
+`list recordings`, `list kernels` and `list results` are unchanged.
+
+**`show dataset`** gains `nodes`: {manifolds, fields, selections, operators, statistics, dictionaries, spaces, acquisitions, jobs}, the count of each class summed over the dataset's
+subjects (as `list` returns them); for a catalogue it opens each package read-only, and one that cannot be opened is named in `nodes_unavailable`.
 
 ### `query`: Query stored measurements
 
@@ -486,7 +660,7 @@ with the `run` spelling.
 | command | what it does | old spelling |
 |---|---|---|
 | `nxr-neuro delete dataset` | Delete a dataset: its folder, inside the folder given by `--datastore`. | `dataset delete` |
-| `nxr-neuro delete subject` | Delete a subject, or one of its nodes, from a dataset. | `subject delete` |
+| `nxr-neuro delete subject` | Delete a subject, or one of its nodes (`--node CLASS:NAME`), from a dataset. | `subject delete` |
 
 ### `compact`: Compact a dataset
 
@@ -498,17 +672,103 @@ with the `run` spelling.
 
 | command | what it does | old spelling |
 |---|---|---|
-| `nxr-neuro recover dataset` | Finish or roll back an interrupted write in a dataset. | `dataset recover` |
+| `nxr-neuro recover dataset` | Finish or roll back an interrupted write in a dataset, and roll back the unfinished writes in pieces. | `dataset recover` |
 
 ### `reduce`: Reduce stored results across subjects
 
 `reduce pyramid` is gone: the group reduce is the definition `run roll_up` (group scope; `--subjects A,B,C`, and `--into` for a catalogue dataset).
 
-### `add`: Add a surface to a subject
+### `add`: Add to a subject what was computed elsewhere
 
 | command | what it does | old spelling |
 |---|---|---|
-| `nxr-neuro add surface FILE` | Add a mesh file (OBJ, PLY or STL) to a subject as a surface. | `surface add` |
+| `nxr-neuro add surface FILE` | Add a mesh file (OBJ, PLY or STL), or `--vertices V.npy --faces F.npy` with `--name`, to a subject as a surface. | `surface add` |
+| `nxr-neuro add field` | Values on a manifold (`--manifold M --values V.npy`), optionally time-resolved on a line (`--time LINE`); its lineage with `--by-operator`, `--contribution SUBJECT:FIELD[:WEIGHT]`, `--producer JSON`. | |
+| `nxr-neuro add selection` | A partition or set (`--members`), a pick (`--indices`) or spans on a line (`--spans`), `--type` naming which; `--of-field`, `--weights V.npy`, `--producer JSON`. | |
+| `nxr-neuro add statistic` | Values on named axes (`--axes NAME:MANIFOLD ...`), with `--measure` and `--method` from the registries, of a field (`--of-field`) or detached. | |
+| `nxr-neuro add measurements` | One value a member of a selection for each measure (`--measure NAME=V.npy ...`), of a field (`--field`) or the members' own. | |
+| `nxr-neuro add operator` | A map between two manifolds, dense (`--values` [to x from]), sparse CSR (`--data --indices --indptr`) or analytic (`--layout analytic --method NAME --params JSON`, no matrix); `--from-selection`. | |
+| `nxr-neuro add points` | A manifold of points: positions [n x 3] or one coordinate each [n]. | |
+| `nxr-neuro add line` | A closed-form line: `--n`, `--spacing`, `--origin`, `--unit`; `--dimension time` (seconds) makes a time line fields can be time-resolved on. With `--coordinates C.npy --dimension eigenvalue [--kinds K.npy]`, a line whose points are not evenly spaced. | |
+| `nxr-neuro add product` | The product manifold of stored factors (`--name N --factors A,B`: a line over time, a surface over time). | |
+| `nxr-neuro add dictionary` | A dictionary of codes of the dataset or a subject (`--name N --scope dataset\|subject --entries E.json`). | |
+
+### `edit`: Edit what a subject holds without touching its arrays
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro edit manifold` | A manifold's label, description and primary flag (`--name N [--primary yes\|no] [--label TEXT] [--description TEXT]`). | |
+| `nxr-neuro edit dictionary` | One entry of a dictionary (`--name N --entry CODE [--name-of] [--label] [--colour] [--description] [--params]`), or every entry (`--entries E.json --replace`). | |
+
+**`add <class>`** (spec `docs/specs/2026-11-19-io-service.md`, 4.2) stores what a user computed, from .npy files, as ONE unit (all of it or nothing) through io's typed writes:
+- the arrays keep their precision (float32 stays float32; integers are stored as int32, refused when a value does not fit; a manifold's coordinates and measurement rows are float64);
+- they are checked against what they lie on, and a mismatch is refused saying what was expected: a field's first axis is its manifold's vertices (or edges, faces by `--cell`), a
+  time-resolved field's second its line's samples, a value type's components trail (complex [.. x 2], vector3 [.. x 3]); a partition's labels one an element; an operator
+  [to x from]; a measure one value a member;
+- each node records a producer naming the command, the program and the input files by NAME (never their paths), with `--description`;
+- a name already used in the subject is refused unless `--replace`, which moves the old node aside (never deletes it: a selection's weights array moves with its values) and says where (`replaced`).
+
+### Writes in pieces, deletes by class and jobs (spec `docs/specs/2026-11-20-data-layer-queries.md`, 3.7 and 3.8; `io/src/commands_pieces.cpp`, `commands_delete.cpp`, `jobs.cpp`)
+
+**`add field | statistic` in three steps** for values too large to hand over at once. The three steps are ONE unit: until the commit the node is not in the subject (`read subject`, `list <class>` and
+`read <class>` do not see it).
+- `--begin` takes the full `--shape N,N,...` of the values (as the one-shot `--values` would be) and the stored `--dtype` (float32, float64, int32, int64, uint8 or bool; no default: precision follows the
+  caller's data), with the command's usual options (`--subject`, `--name`, `--manifold`, `--time`, `--value-type`, `--axes`, ...). Everything the one-shot command checks without the values is checked now
+  (the manifold, the name, the shape, the axes). It prints a write id.
+- `--append --write ID --region START:STOP,START:STOP --values R.npy` writes one region, `[START, STOP)` along each axis, comma separated (`0:5000,0:3`); the values are the region's own shape and the begin's
+  dtype. A region **may not overlap one already written**, and a region given twice is refused as such (a region is written once). Regions may come in any order.
+- `--commit --write ID` stores the node by the one-shot command's own unit, once every value of the shape is covered; otherwise it is refused and names the parts missing (`[2:3, 0:20]`, at most six, and
+  the count). The result is the one-shot command's, with `write` and `regions`. The stored values equal the one-shot's byte for byte (`test_pieces_deletes_jobs`).
+- **Where an unfinished write lives:** in io's staging folder `<dataset>/.writes/<write id>/` (`write.json`: what the command was asked, the shape, the dtype and the regions written; `values.npy`: the values, a
+  sparse file, zeros where nothing is written), outside the database. So the write id works across separate command-line processes. The commit loads the staged values as the one-shot command loads
+  its file (memory: the whole array at the commit; the appends hold one region each).
+- **Rolled back, never stored:** `recover dataset` removes every unfinished write (`writes_rolled_back` in its result; on a catalogue it removes only these, the packages recover when opened); a handle
+  (`nn.open(..., mode="write")`, `nxr.open`) rolls back the writes it began when it closes, and a writable open removes the writes of a handle whose process is gone. A write begun through the command line
+  (no handle) waits for its commit or `recover dataset`.
+- **Handles:** a write begun through a handle belongs to it: another handle or process is refused (`belongs to another handle`). Through the handle `--write` may be left out while it holds one
+  unfinished write (several: refused, naming them).
+- **Refused:** a region outside the shape or with start >= stop; one given twice or overlapping one written; values of another shape or dtype than the region and begin; a commit with regions missing;
+  a write id that is unknown, committed, rolled back, another handle's, or of the other class (a field's write committed as a statistic).
+
+**`delete subject --node CLASS:NAME`** removes one node by its class (manifold, field, selection, operator, statistic or dictionary) and name, since names repeat across classes. io removes what the node owns:
+a manifold's geometry and topology, a field's arrays and the measurements made of it, a selection's members and its weights array, and an operator's by-products (its eigenvalues). The operator a field was made by
+(an inverse kernel, a forward model) is a stored node of its own and is never removed with the field: it is deleted only when named. It **refuses a node other nodes depend on, naming them** (`error: manifold sensors is used by field f1, operator mix: delete those first`):
+for a manifold, the fields, selections, operators, statistics, products and derived manifolds on it; for a field, the fields derived from it, the selections and statistics that name it as theirs and the fields
+mapped from it; for a selection, the operators, statistics and joint selections that read it; for an operator, the fields made by it and the operators derived from or composed of it; for a dictionary, the
+selections that read it. The old `--node NAME` form (a store path, or a name) is kept: a path is unique; a name only when one class holds it, else the delete is refused (`ambiguous`) naming the
+`CLASS:NAME` forms. A catalogue's node is deleted in its package; deleting a whole subject still needs a one-database dataset.
+
+**Jobs.** `run` and `import <what>` leave a row in the dataset's `job` table (a package's, for a file importer), written after the work in its own short unit: `kind` (`run:psd`, `import:recording`),
+`params_json` (the pipeline and its parameters as given; the import's options), `inputs_json` (the nodes a run read), `result_json` (what it stored), `requested_by` (the program), `started_utc`,
+`finished_utc`, `status` (`done`, or `failed` with the `error` message), and the subject. A run whose result was a cache hit did no work and leaves no row; a dry run and a plan refused before any
+data was read leave none; a run made inside another command (a surrogate's draws) leaves none. A request refused as given (a usage error) did not run: no row. A failure while it ran is recorded and the
+error goes on. When the row cannot be written, the outcome of the work stands (a note, or `job_error` in an import's result). The rows are not content: the package hash does not cover them. `list jobs`
+reads them back (filter `--kind run:psd`).
+
+**The options of `add`, dictionaries and `edit`** (spec `docs/specs/2026-11-20-data-layer-queries.md`, 3.3 to 3.6; each is one unit, in `io/src/commands_add.cpp` and `commands_edit.cpp`; the
+refusals store nothing). Each option is stored in a column the schema already has:
+- **`add line --coordinates C.npy --dimension eigenvalue --unit U [--kinds K.npy]`** stores a line whose points are not evenly spaced: the coordinates [n] (float32 or float64, stored as float64)
+  must be strictly increasing, else refused; its topology is a path and its geometry stored, in a coordinate system of the dimension's name (a line space). `--kinds` is one integer code a point,
+  stored beside the coordinates and named in the manifold's producer record. Only `eigenvalue` (an operator's spectrum) is accepted: the layout places a line by its role (time, frequency or
+  eigen), and a field on the product of a line with another line needs a folder; `read manifold` gives `positions` (the coordinates) and `kinds`; `read subject` describes the line with
+  `coordinates` {system, unit, kinds}.
+- **`add product --name N --factors A,B`** makes the product manifold of stored factors in axis order; a factor that does not exist is refused (`no_such_row`), as is a name in use or factors that
+  already make a product under another name. A field added on a factor with `--time` makes the same product.
+- **`add field --by-operator NAME`** records the operator that made the field (its lineage `by_operator`); **`--contribution SUBJECT:FIELD[:WEIGHT]`** (repeatable) names the fields a mapped field is
+  made from (the subject by name, in the dataset; the weight a trailing number, default 1) as its `contributions`; **`--producer JSON`** adds the maker's facts to the producer record (not under the
+  keys the command records itself: `command`, `program`, `inputs`, `output`, `cache`).
+- **`add selection --of-field NAME`** names the field (a recording) the selection belongs to; **`--weights W.npy`** is one weight a member (a set's labelled members, the picks, the spans), stored beside
+  the selection and named in its parameters (`weights`; `read selection` gives the array `weights`, `read subject` the flag `weights`); **`--producer JSON`** as above.
+- **`add operator --layout analytic --method NAME [--params JSON] [--from-selection NAME]`** stores an operator by its method, with no matrix (`stored` false, no array to read); `--from-selection` names the
+  selection of the from manifold it reads, for any layout.
+- **`add dictionary --name N --scope dataset|subject [--subject S] --entries E.json`**: the entries are a JSON list (the file, or the text itself; in Python and JavaScript a list of objects) of
+  `{code, name, label, colour, description, params}`; codes are unique and a colour is `#rrggbb`, else refused; a dictionary of that name and scope that exists is refused. `--subject` opens the unit
+  (required for a subject scope and for a catalogue of packages; a one-database dataset's dataset-scope dictionary needs none). The label and the description are kept with the entry's attributes; `read
+  subject` and `list dictionaries` give each entry as `{code, name, colour, label, description, measurement, unit, function, params}`.
+- **`edit dictionary --name N [--subject S] --entry CODE [--name-of TEXT] [--label TEXT] [--colour #rrggbb] [--description TEXT] [--params JSON]`** changes one entry (an empty text clears a label or description);
+  **`--entries E.json --replace`** replaces every entry, and refuses to drop a code a selection reads. The subject's dictionary of that name is found first, then the dataset's; the app's are the program's own and are not edited.
+- **`edit manifold --name N [--primary yes|no] [--label TEXT] [--description TEXT]`**: making a surface primary clears the previous primary surface of the subject in the same unit; only a surface is
+  primary, else refused. A manifold's `label` and `description` are in `read subject` (`description` is the manifold's comment).
 
 Every pipeline command writes JSON lines (progress events, then one `"stage": "result"` line with `"cache": "hit" | "miss"`); a rerun with the same options is a cache hit, and `--replace` recomputes. Details of the dataset commands and of the format: `io/README.md`.
 
@@ -861,7 +1121,22 @@ reference is nxr's `nxr/pipelines/` (`definition.py`, `registry.py`, `inputs.py`
   **`shape`: `morlet` (the DEFAULT) or `meyer`.** Morlet is the project's fixed-band rule (nxr `vortex.morlet_gain`, `bands_fixed`): a Gaussian in frequency,
   unit peak, centred on the band's ARITHMETIC centre (lo + hi)/2, the band's width hi − lo its full width at half maximum (σ = (hi − lo)/(2√(2 ln 2)); `filterbank::morletBand`),
   taken to taps as any gain; Re z is the band-passed signal. `meyer` (compact edges, `half_width` octaves, default 1/3) is the named option for analyses that split power across
-  bands: Morlet bands overlap and do not add up. Both options are in the step's parameters, so in the run's provenance and cache key. Not changed: `crossspectrum --estimator analytic`
+  bands: Morlet bands overlap and do not add up. Both options are in the step's parameters, so in the run's provenance and cache key.
+  **The phase current's `discretisation`** (`signal.field_form` with `form: phase_current`): `vertex_gradient` (the DEFAULT, the reference: nxr core_phase, Im(z̄ ∇z) with the
+  mesh's vertex gradient on the tangent plane) or `intrinsic_edges` (the same quantity on the edges of the surface's intrinsic Delaunay complex, Im(z̄_tail z_tip), back at the
+  vertices by `sharp`; the complex is built once in preparation with `eigen solve`'s default options). The same ports and measures either way; the option is in the provenance
+  and the cache key; any other form refuses it.
+- **`signal.phase_split`** (`form_steps.cpp`; spec `docs/specs/2026-11-19-intrinsic-form-nodes.md`): a complex scalar field on the surface a Hodge-Dirac package is solved on (the
+  glued surface of a cortex: `meeg.apply_kernel` with `glued`) and the package → per sample, at the vertices: `potential` (the exact part's potential φ, d0 φ = the exact part of the
+  1-form; for a phase step, a timing map, φ / ω), `stream` (the coexact part's stream function), `propagation` (−∇φ, vector3), and the ⋆1 energies `one_form_energy`, `exact_energy`, `coexact_energy`,
+  `exact_misfit_energy` (`splitPhase`, `vertexEnergy`) of the 1-form the parameter **`one_form`** names: `phase_gradient` (the DEFAULT, the reference: the earlier lab design used phase lags;
+  `nxr::signal::phaseGradient(complex, x)`, the phase step on the intrinsic edges: exact part = timing, coexact part = rotation) or `phase_current` (`nxr::signal::phaseCurrent(complex, x)`,
+  Im(conj(x_tail) x_tip): the exact part is the curl-free part of the current, not a timing); any other value is refused at the check. `one_form` is a step parameter, so it is in the provenance and
+  the cache key. The provenance record also holds `boundary`: `none` (closed surface) or `neumann_potential_dirichlet_stream` (open surface: Neumann potential, Dirichlet stream function), a fact of the method.
+  The 1-forms stay inside the node. **Phase-wrap limit:** a phase step per edge is taken in (−π, π], so a wave with more than half a cycle per edge aliases; nothing in the output flags it. The runner binds the package's 2-form parts
+  and its complex's options (mollify, flip_eps, star1_floor, from the solve's provenance) with its eigenvectors, in preparation; the node rebuilds the same complex and refuses
+  2-form parts of another triangulation. The shares are measurements: each energy reduced (`measurement.reduce`, measure `sum` under the energy's name) over any partition,
+  `exact_share`, `coexact_share`, `residual_share`, `exact_misfit_share` derived at read (over a tile the parts are not orthogonal: a share may pass 1 there). Not changed: `crossspectrum --estimator analytic`
   keeps its Meyer band. Morlet is not compact: its tail leaks across DC and Nyquist for a wide band near either (the band is still checked below Nyquist). The definitions
   `cortical_band_cells` (lists) and `global_bursts` (lists) set `shape: meyer` (scale selection splits power across bands); `global_bursts`, `band_bursts`, `cortical_band_cells`,
   and `cortical_band_cells_current` take the new default, so their stored numbers differ from before 2026-11-14 (rerun with `--replace`).
@@ -907,7 +1182,19 @@ A `PortType` says what a port carries before any data flows. Beside C1's members
 | `spin`, `gauge` | G5: 0 scalar, 1 tangent vector, n an n-RoSy, -1 a conjugate; the gauge of a tangent value (empty for a scalar and for an embedded `vector3`) |
 | `transition` | an operator of kind `transition`: a change of coordinate system of one space |
 
-The printed form (`print`, `parse_type`) is the one used by messages and `--dry-run`: `field<cortex(kernel) × frames(tiling); complex vector3; current; band 8-12 Hz morlet; level tiles@5>`. A manifold prints as `label(id)`, a made one `label(~use.output)`, an anonymous one `#n`, a restriction `M|selection`, a member set `members(P)`, a derived one `relation(M)`. `unify` binds the variables of a signature to the terms they meet; its only rules are equality of ids, anonymous numbers, member sets, restrictions and derived terms, a variable's role (a time variable binds a time line only), and one subsumption at an operator's source (a kernel from a restriction reads the whole manifold, or the same restriction).
+The printed form (`print`, `parse_type`) is the one used by messages and `--dry-run`: `field<cortex(kernel) × frames(tiling); complex vector3; current; band 8-12 Hz morlet; level tiles@5>`. A manifold prints as `label(id)`, a made one `label(~use.output)`, an anonymous one `#n`, a restriction `M|selection`, a member set `members(P)`, a derived one `relation(M)`. `unify` binds the variables of a signature to the terms they meet; its only rules are equality of ids, anonymous numbers, member sets, restrictions and derived terms, a variable's constraints (a unit: a time variable binds a line in seconds; raw samples: not tiled from another line; a topology: path or cycle), and one subsumption at an operator's source (a kernel from a restriction reads the whole manifold, or the same restriction).
+
+**The structured JSON form** (`nxr/graph/type_json.h`: `to_json`, `port_type_from_json`) carries what the printed form leaves out, for programs that build on the types:
+`{"class", "value", "complex_parts", "components", "domain": {"factors": [manifold, ...], "cells"}, "target", "axis", "streamed", "sfreq", "rows", "quantity", "unit",
+"resolution": {"band", "band_shape", "ladder", "levels", "spatial_shape"}, "nonlinear", "spin", "gauge", "selection", "of", "transition", "typed", "text"}`, a manifold as
+`{"form", "key", "label", "kind", "topology", "coordinate_system": {"space", "name", "unit"}, "n", "spacing", "origin", "rate", "unit", "samples", "made_from": {"relation", "of"}, "of", "by", "irregular", "text"}`. A line has no role: it is a 1-D mesh with a `topology` (`path` or `cycle`), a coordinate (system, origin, spacing, unit) and, when made from another line, `made_from` (`tiled` for a frame line, `transform` for a frequency line). A signature that sends `role` is refused. A string is
+read as the printed form. The two forms are held equivalent by `test_graph_type_json`: a type read back from its JSON prints as the type did. `facts` are never part of it.
+
+**External signatures** (`external_nodes`): a node another program implements is declared as JSON in the terms of the registered signatures:
+`{"nodes": [{"name": "render.surface", "kind": "array", "move": "pointwise", "inputs": [{"port": "field", "class": "field", "on": [{"form": "variable", "key": "S", "kind": "surface"}],
+"value": ["real"], "components": 1}, {"port": "surface", "class": "manifold", "on": ["S"]}], "outputs": [], "parameters": [{"name": "colormap", "default": "viridis", ...}]}]}`.
+An input pattern takes a class, its domain's factors (`on`; an operator's `to`), value types, `streamed`, `linear`, `optional`, `over`, quantities and `components`; a variable's
+`kind` binds only a manifold of that kind. Such a node is checked by the shared checker like any other and refuses to run.
 
 ### Signatures and the shared checker (`signature.h`, `checker.cpp`, `signatures.cpp`; step T2)
 
@@ -961,6 +1248,60 @@ events, so every reader of `<rec>_events` reads it.
   others; the same with another chunk width (8e-8); a bad span's tiles NaN; `combine mean`; a rerun a hit; a band that is no level's refused.
 - **What it cannot resolve:** the time resolution is the band's tile (alpha at 1200 Hz: 0.85 s), and the band's response can carry an edge into the next
   tile; the band is an octave level, so 8–12 Hz is no band here; a burst on a sensor says nothing about where in the cortex it is.
+
+## Gabor bursts: bursts in time matched by atoms of free width (`run gabor_bursts`; spec `docs/specs/2026-11-20-gabor-bursts.md`)
+
+**Why.** A burst is a transient oscillation with a centre, a frequency, a duration and an amplitude. A band's envelope (`band_bursts`) ties the time resolution to the band: a short and a long
+burst at one frequency are read through the same filter. A unit-energy Gabor atom ψ = (πσ²)^(−1/4) e^(−(t−t0)²/2σ²) e^(i2πf(t−t0)) with a FREE width σ is the matched filter of a Gaussian burst
+A e^(−(t−t0)²/2s²) cos(2πf(t−t0) + φ): |W| = |∫ x ψ*| is largest at σ = s, where |W| = (A/2) π^(1/4) √σ. So one peak of |W| over (t0, f, σ) gives the burst's centre, frequency, width (FWHM 2.355 σ),
+cycles, amplitude A = 2|W| / (π^(1/4) √σ) and phase, in physical units, and two bursts at one frequency are told apart by σ.
+
+- **The method** (the default reproduces the reference detector the spec ports, written in Python; chosen 2026-11-20):
+  - the atoms: the time filter bank's `Family::Gabor` (`timefilterbank.h`: one member an atom, gain G times the unit-energy atom, `Normalisation::UnitEnergy` recorded on the bank; analytic
+    only; not a frame), on the grid `gaborGrid`: widths σ_min · 2^(k/per_octave) up to σ_max, at each width the band's frequencies widened by one σ_f = 1/(2πσ) in steps of σ_f/2, f·σ ≥ min_f_sigma.
+    The node `signal.gabor` (accumulating, with the halo) gives |W| on every atom, EACH WIDTH AT ITS OWN RATE (the reference's): one spectrum of the block, then one width at a time, each atom read on
+    its own bins at every D-th sample (`nxr::signal::wtDecimated`: exactly the full-rate values there), D the largest power of two keeping at least 3 samples a σ; each width's |W| is a series on its own
+    frames, a line tiled from the recording's samples (frame j at sample j·D). Rows atom-major (row = atom × channels + channel), one row group a width. `decimation: none` reads every width at every sample (for checks).
+  - each atom's own LEVEL: the median and robust SD (1.4826 × MAD) of its |W| over its width's frames (`measurement.summarize`, extended to row groups each over its own members): a statistic, never
+    computed inside a node.
+  - the candidates (`select.events.peaks`): per channel and width, the local maxima of |W| in (frequency × frame) (3 × 3, the box clipped at the edges) at least median + k × SD; frames within
+    max(edge, 3σ) of the run's ends left out. A candidate's time is its frame's instant.
+  - the fit (`select.gabor_fit`, on the channel's samples, `collect`, as `select.risefall`): a parabola through log|W| in frequency (± σ_f/2) and in log width (× 2^(±1/8)), twice, by the inner
+    product itself (`nxr::signal::gaborFit`); then t0, f, σ, FWHM, cycles at half maximum (2.355 σ f), amplitude, phase, |W|, the width test (`atom_width_peak`: |W| larger than at σ × 2^(±1/per_octave),
+    inside the grid's widths) and R² (`atom_r2`) of the atom against the band's signal in its half-maximum window.
+  - the gates (`select.events.spans` rule `keep_where`, extended with `x` and `where`): a peak along width, at least `min_cycles` (2) cycles, f inside the band; then the suppression
+    (`select.events.suppress`: strongest |W| first; an atom within the larger time resolution σ and the larger frequency resolution 1/(2πσ) of a kept one on its channel is dropped); then R² ≥ `min_r2` (0.7).
+  - the edges (`select.events.spans` rule `edges`): `tangent` (the default): the envelope of the channel read by an analytic Morlet member at the burst's f, width σ_r = max(σ/2, 3/(2πf)), over
+    t0 ± max(3 s, 6σ); its peak inside the half-maximum window; the troughs either side (the first local minimum below half the peak, else the lowest point within 1 s); onset and offset where the
+    tangents at the steepest rise and fall meet the troughs' levels (`nxr::select::tangentEdges`). `half_max`: t0 ∓ FWHM/2. A burst whose envelope has no such rise and fall has no tangent edges and is
+    counted, not kept.
+  - the global windows (`select.events.spans` rule `union`): the bursts of every channel joined where they overlap in time and in frequency (f ± 1/(2πσ)), chained (`nxr::select::overlapGroups`);
+    each window records its bursts. `overlap: time` joins by time alone.
+- **Defaults** (the reference detector's): band 8–35 Hz, σ 25–640 ms, 4 widths an octave, min_f_sigma 0.5, k = 4, edge 0.5 s, 2 rounds of the fit, 2 cycles, R² ≥ 0.7 against the band's signal
+  (`r2_shape: morlet_ladder`, the reference's: the recording through Σ g² of the members of a Morlet ladder, 1–64 Hz, 8 an octave, whose centres lie in the band, by `signal.band_filter`; `meyer` and `morlet` are
+  named options), tangent edges, windows by time-frequency overlap, each width at its own rate. The halo is the widest atom's reach down to `tolerance` (1e-6) of its response, so the result does not depend on the
+  chunk size. Every option is a parameter, recorded in the provenance and the cache key.
+- **Stored:** `gabor_bursts.candidates.<recording>` (spans, type `atom`: every candidate, its frame) and `atoms` over them (`atom_time`, `atom_frequency`, `atom_width`, `atom_fwhm`, `atom_cycles`,
+  `atom_amplitude`, `atom_phase`, `atom_coefficient`, `atom_width_peak`, `atom_r2`, [channels × candidates], NaN off a candidate's channel); `bursts` (spans, type `burst`, [onset, offset) on the channel)
+  and `burst_values` over them (the atom's measures, `onset`, `offset`); `windows` (spans, type `window`, no channel; each window's bursts in its params). The measures are in the registry (codes 1067–1078).
+- **Memory, stated and checked.** One block of `signal.gabor` holds channels × (the padded block × 8 + its spectrum × 16) bytes, then one width at a time: one atom's decimated coefficients and the
+  width's |W| on the block's frames (atoms of the width × channels × the block's frames × 4). Before any data flows the node computes this for the largest chunk (2^15 samples and the halo) and refuses a
+  block over `budget` (1 GB by default), saying the size and the remedy (fewer channels, a narrower band, a smaller σ_max, a shorter chunk). Worked: 270 channels at 1200 Hz, the default grid
+  (8–35 Hz, 1218 atoms a channel): 0.50 GB a block (13–30 Hz, 804 atoms: 0.49 GB); every width at the recording's rate it would be about 108 GB. The run also holds each width's |W| over the span:
+  Σ over widths of atoms × channels × (rate / decimation) × 4 bytes a second: 30.7 MB per second of recording at 270 channels and 1200 Hz on the default grid (21.7 MB on 13–30 Hz), so a 5-minute span
+  holds about 9.2 GB; `collect` holds the span's samples twice besides. That rate times the span asked, plus the block, is checked against `budget` on the first block, before anything is held, and
+  refused with both figures, the longest span that fits and the remedies (a shorter span, fewer channels, a narrower band, a smaller σ_max, a larger `budget`). A level computed without holding the
+  series is not built (#189).
+- **Tested** (`test_gabor`, `test_gabor_golden`, `test_gabor_bursts`, synthetic): the decimated transform equals the full rate at every D-th sample (1e-12); against the reference detector (`golden/gabor_golden.txt`, its generator `gen_gabor_golden.py`; the reference's folder in
+  `NXR_GABOR_REFERENCE`): the grid (6e-14), the fit of each of its candidates (f, σ, amplitude, phase, |W| to 5e-13), its burst test, its merge (the same atoms, in order) and its tangent edges (1e-9 s); the grid; unit energy; |W| = (A/2) π^(1/4) √σ for a matched burst (A recovered to 1e-6) and the inner product equal to the bank's
+  transform; a planted burst's f, σ, A and φ recovered from the nearest grid atom; two bursts at one frequency told apart by σ; the width test; R²; the local maxima, the suppression, the tangent edges
+  of a Gaussian (t0 ∓ 2σ), the groups by overlap. In the pipeline: five planted bursts on three channels recovered once each within their resolution; every burst passes the gates; a burst narrower than
+  the ladder is a candidate and no burst; a stricter R² keeps fewer; half-maximum edges t0 ∓ 1.1775 σ; the same bursts to the last bit with chunks of 3000 samples; each width at its own rate gives the bursts every width at the
+  recording's rate gives, within their resolution; a block over the budget refused at the plan with its size, a run whose series over the span is over it refused with the longest span that fits; the windows by time-frequency overlap and by time.
+- **What it cannot resolve:** an atom's time and frequency are known to its own resolution (σ and 1/(2πσ)): two bursts closer than that are one atom, and a burst's time is its frame's instant, within σ/6 (the
+  fit refines frequency and width, not time). A burst that is not Gaussian in its envelope is matched by the nearest width; R² says how much of the band's signal one atom explains there. A burst
+  outside the widths (narrower than σ_min, wider than σ_max) fails the width test. The levels are each atom's own over the run's span, so a recording full of bursts raises them. Per channel only:
+  a burst on a sensor says nothing about where in the cortex it is; the spatial adjustment of the reference detector (its heat-kernel blobs on the sensor graph) is not built.
 
 ## Patches on a static cortical map (`run patches`; `compute/include/nxr/regions.h`; spec `docs/specs/2026-11-13-cortical-events.md`, phase 1)
 

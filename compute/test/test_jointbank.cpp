@@ -215,7 +215,7 @@ static void morletMeyer() {
     const MatrixXd C = noise(200, 256, 11);     // [K x T] mode series, T = nfft
     const auto W = nxr::signal::jwt(j, lam, C);
     EXPECT(static_cast<int>(W.size()) == j.size() && W[0].rows() == 200 && W[0].cols() == static_cast<Eigen::Index>(nfft), "jwt: one [K x nfft] block per member, on the series handed in");
-    EXPECT(throws([] { fb::NamedBank b; b.family = "gabor"; fb::graphBank(b); }) && throws([] { tb::familyOf("gabor"); }) && throws([] { tb::sidesOf("both"); }), "an unknown family or side is refused");
+    EXPECT(throws([] { fb::NamedBank b; b.family = "gabor"; fb::graphBank(b); }) && throws([] { tb::familyOf("gaussian"); }) && throws([] { tb::sidesOf("both"); }), "an unknown family or side is refused");
     fb::NamedBank mh; mh.family = "mexhat"; mh.range = fb::Range::fromLmax(2.0); mh.options.numFilters = 4;
     EXPECT(fb::graphBank(mh).size() == 5, "mexhat by name: the scaling function + 4 wavelets");
 }

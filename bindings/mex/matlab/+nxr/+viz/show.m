@@ -35,7 +35,7 @@ function h = show(M, fieldpath, varargin)
             end
             h = nxr.viz.scalar(V, F, val.eigenvectors(:,k), ...
                 'Title', sprintf('%s mode %d', fieldpath, k), extra{:});
-        elseif isfield(val, 'positions')                % isoline / stripe / streamline
+        elseif isfield(val, 'positions')                % isoline / streamline
             h = nxr.viz.segments(val.positions, 'Surface', {V, F}, 'Title', fieldpath, varargin{:});
         else
             error('nxr:viz:show:struct', ...

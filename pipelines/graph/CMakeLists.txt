@@ -16,6 +16,7 @@ add_library(nxr_graph
   src/graph.cpp
   src/execution.cpp
   src/compute.cpp
+  src/type_json.cpp
 )
 target_include_directories(nxr_graph PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(nxr_graph PUBLIC nlohmann_json)
@@ -41,6 +42,9 @@ if(NXR_NEURO_BUILD_TESTS)
   add_executable(test_compute_types test/test_compute_types.cpp)
   target_link_libraries(test_compute_types PRIVATE nxr_graph)
   add_test(NAME test_compute_types COMMAND test_compute_types)
+  add_executable(test_graph_type_json test/test_graph_type_json.cpp)   # the structured JSON form of a type against the printed form; external node signatures checked with the built-in nodes
+  target_link_libraries(test_graph_type_json PRIVATE nxr_graph)
+  add_test(NAME test_graph_type_json COMMAND test_graph_type_json)
 endif()
 
 # CI runs a pull request only the tests of the libraries it touches (.github/workflows/ci.yml): every test added here carries this label.

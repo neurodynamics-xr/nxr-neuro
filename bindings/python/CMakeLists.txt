@@ -1,7 +1,7 @@
 # ── nxr_neuro._core: the nanobind module behind the Python package (the wheel) ───────────────────────────────────────────────────────────────
 #
 # A binding shell, as the MEX and Node ones are (a face, as the command line is): the pure functions (nxr_compute), the pure file formats (nxr_io_formats) and the pipeline
-# level (nxr_pipelines: `run`, the lists and `read`, through pipelines/face.h; the dependency rule's 2026-11-17 amendment, docs/reference.md). Built only when asked (-DNXR_NEURO_BUILD_PYTHON=ON, which scikit-build-core does).
+# level (nxr_pipelines: `run` and every command of the command line, through pipelines/face.h and io's task commands; the dependency rule's 2026-11-17 amendment, docs/reference.md). Built only when asked (-DNXR_NEURO_BUILD_PYTHON=ON, which scikit-build-core does).
 # The stable ABI (one wheel per platform for Python >= 3.12) is used when the Python is new enough.
 find_package(Python 3.12 REQUIRED COMPONENTS Interpreter Development.Module OPTIONAL_COMPONENTS Development.SABIModule)
 find_package(nanobind CONFIG REQUIRED)
@@ -9,9 +9,12 @@ find_package(nanobind CONFIG REQUIRED)
 nanobind_add_module(nxr_neuro_core NB_STATIC STABLE_ABI NB_DOMAIN nxr
   src/module.cpp
   src/compute.cpp
+  src/geometry.cpp
+  src/operators.cpp
   src/access.cpp
   src/formats.cpp
-  src/pipeline.cpp)
+  src/pipeline.cpp
+  src/commands.cpp)
 set_target_properties(nxr_neuro_core PROPERTIES OUTPUT_NAME _core)
 target_compile_features(nxr_neuro_core PRIVATE cxx_std_17)
 target_include_directories(nxr_neuro_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../common)   # what the Python and MATLAB faces share for the wavelet functions

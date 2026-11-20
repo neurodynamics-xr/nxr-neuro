@@ -1,5 +1,5 @@
 # nxr-neuro: the one command line. Every `nxr-io` verb (dataset · subject · surface · convert · read) and the pipelines (`run eigenmodes`, `noisecov compute`, `inverse compute`).
-add_executable(nxr-neuro main.cpp registry.cpp output.cpp command_table.cpp nxr_neuro.cpp read_command.cpp convert_command.cpp package_command.cpp import_command.cpp export_command.cpp)
+add_executable(nxr-neuro main.cpp registry.cpp output.cpp command_table.cpp nxr_neuro.cpp read_command.cpp convert_command.cpp package_command.cpp import_command.cpp export_command.cpp node_command.cpp)
 target_link_libraries(nxr-neuro PRIVATE $<IF:$<TARGET_EXISTS:nxr_pipelines>,nxr_pipelines,nxr_io>)
 target_compile_definitions(nxr-neuro PRIVATE NXR_NEURO_VERSION="${PROJECT_VERSION}")
 target_include_directories(nxr-neuro PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/extern)   # CLI11 (vendored, BSD-3-Clause)

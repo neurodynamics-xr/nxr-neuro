@@ -15,12 +15,16 @@
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "geometrycentral/surface/intrinsic_geometry_interface.h"
+#include "geometrycentral/surface/manifold_surface_mesh.h"
 
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <string>
 
 namespace nxr::operators::hodgedirac {
+
+namespace gcs = geometrycentral::surface;
 
 // The Hodge–Dirac's triangulation is THE one intrinsic construction (nxr/geometry/intrinsic_surface.h, on geometry-central): the input's edge lengths, mollified
 // (`mollify`), the mixed-Voronoi mass of the mollified input (⋆0), flipped to Delaunay (`flipEps`). The surface's own triangulation is used when it is
@@ -45,6 +49,7 @@ HodgeDirac assemble(const geometry::SurfaceArrays& surface, double star1Floor, d
     }
     geometry::IntrinsicSurface& surf = *sp;
     HodgeDirac h;
+    h.star1Floor = star1Floor > 0.0 ? star1Floor : 0.0;
     h.record = surf.record();
     h.mollifyEps = h.record.epsilon;
     const std::vector<double> mass = surf.massDiagonal();
@@ -61,17 +66,17 @@ HodgeDirac assemble(const geometry::SurfaceArrays& surface, double star1Floor, d
     // ⋆1 (the cotan weights of a Delaunay triangulation) is non-negative, and the pencil's mass carries it (and the 2-form ladder its inverse): an edge whose weight is zero within rounding (exactly cocircular
     // quads, as on a symmetric mesh: -1e-17 or 0) makes the pencil indefinite and the shift-invert factorization fail. With no floor asked for, such an edge is raised to ROUNDING level (1e-9 of the mean weight),
     // counted in `star1Clamped` (stored with the solve); a floor the caller names (Rheome's 1e-6) is applied as before and replaces it.
-    if (!(star1Floor > 0.0) && nE > 0) {
-        double mean = 0.0;
-        for (int e = 0; e < nE; ++e) mean += std::abs(h.star1(e));
-        mean /= nE;
-        const double tiny = 1e-9 * mean;
-        for (int e = 0; e < nE; ++e)
-            if (h.star1(e) < tiny) { ++h.star1Clamped; h.star1(e) = tiny; }
-    }
-    if (star1Floor > 0.0)
-        for (int e = 0; e < nE; ++e)
-            if (h.star1(e) < star1Floor) { ++h.star1Clamped; h.star1(e) = star1Floor; }
+    // A BOUNDARY edge's weight below −(rounding level) is GENUINELY negative (an obtuse angle opposite it; boundary edges never flip): counted in
+    // `star1Negative`, whatever is done with it, so that a mode solve can refuse it (requireComplete). An interior edge was flipped to Delaunay: what is
+    // left negative there is within the flip tolerance (`flipEps`), rounding by construction.
+    const double tiny = star1RoundingLevel(h.star1);
+    for (gcs::Edge ed : surf.mesh().edges())
+        if (ed.isBoundary() && h.star1(static_cast<Eigen::Index>(ed.getIndex())) < -tiny) ++h.star1Negative;
+    h.star1Clamped = raiseStar1(h.star1, star1Floor);
+    auto& mesh = surf.mesh();
+    h.eulerCharacteristic = nV - nE + nF;
+    h.boundaryLoops = static_cast<int>(mesh.nBoundaryLoops());
+    h.genus = (2 - h.eulerCharacteristic - h.boundaryLoops) / 2;
     h.complex = surf.complex();
     h.faces.resize(nF, 3);
     for (int f = 0; f < nF; ++f) for (int k = 0; k < 3; ++k) h.faces(f, k) = h.complex.faces[static_cast<size_t>(3 * f + k)];
@@ -94,6 +99,30 @@ HodgeDirac assemble(const geometry::SurfaceArrays& surface, double star1Floor, d
     h.M.resize(N);
     h.M << h.star0, h.star1, h.star2;
     return h;
+}
+
+double star1RoundingLevel(const Eigen::VectorXd& star1) {
+    return star1.size() > 0 ? 1e-9 * star1.cwiseAbs().mean() : 0.0;
+}
+
+int raiseStar1(Eigen::VectorXd& star1, double star1Floor) {
+    const double lo = star1Floor > 0.0 ? star1Floor : star1RoundingLevel(star1);
+    int raised = 0;
+    for (Eigen::Index e = 0; e < star1.size(); ++e)
+        if (star1(e) < lo) { ++raised; star1(e) = lo; }
+    return raised;
+}
+
+void requireComplete(const HodgeDirac& h) {
+    if (!(h.genus == 0 && h.boundaryLoops <= 1))
+        throw Error(ErrorCode::ClosedMeshRequired,
+                    "Hodge–Dirac modes: the mesh has genus " + std::to_string(h.genus) + " and " + std::to_string(h.boundaryLoops) +
+                    " boundary loops; the exact/coexact split builds no harmonic 1-forms, so its modes are complete only on a closed genus-0 surface or a "
+                    "disc (one boundary loop)");
+    if (h.star1Negative > 0 && !(h.star1Floor > 0.0))
+        throw Error(ErrorCode::GeometryDegenerate,
+                    "Hodge–Dirac modes: " + std::to_string(h.star1Negative) + " edges have a negative cotan weight (an obtuse angle opposite a boundary edge, "
+                    "which no flip fixes); make the boundary triangles acute, or name a floor (star1Floor) to accept them");
 }
 
 Eigen::SparseMatrix<double> massMatrix(const HodgeDirac& h) {
@@ -175,6 +204,7 @@ HodgeLadders hodgeLadders(const Eigen::SparseMatrix<double>& L0, const Eigen::Sp
 EigenResult hodgeDiracModes(const HodgeDirac& h, int count, bool bothSigns, const HodgeSolveOptions& opt,
                             const CancellationToken& cancel, const ProgressObserver& progress) {
     if (count < 1) throw Error(ErrorCode::EigensolveInvalidK, "hodgeDiracModes: count must be >= 1");
+    hodgedirac::requireComplete(h);
     const int nV = h.nV, nE = h.nE, nF = h.nF, N = nV + nE + nF;
     Eigen::SparseMatrix<double> s1(nE, nE), s1inv(nE, nE);
     s1 = h.star1.asDiagonal();

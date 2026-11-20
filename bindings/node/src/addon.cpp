@@ -1373,39 +1373,7 @@ Napi::Value SmoothVertexJS(const Napi::CallbackInfo& info) {
     });
 }
 
-// ─── Stripe patterns ────────────────────────────────────────
 
-Napi::Value StripesJS(const Napi::CallbackInfo& info) {
-    Napi::Env env = info.Env();
-    return nxrSyncCall(env, [&]() -> Napi::Value {
-        const geom::SurfaceArrays surface = surfaceArg(info);
-        Eigen::VectorXd raw = vectorArg(info[1], "vertexFieldRaw");
-        double freq   = info[2].As<Napi::Number>().DoubleValue();
-        bool   connect = info.Length() > 3 ? info[3].As<Napi::Boolean>().Value() : true;
-
-        auto r = geom::parametrization::stripes::compute(surface, raw, freq, connect);
-        auto obj = Napi::Object::New(env);
-        obj.Set("positions",    matrixToFloat64Array(env, r.positions));
-        obj.Set("segmentCount", Napi::Number::New(env, r.segmentCount));
-        return obj;
-    });
-}
-
-Napi::Value StripesFreqJS(const Napi::CallbackInfo& info) {
-    Napi::Env env = info.Env();
-    return nxrSyncCall(env, [&]() -> Napi::Value {
-        const geom::SurfaceArrays surface = surfaceArg(info);
-        Eigen::VectorXd raw   = vectorArg(info[1], "vertexFieldRaw");
-        Eigen::VectorXd freqs = vectorArg(info[2], "frequencies");
-        bool connect = info.Length() > 3 ? info[3].As<Napi::Boolean>().Value() : true;
-
-        auto r = geom::parametrization::stripes::computeFreq(surface, raw, freqs, connect);
-        auto obj = Napi::Object::New(env);
-        obj.Set("positions",    matrixToFloat64Array(env, r.positions));
-        obj.Set("segmentCount", Napi::Number::New(env, r.segmentCount));
-        return obj;
-    });
-}
 
 // ─── geometry.frames(surface) → { e1, e2, normals } (per-face tangent frames) ───
 // Each field is a row-major [nF×3] Float64Array.
@@ -1521,8 +1489,8 @@ static const Renamed kRenamed[] = {
     {"whitney", "signal.whitney"}, {"gradient", "operators.gradient"}, {"isoline", "signal.isoline"}, {"trivial", "operators.trivial"},
     {"streamline", "signal.streamline"}, {"heatDiffusion", "synthesis.heatDiffusion"}, {"dampedWave", "synthesis.dampedWave"},
     {"parallel", "geometry.parallel"}, {"extendScalar", "geometry.extendScalar"}, {"logMap", "geometry.logMap"}, {"findCenter", "geometry.findCenter"},
-    {"signedHeat", "geometry.signedHeat"}, {"smoothFace", "geometry.smoothFace"}, {"smoothVertex", "geometry.smoothVertex"}, {"compute", "geometry.compute"},
-    {"computeFreq", "geometry.computeFreq"}, {"frames", "geometry.frames"}, {"vertexFrames", "geometry.vertexFrames"},
+    {"signedHeat", "geometry.signedHeat"}, {"smoothFace", "geometry.smoothFace"}, {"smoothVertex", "geometry.smoothVertex"},
+    {"frames", "geometry.frames"}, {"vertexFrames", "geometry.vertexFrames"},
     {"operatorInfo", "operators.operatorById"}, {"fieldInfo", "operators.fieldById"},
 };
 static const char* const kRemovedContext[] = {"createContext", "operators"};
@@ -1569,9 +1537,6 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     // smooth direction fields
     exports.Set("geometry.smoothFace",   Napi::Function::New(env, SmoothFaceJS));
     exports.Set("geometry.smoothVertex", Napi::Function::New(env, SmoothVertexJS));
-    // stripe patterns
-    exports.Set("geometry.compute",     Napi::Function::New(env, StripesJS));
-    exports.Set("geometry.computeFreq", Napi::Function::New(env, StripesFreqJS));
     // signal
     exports.Set("signal.hodge", Napi::Function::New(env, HodgeJS));
     exports.Set("signal.whitney", Napi::Function::New(env, WhitneyJS));

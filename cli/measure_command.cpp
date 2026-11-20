@@ -43,20 +43,17 @@ int measure_export_main(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro measure export";
   const cli::Args a = cli::parse(prog, rest, {"--dataset", "--labelling", "--fields", "--table", "--out", "--statistics", "--subjects", "--recipe", "--exclude", "--layout", "--scaling"}, {"--keep-all"},
                                  {"--dataset", "--labelling", "--fields", "--table", "--out"});
-  nxr::pipelines::MeasureExportOptions o;
-  o.labelling = a.get("--labelling"); o.fields = a.get("--fields"); o.table = a.get("--table"); o.out = a.get("--out");
-  if (const auto v = a.maybe("--statistics")) o.statistics = split(*v, ',');
-  if (const auto v = a.maybe("--subjects")) o.subjects = split(*v, ',');
-  o.recipe = a.maybe("--recipe");
-  if (const auto v = a.maybe("--exclude")) o.exclude = split(*v, ',');
-  if (a.flag.count("--keep-all")) o.exclude.clear();
-  if (const auto v = a.maybe("--layout")) o.layout = *v;
-  if (const auto v = a.maybe("--scaling")) o.scaling = *v;
-  try {
-    cli::emit(nxr::pipelines::measure_export(a.get("--dataset"), o));
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
+  nxr::pipelines::face::ExportMeasurementsRequest rq;
+  rq.dataset = a.get("--dataset");
+  rq.labelling = a.get("--labelling"); rq.fields = a.get("--fields"); rq.table = a.get("--table"); rq.out = a.get("--out");
+  if (const auto v = a.maybe("--statistics")) rq.statistics = split(*v, ',');
+  if (const auto v = a.maybe("--subjects")) rq.subjects = split(*v, ',');
+  rq.recipe = a.maybe("--recipe");
+  if (const auto v = a.maybe("--exclude")) rq.exclude = split(*v, ',');
+  rq.keep_all = a.flag.count("--keep-all") > 0;
+  rq.layout = a.maybe("--layout");
+  rq.scaling = a.maybe("--scaling");
+  cli::emit_result(cli::call(prog, [&] { return nxr::pipelines::face::export_measurements(rq); }).result);
   return 0;
 }
 
@@ -67,27 +64,23 @@ int measure_query_main(const std::vector<std::string>& argv) {
   const cli::Args a = cli::parse(prog, argv, {"--dataset", "--subject", "--selection", "--field", "--measure", "--band", "--spatial-scale", "--tile", "--min-value", "--max-value", "--limit", "--order", "--where", "--subjects", "--factor"}, {},
                                  {"--dataset", "--subject", "--selection", "--measure"});
   try {
-    // the face's query (pipelines/face.h): the selection, the measure, the field, the level asked as ONE quantity (a band, a spatial scale or a tile: the quantity names its own chart), where it runs
-    // (io: the SQL query; compute: in memory from the finest ingredients) and the subjects it merges
-    nxr::pipelines::face::MeasurementQuery q;
-    q.selection = a.get("--selection");
-    q.measure = a.get("--measure");
-    q.of_field = a.maybe("--field");
-    int quantities = 0;
-    for (const char* flag : {"--band", "--spatial-scale", "--tile"})
-      if (const auto v = a.maybe(flag)) { q.to = *v; ++quantities; }
-    if (quantities > 1) usage(prog, "give one of --band, --spatial-scale, --tile: the level asked is one quantity");
-    q.factor = a.maybe("--factor");
-    if (const auto v = a.maybe("--subjects")) q.subjects = split(*v, ',');
-    if (const auto v = a.maybe("--where")) { if (*v != "io" && *v != "compute") usage(prog, "--where is io or compute"); q.where = *v; }
-    // the value filters, the order and the limit are io's query (SQL): they run where io
-    if (const auto v = a.maybe("--min-value")) q.min_value = std::stod(*v);
-    if (const auto v = a.maybe("--max-value")) q.max_value = std::stod(*v);
-    if (const auto v = a.maybe("--limit")) q.limit = std::stoll(*v);
-    if (const auto v = a.maybe("--order")) q.order = *v;
-    if ((q.min_value || q.max_value || q.limit > 0 || !q.order.empty()) && !a.maybe("--where")) q.where = "io";
-    const Json result = nxr::pipelines::face::measurement_query(a.get("--dataset"), a.get("--subject"), q);
-    cli::emit(Json{{"stage", "result"}, {"selection", q.selection}, {"measure", q.measure}, {"result", result}});
+    nxr::pipelines::face::QueryMeasurementsRequest rq;
+    rq.dataset = a.get("--dataset");
+    rq.subject = a.get("--subject");
+    rq.selection = a.get("--selection");
+    rq.measure = a.get("--measure");
+    rq.field = a.maybe("--field");
+    rq.band = a.maybe("--band");
+    rq.spatial_scale = a.maybe("--spatial-scale");
+    rq.tile = a.maybe("--tile");
+    rq.factor = a.maybe("--factor");
+    if (const auto v = a.maybe("--subjects")) rq.subjects = split(*v, ',');
+    rq.where = a.maybe("--where");
+    if (const auto v = a.maybe("--min-value")) rq.min_value = std::stod(*v);
+    if (const auto v = a.maybe("--max-value")) rq.max_value = std::stod(*v);
+    if (const auto v = a.maybe("--limit")) rq.limit = std::stoll(*v);
+    rq.order = a.maybe("--order");
+    cli::emit_result(cli::call(prog, [&] { return nxr::pipelines::face::query_measurements(rq); }).result);
   } catch (const std::invalid_argument& e) {
     usage(prog, e.what());
   }

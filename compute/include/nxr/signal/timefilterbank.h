@@ -12,7 +12,11 @@
 //            Meyer     the Studio's / nxr's dyadic frame (dyadicFrame.ts, frames.py window_frame): Meyer-edged octave bands.        (tight)
 //            Morlet    a Gaussian in frequency, unit peak, width fc/cycles (Studio kernels.ts `morlet`, nxr kernels.morlet_hat).      (not tight)
 //            Morse · Amor · Bump   the continuous-wavelet banks of MATLAB's cwtfilterbank (Rheome's reference path, +ingest/bank.m).  (not tight)
-//   gain     a positive number G (1, 2, ...) — ONE meaning in every family: the PEAK in-band response of each member (below). Recorded on the bank.
+//            Gabor     unit-energy Gabor atoms with a FREE width: one member an atom (σ, f), the matched filter of a Gaussian burst (gaborGrid; the reference detector,
+//                      docs/specs/2026-11-20-gabor-bursts.md). Analytic only.                                                          (not tight)
+//   gain     a positive number G (1, 2, ...) — ONE meaning in every family but Gabor: the PEAK in-band response of each member (below). Recorded on the bank.
+//            Gabor has its own NORMALISATION (recorded on the bank, `normalisation`): G times the UNIT-ENERGY atom, Ψ(ν) = G (πσ²)^(−1/4) √(2π) σ e^(−2π²σ²(ν−f)²) on ν > 0, so that
+//            W = ifft(X Ψ) is the inner product ∫ x ψ* dt (G = 1): a Gaussian burst A e^(−t²/2s²) cos(2πft + φ) gives |W| = (A/2) π^(1/4) √σ at σ = s, and A = 2|W| / (π^(1/4) √σ).
 //   sides    Analytic | TwoSided.
 //
 // SIDES.  Analytic: a one-sided bank on rfftfreq bins (f ≥ 0) for a REAL signal; the coefficients are complex (envelope + phase). A COMPLEX input is
@@ -46,7 +50,9 @@ namespace nxr::signal::timefilterbank {
 using cd = std::complex<double>;
 using Gain1 = std::function<double(double)>;   // g(f), f in Hz (signed)
 
-enum class Family { Itersine, Meyer, Morlet, Morse, Amor, Bump, PowerPartition };
+enum class Family { Itersine, Meyer, Morlet, Morse, Amor, Bump, PowerPartition, Gabor };
+/** what the gain G multiplies: the member's PEAK response (every family but Gabor), or the UNIT-ENERGY atom (Gabor, the matched filter) */
+enum class Normalisation { Peak, UnitEnergy };
 enum class Sides { Analytic, TwoSided };
 enum class EdgeBins { Drop, Single };
 enum class Padding { None, FastLen };          // None: the record is periodic (Rheome); FastLen: zero-padded to next_fast_len(2n), no wrap (the Studio pads to 2n)
@@ -69,6 +75,8 @@ struct Design {
     // Morlet · Morse · Amor · Bump: the member centres, Hz (required; see logCentres / cwtCentres)
     std::vector<double> centres; double cycles = 6;       // Morlet: width fc / cycles
     double gamma = 3, timeBandwidth = 60;                 // Morse (MATLAB's default (3, 60)): β = timeBandwidth / γ
+    // Gabor: the atoms (σ in s, f in Hz), one member each, in the order given (gaborGrid makes the reference detector's grid); required
+    std::vector<std::pair<double, double>> atoms;
 };
 
 struct Member {
@@ -76,11 +84,13 @@ struct Member {
     int sign = +1;                                         // +1: f > 0 · −1: f < 0 · 0: symmetric (the shared low-pass / scaling)
     double fc = std::numeric_limits<double>::quiet_NaN();  // centre, Hz (|f|); NaN: use centerFrequencies' centroid
     double lo = std::numeric_limits<double>::quiet_NaN(), hi = std::numeric_limits<double>::quiet_NaN();   // nominal band, Hz (|f|)
+    double width = std::numeric_limits<double>::quiet_NaN();   // Gabor: the atom's width σ, s (lo, hi = f ∓ σ_f, σ_f = 1/(2πσ)); NaN for the other families
     Gain1 gain;                                            // g(f) of signed f; the DC / Nyquist rule is NOT in it (see gains(bank))
 };
 
 struct TimeFilterbank {
     Family family; double gain; Sides sides; EdgeBins edgeBins;
+    Normalisation normalisation = Normalisation::Peak;     // what the gain multiplies (Gabor: the unit-energy atom)
     std::size_t nfft = 0;                                  // the grid the bank is designed on (the padded record length)
     double fs = 0;
     std::vector<Member> members;
@@ -110,6 +120,21 @@ std::vector<double> windowEdges(std::size_t nfft, double fs, const std::optional
  *  Cwt:    cwtfilterbank's grid as Rheome documents it, fc(k) = fmax * 2^(-k/V) down to fmin (`lo` = fmin, `hi` = fmax; `fs` unused). */
 enum class CentreGrid { Studio, Cwt };
 std::vector<double> centerFrequencies(CentreGrid grid, double lo, double hi, int voices, double fs = 0);
+
+/** THE GABOR GRID (the reference detector's `widths` and `channel_atoms`): widths σ_k = sigmaMin·2^(k/perOctave), k = 0 .. ⌊perOctave·log2(sigmaMax/sigmaMin)⌋; at each width the frequencies
+ *  from max(fMin − σ_f, minFSigma/σ) to fMax + σ_f in steps of σ_f/2 (σ_f = 1/(2πσ): a margin of one σ_f, so a peak at the band's edge is told from a maximum); a width whose first frequency is above fMax
+ *  has none. minFSigma (f·σ; 0.5 is about 1.2 cycles at half maximum) keeps the Gaussian off DC. Atoms are width-major, ascending f within a width. Throws on 0 >= sigmaMin > sigmaMax, perOctave < 1, fMin > fMax. */
+struct GaborGrid {
+    std::vector<double> widths;                            // σ_k, s
+    std::vector<std::pair<double, double>> atoms;          // (σ, f): width-major, f ascending
+    std::vector<int> widthOf;                              // per atom, its width's index k
+};
+GaborGrid gaborGrid(double sigmaMin, double sigmaMax, int perOctave, double fMin, double fMax, double minFSigma);
+
+/** THE BAND'S GAIN AS A SUM OF MORLET MEMBERS (the reference detector's R² signal: its ladder of Morlet members, `voices` an octave from ladderMin to ladderMax, each of width fc/cycles with
+ *  cycles = 1 / (2^(1/2V) − 2^(−1/2V)), so Σ g² is flat inside the ladder; normalised so the largest Σ g² over [2 ladderMin, ladderMax / 2] is 1): Σ g_m(f)² over the members whose centre lies in [lo, hi].
+ *  A real gain of |f| (Hz); the members are the bank's Morlet family. Throws on 0 < ladderMin < ladderMax, voices >= 1 not met. */
+std::function<double(double)> morletLadderGain(double lo, double hi, double ladderMin, double ladderMax, int voices);
 
 /** Build the bank on a grid of `nfft` samples at `fs`. Throws on an unsatisfiable design (no member fits; gain <= 0; missing centres). */
 TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs);

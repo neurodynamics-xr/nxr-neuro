@@ -132,4 +132,36 @@ BlockTransform wtBlock(const tb::Design& design, const Eigen::MatrixXd& block, d
   return r;
 }
 
+MatrixXcd wtDecimated(const tb::TimeFilterbank& b, int member, const MatrixXcd& X, int D) {
+    requireSides(b, tb::Sides::Analytic, "wtDecimated");
+    if (member < 0 || member >= b.size()) throw std::invalid_argument("wtDecimated: no member " + std::to_string(member));
+    if (D < 1 || b.nfft % static_cast<std::size_t>(D) != 0) throw std::invalid_argument("wtDecimated: the decimation " + std::to_string(D) + " does not divide the bank's grid (" + std::to_string(b.nfft) + ")");
+    const i64 nb = static_cast<i64>(b.nfft / 2 + 1);
+    if (X.rows() != nb) throw std::invalid_argument("wtDecimated: the spectrum has " + std::to_string(X.rows()) + " bins, the bank's grid " + std::to_string(nb));
+    const i64 M = static_cast<i64>(b.nfft) / D, C = X.cols();
+    const tb::Gain1& gain = b.members[static_cast<std::size_t>(member)].gain;      // this member's gain alone (the bank's other members are not evaluated)
+    VectorXd g(nb);
+    for (i64 k = 0; k < nb; ++k) g(k) = gain(static_cast<double>(k) * b.fs / static_cast<double>(b.nfft));
+    double peak = 0;
+    for (i64 k = 1; k < nb; ++k) peak = std::max(peak, std::abs(g(k)));
+    const double cut = 1e-16 * peak;
+    i64 k0 = 1, k1 = nb - 1;                                                       // DC and Nyquist dropped (the analytic member's real, unmirrored bins)
+    if (b.nfft % 2 == 0) k1 = nb - 2;
+    while (k0 <= k1 && std::abs(g(k0)) <= cut) ++k0;
+    while (k1 >= k0 && std::abs(g(k1)) <= cut) --k1;
+    if (k1 < k0) return MatrixXcd::Zero(C, M);
+    const i64 J = k1 - k0 + 1;
+    if (J > M) throw std::invalid_argument("wtDecimated: the member spans " + std::to_string(J) + " bins, more than the " + std::to_string(M) + " of the decimated grid (decimate less)");
+    MatrixXcd Y = MatrixXcd::Zero(M, C);
+    for (i64 c = 0; c < C; ++c) for (i64 j = 0; j < J; ++j) Y(j, c) = X(k0 + j, c) * g(k0 + j);
+    const MatrixXcd y = ifft(Y);                                                   // (1/M) Σ_j Y_j e^{2πi j m / M}
+    MatrixXcd out(C, M);
+    const double scale = static_cast<double>(M) / static_cast<double>(b.nfft);
+    for (i64 m = 0; m < M; ++m) {
+        const cd ph = std::polar(scale, 2 * kPi * static_cast<double>((k0 * m) % M) / static_cast<double>(M));
+        for (i64 c = 0; c < C; ++c) out(c, m) = ph * y(m, c);
+    }
+    return out;
+}
+
 }  // namespace nxr::signal

@@ -41,6 +41,7 @@ add_library(nxr_pipelines
   src/partition_steps.cpp
   src/pca_steps.cpp
   src/flow_steps.cpp
+  src/form_steps.cpp
   src/verb_steps.cpp
   src/steps_measure.cpp
   src/scale_inputs.cpp
@@ -60,6 +61,7 @@ add_library(nxr_pipelines
   src/run_repeat.cpp
   src/surrogate_compare.cpp
   src/spatial_events_steps.cpp
+  src/gabor_steps.cpp
   src/point_events.cpp
   src/runner.cpp
   src/declared_outputs.cpp
@@ -77,6 +79,8 @@ add_library(nxr_pipelines
   src/spatial_band.cpp
   src/group.cpp
   src/face.cpp
+  src/commands.cpp
+  src/compile.cpp
   src/selection_bridge.cpp
 )
 target_include_directories(nxr_pipelines PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
@@ -134,6 +138,47 @@ if(NXR_NEURO_BUILD_TESTS)
     target_compile_definitions(test_face PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_face COMMAND test_face)
+  add_executable(test_compile test/test_compile.cpp)   # `compile`: a definition expanded and type-checked without running it (stored or given input types, external signatures), and the command's output
+  target_link_libraries(test_compile PRIVATE nxr_pipelines)
+  target_include_directories(test_compile PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  if(NXR_NEURO_BUILD_CLI)
+    add_dependencies(test_compile nxr-neuro)
+    target_compile_definitions(test_compile PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
+  endif()
+  add_test(NAME test_compile COMMAND test_compile)
+  add_executable(test_readonly_readers test/test_readonly_readers.cpp)   # a reader never writes (#144): a schema-50 dataset and a package without `origin` read byte for byte unchanged; only a writable open migrates
+  target_link_libraries(test_readonly_readers PRIVATE nxr_pipelines nxr_io_testing)
+  target_include_directories(test_readonly_readers PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  if(NXR_NEURO_BUILD_CLI)
+    add_dependencies(test_readonly_readers nxr-neuro)
+    target_compile_definitions(test_readonly_readers PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
+  endif()
+  add_test(NAME test_readonly_readers COMMAND test_readonly_readers)
+  add_executable(test_read_add test/test_read_add.cpp)   # `read <class>` and `add <class>` (io-service spec, section 4): round trips through .npy files, the refusals, readers write nothing
+  target_link_libraries(test_read_add PRIVATE nxr_pipelines)
+  target_include_directories(test_read_add PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  if(NXR_NEURO_BUILD_CLI)
+    add_dependencies(test_read_add nxr-neuro)
+    target_compile_definitions(test_read_add PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
+  endif()
+  add_test(NAME test_read_add COMMAND test_read_add)
+  add_executable(test_read_subject test/test_read_subject.cpp)   # `read subject` and `list <class>` (data-layer queries spec, step 1): descriptions, paging, filters, columns, counts, no schema column in a result
+  target_link_libraries(test_read_subject PRIVATE nxr_pipelines)
+  target_include_directories(test_read_subject PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_read_subject COMMAND test_read_subject)
+  add_executable(test_add_options test/test_add_options.cpp)   # the options of `add`, dictionaries and `edit manifold` (data-layer queries spec, step 2): one round trip each, the refusals
+  target_link_libraries(test_add_options PRIVATE nxr_pipelines)
+  target_include_directories(test_add_options PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_add_options COMMAND test_add_options)
+  add_executable(test_pieces_deletes_jobs test/test_pieces_deletes_jobs.cpp)   # writes in pieces, deletes by class and jobs (data-layer queries spec, step 3): round trips, rollback, the refusals, job rows
+  target_link_libraries(test_pieces_deletes_jobs PRIVATE nxr_pipelines)
+  target_include_directories(test_pieces_deletes_jobs PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  target_compile_definitions(test_pieces_deletes_jobs PRIVATE NXR_FORMATS_DATA_DIR="${CMAKE_SOURCE_DIR}/io/formats/test/data")
+  if(NXR_NEURO_BUILD_CLI)
+    add_dependencies(test_pieces_deletes_jobs nxr-neuro)
+    target_compile_definitions(test_pieces_deletes_jobs PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
+  endif()
+  add_test(NAME test_pieces_deletes_jobs COMMAND test_pieces_deletes_jobs)
   add_executable(test_inverse_projectors test/test_inverse_projectors.cpp)
   target_link_libraries(test_inverse_projectors PRIVATE nxr_pipelines)
   target_include_directories(test_inverse_projectors PRIVATE ${CMAKE_SOURCE_DIR}/meeg/test)
@@ -332,6 +377,10 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_member_analytic PRIVATE nxr_pipelines)
   target_include_directories(test_member_analytic PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_member_analytic COMMAND test_member_analytic)
+  add_executable(test_phase_split test/test_phase_split.cpp)
+  target_link_libraries(test_phase_split PRIVATE nxr_pipelines)
+  target_include_directories(test_phase_split PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_phase_split COMMAND test_phase_split)
   add_executable(test_connectome_nodes test/test_connectome_nodes.cpp)
   target_link_libraries(test_connectome_nodes PRIVATE nxr_pipelines)
   target_include_directories(test_connectome_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
@@ -358,6 +407,10 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_band_bursts PRIVATE nxr_pipelines)
   target_include_directories(test_band_bursts PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_band_bursts COMMAND test_band_bursts)
+  add_executable(test_gabor_bursts test/test_gabor_bursts.cpp)
+  target_link_libraries(test_gabor_bursts PRIVATE nxr_pipelines)
+  target_include_directories(test_gabor_bursts PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_gabor_bursts COMMAND test_gabor_bursts)
   add_executable(test_filter_pipeline test/test_filter_pipeline.cpp)
   target_link_libraries(test_filter_pipeline PRIVATE nxr_pipelines)
   target_include_directories(test_filter_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test)

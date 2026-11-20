@@ -20,15 +20,11 @@ const char* to_string(ManifoldKind k) {
   }
   return "?";
 }
-const char* to_string(Role r) {
-  switch (r) {
-    case Role::none: return "none";
-    case Role::time: return "time";
-    case Role::frames: return "frames";
-    case Role::time_tiles: return "time_tiles";
-    case Role::frequency: return "frequency";
-    case Role::modes: return "modes";
-    case Role::levels: return "levels";
+const char* to_string(Topology t) {
+  switch (t) {
+    case Topology::none: return "none";
+    case Topology::path: return "path";
+    case Topology::cycle: return "cycle";
   }
   return "?";
 }
@@ -38,16 +34,6 @@ const char* to_string(Role r) {
 namespace {
 
 ManifoldRef make_ref(Manifold m) { return std::make_shared<const Manifold>(std::move(m)); }
-
-Role role_of_label(const std::string& label) {
-  if (label == "time") return Role::time;
-  if (label == "frames") return Role::frames;
-  if (label == "time_tiles") return Role::time_tiles;
-  if (label == "frequency") return Role::frequency;
-  if (label == "modes") return Role::modes;
-  if (label == "levels") return Role::levels;
-  return Role::none;
-}
 
 std::string trim(const std::string& s) {
   std::size_t a = 0, b = s.size();
@@ -64,35 +50,34 @@ std::string number(double v) {
 
 }  // namespace
 
-ManifoldRef manifold_id(const std::string& label, const std::string& key, ManifoldKind kind, Role role, std::optional<CoordinateSystem> cs, std::int64_t n) {
-  Manifold m; m.form = Manifold::Form::id; m.label = label; m.key = key; m.kind = kind; m.role = role; m.cs = std::move(cs); m.n = n;
+ManifoldRef manifold_id(const std::string& label, const std::string& key, ManifoldKind kind, std::optional<CoordinateSystem> cs, std::int64_t n, Topology topology) {
+  Manifold m; m.form = Manifold::Form::id; m.label = label; m.key = key; m.kind = kind; m.cs = std::move(cs); m.n = n; m.topology = topology;
   return make_ref(std::move(m));
 }
-ManifoldRef time_line(const std::string& key, double sfreq) {
-  Manifold m; m.form = Manifold::Form::id; m.label = "time"; m.key = key; m.kind = ManifoldKind::line; m.role = Role::time; m.cs = CoordinateSystem{"time", "clock", "s"};
+ManifoldRef time_line(const std::string& key, double sfreq, Topology topology) {
+  Manifold m; m.form = Manifold::Form::id; m.label = "time"; m.key = key; m.kind = ManifoldKind::line; m.topology = topology; m.cs = CoordinateSystem{"time", "clock", "s"};
   if (sfreq > 0) m.spacing = 1.0 / sfreq;
   return make_ref(std::move(m));
 }
 ManifoldRef frame_line(const std::string& key) {
-  Manifold m; m.form = Manifold::Form::id; m.label = "frames"; m.key = key; m.kind = ManifoldKind::line; m.role = Role::frames; m.cs = CoordinateSystem{"time", "clock", "s"};
+  Manifold m; m.form = Manifold::Form::id; m.label = "frames"; m.key = key; m.kind = ManifoldKind::line; m.topology = Topology::path; m.cs = CoordinateSystem{"time", "clock", "s"};
+  m.made_from = MadeFrom{"tiled", nullptr};
   return make_ref(std::move(m));
 }
-ManifoldRef anonymous(int number_, ManifoldKind kind, Role role) {
-  Manifold m; m.form = Manifold::Form::anonymous; m.key = std::to_string(number_); m.kind = kind; m.role = role;
+ManifoldRef anonymous(int number_, ManifoldKind kind) {
+  Manifold m; m.form = Manifold::Form::anonymous; m.key = std::to_string(number_); m.kind = kind;
   return make_ref(std::move(m));
 }
 ManifoldRef var(const std::string& name) {
   Manifold m; m.form = Manifold::Form::variable; m.key = name;
   return make_ref(std::move(m));
 }
-ManifoldRef time_var(const std::string& name) {
-  Manifold m; m.form = Manifold::Form::variable; m.key = name; m.role = Role::time;
+ManifoldRef line_var(const std::string& name, const std::string& unit, bool samples, Topology topology) {
+  Manifold m; m.form = Manifold::Form::variable; m.key = name; m.unit = unit; m.samples = samples; m.topology = topology;
   return make_ref(std::move(m));
 }
-ManifoldRef frames_var(const std::string& name) {
-  Manifold m; m.form = Manifold::Form::variable; m.key = name; m.role = Role::frames;
-  return make_ref(std::move(m));
-}
+ManifoldRef time_var(const std::string& name) { return line_var(name, "s", true, Topology::path); }
+ManifoldRef frames_var(const std::string& name) { return line_var(name, "s"); }
 ManifoldRef var_rest(const std::string& name) {
   Manifold m; m.form = Manifold::Form::variable; m.key = name; m.rest = true;
   return make_ref(std::move(m));
@@ -101,25 +86,44 @@ ManifoldRef from_or_restriction_of(const ManifoldRef& v) {
   Manifold m = *v; m.subsume = true;
   return make_ref(std::move(m));
 }
-ManifoldRef made(const std::string& label, const std::string& key, ManifoldKind kind, Role role, std::optional<CoordinateSystem> cs) {
-  Manifold m; m.form = Manifold::Form::made; m.label = label; m.key = key; m.kind = kind; m.role = role; m.cs = std::move(cs);
+ManifoldRef made(const std::string& label, const std::string& key, ManifoldKind kind, std::optional<CoordinateSystem> cs) {
+  Manifold m; m.form = Manifold::Form::made; m.label = label; m.key = key; m.kind = kind; m.cs = std::move(cs);
   return make_ref(std::move(m));
 }
-ManifoldRef made_line(const std::string& label, const std::string& key, Role role, const std::string& unit, double origin, std::optional<double> rate) {
-  Manifold m; m.form = Manifold::Form::made; m.label = label; m.key = key; m.kind = ManifoldKind::line; m.role = role; m.unit = unit; m.origin = origin; m.rate = rate;
+ManifoldRef made_line(const std::string& label, const std::string& key, const std::string& unit, double origin, std::optional<double> rate, const ManifoldRef& from, const std::string& relation,
+                      Topology topology) {
+  Manifold m; m.form = Manifold::Form::made; m.label = label; m.key = key; m.kind = ManifoldKind::line; m.unit = unit; m.origin = origin; m.rate = rate; m.topology = topology;
+  m.made_from = MadeFrom{relation, from};
   return make_ref(std::move(m));
 }
 ManifoldRef restricted(const ManifoldRef& of, const std::string& by) {
-  Manifold m; m.form = Manifold::Form::restricted; m.of = of; m.by = by; m.kind = of ? of->kind : ManifoldKind::points; m.role = of ? of->role : Role::none; m.cs = of ? of->cs : std::nullopt;
+  Manifold m; m.form = Manifold::Form::restricted; m.of = of; m.by = by; m.kind = of ? of->kind : ManifoldKind::points; m.cs = of ? of->cs : std::nullopt;
+  if (of) { m.topology = of->topology; m.made_from = of->made_from; m.unit = of->unit; }
   return make_ref(std::move(m));
 }
 ManifoldRef members(const std::string& partition) {
-  Manifold m; m.form = Manifold::Form::members; m.by = partition; m.kind = ManifoldKind::members; m.role = Role::time_tiles;
+  Manifold m; m.form = Manifold::Form::members; m.by = partition; m.kind = ManifoldKind::members;
   return make_ref(std::move(m));
 }
-ManifoldRef members(const std::string& partition, const ManifoldRef& of, Role role, const std::string& label, bool irregular) {
-  Manifold m; m.form = Manifold::Form::members; m.by = partition; m.kind = ManifoldKind::members; m.role = role; m.of = of; m.label = label; m.irregular = irregular;
+ManifoldRef members(const std::string& partition, const ManifoldRef& of, const std::string& label, bool irregular) {
+  Manifold m; m.form = Manifold::Form::members; m.by = partition; m.kind = ManifoldKind::members; m.of = of; m.label = label; m.irregular = irregular;
   return make_ref(std::move(m));
+}
+ManifoldRef frame_members(const std::string& partition, const ManifoldRef& of) {
+  Manifold m; m.form = Manifold::Form::members; m.by = partition; m.kind = ManifoldKind::members; m.of = of;
+  m.made_from = MadeFrom{"tiled", of};
+  return make_ref(std::move(m));
+}
+std::string coordinate_unit(const Manifold& m) {
+  if (m.form == Manifold::Form::restricted && m.of) return coordinate_unit(*m.of);
+  if (m.cs && !m.cs->unit.empty()) return m.cs->unit;
+  return m.unit;
+}
+bool is_tiled(const Manifold& m) { return m.made_from && m.made_from->relation == "tiled"; }
+bool in_seconds(const Manifold& m) {
+  if (m.form == Manifold::Form::restricted && m.of) return in_seconds(*m.of);
+  if (m.form == Manifold::Form::members) return is_tiled(m) && (!m.of || in_seconds(*m.of));
+  return m.kind == ManifoldKind::line && coordinate_unit(m) == "s";
 }
 ManifoldRef members_of_port(const std::string& port) { return members("$" + port); }
 ManifoldRef derived(const std::string& relation, const ManifoldRef& of) {
@@ -133,15 +137,20 @@ bool same_cs(const std::optional<CoordinateSystem>& a, const std::optional<Coord
 }
 std::string print_cs(const std::optional<CoordinateSystem>& c) { return c ? c->space + "/" + c->name + (c->unit.empty() ? "" : " (" + c->unit + ")") : std::string("none"); }
 
+namespace {
+bool same_topology(Topology a, Topology b) { return a == Topology::none || b == Topology::none || a == b; }
+}  // namespace
+
 bool same(const ManifoldRef& a, const ManifoldRef& b) {
   if (a == b) return true;
   if (!a || !b) return false;
   if (a->form != b->form) return false;
   switch (a->form) {
     // the coordinate system is part of the manifold's type (T5): one manifold in two systems is two types, and no transition is inserted between them
+    // a line's topology is part of it too (a path and a cycle are two meshes); a manifold whose topology is not recorded is not told apart by it
     case Manifold::Form::id:
-    case Manifold::Form::made: return a->key == b->key && a->label == b->label && same_cs(a->cs, b->cs);      // `sensors(rest)` and `time(rest)` are two manifolds of one recording
-    case Manifold::Form::anonymous: return a->key == b->key && same_cs(a->cs, b->cs);
+    case Manifold::Form::made: return a->key == b->key && a->label == b->label && same_cs(a->cs, b->cs) && same_topology(a->topology, b->topology);      // `sensors(rest)` and `time(rest)` are two manifolds of one recording
+    case Manifold::Form::anonymous: return a->key == b->key && same_cs(a->cs, b->cs) && same_topology(a->topology, b->topology);
     case Manifold::Form::variable: return a->key == b->key;
     case Manifold::Form::restricted: return a->by == b->by && same(a->of, b->of);
     case Manifold::Form::members: return a->by == b->by;
@@ -200,12 +209,20 @@ ManifoldRef parse_term(const std::string& s, std::size_t& i) {
       else if (inner.find('(') != std::string::npos) {
         std::size_t k = 0;
         m = derived(name, parse_term(inner, k));
-      } else if (!inner.empty() && inner[0] == '~') {
-        const Role r = role_of_label(name);
-        m = made(name, inner.substr(1), r == Role::none ? ManifoldKind::points : ManifoldKind::line, r);
       } else {
-        const Role r = role_of_label(name);
-        m = manifold_id(name, inner, r == Role::none ? ManifoldKind::points : ManifoldKind::line, r);
+        // the printed form names a line by its label: time and frames are lines in seconds (frames tiled from a time line), frequency a line in Hz (made by a transform when it
+        // is a made one); the printed form carries no coordinate system, only the unit
+        const bool made_one = !inner.empty() && inner[0] == '~';
+        const std::string key = made_one ? inner.substr(1) : inner;
+        Manifold x;
+        x.form = made_one ? Manifold::Form::made : Manifold::Form::id; x.label = name; x.key = key;
+        if (name == "time" || name == "frames" || name == "frequency") {
+          x.kind = ManifoldKind::line; x.topology = Topology::path;
+          x.unit = name == "frequency" ? "Hz" : "s";
+          if (name == "frames") x.made_from = MadeFrom{"tiled", nullptr};
+          if (name == "frequency" && made_one) x.made_from = MadeFrom{"transform", nullptr};
+        }
+        m = make_ref(std::move(x));
       }
     } else {
       m = var(name);
@@ -240,12 +257,12 @@ ManifoldRef parse_manifold(const std::string& text) {
 const Manifold* Domain::streamed() const {
   if (factors.empty()) return nullptr;
   const Manifold& l = *factors.back();
-  return l.role == Role::time || l.role == Role::frames ? &l : nullptr;
+  return in_seconds(l) ? &l : nullptr;
 }
 bool PortType::per_block() const {
   if (streamed() || axis != Axis::none || domain.factors.size() < 2) return false;
   const Manifold& l = *domain.factors.back();
-  return l.form == Manifold::Form::made && l.kind == ManifoldKind::line && l.role == Role::frequency;
+  return l.form == Manifold::Form::made && l.kind == ManifoldKind::line && l.made_from && l.made_from->relation == "transform";
 }
 bool same(const Domain& a, const Domain& b) {
   if (a.cells != b.cells || a.factors.size() != b.factors.size()) return false;
@@ -573,11 +590,12 @@ PortType parse_type(const std::string& text) {
 
 namespace {
 
-bool role_allows(Role want, const Manifold& m) {
-  if (want == Role::none) return true;
-  if (want == Role::time) return m.role == Role::time;
-  if (want == Role::frames) return m.role == Role::time || m.role == Role::frames;
-  return m.role == want;
+// one manifold has one size: two references to the same stored (or anonymous) manifold whose vertex counts are both known and differ are refused, never unified
+bool sizes_conflict(const ManifoldRef& a, const ManifoldRef& b, std::string& why) {
+  if (!a || !b || a->n <= 0 || b->n <= 0 || a->n == b->n) return false;
+  if (a->form != Manifold::Form::id && a->form != Manifold::Form::anonymous) return false;
+  why = print(b) + " has " + std::to_string(b->n) + " vertices where " + print(a) + " has " + std::to_string(a->n) + ": one manifold cannot have two sizes";
+  return true;
 }
 
 }  // namespace
@@ -585,14 +603,26 @@ bool role_allows(Role want, const Manifold& m) {
 bool unify(const ManifoldRef& pattern, const ManifoldRef& actual, Bindings& b, std::string& why) {
   if (!pattern || !actual) { why = "a manifold is missing"; return false; }
   if (pattern->form == Manifold::Form::variable) {
-    if (!role_allows(pattern->role, *actual)) {
-      why = std::string(pattern->role == Role::time ? "a time line" : "a time line or a frame line") + " was expected where " + print(actual) + " lies";
+    if (!pattern->unit.empty() && !(pattern->unit == "s" ? in_seconds(*actual) : actual->kind == ManifoldKind::line && coordinate_unit(*actual) == pattern->unit)) {
+      why = std::string("a line in ") + (pattern->unit == "s" ? "seconds" : pattern->unit) + " was expected where " + print(actual) + " lies";
+      return false;
+    }
+    if (pattern->samples && is_tiled(*actual)) {
+      why = "a line of raw samples (not tiled from another line) was expected where " + print(actual) + " lies, a line tiled from another";
+      return false;
+    }
+    if (pattern->topology != Topology::none && actual->topology != Topology::none && pattern->topology != actual->topology) {
+      why = std::string("a ") + to_string(pattern->topology) + " was expected where " + print(actual) + " lies, a " + to_string(actual->topology) + " (this node's mathematics reads a " + to_string(pattern->topology) + ")";
+      return false;
+    }
+    if (pattern->kinded && actual->kind != pattern->kind) {           // a variable restricted to a kind refuses another kind where it meets it, not at a later port
+      why = print(actual) + " is a " + to_string(actual->kind) + "; this node reads one on a " + to_string(pattern->kind) + " (" + pattern->key + ")";
       return false;
     }
     auto it = b.vars.find(pattern->key);
     if (it == b.vars.end()) { b.vars[pattern->key] = actual; return true; }
     const ManifoldRef& bound = it->second;
-    if (same(bound, actual)) return true;
+    if (same(bound, actual)) return !sizes_conflict(bound, actual, why);
     if (bound->key == actual->key && bound->label == actual->label && !same_cs(bound->cs, actual->cs)) {
       why = print(actual) + " is the manifold " + print(bound) + " in another coordinate system (" + print_cs(actual->cs) + ", not " + print_cs(bound->cs) +
             "); no transition is applied by the checker: add the node `meeg.positions_transition` with the transition operator " + print_cs(actual->cs) + " to " + print_cs(bound->cs);
@@ -629,7 +659,7 @@ bool unify(const ManifoldRef& pattern, const ManifoldRef& actual, Bindings& b, s
           why += " (the same manifold in another coordinate system: " + print_cs(actual->cs) + ", not " + print_cs(pattern->cs) + "; no transition is applied by the checker: add the node `meeg.positions_transition` with the transition operator)";
         return false;
       }
-      return true;
+      return !sizes_conflict(pattern, actual, why);
   }
 }
 

@@ -16,7 +16,9 @@
 //   --dry-run    the plan: inputs found, every arrow checked, every output's place known; nothing read beyond the rows, nothing written
 //   --list       nxr-neuro's definitions and the registered steps
 #include <algorithm>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 
 #include "cli.h"
 #include "registry.h"
@@ -25,6 +27,7 @@
 #include "nxr/io/writer.h"
 #include "nxr/io/errors.h"
 #include "nxr/io/yaml.h"
+#include "nxr/pipelines/face.h"
 #include "nxr/pipelines/runner.h"
 
 using namespace nxr::io;
@@ -76,6 +79,7 @@ int run_main(const std::vector<std::string>& rest) {
     return 0;
   }
   g::RunOptions o;
+  o.requested_by = cli::stamp();
   o.chunks = a.maybe("--chunks");
   if (const auto v = a.maybe("--start")) o.start = std::stod(*v);
   if (const auto v = a.maybe("--stop")) o.stop = std::stod(*v);
@@ -96,5 +100,47 @@ int run_main(const std::vector<std::string>& rest) {
     for (auto it = r.begin(); it != r.end(); ++it) out[it.key()] = it.value();
     cli::emit(out);
   }
+  return 0;
+}
+
+// nxr-neuro compile <definition> — the definition expanded and type-checked without running it, its compiled graph printed (nxr/pipelines/face.h `compile`):
+//
+//   DEFINITION [--dataset D --subject S] [--set NAME=VALUE ...] [--signatures FILE.json] [--inputs FILE.json]
+//
+//   DEFINITION     one of nxr-neuro's own (by name) or a .yaml path
+//   --dataset, --subject   the subject whose stored records type the inputs (read only; both or neither)
+//   --set          a parameter, NAME=VALUE with VALUE read as YAML; `--set NAME` alone chooses a preset (as `run`'s)
+//   --signatures   a JSON file of node signatures another program implements ({"nodes": [...]}; nxr/graph/type_json.h): checked with the rest, never run
+//   --inputs       without a dataset: a JSON file of each input's type by name (the structured form or the printed form)
+int compile_main(const std::vector<std::string>& rest) {
+  const std::string prog = "nxr-neuro compile";
+  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--signatures", "--inputs"}, {}, {}, 1, {"--set"}, "DEFINITION");
+  auto json_file = [&](const std::string& option) -> Json {
+    const auto path = a.maybe(option);
+    if (!path) return Json();
+    std::ifstream f(*path);
+    if (!f) usage(prog, option + " " + *path + ": no such file");
+    std::stringstream ss;
+    ss << f.rdbuf();
+    try { return Json::parse(ss.str()); } catch (const std::exception& e) { usage(prog, option + " " + *path + ": not JSON (" + e.what() + ")"); }
+  };
+  nxr::pipelines::face::CompileRequest rq;
+  rq.definition = a.pos[0];
+  rq.dataset = a.maybe("--dataset");
+  rq.subject = a.maybe("--subject");
+  if (rq.dataset.has_value() != rq.subject.has_value()) usage(prog, "--dataset and --subject go together (the inputs typed from the subject's records), or neither (--inputs gives their types)");
+  for (const auto& s : cli::values_of(a, "--set")) {
+    const auto eq = s.find('=');
+    if (eq == 0) usage(prog, "--set " + s + ": NAME=VALUE, or a preset's NAME");
+    if (eq == std::string::npos) {
+      if (!rq.preset.empty()) usage(prog, "--set " + s + ": one preset (already --set " + rq.preset + ")");
+      rq.preset = s;
+      continue;
+    }
+    rq.parameters[s.substr(0, eq)] = parse_yaml(s.substr(eq + 1), "--set " + s.substr(0, eq));
+  }
+  rq.signatures = json_file("--signatures");
+  if (const Json in = json_file("--inputs"); !in.is_null()) rq.inputs = in;
+  cli::emit_result(cli::call(prog, [&] { return nxr::pipelines::face::compile(rq); }).result);
   return 0;
 }

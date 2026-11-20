@@ -1181,7 +1181,7 @@ ng::NodeSpec fft_spectrum() {
     // 3.1 and 5 apply; the Studio's product manifold, D37): the one-sided frequency line of the block, bin k at k x sfreq / n Hz (origin 0, n = the block's samples,
     // carried on the block). Its key is "<use>.<output>"; the plan does not know the use, so the node's name and its output stand for it until the checker keys it.
     const ng::ManifoldRef channels = x.domain.factors.size() > 1 ? x.domain.factors.front() : ng::manifold_id("channels", "recording");
-    s.domain.factors = {channels, ng::made_line("frequency", "signal.rfft.spectrum", ng::Role::frequency, "Hz", 0.0, x.sfreq)};
+    s.domain.factors = {channels, ng::made_line("frequency", "signal.rfft.spectrum", "Hz", 0.0, x.sfreq, x.domain.factors.empty() ? ng::ManifoldRef() : x.domain.factors.back())};
     s.domain.cells = "0,1";
     out.out["spectrum"] = s;
     return out;

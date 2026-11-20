@@ -79,6 +79,9 @@ struct NodeSpec {
    *  without one is checked by its `plan` alone. `Registry::add` gives a node the built-in signature of its name (signatures.cpp) when the ports match. */
   std::optional<Signature> signature;
   bool linear_map = false;                // a linear map (a kernel, a form's operator): refused after a non-linear node (D106)
+  /** the node reads a Hodge-Dirac package's FULL forms: the runner, which binds a package input (an operator of kind eigenvectors) as its basis, also reads the package's 2-form parts
+   *  (`<stem>_forms2`) and the options its intrinsic complex was built with into the same constant (meta `forms2`, `forms2_shape`, `complex`). Preparation only: no port, no type. */
+  bool reads_package_forms = false;
   std::string matches, description;       // the reference it is held equal to; one sentence
 
   /** PLAN: the arrows, on types only. `in` holds the types of the inputs that are present; `params` every parameter resolved. Refuses with refuse("...") naming the port and the reason. */

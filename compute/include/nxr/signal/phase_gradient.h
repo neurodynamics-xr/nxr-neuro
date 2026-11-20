@@ -16,6 +16,8 @@
 //                                     (nxr's GV). Positions in any length unit; the gradients are per that unit.
 //   power(Z, c)                       |z|^2 per vertex and sample                                                 [V x m]
 //   phaseCurrent(Z, c, G, n)          j = Im(z̄ ∇z), on the tangent plane (n the unit vertex normals): THE PHASE CURRENT, |z|^2 ∇φ   [3V x m] (x y z a vertex)
+//                                     (the same quantity on the edges of an intrinsic complex: intrinsic_forms.h's phaseCurrent(c, z); the operator passed is the
+//                                     caller's choice of discretisation, G here the reference)
 //   gradientPower(Z, c, G, n)         |∇z|^2 of the tangent gradient                                              [V x m]
 //   phaseGradient(j, p)               ∇φ = j / |z|^2 (rad per length; points AGAINST the travel); NaN where |z|^2 = 0                  [3V x m]
 //   phaseVelocity(g, omega)           u = −ω ∇φ / |∇φ|^2 (length per second, along the travel) and its length, the speed; NaN where ∇φ = 0

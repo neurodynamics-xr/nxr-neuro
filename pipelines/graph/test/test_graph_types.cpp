@@ -54,7 +54,7 @@ void test_print_parse() {
   }
   const g::PortType f = g::parse_type("field<cortex(kernel) × frames(tiling); complex vector3; current; band 8-12 Hz morlet; level tiles@5>");
   CHECK(f.cls == g::PortClass::field && f.value == g::ValueType::vector3 && f.complex_parts);
-  CHECK(f.domain.factors.size() == 2 && f.domain.streamed() != nullptr && f.domain.streamed()->role == g::Role::frames);
+  CHECK(f.domain.factors.size() == 2 && f.domain.streamed() != nullptr && g::is_tiled(*f.domain.streamed()));
   CHECK(f.res.band && (*f.res.band)[0] == 8 && (*f.res.band)[1] == 12 && f.res.band_shape == "morlet");
   CHECK(f.res.ladder == "tiles" && f.res.levels == std::vector<int>{5});
   const g::PortType o = g::parse_type("operator<transition head: device:run1 → head>");
@@ -84,7 +84,7 @@ void test_print_parse() {
 }
 
 void test_manifolds() {
-  const auto cortex = g::manifold_id("cortex", "kernel", g::ManifoldKind::surface, g::Role::none, g::CoordinateSystem{"head", "scs", "m"}, 15000);
+  const auto cortex = g::manifold_id("cortex", "kernel", g::ManifoldKind::surface, g::CoordinateSystem{"head", "scs", "m"}, 15000);
   const auto cortex2 = g::manifold_id("cortex", "other", g::ManifoldKind::surface);
   CHECK(g::same(cortex, g::manifold_id("cortex", "kernel")));
   CHECK(!g::same(cortex, cortex2));
@@ -96,12 +96,12 @@ void test_manifolds() {
   CHECK_EQ(g::print(g::derived("glued", cortex)), "glued(cortex(kernel))");
   CHECK_EQ(g::print(g::restricted(g::manifold_id("sensors", "rest"), "channels(kernel)")), "sensors(rest)|channels(kernel)");
   CHECK_EQ(g::print(g::parse_manifold("glued(cortex(kernel))")), "glued(cortex(kernel))");
-  CHECK(g::parse_manifold("time(rest)")->role == g::Role::time);
+  CHECK(g::in_seconds(*g::parse_manifold("time(rest)")));
   CHECK(g::parse_manifold("members(cells_l5)")->form == g::Manifold::Form::members);
   CHECK(g::parse_manifold("#7")->form == g::Manifold::Form::anonymous);
   CHECK(g::parse_manifold("M")->form == g::Manifold::Form::variable);
   const g::Domain d = dom({cortex, g::frame_line("tiling")});
-  CHECK(d.streamed() && d.streamed()->role == g::Role::frames);
+  CHECK(d.streamed() && g::is_tiled(*d.streamed()));
   CHECK(dom({cortex}).streamed() == nullptr);
   CHECK(g::same(dom({cortex}), dom({cortex})) && !g::same(dom({cortex}), dom({cortex2})));
 }
@@ -112,18 +112,37 @@ void test_unify() {
   g::Bindings b;
   std::string why;
 
-  // variables, and a time variable's role
+  // variables, and a time variable's constraints (a line in seconds, raw samples, a path)
   CHECK(g::unify(dom({g::var("M"), g::time_var("T")}), dom({sensors, time}), b, why));
   CHECK(g::same(b.vars["M"], sensors) && g::same(b.vars["T"], time));
   g::Bindings b2;
   CHECK(!g::unify(dom({g::var("M"), g::time_var("T")}), dom({sensors, cortex}), b2, why));
-  CHECK(why.find("a time line was expected where cortex(kernel)") != std::string::npos);
+  CHECK(why.find("a line in seconds was expected where cortex(kernel)") != std::string::npos);
   g::Bindings b3;
-  CHECK(!g::unify(dom({g::var("M"), g::time_var("T")}), dom({sensors, frames}), b3, why));   // a time var does not take a frame line
+  CHECK(!g::unify(dom({g::var("M"), g::time_var("T")}), dom({sensors, frames}), b3, why));   // a time var does not take a frame line: a tiled line is not raw samples
+  CHECK(why.find("raw samples") != std::string::npos && why.find("frames(tiling)") != std::string::npos);
   g::Bindings b4;
   CHECK(g::unify(dom({g::var("M"), g::frames_var("T")}), dom({sensors, frames}), b4, why));  // a frames var takes both
   g::Bindings b5;
   CHECK(g::unify(dom({g::var("M"), g::frames_var("T")}), dom({sensors, time}), b5, why));
+  // a frame line is a line in seconds, where a line in seconds is asked; the frequency line (Hz) and the tile members of another unit are not
+  g::Bindings b6;
+  CHECK(g::unify(dom({g::line_var("T", "s")}), dom({frames}), b6, why) && g::in_seconds(*frames) && g::is_tiled(*frames) && !g::is_tiled(*time));
+  g::Bindings b7;
+  CHECK(!g::unify(dom({g::line_var("T", "s")}), dom({g::made_line("frequency", "u.spectrum", "Hz", 0.0, 100.0, time)}), b7, why));
+  CHECK(why.find("a line in seconds was expected") != std::string::npos);
+  // a TOPOLOGY constraint: a cycle is refused by a node that reads a path (a zero-phase filter), and a path by one that reads a cycle; no constraint takes both; the topology is part of equality
+  const auto cycle = g::time_line("rest", 100.0, g::Topology::cycle);
+  g::Bindings b8;
+  CHECK(!g::unify(dom({g::var("M"), g::time_var("T")}), dom({sensors, cycle}), b8, why));
+  CHECK(why.find("a path was expected where time(rest)") != std::string::npos && why.find("a cycle") != std::string::npos);
+  g::Bindings b9;
+  CHECK(g::unify(dom({g::var("M"), g::frames_var("T")}), dom({sensors, cycle}), b9, why));
+  g::Bindings b10;
+  CHECK(g::unify(dom({g::line_var("T", "s", false, g::Topology::cycle)}), dom({cycle}), b10, why));
+  g::Bindings b11;
+  CHECK(!g::unify(dom({g::line_var("T", "s", false, g::Topology::cycle)}), dom({time}), b11, why));
+  CHECK(!g::same(time, cycle) && g::same(time, g::time_line("rest", 100.0)));
 
   // a variable met twice must be the same term; ids by equality
   g::Bindings c;
@@ -132,6 +151,16 @@ void test_unify() {
   CHECK(why.find("glued(cortex(kernel)) is not cortex(kernel)") != std::string::npos && why.find("variable M") != std::string::npos);
   CHECK(g::unify(g::manifold_id("cortex", "kernel"), cortex, c, why));
   CHECK(!g::unify(g::manifold_id("cortex", "x"), cortex, c, why));
+
+  // one manifold, one size: the same id with two known vertex counts is refused (a variable bound to it, or the id itself); an unknown count (0) still unifies
+  const auto m10 = g::manifold_id("cortex", "m", g::ManifoldKind::surface, std::nullopt, 10), m12 = g::manifold_id("cortex", "m", g::ManifoldKind::surface, std::nullopt, 12);
+  g::Bindings sz;
+  CHECK(g::unify(dom({g::var("M")}), dom({m10}), sz, why));
+  CHECK(!g::unify(dom({g::var("M")}), dom({m12}), sz, why));
+  CHECK(why.find("12 vertices where cortex(m) has 10") != std::string::npos);
+  g::Bindings sz2;
+  CHECK(!g::unify(m10, m12, sz2, why));
+  CHECK(g::unify(g::manifold_id("cortex", "m"), m12, sz2, why));
 
   // rest variables carry the other factors through unchanged
   g::Bindings r;

@@ -351,9 +351,9 @@ int main() {
 #ifdef NXR_TEST_CLI
   {
     const std::string cli = NXR_TEST_CLI, d = (root / "demo").string(), log = (root / "cli.log").string();
-    CHECK_EQ(std::system((cli + " run headmodel --dataset " + d + " --subject S1 --channels sensors --sources cortex --meg-surface innerskull --eeg-surface scalp --name hm_cli --meg single_sphere --sensor-weight-exponent 3 --eeg-approximation series --eeg-series-terms 100 --all > " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " run headmodel --dataset " + d + " --subject S1 --channels sensors --sources cortex --meg-surface innerskull --eeg-surface scalp --name hm_cli --meg single_sphere --sensor-weight-exponent 3 --eeg-approximation series --eeg-series-terms 100 --all >> " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " run inverse --dataset " + d + " --subject S1 --forward hm_cli --noise-cov rest_noise_cov --name MN_cli --all >> " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " run headmodel --dataset " + d + " --subject S1 --channels sensors --sources cortex --meg-surface innerskull --eeg-surface scalp --name hm_cli --meg single_sphere --sensor-weight-exponent 3 --eeg-approximation series --eeg-series-terms 100 > " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " run headmodel --dataset " + d + " --subject S1 --channels sensors --sources cortex --meg-surface innerskull --eeg-surface scalp --name hm_cli --meg single_sphere --sensor-weight-exponent 3 --eeg-approximation series --eeg-series-terms 100 >> " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " run inverse --dataset " + d + " --subject S1 --forward hm_cli --noise-cov rest_noise_cov --name MN_cli >> " + log).c_str()), 0);
     CHECK(std::system((cli + " run headmodel --dataset " + d + " --subject S2 --name x --channels nothing > /dev/null 2>&1").c_str()) != 0);
     std::ifstream in(log);
     std::string line, all;

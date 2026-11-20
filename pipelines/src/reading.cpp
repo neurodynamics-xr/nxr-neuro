@@ -32,6 +32,14 @@ nxr::io::Span span_of(const task::Node& field, std::int64_t n_samples, double sf
   return span_with(nxr::io::chunk_width(field.fact("chunk_shape_json")), n_samples, sfreq, t0, chunks, start, stop, level);
 }
 
+nxr::io::Span sample_span(const nxr::io::ChunkSource& src, std::int64_t start, std::int64_t stop) {
+  const std::int64_t n = src.n_samples();
+  if (start < 0 || stop < start || stop > n)
+    throw nxr::io::Error(nxr::io::code::invalid_argument, "the samples [" + std::to_string(start) + ", " + std::to_string(stop) + ") are not within the field's " + std::to_string(n) + " samples");
+  nxr::io::Span s{start, stop, "samples [" + std::to_string(start) + ", " + std::to_string(stop) + ")"};
+  return nxr::io::with_halo(s, 0, 0, n, src.width());   // no halo: the chunks the samples lie in
+}
+
 nxr::io::ChunkSource source_of(nxr::io::SubjectWriter& sub, const nxr::io::Row& field, double sfreq, double t0, std::vector<std::int32_t> rows,
                                const std::optional<std::vector<std::pair<double, double>>>& bad, nxr::io::Projectors projectors) {
   const auto p = nxr::io::opt_text(field, "producer_json");

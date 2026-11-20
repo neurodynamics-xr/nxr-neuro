@@ -7,12 +7,14 @@ target_sources(nxr_compute PRIVATE
   src/signal/crossspectral_bins.cpp
   src/signal/crossspectral_decomposition.cpp
   src/signal/crossspectral_measures.cpp
+  src/signal/decimation.cpp
   src/signal/filters.cpp
   src/signal/filters_fir.cpp
   src/signal/filters_fir_design.cpp
   src/signal/filters_iir.cpp
   src/signal/forms.cpp
   src/signal/fourier.cpp
+  src/signal/gabor.cpp
   src/signal/graphfilterbank.cpp
   src/signal/graphtransforms.cpp
   src/signal/graphfilterbank_operator.cpp
@@ -47,6 +49,13 @@ set_source_files_properties(src/signal/filters_fir.cpp PROPERTIES COMPILE_OPTION
 set_source_files_properties(src/signal/forms.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")   # a port of the Studio's fieldForms.ts / faceGradient.ts (no FMA in JavaScript)
 
 if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
+  add_executable(test_gabor test/test_gabor.cpp)
+  target_link_libraries(test_gabor PRIVATE nxr_compute)
+  add_test(NAME test_gabor COMMAND test_gabor)
+  add_executable(test_gabor_golden test/test_gabor_golden.cpp)
+  target_link_libraries(test_gabor_golden PRIVATE nxr_compute)
+  target_compile_definitions(test_gabor_golden PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+  add_test(NAME test_gabor_golden COMMAND test_gabor_golden)
   add_executable(test_intrinsic_forms test/test_intrinsic_forms.cpp)
   target_link_libraries(test_intrinsic_forms PRIVATE nxr_compute)
   add_test(NAME test_intrinsic_forms COMMAND test_intrinsic_forms)
@@ -169,6 +178,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   target_link_libraries(test_filter PRIVATE nxr_compute)
   target_compile_definitions(test_filter PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
   add_test(NAME test_filter COMMAND test_filter)
+  add_executable(test_decimation test/test_decimation.cpp)   # decimate: chunk-size independence with the halo, zero phase, no alias
+  target_link_libraries(test_decimation PRIVATE nxr_compute)
+  add_test(NAME test_decimation COMMAND test_decimation)
   foreach(t test_crossspectrum_bins test_tensor test_wave)   # moved from meeg: they read compute's functions (and meeg's source power)
     add_executable(${t} test/${t}.cpp)
     target_link_libraries(${t} PRIVATE nxr_compute nxr_meeg)

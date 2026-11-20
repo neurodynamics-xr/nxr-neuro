@@ -55,6 +55,7 @@ test_codec_pipeline	unit
 test_compact	unit
 test_compute_types	unit
 test_connection_laplacian	unit
+test_compile	integration
 test_connectome	unit
 test_connectome_definition	integration
 test_connectome_gate	unit
@@ -72,6 +73,7 @@ test_crossspectrum	integration
 test_crossspectrum_bins	golden
 test_crud	unit
 test_dataset_with_template	integration
+test_decimation	unit
 test_default_subject	unit
 test_definitions_load	integration
 test_definitions_typed	integration
@@ -120,6 +122,9 @@ test_forms	golden
 test_frame_tiling	unit
 test_frames	golden
 test_frames_pipeline	integration
+test_gabor	unit
+test_gabor_bursts	integration
+test_gabor_golden	golden
 test_gauge_workflow	unit
 test_geometry_bundle	unit
 test_geometry_central_extras	unit
@@ -132,6 +137,7 @@ test_graph_eigen	unit
 test_graph_frames	unit
 test_graph_moves	unit
 test_graph_types	unit
+test_graph_type_json	unit
 test_group_tree	golden
 test_groups	unit
 test_hat	golden
@@ -166,6 +172,7 @@ test_measurement_query	unit
 test_measures	unit
 test_meeg_pipelines	integration
 test_member_analytic	integration
+test_phase_split	integration
 test_mesh_bundles	unit
 test_migrate	unit
 test_migrate_measurement	unit
@@ -206,6 +213,11 @@ test_quadrature_pipeline	integration
 test_quantity	unit
 test_query_measure	unit
 test_read_existing	unit
+test_read_add	integration
+test_read_subject	integration
+test_add_options	integration
+test_pieces_deletes_jobs	integration
+test_readonly_readers	integration
 test_records	unit
 test_regions	unit
 test_registration	integration

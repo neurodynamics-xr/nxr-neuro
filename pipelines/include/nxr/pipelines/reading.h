@@ -20,6 +20,9 @@ nxr::io::Span span_of(const nxr::io::Row& field, std::int64_t n_samples, double 
                       const std::optional<double>& start, const std::optional<double>& stop, int level = 0);
 nxr::io::Span span_of(const task::Node& field, std::int64_t n_samples, double sfreq, double t0, const std::optional<std::string>& chunks,
                       const std::optional<double>& start, const std::optional<double>& stop, int level = 0);
+/** the span of the samples [start, stop) of a source's field, as a read of a stored field by its samples asks (not a run's range, which is chunks or seconds): an Error (invalid_argument)
+ *  unless 0 <= start <= stop <= its samples */
+nxr::io::Span sample_span(const nxr::io::ChunkSource& src, std::int64_t start, std::int64_t stop);
 /** the Field's chunks: the rows asked for (empty: all), the bad spans' mask when given; the recording's active projectors applied to every chunk unless `projectors` is
  *  none (the chunk service's rule; what was applied is the source's `projection_record()`, for the run's provenance and cache key) */
 nxr::io::ChunkSource source_of(nxr::io::SubjectWriter& sub, const nxr::io::Row& field, double sfreq, double t0, std::vector<std::int32_t> rows = {},

@@ -132,6 +132,26 @@ const std::vector<StepSpec>& registry();
 const StepSpec& step(const std::string& name);
 /** every step as a pipeline's author reads it: name, kind, ports, parameters, what it matches */
 Json catalogue();
+
+/** EXTERNAL NODES (compile only: face::compile). Nodes another program declares by their signatures (nxr/graph/type_json.h `external_nodes`: a renderer's sinks), with no
+ *  implementation here. While an `ExternalNodes` scope lives on this thread, `step(name)` also finds them (after the registered steps; a registered or retired name is refused)
+ *  and `node_registry` adds them, so a definition naming one is read, expanded, planned and checked as any other; running one is refused by the node itself. */
+class ExternalNodes {
+ public:
+  explicit ExternalNodes(std::vector<nxr::graph::NodeSpec> nodes);
+  ~ExternalNodes();
+  ExternalNodes(const ExternalNodes&) = delete;
+  ExternalNodes& operator=(const ExternalNodes&) = delete;
+  const std::vector<nxr::graph::NodeSpec>& nodes() const { return nodes_; }
+  const StepSpec* find_step(const std::string& name) const;
+  const nxr::graph::Signature* signature(const std::string& name) const;
+  /** the scope in force on this thread, or null */
+  static const ExternalNodes* current();
+ private:
+  std::vector<nxr::graph::NodeSpec> nodes_;
+  std::vector<StepSpec> steps_;
+  const ExternalNodes* previous_ = nullptr;
+};
 /** a plan's refusal: an Error (invalid_argument) with the message, raised before any data is read */
 [[noreturn]] void refuse(const std::string& message);
 

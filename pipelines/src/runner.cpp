@@ -33,6 +33,7 @@
 #include "nxr/pipelines/reading.h"
 
 #include "nxr/io/finder.h"
+#include "nxr/io/task/jobs.h"
 
 namespace nxr::pipelines::graph {
 
@@ -112,34 +113,14 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
     if (d.inputs.at(*d.over).value("read", std::string("samples")) == "shape") P.values[*d.over].facts["read"] = "shape";   // the steps see it: only one that reads no sample may take it
   }
   // THE GRAPH the executor checks: the definition's steps as uses of nodes, its found inputs as typed ports (the streamed one is the recording the loop walks), its outputs as the graph's.
-  // `with` is written out here ($names and nested ones replaced), so the executor sees values only; the parameters are the run's (defaults, then the caller's).
-  nxr::graph::Graph& g = P.graph;
-  g.name = d.name; g.version = d.version; g.text = d.text;
-  for (const auto& [k, v] : params.items()) g.parameters[k] = Json{{"default", v}, {"optional", v.is_null()}};   // the run's values; a null one (an optional bound) is "not given", read by the steps
+  std::vector<std::string> present;
   for (const auto& [k, v] : P.values) {
-    g.inputs.push_back(k);
+    present.push_back(k);
     P.types[k] = port_of(v);
     if (channels && v.cls == "field" && v.time && v.row) P.types[k].facts["channels"] = channels(nxr::io::text(*v.row, "name"));   // the recording's channels are facts its nodes read at plan
   }
-  for (const auto& [o, _] : d.outputs.items()) g.outputs.push_back(o);
-  std::set<std::string> defined;                                           // the inputs found, then what each step makes
-  for (const auto& [k, _] : P.values) defined.insert(k);
-  for (const auto& use : d.uses()) {
-    const StepSpec& st = step(use.step);
-    const std::string w = "steps: " + st.name + " (" + label(use.section) + ")";
-    nxr::graph::Use u;
-    u.node = st.name;
-    for (const auto& [port, thing] : use.ins.items()) {
-      const std::string t = thing.get<std::string>();
-      if (defined.count(t)) u.in[port] = t;
-      else if (std::find(st.optional.begin(), st.optional.end(), port) == st.optional.end())
-        refuse(w + ": in." + port + " '" + t + "' is absent (an optional input the subject lacks), and the step needs it");
-    }
-    for (const auto& [k, v] : use.with.items()) u.with[k] = with_value(v, params);
-    u.out = use.outs;
-    for (const auto& o : use.outs) defined.insert(o);
-    (use.section == "before" ? g.before : use.section == "after" ? g.after : g.chunks).push_back(std::move(u));
-  }
+  P.graph = graph_of(d, params, present);
+  const nxr::graph::Graph& g = P.graph;
   // THE CHECK, on types, before any data: arrows, kinds by section, halo, retiming (the executor's). The steps read the subject's records through the plan's binding (nothing stored).
   const Bound bound{task::Subject::of(db, subject_id)};
   const auto binding = std::make_shared<Binding>();
@@ -152,6 +133,7 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
   }
   for (const auto& [name, t] : checked.values) P.values[name] = value_of(t);
   P.align = checked.align;
+  P.checked = std::make_shared<const nxr::graph::Checked>(checked);
   std::size_t at = 0;
   for (const auto& use : d.uses()) {
     const StepSpec& st = step(use.step);
@@ -189,6 +171,33 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
       if (!db.read("manifold", m)) refuse("outputs." + o + ": its manifold " + m + " is not among the subject's rows");
   }
   return P;
+}
+
+// `with` is written out here ($names and nested ones replaced), so the executor sees values only; the parameters are the run's (defaults, then the caller's).
+nxr::graph::Graph graph_of(const Definition& d, const Json& params, const std::vector<std::string>& present) {
+  nxr::graph::Graph g;
+  g.name = d.name; g.version = d.version; g.text = d.text;
+  for (const auto& [k, v] : params.items()) g.parameters[k] = Json{{"default", v}, {"optional", v.is_null()}};   // the run's values; a null one (an optional bound) is "not given", read by the steps
+  g.inputs = present;
+  for (const auto& [o, _] : d.outputs.items()) g.outputs.push_back(o);
+  std::set<std::string> defined(present.begin(), present.end());          // the inputs present, then what each step makes
+  for (const auto& use : d.uses()) {
+    const StepSpec& st = step(use.step);
+    const std::string w = "steps: " + st.name + " (" + label(use.section) + ")";
+    nxr::graph::Use u;
+    u.node = st.name;
+    for (const auto& [port, thing] : use.ins.items()) {
+      const std::string t = thing.get<std::string>();
+      if (defined.count(t)) u.in[port] = t;
+      else if (std::find(st.optional.begin(), st.optional.end(), port) == st.optional.end())
+        refuse(w + ": in." + port + " '" + t + "' is absent (an optional input the subject lacks), and the step needs it");
+    }
+    for (const auto& [k, v] : use.with.items()) u.with[k] = with_value(v, params);
+    u.out = use.outs;
+    for (const auto& o : use.outs) defined.insert(o);
+    (use.section == "before" ? g.before : use.section == "after" ? g.after : g.chunks).push_back(std::move(u));
+  }
+  return g;
 }
 
 Json parameters_of(const Definition& d, const Json& set, const std::string& preset) {
@@ -291,6 +300,10 @@ std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, co
   }
   for (auto& P : out) P.preset = preset;
   return out;
+}
+
+std::vector<Plan> plan_runs(const Definition& d, nxr::io::SubjectWriter& sub, const Json& set, const std::string& preset) {
+  return plan_runs(d, sub.db(), sub.id(), set, preset, [&sub](const std::string& recording) { return nxr::pipelines::channel_facts(sub, recording); });
 }
 
 namespace {
@@ -1190,6 +1203,13 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.meta["input_positions"] = h.input_positions;
         a.meta["input_surface_id"] = h.input_surface_id;
         a.meta["name"] = h.stem; a.meta["id"] = h.id; a.meta["axis_id"] = h.axis_id;
+        if (n.spec->reads_package_forms) {                                  // the full forms: the 2-form parts (as stored, float32 bytes) and the options of the package's complex
+          const nxr::pipelines::HodgePackageForms f = nxr::pipelines::hodge_package_forms(sub, h);
+          const auto* bytes = reinterpret_cast<const std::uint8_t*>(f.forms2.data());
+          a.meta["forms2"] = Json::binary(std::vector<std::uint8_t>(bytes, bytes + f.forms2.size() * sizeof(float)));
+          a.meta["forms2_shape"] = Json::array({f.nF, f.K});
+          a.meta["complex"] = Json{{"mollify", f.mollify}, {"flip_eps", f.flip_eps}, {"star1_floor", f.star1_floor}};
+        }
         constants[name] = std::move(a);
       }
     for (const auto& [port, name] : n.in)
@@ -1494,8 +1514,50 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   return report;
 }
 
+
+namespace {
+// THE JOB ROW OF A RUN (docs/specs/2026-11-20-data-layer-queries.md, 3.8): written after the plan's execution, in its own short unit, as done (what it stored) or failed (its message). A run that was a cache hit did no
+// work and leaves no row. The row is io's (nxr/io/task/jobs.h); when it cannot be written the run's own outcome stands and a note says so.
+class JobCapture {
+ public:
+  JobCapture(nxr::io::SubjectWriter& sub, const Definition& d, const Plan& P, const RunOptions& opt, const std::function<void(const Json&)>& progress) : sub_(sub), progress_(progress), on_(!opt.requested_by.empty()) {
+    if (!on_) return;
+    job_.kind = "run:" + d.name;
+    job_.requested_by = opt.requested_by;
+    job_.started_utc = nxr::io::now_utc();
+    job_.params = Json{{"pipeline", d.name + "@" + std::to_string(d.version)}, {"parameters", P.parameters}, {"chunks", opt.chunks ? Json(*opt.chunks) : Json()}, {"start", opt.start ? Json(*opt.start) : Json()},
+                       {"stop", opt.stop ? Json(*opt.stop) : Json()}, {"replace", opt.replace}, {"preset", P.preset.empty() ? Json() : Json(P.preset)}};
+    job_.inputs = nxr::io::finder::describe(P.found);
+  }
+  void done(const Json& report) {
+    if (!on_ || report.value("hit", false)) return;
+    job_.status = "done";
+    job_.result = Json{{"stored", report.contains("stored") ? report["stored"] : Json::array()}};
+    write();
+  }
+  void failed(const std::string& message) {
+    if (!on_) return;
+    job_.status = "failed";
+    job_.error = message;
+    write();
+  }
+
+ private:
+  void write() {
+    job_.finished_utc = nxr::io::now_utc();
+    try { nxr::io::task::record_job(sub_, job_); }
+    catch (const std::exception& e) { if (progress_) progress_(Json{{"stage", "note"}, {"note", std::string("the job row was not written: ") + e.what()}}); }
+  }
+  nxr::io::SubjectWriter& sub_;
+  const std::function<void(const Json&)>& progress_;
+  nxr::io::task::JobRecord job_;
+  bool on_;
+};
+}  // namespace
+
 std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Definition& d, const Json& set, const RunOptions& opt, bool dry_run,
                       const std::function<void(const Json&)>& progress) {
+  if (d.outputs.empty()) refuse("run " + d.name + ": the definition stores nothing (its steps end in sink nodes): compile it instead; run has nothing to store");
   const auto plans = plan_runs(d, sub.db(), sub.id(), set, opt.preset, [&sub](const std::string& recording) { return nxr::pipelines::channel_facts(sub, recording); });     // every run planned before any is executed
   std::vector<Json> out;
   for (const auto& P : plans) {
@@ -1504,8 +1566,13 @@ std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, c
       if (const auto a = d.anchor()) r["anchor"] = text(*P.found.at(*a).row, "name");
       out.push_back(r);
     } else {
-      try { out.push_back(execute(ds, sub, P, opt, progress)); }
-      catch (const std::invalid_argument& e) { refuse(e.what()); }       // a node's refusal (compute throws std::invalid_argument) is the run's: an io error with its code
+      JobCapture job(sub, d, P, opt, progress);
+      try {
+        out.push_back(execute(ds, sub, P, opt, progress));
+        job.done(out.back());
+      }
+      catch (const std::invalid_argument& e) { job.failed(e.what()); refuse(e.what()); }       // a node's refusal (compute throws std::invalid_argument) is the run's: an io error with its code
+      catch (const std::exception& e) { job.failed(e.what()); throw; }
     }
   }
   return out;
@@ -1566,6 +1633,7 @@ GroupInputs stack_members(const std::vector<GroupMember>& members, const std::ve
 
 std::vector<Json> run_group(nxr::io::DatasetWriter& group_ds, nxr::io::SubjectWriter& group_sub, const std::vector<GroupMember>& members, const Definition& d, const Json& set, const RunOptions& opt, bool dry_run,
                             const std::function<void(const Json&)>& progress) {
+  if (d.outputs.empty()) refuse("run " + d.name + ": the definition stores nothing (its steps end in sink nodes): compile it instead; run has nothing to store");
   if (d.scope != "group") refuse(d.name + ": a group run takes a definition of scope group (this one is scope " + d.scope + ")");
   if (members.empty()) refuse(d.name + ": a group run states its subjects (--subjects A,B,C, or a stored group selection by name): there is no default");
   for (const auto& m : members) if (!m.sub || !m.ds) refuse(d.name + ": member '" + m.name + "' is not open");
@@ -1615,7 +1683,12 @@ std::vector<Json> run_group(nxr::io::DatasetWriter& group_ds, nxr::io::SubjectWr
         continue;
       }
       const GroupInputs g = stack_members(members, found, e.per_subject, params, d.name);
-      out.push_back(execute(group_ds, group_sub, P, opt, progress, &g));
+      JobCapture job(group_sub, d, P, opt, progress);
+      try {
+        out.push_back(execute(group_ds, group_sub, P, opt, progress, &g));
+        job.done(out.back());
+      }
+      catch (const std::exception& e) { job.failed(e.what()); throw; }
     }
   }
   return out;

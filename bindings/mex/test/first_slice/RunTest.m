@@ -34,7 +34,7 @@ classdef RunTest < SliceTestBase
             tc.verifyEqual(got.meta.class, 'statistic');
             tc.verifyEqual(got.meta.measure, 'power_density');
             tc.verifyEqual(size(got.values), [3 101]);
-            tc.verifyClass(got.values, 'double');
+            tc.verifyClass(got.values, 'single');   % the stored precision (the recording's)
             x = nxr.read(tc.ds, 'S1', 'rest').values;
             tc.verifyEqual(size(x), [3 4000]);
             tc.verifyClass(x, 'single');

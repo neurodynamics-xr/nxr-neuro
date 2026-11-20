@@ -830,10 +830,13 @@ void add_select_nodes(std::vector<StepSpec>& r) {
     parts.emplace_back("detect", take_step(r, "detect_spans"));
     parts.emplace_back("keep_where", take_step(r, "fit_gate"));
     parts.emplace_back("stages", take_step(r, "burst_stages"));
+    parts.emplace_back("edges", take_step(r, "event_edges"));
+    parts.emplace_back("union", take_step(r, "event_union"));
     r.push_back(combine_by_param("select.events.spans", "rule", std::move(parts),
         "spans in time found by detection, an IRREGULAR selection (sparse, may overlap, no levels) that records the grid it was found over: rule `detect` (a measurement's members labelled by hysteresis "
-        "crossings: was detect_spans), `keep_where` (the members whose rise-fall fit passes: was fit_gate), `stages` (onset, plateau, offset of each member: was burst_stages). Filters on members are quantities "
-        "(a duration range, a gap to merge)."));
+        "crossings: was detect_spans), `keep_where` (the members whose rise-fall fit passes: was fit_gate; or, with `x` and `where`, whose measures lie in their ranges), `stages` (onset, plateau, offset of "
+        "each member: was burst_stages), `edges` (each event's onset and offset: the tangent on its envelope, or the atom's half maximum), `union` (the global windows: the events of every row joined where "
+        "they overlap in time and frequency). Filters on members are quantities (a duration range, a gap to merge)."));
   }
   {
     StepSpec s = take_step(r, "cell_extent");

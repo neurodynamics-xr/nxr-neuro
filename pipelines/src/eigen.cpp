@@ -64,6 +64,7 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
   const nxr::geometry::SurfaceArrays surface = nxr::geometry::surfaceArrays(vertices.data(), nV, faces.data(), nF, nxr::geometry::intrinsicOptions(true, dopt));
   const nxr::operators::hodgedirac::HodgeDirac hd =
       nxr::operators::hodgedirac::assemble(surface, method.star1_floor.value_or(0.0), method.mollify, method.flip_eps);
+  nxr::operators::hodgedirac::requireComplete(hd);   // a closed genus-0 surface or a disc, and no unaccepted negative weights: the split is complete
   const int nE = hd.nE;
   const std::int64_t clamped = hd.star1Clamped;
 

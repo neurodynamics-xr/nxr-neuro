@@ -166,11 +166,4 @@ assert(isequal(size(vfield.vertexVectors), [nV 3]), 'vertexVectors should be V×
 assert(numel(vfield.vertexFieldRaw) == nV * 2, 'vertexFieldRaw should be V*2');
 assert(vfield.nSym == 2, 'nSym should round-trip');
 
-% ── 13. compute ─────────────────────────────────
-stripes = nxr_compute('geometry.compute', S, vfield.vertexFieldRaw, 8.0);
-fprintf('  [13] compute ✓ (segs=%d)\n', stripes.segmentCount);
-assert(stripes.segmentCount >= 0, 'segmentCount non-negative');
-assert(isequal(size(stripes.positions), [stripes.segmentCount * 2, 3]), ...
-    'positions should be (2*segs)×3');
-
 fprintf('[nxr_compute_mex] all assertions passed ✓\n');
