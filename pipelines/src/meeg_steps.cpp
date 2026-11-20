@@ -1420,6 +1420,7 @@ struct LcmvPrepared {
   bool averaged = false;
   std::string forward, data_cov, noise_cov, surface, regularisation;
   Json projectors = Json::object();
+  Json channels_matched = Json::object();      // each covariance of another channel set matched to the head model's by name (the preparation's record)
 };
 nxr::meeg::LcmvOptions lcmv_options(const Json& p, std::string* name = nullptr) {
   const std::string r = p.value("regularisation", std::string("median"));
@@ -1480,16 +1481,28 @@ ng::NodeSpec lcmv() {
     pr.surface = S.meta.value("name", std::string());
     for (const ng::Array* c : {&Sd, &Sn})
       if (F.meta.value("to_manifold_id", std::string()) != c->meta.value("channels_manifold_id", std::string()))
-        ng::refuse("meeg.lcmv: " + c->meta.value("name", std::string()) + " is on other channels than " + pr.forward);
+        ng::refuse("meeg.lcmv: " + c->meta.value("name", std::string()) + " is on other channels than " + pr.forward + " (a covariance of another channel set is matched to the head model's by name when it is prepared)");
     if (F.cols % 3 != 0) ng::refuse("meeg.lcmv: " + pr.forward + ": the gain is not channels x 3N");
+    // the kernel's channels are the data covariance's pick (the good channels of the run); the noise covariance is read on them, in that order (Brainstorm indexes both by the run's good channels)
     pr.channels = Sd.meta.value("channels", std::vector<std::int32_t>());
     pr.types = Sd.meta.value("channel_types", std::vector<std::string>());
-    if (Sn.meta.value("channels", std::vector<std::int32_t>()) != pr.channels)
-      ng::refuse("meeg.lcmv: " + pr.data_cov + " and " + pr.noise_cov + " cover other channels (the kernel needs both on one pick, in one order)");
     const std::int64_t M = static_cast<std::int64_t>(pr.channels.size()), N = F.cols / 3;
+    const std::vector<std::int32_t> nch = Sn.meta.value("channels", std::vector<std::int32_t>());
     for (const ng::Array* c : {&Sd, &Sn})
-      if (M == 0 || c->rows != M || c->cols != M) ng::refuse("meeg.lcmv: " + c->meta.value("name", std::string()) + ": its array does not fit its channels");
+      if (M == 0 || c->rows != c->cols || c->rows != static_cast<std::int64_t>(c == &Sd ? pr.channels.size() : nch.size()))
+        ng::refuse("meeg.lcmv: " + c->meta.value("name", std::string()) + ": its array does not fit its channels");
     for (const std::int32_t ch : pr.channels) if (ch < 0 || ch >= F.rows) ng::refuse("meeg.lcmv: a channel of " + pr.data_cov + " is outside the gain's channels");
+    std::map<std::int32_t, Eigen::Index> in_noise;
+    for (std::size_t i = 0; i < nch.size(); ++i) in_noise[nch[i]] = static_cast<Eigen::Index>(i);
+    std::vector<Eigen::Index> at;
+    for (const std::int32_t ch : pr.channels) {
+      const auto it = in_noise.find(ch);
+      if (it == in_noise.end()) ng::refuse("meeg.lcmv: channel " + std::to_string(ch) + " of " + pr.data_cov + " is not covered by " + pr.noise_cov + " (both covariances are read on the run's good channels)");
+      at.push_back(it->second);
+    }
+    const Eigen::MatrixXd Snall = matrix_of(Sn);
+    Eigen::MatrixXd Cn(M, M);
+    for (Eigen::Index i = 0; i < M; ++i) for (Eigen::Index j = 0; j < M; ++j) Cn(i, j) = Snall(at[static_cast<std::size_t>(i)], at[static_cast<std::size_t>(j)]);
     if (S.rows != N) ng::refuse("meeg.lcmv: " + pr.surface + " has " + std::to_string(S.rows) + " vertices, the head model " + std::to_string(N) + " sources");
     pr.orientations = surface_normals(S, who);
     std::string reg;
@@ -1498,9 +1511,13 @@ ng::NodeSpec lcmv() {
     const Eigen::MatrixXd Fall = matrix_of(F);
     const bool avg = p.value("average_reference", true);
     const MinNormInputs d = minimum_norm_inputs(Fall, matrix_of(Sd), pr.channels, pr.types, projectors_of(Sd.meta), {}, "brainstorm", avg);
-    const MinNormInputs z = minimum_norm_inputs(Fall, matrix_of(Sn), pr.channels, pr.types, projectors_of(Sn.meta), {}, "brainstorm", avg);
+    const MinNormInputs z = minimum_norm_inputs(Fall, Cn, pr.channels, pr.types, projectors_of(Sn.meta), {}, "brainstorm", avg);
     pr.G = d.G; pr.Cd = d.C; pr.Cn = z.C; pr.averaged = d.averaged;
     pr.projectors = Json{{"data_covariance", d.record}, {"noise_covariance", z.record}};
+    for (const auto& [key, c] : {std::pair<const char*, const ng::Array*>{"data_covariance", &Sd}, {"noise_covariance", &Sn}}) {
+      if (c->meta.contains("projectors_choice")) pr.projectors[key]["choice"] = c->meta["projectors_choice"];   // which projectors the caller had handed (the run's --projectors)
+      if (c->meta.contains("channels_matched")) pr.channels_matched[key] = c->meta["channels_matched"];        // a covariance of another channel set (the empty room's), matched by name
+    }
     return std::any(std::move(pr));
   };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
@@ -1516,7 +1533,7 @@ ng::NodeSpec lcmv() {
                          {"references", source_model_references()},
                          {"computed", Json{{"reference", "Brainstorm bst_inverse_linear_2016 (process_inverse_2016), the release of 2018-10-12"},
                                            {"options", Json{{"regularisation", pr.regularisation}, {"ridge_fraction", pr.opt.covariance.ridgeFraction}, {"detect_diagonal", pr.opt.detectDiagonal}}},
-                                           {"rule_applied", rule}, {"average_reference", pr.averaged}, {"projectors", pr.projectors},
+                                           {"rule_applied", rule}, {"average_reference", pr.averaged}, {"projectors", pr.projectors}, {"channels_matched", pr.channels_matched},
                                            {"forward", pr.forward}, {"data_cov", pr.data_cov}, {"noise_cov", pr.noise_cov},
                                            {"orientation", "fixed: the unit vertex normals of " + pr.surface + " (nxr::geometry::vertexNormals, corner-angle weighted)"},
                                            {"data_ranks", ker.dataRanks}, {"noise_ranks", ker.noiseRanks}, {"notes", ker.notes},

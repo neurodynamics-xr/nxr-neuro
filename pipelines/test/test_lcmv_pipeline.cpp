@@ -209,6 +209,12 @@ int main() {
     CHECK(rel(stored_operator(sub, "LCMV_none"), nxr::meeg::lcmvKernel(gain, normals, cd.covariance, cn.covariance, types, o).K) < 1e-5);
   }
   CHECK(!code_of([&] { g::run(ds, sub, g::load("lcmv"), Json{{"noise_cov", "emptyroom_noise_cov"}}, span_options(std::nullopt, std::nullopt, std::nullopt, false)); }).empty());   // no data covariance: refused
+  {   // a noise covariance that does not cover the run's good channels: refused (both covariances are read on them)
+    g::run(ds, sub, g::load("noisecov"), Json{{"recording", "emptyroom"}, {"name", "emptyroom_mag_cov"}, {"channel_types", Json::array({"MEG MAG"})}},
+           span_options(std::nullopt, 0.0, static_cast<double>(T) / sfreq, false));
+    CHECK(!code_of([&] { g::run(ds, sub, g::load("lcmv"), Json{{"data_cov", "rest_data_cov"}, {"noise_cov", "emptyroom_mag_cov"}, {"name", "LCMV_mag"}}, span_options(std::nullopt, std::nullopt, std::nullopt, false)); }).empty());
+    CHECK(!sub.by_name("operator", "LCMV_mag").has_value());
+  }
 
   // ── step 15: the region map over a span ──
   const double t0 = 2.0, t1 = 12.0;
