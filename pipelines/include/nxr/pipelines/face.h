@@ -8,6 +8,7 @@
 //
 // A dataset is a folder: a catalogue of subject packages, or a one-database dataset. The time range of a run is REQUIRED: from and to (seconds) or all.
 #pragma once
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -16,6 +17,7 @@
 #include <vector>
 
 #include "nxr/io/json_text.h"
+#include "nxr/io/task/commands.h"
 
 namespace nxr::pipelines::face {
 
@@ -121,5 +123,56 @@ Stored read(const std::filesystem::path& dataset, const std::string& subject, co
  *  quality), with one bad span (`<recording>_bad_segments`, type BAD). Returns the dataset's folder. */
 std::filesystem::path synthetic_dataset(const std::filesystem::path& datastore, const std::string& name = "demo", const std::string& subject = "S1", const std::string& recording = "rest",
                                         int channels = 3, double sfreq = 100.0, double seconds = 40.0, unsigned seed = 21);
+
+// ---- THE COMMANDS THAT NEED COMPUTE (docs/specs/2026-11-19-io-service.md, section 5): one function a command, the command line calling it as the faces will; the io-only
+// commands are nxr/io/task/commands.h. Each takes the command's options as a request and returns its result object (without "stage") and its arrays.
+using nxr::io::task::CommandResult;
+
+/** `create dataset`: io's (task::create_dataset), and with `templates` the one-database dataset with its default subject (its frames, group tree and Levi-Civita connection):
+ *  both or neither. Its result is the library's report ({dataset, ...}: the command line prints it with "stage" last). */
+CommandResult create_dataset(const nxr::io::task::CreateDatasetRequest& request, const Progress& progress = {});
+
+/** `create registration`: a registration package between two templates. Result: the registration's info, then `package` and `content_hash`. */
+struct CreateRegistrationRequest {
+  std::string package, name, from, to, from_sphere, to_sphere;
+  std::optional<std::string> method;
+  std::optional<int> neighbours;
+  bool one_direction = false;
+  std::vector<std::string> templates;
+  std::optional<std::string> home_dataset, source, licence, attribution;
+  std::optional<std::string> redistributable;   // "yes" | "no"
+  std::string created_by;
+};
+CommandResult create_registration(const CreateRegistrationRequest& request, const Progress& progress = {});
+
+/** `list recordings` · `list kernels` · `list results`: {subject, <what>: [{name, kind, table}]} */
+struct ListNodesRequest { std::string dataset, subject; std::vector<std::string> templates; };
+CommandResult list_recordings(const ListNodesRequest& request, const Progress& progress = {});
+CommandResult list_kernels(const ListNodesRequest& request, const Progress& progress = {});
+CommandResult list_results(const ListNodesRequest& request, const Progress& progress = {});
+
+/** `read crossspectrum`: readings derived from a stored `<stem>_<band>_bins` statistic, for one pair of recording channels (row A, column B) or a seed against every channel.
+ *  `reading`: coherency (re, im, abs per bin) | imag | phase (wrapped, unwrapped) | delay (phase slope, ms, with its residual; `weights` coherence | none) | psi. */
+struct ReadCrossspectrumRequest {
+  std::string dataset, subject, name;
+  std::optional<std::array<std::int32_t, 2>> pair;
+  std::optional<std::int32_t> seed;
+  std::string reading = "coherency";
+  std::string weights = "coherence";
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult read_crossspectrum(const ReadCrossspectrumRequest& request, const Progress& progress = {});
+
+/** `query measurements`: `measurement_query` with the command's options; one of band, spatial_scale, tile is the level asked. Result {selection, measure, result}. */
+struct QueryMeasurementsRequest {
+  std::string dataset, subject, selection, measure;
+  std::optional<std::string> field, band, spatial_scale, tile, factor, where;
+  std::optional<std::vector<std::string>> subjects;
+  std::optional<double> min_value, max_value;
+  std::optional<std::int64_t> limit;
+  std::optional<std::string> order;
+};
+CommandResult query_measurements(const QueryMeasurementsRequest& request);
 
 }  // namespace nxr::pipelines::face

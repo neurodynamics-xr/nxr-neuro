@@ -18,37 +18,16 @@
 //                            [--max-end-distance MM] [--hcp-points N]] [--accept-unlisted-sources] [--home-dataset N]
 //   package registration-create --package P --name N --from NAME@VERSION --to NAME@VERSION --from-sphere S --to-sphere S [--method shepard|nearest|barycentric]
 //                               [--neighbours K] [--one-direction] [--templates DIR ...] [--home-dataset N] [--source TEXT --licence TEXT --attribution TEXT --redistributable yes|no]
-#include <sstream>
-
 #include "cli.h"
-#include "nxr/convert/templates.h"
-#include "nxr/io/catalogue.h"
-#include "nxr/io/dataset_index.h"
-#include "nxr/io/migrate.h"
 #include "nxr/io/participants.h"
-#include "nxr/io/subject_package.h"
-#include "nxr/io/task/dataset.h"
-#include "nxr/io/templates.h"
+#include "nxr/io/migrate.h"
 #ifdef NXR_NEURO_WITH_PIPELINES
-#include "nxr/pipelines/registration.h"
+#include "nxr/pipelines/face.h"
 #endif
 
 using namespace nxr::io;
 using namespace cli;
-
-namespace {
-std::vector<std::string> split_commas(const std::string& s) {
-  std::vector<std::string> out;
-  std::stringstream ss(s);
-  for (std::string x; std::getline(ss, x, ',');) if (!x.empty()) out.push_back(x);
-  return out;
-}
-TemplateSearch search_of(const Args& a) {
-  TemplateSearch s;
-  if (const auto it = a.multi.find("--templates"); it != a.multi.end()) for (const auto& p : it->second) s.command_paths.push_back(p);
-  return s;
-}
-}  // namespace
+namespace task = nxr::io::task;
 
 int package_main(const std::vector<std::string>& argv) {
   if (argv.empty()) throw Usage("nxr-neuro package: error: the following arguments are required: action");
@@ -57,48 +36,33 @@ int package_main(const std::vector<std::string>& argv) {
   const std::string prog = "nxr-neuro package " + action;
   if (action == "create") {
     const Args a = parse(prog, rest, {"--package", "--name", "--home-dataset", "--kind"}, {}, {"--package", "--name", "--home-dataset"});
-    CreatePackageOptions o;
-    o.home_dataset = a.get("--home-dataset");
-    o.subject.kind = a.maybe("--kind").value_or("subject");
-    o.subject.created_by = stamp();
-    o.built_by = stamp();
-    DatasetWriter w = create_package(a.get("--package"), a.get("--name"), o);
-    emit(Json{{"stage", "result"}, {"package", a.get("--package")}, {"subject_id", nxr::io::task::Dataset::of(w).package_subject_id()}});
-    w.close();
-    emit(Json{{"stage", "result"}, {"content_hash", SubjectPackage::open(a.get("--package")).record().content_hash}});
+    const task::CommandResult r = task::create_package({a.get("--package"), a.get("--name"), a.get("--home-dataset"), a.maybe("--kind").value_or("subject"), stamp()});
+    emit(Json{{"stage", "result"}, {"package", r.result["package"]}, {"subject_id", r.result["subject_id"]}});   // two result lines, as it always printed
+    emit(Json{{"stage", "result"}, {"content_hash", r.result["content_hash"]}});
   } else if (action == "verify") {
     const Args a = parse(prog, rest, {"--package"}, {}, {"--package"});
-    const VerifyReport v = SubjectPackage::open(a.get("--package")).verify();
-    Json problems = Json::array();
-    for (const auto& p : v.problems) problems.push_back(p);
-    emit(Json{{"stage", "result"}, {"ok", v.ok}, {"content_hash", v.content_hash}, {"problems", problems}});
-    return v.ok ? 0 : 1;
+    const task::CommandResult r = task::verify_package({a.get("--package")});
+    emit_result(r.result);
+    return r.result["ok"].get<bool>() ? 0 : 1;
   } else if (action == "show") {
     const Args a = parse(prog, rest, {"--package"}, {}, {"--package"});
-    emit(Json{{"stage", "result"}, {"record", SubjectPackage::open(a.get("--package")).record().to_json()}});
+    emit_result(task::show_package({a.get("--package")}).result);
   } else if (action == "register") {
     const Args a = parse(prog, rest, {"--dataset", "--registered-by"}, {"--scan", "--replace"}, {"--dataset", "--registered-by"}, 0, {"--package", "--templates"});
-    std::vector<std::filesystem::path> pk;
-    if (const auto it = a.multi.find("--package"); it != a.multi.end()) for (const auto& p : it->second) pk.push_back(p);
-    if (a.flag.count("--scan")) { if (!pk.empty()) throw Usage(prog + ": error: --scan and --package are alternatives"); pk = scan_packages(a.get("--dataset")); }
-    if (pk.empty()) throw Usage(prog + ": error: name the packages (--package P ...) or --scan the dataset folder");
-    RegisterOptions ro;
-    ro.registered_by = a.get("--registered-by");
-    ro.replace = a.flag.count("--replace") > 0;
-    if (a.multi.count("--templates")) ro.templates = search_of(a);
-    Json out = Json::array();
-    bool refused = false;
-    for (const auto& r : register_packages(a.get("--dataset"), pk, ro)) {
-      out.push_back(Json{{"package", r.package.string()}, {"name", r.name}, {"outcome", r.outcome}, {"reason", r.reason}});
-      refused = refused || r.outcome == "refused";
-    }
-    emit(Json{{"stage", "result"}, {"results", out}});
-    return refused ? 1 : 0;
+    task::RegisterPackageRequest rq;
+    rq.dataset = a.get("--dataset");
+    rq.registered_by = a.get("--registered-by");
+    rq.package = values_of(a, "--package");
+    rq.scan = a.flag.count("--scan") > 0;
+    rq.replace = a.flag.count("--replace") > 0;
+    rq.templates = maybe_values(a, "--templates");
+    const task::CommandResult r = call(prog, [&] { return task::register_package(rq); });
+    emit_result(r.result);
+    for (const auto& x : r.result["results"]) if (x["outcome"] == "refused") return 1;
+    return 0;
   } else if (action == "status") {
     const Args a = parse(prog, rest, {"--dataset"}, {}, {"--dataset"});
-    Json out = Json::array();
-    for (const auto& e : refresh_member_status(a.get("--dataset"))) out.push_back(e.to_json());
-    emit(Json{{"stage", "result"}, {"subjects", out}});
+    emit_result(task::list_members({a.get("--dataset")}).result);
   } else if (action == "select") {
     const Args a = parse(prog, rest, {"--dataset", "--subjects", "--where"}, {}, {"--dataset"});
     SubjectSelection sel;
@@ -107,8 +71,7 @@ int package_main(const std::vector<std::string>& argv) {
     emit(Json{{"stage", "result"}, {"selection", select_subjects(a.get("--dataset"), sel).provenance()}});
   } else if (action == "index") {
     const Args a = parse(prog, rest, {"--dataset"}, {"--force"}, {"--dataset"});
-    const IndexReport r = build_index(a.get("--dataset"), a.flag.count("--force") > 0);
-    emit(Json{{"stage", "result"}, {"rebuilt", r.rebuilt}, {"subjects", r.subjects}});
+    emit_result(task::create_index({a.get("--dataset"), a.flag.count("--force") > 0}).result);
   } else if (action == "participants-import") {
     const Args a = parse(prog, rest, {"--dataset", "--tsv", "--sidecar"}, {}, {"--dataset", "--tsv"});
     std::optional<std::filesystem::path> side;
@@ -123,11 +86,7 @@ int package_main(const std::vector<std::string>& argv) {
     emit(Json{{"stage", "result"}, {"tsv", a.get("--tsv")}});
   } else if (action == "split") {
     const Args a = parse(prog, rest, {"--dataset", "--registered-by"}, {"--dry-run"}, {"--dataset", "--registered-by"});
-    SplitOptions o;
-    o.registered_by = a.get("--registered-by");
-    o.dry_run = a.flag.count("--dry-run") > 0;
-    o.on_stage = [](const std::string& stage, const std::string& subject) { emit(Json{{"stage", stage}, {"subject", subject}}); };
-    emit(Json{{"stage", "result"}, {"report", split_dataset(a.get("--dataset"), o)}});
+    emit_result(task::split_dataset({a.get("--dataset"), a.get("--registered-by"), a.flag.count("--dry-run") > 0}, progress()).result);
   } else if (action == "migrate-selections") {
     const Args a = parse(prog, rest, {"--dataset"}, {"--dry-run"}, {"--dataset"});
     SelectionStorageOptions o;
@@ -137,81 +96,72 @@ int package_main(const std::vector<std::string>& argv) {
   } else if (action == "migrate-measurements") {
     // THE MEASUREMENTS' STORAGE (schema 53, io/migrate.h): one table for a value over a selection's members. Subject by subject, resumable, verified; the old statistics are KEPT unless the explicit second step is asked.
     const Args a = parse(prog, rest, {"--dataset"}, {"--dry-run", "--remove-statistics"}, {"--dataset"});
-    MeasurementStorageOptions o;
-    o.dry_run = a.flag.count("--dry-run") > 0;
-    o.remove_statistics = a.flag.count("--remove-statistics") > 0;
-    o.on_stage = [](const std::string& stage, const std::string& subject) { emit(Json{{"stage", stage}, {"subject", subject}}); };
-    emit(Json{{"stage", "result"}, {"report", migrate_measurement_storage(a.get("--dataset"), o)}});
+    emit_result(task::migrate_measurements({a.get("--dataset"), a.flag.count("--dry-run") > 0, a.flag.count("--remove-statistics") > 0}, progress()).result);
   } else if (action == "join") {
     const Args a = parse(prog, rest, {"--dataset"}, {}, {"--dataset"});
-    emit(Json{{"stage", "result"}, {"report", join_dataset(a.get("--dataset"))}});
+    emit_result(task::join_dataset({a.get("--dataset")}).result);
   } else if (action == "release") {
     const Args a = parse(prog, rest, {"--package", "--name", "--template-version", "--released-by", "--into"}, {}, {"--package", "--name", "--template-version", "--released-by", "--into"});
-    const ReleaseReport r = release_package(a.get("--package"), ReleaseOptions{a.get("--name"), a.get("--template-version"), a.get("--released-by"), a.get("--into")});
-    emit(Json{{"stage", "result"}, {"folder", r.folder.string()}, {"content_hash", r.content_hash}});
+    emit_result(task::release_template({a.get("--package"), a.get("--name"), a.get("--template-version"), a.get("--released-by"), a.get("--into")}).result);
   } else if (action == "release-redistributable") {
     const Args a = parse(prog, rest, {"--package", "--into", "--released-by"}, {}, {"--package", "--into", "--released-by"});
-    const ReleaseReport r = release_redistributable(a.get("--package"), a.get("--into"), a.get("--released-by"));
-    emit(Json{{"stage", "result"}, {"folder", r.folder.string()}, {"content_hash", r.content_hash}, {"left_out", r.left_out}});
+    emit_result(task::release_redistributable({a.get("--package"), a.get("--into"), a.get("--released-by")}).result);
   } else if (action == "templates") {
     const Args a = parse(prog, rest, {}, {}, {}, 0, {"--templates"});
-    Json out = Json::array();
-    for (const auto& l : list_templates(search_of(a)))
-      out.push_back(Json{{"folder", l.folder.string()}, {"name", l.name}, {"version", l.version}, {"edition", l.edition}, {"kind", l.kind}, {"content_hash", l.content_hash}});
-    emit(Json{{"stage", "result"}, {"templates", out}});
+    emit_result(task::list_templates({values_of(a, "--templates")}).result);
   } else if (action == "template-create") {
     const Args a = parse(prog, rest, {"--recipe", "--sources", "--package", "--name", "--hcp-trk", "--hcp-end-surface", "--max-end-distance", "--hcp-points", "--home-dataset"},
                          {"--cortex-mask", "--scalp", "--accept-unlisted-sources"}, {"--recipe", "--sources", "--package"}, 0, {"--surface", "--parcellation"});
-    nxr::convert::BuildRequest r;
-    r.recipe = a.get("--recipe");
-    r.sources = a.get("--sources");
-    r.package = a.get("--package");
-    if (const auto n = a.maybe("--name")) r.name = *n;
-    if (const auto h = a.maybe("--home-dataset")) r.home_dataset = *h;
-    r.created_by = stamp();
-    r.accept_unlisted_sources = a.flag.count("--accept-unlisted-sources") > 0;
-    r.cortex_mask = a.flag.count("--cortex-mask") > 0;
-    r.scalp = a.flag.count("--scalp") > 0;
-    if (a.multi.count("--surface")) r.surfaces = a.multi.at("--surface");
-    if (a.multi.count("--parcellation")) r.annotations = a.multi.at("--parcellation");
-    if (const auto t = a.maybe("--hcp-trk")) r.hcp_trk = std::filesystem::path(*t);
-    if (const auto s = a.maybe("--hcp-end-surface")) r.hcp_end_surface = *s;
+    task::CreateTemplateRequest rq;
+    rq.recipe = a.get("--recipe");
+    rq.sources = a.get("--sources");
+    rq.package = a.get("--package");
+    rq.name = a.maybe("--name");
+    rq.home_dataset = a.maybe("--home-dataset");
+    rq.created_by = stamp();
+    rq.accept_unlisted_sources = a.flag.count("--accept-unlisted-sources") > 0;
+    rq.cortex_mask = a.flag.count("--cortex-mask") > 0;
+    rq.scalp = a.flag.count("--scalp") > 0;
+    rq.surface = maybe_values(a, "--surface");
+    rq.parcellation = maybe_values(a, "--parcellation");
+    rq.hcp_trk = a.maybe("--hcp-trk");
+    rq.hcp_end_surface = a.maybe("--hcp-end-surface");
     try {
-      if (const auto m = a.maybe("--max-end-distance")) r.hcp_max_end_distance_mm = std::stod(*m);
-      if (const auto n = a.maybe("--hcp-points")) r.hcp_points = std::stoi(*n);
+      if (const auto m = a.maybe("--max-end-distance")) rq.max_end_distance = std::stod(*m);
+      if (const auto n = a.maybe("--hcp-points")) rq.hcp_points = std::stoi(*n);
     } catch (const std::exception&) { throw Usage(prog + ": error: --max-end-distance and --hcp-points take numbers"); }
-    emit([&] { Json j = nxr::convert::build_template(r); j["stage"] = "result"; return j; }());
+    Json out = task::create_template(rq).result;   // the library's report, "stage" last as it always printed
+    out["stage"] = "result";
+    emit(out);
   } else if (action == "registration-create") {
 #ifdef NXR_NEURO_WITH_PIPELINES
     const Args a = parse(prog, rest, {"--package", "--name", "--from", "--to", "--from-sphere", "--to-sphere", "--method", "--neighbours", "--home-dataset", "--source", "--licence", "--attribution", "--redistributable"},
                          {"--one-direction"}, {"--package", "--name", "--from", "--to", "--from-sphere", "--to-sphere"}, 0, {"--templates"});
-    nxr::pipelines::RegistrationCreateOptions o;
-    o.package = a.get("--package");
-    o.name = a.get("--name");
-    o.from = a.get("--from");
-    o.to = a.get("--to");
-    o.from_sphere = a.get("--from-sphere");
-    o.to_sphere = a.get("--to-sphere");
-    if (const auto m = a.maybe("--method")) o.method = *m;
+    nxr::pipelines::face::CreateRegistrationRequest rq;
+    rq.package = a.get("--package");
+    rq.name = a.get("--name");
+    rq.from = a.get("--from");
+    rq.to = a.get("--to");
+    rq.from_sphere = a.get("--from-sphere");
+    rq.to_sphere = a.get("--to-sphere");
+    rq.method = a.maybe("--method");
     if (const auto k = a.maybe("--neighbours")) {
-      try { o.neighbours = std::stoi(*k); } catch (const std::exception&) { throw Usage(prog + ": error: argument --neighbours: invalid integer value: '" + *k + "'"); }
+      try { rq.neighbours = std::stoi(*k); } catch (const std::exception&) { throw Usage(prog + ": error: argument --neighbours: invalid integer value: '" + *k + "'"); }
     }
-    o.both_directions = a.flag.count("--one-direction") == 0;
-    if (a.multi.count("--templates")) for (const auto& p : a.multi.at("--templates")) o.templates.push_back(p);
-    if (const auto h = a.maybe("--home-dataset")) o.home_dataset = *h;
-    o.created_by = stamp();
-    o.source = a.maybe("--source");
-    o.licence = a.maybe("--licence");
-    o.attribution = a.maybe("--attribution");
-    if (const auto r = a.maybe("--redistributable")) {
-      if (*r != "yes" && *r != "no") throw Usage(prog + ": error: argument --redistributable: invalid choice: '" + *r + "' (choose from 'yes', 'no')");
-      o.redistributable = *r == "yes";
-    }
-    const auto res = nxr::pipelines::registration_create(o, [](const Json& j) { emit(j); });
-    Json out = res.info;
+    rq.one_direction = a.flag.count("--one-direction") > 0;
+    rq.templates = values_of(a, "--templates");
+    rq.home_dataset = a.maybe("--home-dataset");
+    rq.created_by = stamp();
+    rq.source = a.maybe("--source");
+    rq.licence = a.maybe("--licence");
+    rq.attribution = a.maybe("--attribution");
+    rq.redistributable = a.maybe("--redistributable");
+    const task::CommandResult r = call(prog, [&] { return nxr::pipelines::face::create_registration(rq, progress()); });
+    Json out;                                      // the registration's info, then "stage", the package and its content hash, as it always printed
+    for (auto it = r.result.begin(); it != r.result.end(); ++it) if (it.key() != "package" && it.key() != "content_hash") out[it.key()] = it.value();
     out["stage"] = "result";
-    out["package"] = res.package.string();
-    out["content_hash"] = SubjectPackage::open(res.package).record().content_hash;
+    out["package"] = r.result["package"];
+    out["content_hash"] = r.result["content_hash"];
     emit(out);
 #else
     throw Error(code::unsupported, "nxr-neuro create registration needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");

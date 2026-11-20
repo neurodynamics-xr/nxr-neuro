@@ -89,7 +89,7 @@
 #include <sstream>
 
 #include "cli.h"
-#include "nxr/signal/crossspectral.h"
+#include "nxr/pipelines/face.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/frames.h"
 
@@ -170,71 +170,23 @@ std::vector<nxr::meeg::Band> bands_arg(const std::string& prog, const std::strin
 int crossspectrum_read_main(const std::vector<std::string>& rest) {   // dispatched by run_legacy (nxr_neuro.cpp): `read crossspectrum`
   const std::string prog = "nxr-neuro crossspectrum read";
   const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--name", "--pair", "--seed", "--reading", "--weights"}, {}, {"--dataset", "--subject", "--name"});
-  const std::string reading = a.maybe("--reading").value_or("coherency");
-  if (reading != "coherency" && reading != "imag" && reading != "phase" && reading != "delay" && reading != "psi") usage(prog, "--reading is coherency, imag, phase, delay or psi");
-  const std::string weights = a.maybe("--weights").value_or("coherence");
-  if (weights != "coherence" && weights != "none") usage(prog, "--weights is coherence or none");
-  if (a.maybe("--pair") && a.maybe("--seed")) usage(prog, "--pair and --seed are alternatives");
-  if (!a.maybe("--pair") && !a.maybe("--seed")) usage(prog, "name the channels to read: --pair A,B (row A, column B; recording channel indices) or --seed A (A against every channel)");
+  nxr::pipelines::face::ReadCrossspectrumRequest rq;
+  rq.dataset = a.get("--dataset");
+  rq.subject = a.get("--subject");
+  rq.name = a.get("--name");
+  rq.reading = a.maybe("--reading").value_or("coherency");
+  rq.weights = a.maybe("--weights").value_or("coherence");
+  rq.templates = cli::values_of(a, "--templates");
+  rq.created_by = cli::stamp();
   try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto S = nxr::pipelines::crossspectrum_bins_read(sub, a.get("--name"));
-    auto position = [&](const std::string& t) {
-      const std::int32_t ch = static_cast<std::int32_t>(std::stol(t));
-      for (std::size_t i = 0; i < S.channels.size(); ++i) if (S.channels[i] == ch) return static_cast<Eigen::Index>(i);
-      std::string have;
-      for (std::size_t i = 0; i < S.channels.size() && i < 8; ++i) have += (i ? "," : "") + std::to_string(S.channels[i]);
-      usage(prog, "channel " + t + " is not one of the statistic's " + std::to_string(S.channels.size()) + " channels (recording channel indices, from " + have + (S.channels.size() > 8 ? ", ..." : "") + ")");
-      return Eigen::Index(0);
-    };
-    std::vector<Eigen::Index> rows, cols;                         // the pairs (rows[i], cols[i]) wanted
+    // the channels, recording channel indices: --pair A,B or --seed A
     if (const auto v = a.maybe("--pair")) {
       const auto ab = split(*v, ',');
       if (ab.size() != 2) usage(prog, "--pair is A,B");
-      rows.push_back(position(ab[0])); cols.push_back(position(ab[1]));
-    } else {
-      const Eigen::Index r = position(*a.maybe("--seed"));
-      for (std::size_t j = 0; j < S.channels.size(); ++j) { rows.push_back(r); cols.push_back(static_cast<Eigen::Index>(j)); }
+      rq.pair = std::array<std::int32_t, 2>{static_cast<std::int32_t>(std::stol(ab[0])), static_cast<std::int32_t>(std::stol(ab[1]))};
     }
-    const Eigen::VectorXd f = Eigen::Map<const Eigen::VectorXd>(S.frequencies.data(), static_cast<Eigen::Index>(S.frequencies.size()));
-    Json out = Json{{"stage", "result"}, {"name", a.get("--name")}, {"reading", reading}, {"frequencies_hz", S.frequencies}, {"sign", "positive delay and psi: the row channel leads the column channel"}};
-    Json chans = Json::array(), vals = Json::array();
-    for (std::size_t i = 0; i < rows.size(); ++i) chans.push_back(Json::array({S.channels[static_cast<std::size_t>(rows[i])], S.channels[static_cast<std::size_t>(cols[i])]}));
-    out["pairs"] = chans;
-    if (reading == "delay") {
-      nxr::signal::PhaseSlopeOptions po;
-      po.weights = weights == "none" ? nxr::signal::PhaseSlopeOptions::Weights::None : nxr::signal::PhaseSlopeOptions::Weights::Coherence;
-      const nxr::signal::PhaseSlope ps = nxr::signal::phaseSlope(S.C, f, po);
-      Json res = Json::array();
-      for (std::size_t i = 0; i < rows.size(); ++i) { vals.push_back(ps.delayMs(rows[i], cols[i])); res.push_back(ps.residual(rows[i], cols[i])); }
-      out["delay_ms"] = vals; out["residual_rad"] = res; out["weights"] = weights;
-    } else if (reading == "psi") {
-      const Eigen::MatrixXd psi = nxr::signal::phase_slope_index(S.C);
-      for (std::size_t i = 0; i < rows.size(); ++i) vals.push_back(psi(rows[i], cols[i]));
-      out["psi"] = vals;
-    } else {
-      const auto H = nxr::signal::coherency(S.C);
-      for (std::size_t i = 0; i < rows.size(); ++i) {
-        Json re = Json::array(), im = Json::array(), ab = Json::array(), ph = Json::array(), un = Json::array();
-        double last = 0;
-        for (std::size_t k = 0; k < H.size(); ++k) {
-          const std::complex<double> h = H[k](rows[i], cols[i]);
-          re.push_back(h.real()); im.push_back(h.imag()); ab.push_back(std::abs(h));
-          const double p = std::arg(h);
-          ph.push_back(p);
-          last = k == 0 ? p : last + std::remainder(p - last, 2 * M_PI);
-          un.push_back(last);
-        }
-        if (reading == "imag") vals.push_back(im);
-        else if (reading == "phase") vals.push_back(Json{{"phase_rad", ph}, {"unwrapped_rad", un}});
-        else vals.push_back(Json{{"re", re}, {"im", im}, {"abs", ab}});
-      }
-      out["values"] = vals;
-    }
-    cli::emit(out);
+    if (const auto v = a.maybe("--seed")) rq.seed = static_cast<std::int32_t>(std::stol(*v));
+    cli::emit_result(cli::call(prog, [&] { return nxr::pipelines::face::read_crossspectrum(rq, cli::progress()); }).result);
   } catch (const std::invalid_argument& e) {
     usage(prog, e.what());
   }
