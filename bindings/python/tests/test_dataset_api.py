@@ -50,6 +50,51 @@ def test_datasets_subjects_and_packages(tmp_path):
         nn.create.recording(package=pkg, name="other")   # say what to make, as the command line refuses it
 
 
+def test_add_options_dictionaries_and_edit_round_trip(demo):
+    """The options of `add`, `add product`, `add dictionary` and `edit manifold | dictionary` (data-layer spec, step 2): NumPy arrays and dicts in, read back with the lineage, weights,
+    coordinates and entries; a refusal stores nothing."""
+    nn.add.line(dataset=demo, subject="S1", name="epoch_time", n=50, spacing=0.01, unit="s")
+    eigs = np.array([0.5, 1.5, 4.0, 9.0])
+    nn.add.line(dataset=demo, subject="S1", name="eigs", coordinates=eigs, kinds=np.array([0, 1, 1, 2], dtype=np.int32), dimension="eigenvalue", unit="1/m2")
+    back = nn.read.manifold(dataset=demo, subject="S1", name="eigs")
+    assert np.array_equal(back.arrays["positions"], eigs) and back.arrays["kinds"].tolist() == [0, 1, 1, 2]
+    with pytest.raises(nn.InvalidArgumentError, match="strictly increasing"):
+        nn.add.line(dataset=demo, subject="S1", name="bad", coordinates=np.array([1.0, 3.0, 2.0]), dimension="eigenvalue", unit="1/m2")
+    assert nn.add.product(dataset=demo, subject="S1", name="eig_by_epoch", factors="eigs,epoch_time")["type"] == "product"
+    with pytest.raises(nn.NoSuchRow):
+        nn.add.product(dataset=demo, subject="S1", name="nope", factors=["eigs", "missing"])
+    # a field made by an operator from another field, a weighted pick of a recording's channels, an operator stored by its method
+    nn.add.operator(dataset=demo, subject="S1", name="mix", from_manifold="sensors", to_manifold="sensors", values=np.eye(3))
+    nn.add.field(dataset=demo, subject="S1", name="applied", manifold="sensors", values=np.ones(3, dtype=np.float32), by_operator="mix",
+                 contribution=["S1:rest:0.25"], producer={"maker": "a script"})
+    applied = next(f for f in nn.read.subject(dataset=demo, subject="S1")["fields"] if f["name"] == "applied")
+    assert applied["lineage"]["by_operator"] == "mix" and applied["lineage"]["contributions"] == [{"field": "rest", "weight": 0.25}]
+    assert nn.read.field(dataset=demo, subject="S1", name="applied").get("producer", {}).get("maker") == "a script"
+    nn.add.selection(dataset=demo, subject="S1", name="picked", manifold="sensors", type="indices", indices=np.array([2, 0], dtype=np.int32), of_field="rest",
+                     weights=np.array([0.75, 0.25], dtype=np.float32))
+    picked = nn.read.selection(dataset=demo, subject="S1", name="picked")
+    assert picked.arrays["weights"].tolist() == [0.75, 0.25]
+    assert next(x for x in nn.read.subject(dataset=demo, subject="S1")["selections"] if x["name"] == "picked")["of_field"] == "rest"
+    nn.add.operator(dataset=demo, subject="S1", name="smooth", from_manifold="sensors", to_manifold="sensors", layout="analytic", method="gaussian", params={"sigma": 2.0})
+    smooth = next(o for o in nn.read.subject(dataset=demo, subject="S1")["operators"] if o["name"] == "smooth")
+    assert smooth["method"] == "gaussian" and smooth["parameters"] == {"sigma": 2.0} and smooth["stored"] is False
+    # a dictionary from a list of dicts, one entry edited, then the manifold's primary flag
+    nn.add.dictionary(dataset=demo, subject="S1", name="quality", scope="dataset",
+                      entries=[{"code": 0, "name": "good", "colour": "#00ff00", "label": "Good"}, {"code": 1, "name": "bad", "colour": "#ff0000", "params": {"threshold": 3}}])
+    with pytest.raises(nn.InvalidArgumentError, match="not #rrggbb"):
+        nn.add.dictionary(dataset=demo, subject="S1", name="q2", scope="dataset", entries=[{"code": 0, "name": "x", "colour": "green"}])
+    nn.edit.dictionary(dataset=demo, subject="S1", name="quality", entry=1, name_of="artefact", colour="#0000ff", params={"threshold": 5})
+    quality = nn.list.dictionaries(dataset=demo, subject="S1", name="quality")["rows"][0]
+    assert quality["entries"][1]["name"] == "artefact" and quality["entries"][1]["colour"] == "#0000ff" and quality["entries"][1]["params"] == {"threshold": 5}
+    assert quality["entries"][0]["label"] == "Good"
+    with pytest.raises(nn.InvalidArgumentError, match="only a surface is primary"):
+        nn.edit.manifold(dataset=demo, subject="S1", name="sensors", primary="yes")
+    assert nn.edit.manifold(dataset=demo, subject="S1", name="sensors", label="the sensors")["label"] == "the sensors"
+    # the same command through a handle: `d.edit.manifold` has the dataset bound
+    with nn.open(demo, mode="write") as d:
+        assert d.edit.manifold(subject="S1", name="sensors", description="three channels")["description"] == "three channels"
+
+
 def test_read_subject_and_list_each_class(demo):
     """`read subject` describes every node, no arrays; `list <class>` pages the same descriptions; neither gives a column of the schema."""
     sub = nn.read.subject(dataset=demo, subject="S1")
