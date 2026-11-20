@@ -117,6 +117,24 @@ GaborGrid gaborGrid(double sigmaMin, double sigmaMax, int perOctave, double fMin
     return g;
 }
 
+std::function<double(double)> morletLadderGain(double lo, double hi, double ladderMin, double ladderMax, int voices) {
+    if (!(ladderMin > 0) || !(ladderMax > ladderMin) || voices < 1) throw std::invalid_argument("morletLadderGain: 0 < ladderMin < ladderMax and voices >= 1");
+    const int K = static_cast<int>(std::lround(voices * std::log2(ladderMax / ladderMin)));
+    Design d(Family::Morlet, 1.0, Sides::Analytic);
+    for (int m = 0; m <= K; ++m) d.centres.push_back(ladderMin * std::pow(2.0, static_cast<double>(m) / voices));
+    d.cycles = 1 / (std::pow(2.0, 1.0 / (2 * voices)) - std::pow(2.0, -1.0 / (2 * voices)));
+    const TimeFilterbank bank = timeBank(d, 16, 2 * ladderMax * 4);       // the members' gains are continuous functions of f: the grid plays no part
+    auto sum = [bank](double f, double flo, double fhi) {
+        double s = 0;
+        for (const Member& m : bank.members) if (m.fc >= flo && m.fc <= fhi) { const double v = m.gain(f); s += v * v; }
+        return s;
+    };
+    double norm = 0;
+    const int n = 1 << 16;
+    for (int i = 0; i <= n; ++i) { const double f = 2 * ladderMin + (ladderMax / 2 - 2 * ladderMin) * i / n; norm = std::max(norm, sum(f, 0, std::numeric_limits<double>::infinity())); }
+    return [sum, lo, hi, norm](double f) { const double a = std::abs(f); return a > 0 ? sum(a, lo, hi) / norm : 0.0; };
+}
+
 std::size_t gridLength(std::size_t n, Padding padding) {
     if (n == 0) throw std::invalid_argument("timebank: an empty record");
     return padding == Padding::None ? n : next_fast_len(2 * n, true);

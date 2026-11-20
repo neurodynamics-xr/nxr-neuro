@@ -105,6 +105,29 @@ int main() {
     const std::complex<double> direct = sg::gaborCoefficient(x, fs, t0, f, s);
     EXPECT(std::abs(direct - w) < 1e-4 * std::abs(w), "the inner product over ±5σ equals the bank's transform there");
   }
+  // ── each width at its own rate: wtDecimated is the full-rate transform at every D-th sample, exactly ──
+  {
+    Eigen::MatrixXd x(5000, 2);
+    for (Eigen::Index c = 0; c < 2; ++c) x.col(c) = noise(5000, 1.0, 21 + static_cast<unsigned>(c));
+    tb::Design d(tb::Family::Gabor, 1.0, tb::Sides::Analytic);
+    d.atoms = {{0.2, 12.0}, {0.2, 12.8}};
+    d.edgeBins = tb::EdgeBins::Drop;
+    const int D = 16;
+    const std::size_t N = static_cast<std::size_t>(D) * sg::next_fast_len(10000 / D + 1, true);
+    const tb::TimeFilterbank b = tb::timeBank(d, N, fs);
+    const tb::Coefficients full = sg::wt(b, x);
+    const Eigen::MatrixXcd X = tb::spectrum(b, x);
+    double worst = 0, scale = 0;
+    for (int m = 0; m < 2; ++m) {
+      const Eigen::MatrixXcd W = sg::wtDecimated(b, m, X, D);
+      for (Eigen::Index c = 0; c < 2; ++c)
+        for (Eigen::Index i = 0; i < W.cols(); ++i) { worst = std::max(worst, std::abs(W(c, i) - full[static_cast<std::size_t>(m)](i * D, c))); scale = std::max(scale, std::abs(full[static_cast<std::size_t>(m)](i * D, c))); }
+    }
+    EXPECT(worst < 1e-12 * scale, "the decimated transform equals the full rate at every D-th sample (" + std::to_string(worst / scale) + ")");
+    EXPECT(throws([&] { sg::wtDecimated(b, 0, X, 11); }) && throws([&] { sg::wtDecimated(b, 0, X, static_cast<int>(N / 4)); }), "a decimation that does not divide the grid, or too coarse for the member's band, refused");
+    const auto g = tb::morletLadderGain(8, 35, 1, 64, 8);
+    EXPECT(std::abs(g(15) - 1) < 0.01 && std::abs(g(20) - 1) < 0.01 && g(4) < 1e-3 && g(60) < 1e-3, "the Morlet ladder's band gain: 1 inside the band (" + std::to_string(g(15)) + "), 0 far outside");
+  }
   // ── the fit: a planted burst in noise recovered from the nearest grid atom ──
   const tb::GaborGrid grid = tb::gaborGrid(0.025, 0.64, 4, 8, 35, 0.5);
   const double step = std::pow(2.0, 0.25);

@@ -131,6 +131,11 @@ struct GaborGrid {
 };
 GaborGrid gaborGrid(double sigmaMin, double sigmaMax, int perOctave, double fMin, double fMax, double minFSigma);
 
+/** THE BAND'S GAIN AS A SUM OF MORLET MEMBERS (the reference detector's R² signal: its ladder of Morlet members, `voices` an octave from ladderMin to ladderMax, each of width fc/cycles with
+ *  cycles = 1 / (2^(1/2V) − 2^(−1/2V)), so Σ g² is flat inside the ladder; normalised so the largest Σ g² over [2 ladderMin, ladderMax / 2] is 1): Σ g_m(f)² over the members whose centre lies in [lo, hi].
+ *  A real gain of |f| (Hz); the members are the bank's Morlet family. Throws on 0 < ladderMin < ladderMax, voices >= 1 not met. */
+std::function<double(double)> morletLadderGain(double lo, double hi, double ladderMin, double ladderMax, int voices);
+
 /** Build the bank on a grid of `nfft` samples at `fs`. Throws on an unsatisfiable design (no member fits; gain <= 0; missing centres). */
 TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs);
 
