@@ -375,11 +375,11 @@ the step is ever needed without Brainstorm; none of the "need" entries of this t
 | # | step | the reference | nxr-neuro |
 |---|---|---|---|
 | 10 | channels | `process_stdchan`: the channels common to the subject and the empty room | need (a channel intersection at preparation) |
-| 11 | data covariance | `process_noisecov` on the band-passed run (whole run, DC offset removed, projectors applied) | partial: the estimator has (`stats::cov`), no data-covariance input |
+| 11 | data covariance | `process_noisecov` on the band-passed run (whole run, DC offset removed, projectors applied) | have: `run noisecov` on the run (the same statistic; blocks of 10 000 samples, `--divisor samples_minus_one`), read by `run lcmv` as its data covariance |
 | 12 | noise covariance | `process_noisecov` on the band-passed empty room (whole recording, DC offset removed) | have (`noisecov`) |
 | 13 | head model | overlapping spheres on the cortex (`process_headmodel meg=3`) | have (`headmodel`, Brainstorm golden) |
-| 14 | inverse | `process_inverse_2016`: LCMV, measure NAI (source variance normalised by the noise), orientation fixed normal to the cortex, regularisation `median` (the eigenvalue tail set to the median), 0.1 | **need** (LCMV with NAI, the 2016 implementation) |
-| 15 | region signal | Desikan–Killiany, 68 regions; scout function PCA, applied **before** the spectrum (the first principal component of each region's source time series), the release's PCA scout | **need** |
+| 14 | inverse | `process_inverse_2016`: LCMV, measure NAI (source variance normalised by the noise), orientation fixed normal to the cortex, regularisation `median` (the eigenvalue tail set to the median), 0.1 | have: `run lcmv` (`nxr::meeg::lcmvKernel`; Brainstorm 2018-10-12 golden). The 2016 code's kernel is (W_d l)^T W_d / ‖W_d l‖: the noise covariance does not enter it (only its whitener is stored) |
+| 15 | region signal | Desikan–Killiany, 68 regions; scout function PCA, applied **before** the spectrum (the first principal component of each region's source time series), the release's PCA scout | have: `run region_pca` (the span's covariance from `run noisecov`, then the region map; Brainstorm 2018-10-12 golden, sign included) |
 
 ### 11.3 Per subject: features
 
@@ -429,4 +429,4 @@ statistics: Finn ES et al. (2015) Nat Neurosci 18:1664; Amico E, Goñi J (2018) 
    text where it is silent on them.
 4. **PCA solver**: scikit-learn's automatic solver is randomised at this size and unseeded; the golden for step 24 is then reproducible only to its
    tolerance.
-5. **The goldens' toolchain**: Brainstorm Oct-12-2018 is needed to make the per-subject goldens with the paper's defaults.
+5. **The goldens' toolchain**: Brainstorm Oct-12-2018 is needed to make the per-subject goldens with the paper's defaults. **Done for steps 14 and 15 (2026-11-20):** the generator `meeg/test/golden/gen_lcmv_golden.m` runs Brainstorm at the last commit on or before 2018-10-12 (its `doc/version.txt`: 3.4 180911), found through `BRAINSTORM_2018_HOME`; it runs in MATLAB R2023b (the paper used 2017b: MATLAB's `svd` changed in 2018a, and the one sign-sensitive SVD of the 2016 code, of a source's whitened gain column, gives U = l / ‖l‖ in R2023b; its other SVDs are of symmetric matrices or signed by a majority rule).
