@@ -50,6 +50,38 @@ def test_datasets_subjects_and_packages(tmp_path):
         nn.create.recording(package=pkg, name="other")   # say what to make, as the command line refuses it
 
 
+def test_read_subject_and_list_each_class(demo):
+    """`read subject` describes every node, no arrays; `list <class>` pages the same descriptions; neither gives a column of the schema."""
+    sub = nn.read.subject(dataset=demo, subject="S1")
+    assert sub["schema"] == "nxr-neuro-subject@1" and sub["subject"]["name"] == "S1"
+    rest = next(f for f in sub["fields"] if f["name"] == "rest")
+    assert rest["domain"]["manifold"] == "sensors" or "sensors" in rest["domain"]["factors"]
+    assert rest["time"]["rate"] == SFREQ and sub.arrays == {}
+    assert set(nn.read.subject(dataset=demo, subject="S1", classes=["fields"])) >= {"schema", "subject", "fields"}
+    assert "manifolds" not in nn.read.subject(dataset=demo, subject="S1", classes="fields")
+    def keys(x):
+        if isinstance(x, dict):
+            for k, v in x.items():
+                yield k
+                yield from keys(v)
+        elif isinstance(x, list):
+            for v in x:
+                yield from keys(v)
+    assert not [k for k in keys(sub) if k.endswith("_id") or k.endswith("_json")]
+    for cls in ("manifolds", "fields", "selections", "operators", "statistics", "dictionaries", "spaces", "acquisitions", "jobs"):
+        rows = getattr(nn.list, cls)(dataset=demo, subject="S1")["rows"]
+        if cls != "jobs":
+            assert [{k: v for k, v in r.items() if k != "subject"} for r in rows] == sub[cls]
+    first = nn.list.manifolds(dataset=demo, subject="S1", limit=1)
+    assert len(first["rows"]) == 1 and first["next"]
+    rest_of = nn.list.manifolds(dataset=demo, subject="S1", after=first["next"])
+    assert [r["name"] for r in first["rows"] + rest_of["rows"]] == [m["name"] for m in sub["manifolds"]]
+    assert nn.list.fields(dataset=demo, subject="S1", name="res", columns="name,unit")["rows"] == [{"name": "rest", "unit": rest["unit"]}]
+    assert nn.show.dataset(dataset=demo)["nodes"]["fields"] == len(sub["fields"])
+    with pytest.raises(nn.InvalidArgumentError, match="is not a column of fields"):
+        nn.list.fields(dataset=demo, columns=["geometry_id"])
+
+
 def test_read_each_class(demo):
     with pytest.raises(nn.InvalidArgumentError, match="a time range is required"):
         nn.read.field(dataset=demo, subject="S1", name="rest")
