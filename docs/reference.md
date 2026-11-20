@@ -14,7 +14,7 @@ provenance stored with the result.
 - **not the Python analysis code:** `nxr` stays the reference that the C++ is tested against.
 - **no Brainstorm code:** Brainstorm is GPLv3; the maths here is written from the papers, and Brainstorm's outputs are only goldens.
 
-**Not done yet:** the default subject's option resolutions, HCP-1065 and Frequency manifold; BEM head models (sphere models only); MNE-Python's filter option set; modalities other than MEG/EEG; bindings for `io` beyond its pure formats and the pipeline level (`run`, `list`, `read`; the Python face and the MATLAB binding carry `run` for `psd` and the definitions: the other hand-wired pipelines follow).
+**Not done yet:** the default subject's option resolutions, HCP-1065 and Frequency manifold; BEM head models (sphere models only); MNE-Python's filter option set; modalities other than MEG/EEG; the dataset API in MATLAB and WebAssembly (the Python face carries every command; MATLAB carries `run`, `list`, `read`; `run` in the faces takes the definitions: the other hand-wired pipelines follow).
 
 ## Layout
 
@@ -25,7 +25,7 @@ nxr-neuro/
   pipelines/   nxr_pipelines the glue: read with io, compute with compute, write with io, cached; every verb of the command below (the surface: eigen, frames, tiles; the sensors:
                filters, psd, noisecov; the sources: headmodel, inverse, sourcepsd, quadrature, hodgepower; the patterns: flow_modes, speedspectrum)
   meeg/        nxr_meeg      MEG/EEG source imaging: whitener, depth weights, unconstrained minimum-norm kernel, chunk-wise noise covariance; Eigen only; no file I/O
-  bindings/    MEX, Node (N-API), wasm and a CLI smoke around nxr_compute (Python and MATLAB also carry the pipeline level: `run`, `list`, `read` through `pipelines/face.h`); python/: the wheel (nxr_compute, io/formats and the pipeline level)
+  bindings/    MEX, Node (N-API), wasm and a CLI smoke around nxr_compute (Python carries every command of the command line, MATLAB the pipeline level `run`, `list`, `read`, through `pipelines/face.h` and io's task commands); python/: the wheel (nxr_compute, io/formats and the dataset API)
   cli/         the one command `nxr-neuro`
   cmake/       shared CMake (Eigen 3.4)
   CMakeLists.txt   the one top-level build
@@ -228,13 +228,46 @@ tools (`bindings/python/pyproject.toml`): nanobind 3.1.0, scikit-build-core 1.1.
     cd bindings/python && python -m build --wheel      # or: pip wheel .   (CMake, a C++17 compiler and the fetched dependencies, as the main build)
 
 A binding only binds: each Python function is one call into the library (`nxr_compute` for the maths, `nxr_io_formats` for the formats); the options
-carry the library's names and defaults, and their docstrings are the options structs' comments. This slice does **not** read the dataset format: `open`,
-`subject`, `nn.compute.<verb>` (the command's `compute` verbs), the importers and the exporters come with it.
+carry the library's names and defaults, and their docstrings are the options structs' comments. The dataset format is read and written through the dataset API below
+(every command of the command line as a function).
 
 **Arrays.** A signal is `[channels, samples]`, C-ordered. float32 and float64 are accepted (anything else is converted to float64); the library computes
 in float64 and the result comes back in the input's precision. float64 results are handed over without a copy and may be Fortran-ordered. The C++ releases
 the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subclasses `FormatError`, `UnsupportedError` (also `NotImplementedError`),
-`InvalidArgumentError` (also `ValueError`), `IOError_` (also `OSError`), `NotConvergedError`, `CancelledError`; an option name that is not one of the library's is a `ValueError`.
+`InvalidArgumentError` (also `ValueError`), `IOError_` (also `OSError`), `NotConvergedError`, `CancelledError`, and io's codes: `WriterLockHeld`, `NotWritable`
+(also `PermissionError`), `SchemaVersionError`, `NotADatabaseError`, `NoSuchRow` and `Ambiguous` (also `LookupError`), `AlreadyExists` (also `FileExistsError`), `NotFound`
+(also `FileNotFoundError`); an option name that is not one of the library's is a `ValueError`.
+
+**The dataset API: the command line as functions** (spec `docs/specs/2026-11-19-io-service.md`). `nxr-neuro <verb> <noun> --option VALUE` is
+`nn.<verb>.<noun>(option=VALUE)`, for every command of the command table (`cli/command_table.cpp`): `nn.create`, `nn.list`, `nn.show`, `nn.delete`, `nn.read`, `nn.add`,
+`nn.query`, `nn.import_`, `nn.export`, `nn.register`, `nn.verify`, `nn.release`, `nn.split`, `nn.join`, `nn.compact`, `nn.recover`, `nn.migrate`, and `nn.compile` and
+`nn.run` (verbs with no noun).
+- **Names.** The command line's options with dashes as underscores (`--from-sphere` is `from_sphere`; `export bids-derivatives` is `nn.export.bids_derivatives`); a Python
+  keyword takes a trailing underscore: the verb `import` is the module `nn.import_`, the option `--from` is `from_`. The positional argument (`import subject PROTOCOL`,
+  `read dataset FOLDER`, `compile DEFINITION`, `import templates TEMPLATES_DIR` as `templates_dir`) is the one positional parameter; every option is given by name.
+- **Values.** A flag is a boolean; a repeatable option (`--templates DIR ...`) a list; an option the command line takes comma-separated (`--subjects A,B`, `--rows 0,2`) a
+  list or that text. Required options are required; an option left out takes the command line's default (the library fills the same request). Arrays go in as NumPy
+  arrays (any array-like, in its own precision) or a path to a .npy file: the face hands them to the library as .npy files, the command line's array format, named after the
+  option (`values.npy`: what the producer records). `add measurements --measure NAME=FILE.npy` is `measure={"NAME": array}`; `compile --set NAME=VALUE` is
+  `set={"NAME": value}` (or the command line's strings), `--signatures` and `--inputs` a dict (or the JSON file's path).
+- **Results.** The command's result object (its `"stage": "result"` line) as an `nn.Result`, a dict; where the command line writes an array to a file or prints its
+  checksum (`read <class>`, `read dataset --array`), the array is in `Result.arrays` (NumPy, C order, its stored dtype). `export ...` writes its files and returns their
+  paths, as `read <class>` does with `out`. `progress=callable` receives each progress line as a dict. `nn.list.pipelines()` gives the pipelines `run` takes as objects with
+  `.help()`.
+- **Binding.** One native call (`_core._command(verb, noun, options)`) converts the options to the command's library request (`bindings/common/commands.h`: conversion only,
+  shared with the WebAssembly face) and calls the command's function once (`nxr/io/task/commands.h`, `nxr/pipelines/face.h`); an option the command does not take is refused.
+  The GIL is released while the library runs.
+- **`nn.run(pipeline, dataset, subject, *, from_=, to= | all=True, replace=, dry_run=, preset=, **parameters)`**: the time range is required (seconds); a group definition
+  takes `subjects=[...]` and `into=`. Returns {pipeline, subject, cache, stored, runs, seconds}; read what was stored with `nn.read.<class>`.
+- **`nn.open(dataset, mode="read")`**: a handle whose methods are the same functions with the dataset bound (`d.read.field(subject=..., name=..., all=True)`,
+  `d.run("psd", "S1", all=True)`, `d.compile(...)`). `mode="write"` takes the dataset folder's writer lock now and holds it until `close()` (a context manager; released at
+  exit): the handle's commands borrow it (io's handshake `NXR_WRITER_LOCK_HELD`), another process's write is refused (`WriterLockHeld`). Each call still opens the database
+  for its own duration (the library's commands take a path).
+- **Refused, naming the new form** (the first wheel's calls; no aliases): `nn.read(dataset, subject, name, ...)` (now `nn.read.<class>`, a recording's range as `from_`/`to`
+  in seconds), `nn.run(..., start=, stop=)` (now `from_=`, `to=`), `nn.list.results(dataset, subject, kind)` (now `nn.list.results | recordings | kernels`),
+  `nn.list.subjects(names=)` (now `subjects=`). `nn.Stored` and `nn.RunResult` are removed.
+- **The coverage test** (`bindings/python/tests/test_commands.py`) reads `cli/command_table.cpp` and fails when a command has no function, a function's arguments differ from
+  the command's options (names, the positional, required, flags), or a function has no command.
 
 **`nn.compute`** (the pure functions: no file, no dataset, no recording):
 *(Named `nn.ops` in the first wheel; renamed `compute` by the maintainers' decision of 2026-11-17, the same in MATLAB as `nxr.compute`. `nn.ops` stays one release as a deprecated alias that warns. Pipelines will be `run`, later.)*
@@ -287,7 +320,9 @@ or float64 as the file holds them. **The span is always stated** (`start` and `s
 `(data, header)` (the file's axes, x first, with the 4 x 4 affine), `read_gifti(path)` a dictionary of arrays with their intents, metadata, labels and transforms, `read_tsv(path)` a dictionary of columns.
 
 **Tests** (`bindings/python/tests`, pytest; synthetic data only): Welch against `scipy.signal.welch` and a NumPy cross-spectrum; the filters against their passbands, stopbands and zero phase; PCA against the NumPy SVD with
-the sign convention; the sphere's eigenvalues l(l+1); the readers against the MNE-Python, nibabel and pandas goldens of `io/formats/test` and their refusals.
+the sign convention; the sphere's eigenvalues l(l+1); the readers against the MNE-Python, nibabel and pandas goldens of `io/formats/test` and their refusals; the dataset API's coverage test against the command table, the old forms' refusals, and on synthetic datasets: datasets, subjects
+and packages created, listed and shown, every class added from arrays and read back byte for byte, `compile`, `run` with `from_`/`to`, and the writer lock of a write handle
+refusing another process.
 
 ## The MATLAB face (`+nxr`, `bindings/mex`; spec `docs/specs/2026-11-17-interoperability.md`)
 

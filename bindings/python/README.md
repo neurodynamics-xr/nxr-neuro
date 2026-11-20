@@ -1,31 +1,51 @@
 # nxr-neuro (Python)
 
-The Python face of nxr-neuro: pure functions over NumPy arrays (`nxr_neuro.compute`), the readers of the field's file formats (`nxr_neuro.io`) and the pipeline
-level (`nxr_neuro.run`, `nxr_neuro.list`, `nxr_neuro.read`), as one compiled module over the same C++ library as the `nxr-neuro` command. Install a wheel and `import nxr_neuro as nn`.
-See `docs/reference.md`, section "The Python face", in the repository.
+The Python face of nxr-neuro: pure functions over NumPy arrays (`nxr_neuro.compute`), the readers of the field's file formats (`nxr_neuro.io`), and **every command of
+the `nxr-neuro` command line as a function** (the dataset API: reading and writing datasets, `run`), as one compiled module over the same C++ library as the command line.
+Install a wheel and `import nxr_neuro as nn`. See `docs/reference.md`, section "The Python face", in the repository.
 
-## The pipeline level
+## The dataset API: the command line as functions
 
-`run` is `nxr-neuro run`: the same library calls (`pipelines/face.h`), so a result made here is the same cached result the command line makes and finds.
+`nxr-neuro <verb> <noun> --option VALUE` is `nn.<verb>.<noun>(option=VALUE)` (spec `docs/specs/2026-11-19-io-service.md`):
+
+- the same verbs, nouns and option names, dashes as underscores (`--from-sphere` is `from_sphere`, `export bids-derivatives` is `nn.export.bids_derivatives`);
+- a Python keyword takes a trailing underscore: the verb `import` is the module `nn.import_`, the option `--from` is `from_`;
+- the command's positional argument (`import subject PROTOCOL`, `read dataset FOLDER`, `compile DEFINITION`) is the one positional parameter; every option is given by name;
+- a flag is a boolean, a repeatable option a list (an option the command line takes comma-separated, `--subjects A,B`, also takes a list); required options are required, and
+  an option left out takes the command line's default;
+- what comes back is the command's result object as an `nn.Result` (a dict). Where the command line writes an array to a file or prints its checksum, the array is in
+  `.arrays` (NumPy, in its stored precision). `export ...` writes its files and returns their paths. `progress=callable` receives each progress line as a dict;
+- arrays go in as NumPy arrays (any array-like, kept in its precision; or a path to a .npy file): `add field --values FILE.npy` is `nn.add.field(values=array)`;
+- refusals raise `nn.Error` subclasses with io's code: `InvalidArgumentError` (the command line's usage error), `NoSuchRow`, `AlreadyExists`, `Ambiguous`,
+  `WriterLockHeld`, `NotWritable`, `SchemaVersionError`, `NotADatabaseError`, `NotFound`.
 
 ```python
+import numpy as np
 import nxr_neuro as nn
 
-nn.list.pipelines()                       # the pipelines run takes, each parameter with its meaning, default and unit; .help() prints them
-nn.list.datasets("study"); nn.list.subjects("study/demo", where="age > 60"); nn.list.results("study/demo", "sub-01")
-r = nn.run("psd", "study/demo", "sub-01", recording="rest", set="brainstorm", segment_seconds=2.0, all=True)
-r.cache, r.stored                         # "computed" | "hit"; what was stored (output, name, id, path)
-psd = r.read()                            # = nn.read("study/demo", "sub-01", "rest_psd_welch"): psd.values [channels, frequencies], psd.meta
+nn.create.dataset(dataset="study")                                   # a catalogue of subject packages
+nn.create.subject(dataset="study", name="sub-01")
+nn.list.subjects(dataset="study")["subjects"]
+nn.add.points(dataset="study", subject="sub-01", name="electrodes", positions=np.random.rand(8, 3))
+nn.add.field(dataset="study", subject="sub-01", name="w", manifold="electrodes", values=np.ones(8, np.float32))
+nn.read.field(dataset="study", subject="sub-01", name="w").arrays["values"]          # float32, as stored
+nn.read.field(dataset="study", subject="sub-01", name="rest", from_=0.0, to=10.0)  # a recording: its time range is always stated (or all=True)
+nn.import_.recording(from_="rec.fif", package="study/sub-01.nxr.zarr")
+nn.compile("psd", dataset="study", subject="sub-01", set={"recording": "rest"})    # type-checked, not run
+r = nn.run("psd", "study", "sub-01", recording="rest", from_=0.0, to=60.0)         # a pipeline: the command line's `run`
+r["stored"], r["cache"]                                                            # what was stored; "computed" | "hit"
+nn.list.pipelines()                                                                # what run takes, each parameter with its meaning, default and unit
 ```
 
-The time range is always stated: `start` and `stop` in seconds (the command line's `--from` and `--to`; `from` is a Python keyword), or `all=True`; a call without one is
-refused. `progress=callable` receives each progress line as a dict. Pipelines named by `nn.list.pipelines()` are `psd` and the shipped definitions or a `.yaml` path; the
-other hand-wired pipelines are reached through the command line until they are definitions. `nn.read(dataset, subject, name, measure=, of=)` reads a stored field, statistic,
-operator, selection or manifold (a selection's measurements with `measure`) as NumPy arrays plus metadata. A recording (any time-resolved field) is read through the chunk
-service: `start=`, `stop=` (samples) and `rows=` (channels) read a part, `reading="shape"` only its description (rate, origin, samples, channels, unit, the projection applied),
-`projectors="none"` the samples as stored. A manifold gives its `positions` and element `names`; `family=` one labelling of it (`codes` and the dictionary). A selection of
-spans (events) gives `start`, `stop` (s), `code` and the dictionary. `nn.compute.signal.decimate(x, q)` lowers the rate by q (anti-aliased, zero phase), chunk by chunk with
-`decimationHalo(q)` samples of context.
+`nn.run(pipeline, dataset, subject, from_=, to= | all=True, replace=, dry_run=, preset=, **parameters)`: the time range is required (seconds on the recording's clock);
+a group definition takes `subjects=[...]` and `into=`. `nn.open(dataset)` gives a handle whose methods are the same functions with the dataset bound
+(`d.read.field(subject=..., name=..., all=True)`, `d.run("psd", "sub-01", all=True)`); `nn.open(dataset, mode="write")` takes the dataset's writer lock and holds it until
+`close()` (a context manager): the handle's own commands borrow it, another process's write is refused meanwhile (`WriterLockHeld`).
+
+**Changed from the first wheel (refused, naming the new form; no aliases):** `nn.read(dataset, subject, name, ...)` is `nn.read.field | statistic | operator | selection |
+manifold(dataset=, subject=, name=, ...)` (a recording's range as `from_`/`to` in seconds, not `start`/`stop` in samples); `nn.run(..., start=, stop=)` is `from_=`, `to=`;
+`nn.list.results(dataset, subject, kind)` is `nn.list.results | recordings | kernels(dataset=, subject=)`; `nn.list.subjects(names=)` is `subjects=`; the lists return the
+command's result dict (`nn.list.datasets(datastore=d)["datasets"]`). `nn.Stored` and `nn.RunResult` are gone (results are `nn.Result` dicts).
 
 ## The surface and its operators
 
