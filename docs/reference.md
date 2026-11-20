@@ -925,7 +925,8 @@ code is only run by the generator, never copied). Every stored result carries th
   --divisor samples_minus_one`. The projectors are those the recording is read with (the chunk service applies its active projectors).
 - **The LCMV beamformer (step 14, `run lcmv`, the node `meeg.lcmv`, `nxr::meeg::lcmvKernel`)**: a definition of its own beside `run inverse` (a different method is a different graph, not a switch
   of the minimum-norm node), reusing its preparation (`minimum_norm_inputs` under Brainstorm's conventions: the projectors of status 1 and 2 on the gain and both sides of each covariance, the
-  average reference per family; the channels are the covariances' pick, the same for both). Each covariance is truncated to its rank and regularised type by type (cross-type covariance zero),
+  average reference per family; the channels are the data covariance's pick, the run's good channels, and the noise covariance is read on them in their order: an empty room on another channel set is
+  matched to the head model's channels by name when it is prepared, as `run inverse` does). Each covariance is truncated to its rank and regularised type by type (cross-type covariance zero),
   by default `median` (the eigenvalue tail flattened to the median of the kept singular values); `ridge` (a fraction of the LARGEST eigenvalue, Brainstorm 2016's `reg`, `--ridge-fraction 0.1`),
   `diagonal` and `none` are named options. A diagonal noise covariance whitens BOTH covariances by their diagonal (the reference's rule, `--detect-diagonal`). The sources are oriented along the
   source surface's vertex normals (fixed orientation); the kernel row of source k is (W_d l_k)^T W_d / ||W_d l_k||, W_d the data whitener and l_k the gain along the normal: the LCMV weights
