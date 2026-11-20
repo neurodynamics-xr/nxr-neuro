@@ -800,6 +800,126 @@ export interface AddLineOptions {
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
+export interface ListManifoldsOptions {
+  after?: string | number;
+  columns?: string | number;
+  dataset: string | number;
+  kind?: string | number;
+  limit?: string | number;
+  name?: string | number;
+  on?: string | number;
+  subject?: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
+export interface ListFieldsOptions {
+  after?: string | number;
+  columns?: string | number;
+  dataset: string | number;
+  kind?: string | number;
+  limit?: string | number;
+  name?: string | number;
+  on?: string | number;
+  subject?: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
+export interface ListSelectionsOptions {
+  after?: string | number;
+  columns?: string | number;
+  dataset: string | number;
+  kind?: string | number;
+  limit?: string | number;
+  name?: string | number;
+  on?: string | number;
+  subject?: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
+export interface ListOperatorsOptions {
+  after?: string | number;
+  columns?: string | number;
+  dataset: string | number;
+  kind?: string | number;
+  limit?: string | number;
+  name?: string | number;
+  on?: string | number;
+  subject?: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
+export interface ListStatisticsOptions {
+  after?: string | number;
+  columns?: string | number;
+  dataset: string | number;
+  kind?: string | number;
+  limit?: string | number;
+  name?: string | number;
+  on?: string | number;
+  subject?: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
+export interface ListDictionariesOptions {
+  after?: string | number;
+  columns?: string | number;
+  dataset: string | number;
+  kind?: string | number;
+  limit?: string | number;
+  name?: string | number;
+  subject?: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
+export interface ListSpacesOptions {
+  after?: string | number;
+  columns?: string | number;
+  dataset: string | number;
+  kind?: string | number;
+  limit?: string | number;
+  name?: string | number;
+  subject?: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
+export interface ListAcquisitionsOptions {
+  after?: string | number;
+  columns?: string | number;
+  dataset: string | number;
+  limit?: string | number;
+  name?: string | number;
+  subject?: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
+export interface ListJobsOptions {
+  after?: string | number;
+  columns?: string | number;
+  dataset: string | number;
+  kind?: string | number;
+  limit?: string | number;
+  subject?: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
+export interface ReadSubjectOptions {
+  classes?: string | number;
+  dataset: string | number;
+  related?: boolean;
+  subject: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
 
 export interface Verbs {
   create: {
@@ -820,6 +940,15 @@ export interface Verbs {
     kernels: (options: ListKernelsOptions) => Promise<Result>;
     results: (options: ListResultsOptions) => Promise<Result>;
     pipelines: (options?: { progress?: (line: Record<string, unknown>) => void }) => Promise<Result>;
+    manifolds: (options: ListManifoldsOptions) => Promise<Result>;
+    fields: (options: ListFieldsOptions) => Promise<Result>;
+    selections: (options: ListSelectionsOptions) => Promise<Result>;
+    operators: (options: ListOperatorsOptions) => Promise<Result>;
+    statistics: (options: ListStatisticsOptions) => Promise<Result>;
+    dictionaries: (options: ListDictionariesOptions) => Promise<Result>;
+    spaces: (options: ListSpacesOptions) => Promise<Result>;
+    acquisitions: (options: ListAcquisitionsOptions) => Promise<Result>;
+    jobs: (options: ListJobsOptions) => Promise<Result>;
   };
   show: {
     dataset: (options: ShowDatasetOptions) => Promise<Result>;
@@ -906,6 +1035,7 @@ export interface Verbs {
     operator: (options: ReadOperatorOptions) => Promise<Result>;
     selection: (options: ReadSelectionOptions) => Promise<Result>;
     manifold: (options: ReadManifoldOptions) => Promise<Result>;
+    subject: (options: ReadSubjectOptions) => Promise<Result>;
   };
   query: {
     measurements: (options: QueryMeasurementsOptions) => Promise<Result>;

@@ -264,6 +264,28 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
   } else if (c == "show subject") {
     task::ShowSubjectRequest q{o.str("dataset"), o.str("subject"), o.list("templates")};
     call([&] { return task::show_subject(q, progress); });
+  } else if (c == "read subject") {
+    task::ReadSubjectRequest q;
+    q.dataset = o.str("dataset");
+    q.subject = o.str("subject");
+    q.classes = o.maybe_commas("classes");
+    q.related = o.flag("related");
+    q.templates = o.list("templates");
+    call([&] { return task::read_subject(q, progress); });
+  } else if (c == "list manifolds" || c == "list fields" || c == "list selections" || c == "list operators" || c == "list statistics" || c == "list dictionaries" || c == "list spaces" ||
+             c == "list acquisitions" || c == "list jobs") {
+    task::ListClassRequest q;
+    q.cls = noun;
+    q.dataset = o.str("dataset");
+    q.subject = o.maybe("subject");
+    q.name = o.maybe("name");
+    q.kind = o.maybe("kind");
+    q.on = o.maybe("on");
+    q.after = o.maybe("after");
+    q.limit = o.integer("limit");
+    q.columns = o.maybe_commas("columns");
+    q.templates = o.list("templates");
+    call([&] { return task::list_class(q, progress); });
   } else if (c == "delete subject") {
     task::DeleteSubjectRequest q;
     q.dataset = o.str("dataset");
