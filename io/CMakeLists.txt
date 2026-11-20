@@ -253,6 +253,8 @@ add_library(nxr_io
   src/task.cpp
   src/task_dataset.cpp
   src/commands.cpp
+  src/commands_import.cpp
+  src/commands_export.cpp
   src/named_paths.cpp
   src/layout.cpp
   src/writer_lock.cpp

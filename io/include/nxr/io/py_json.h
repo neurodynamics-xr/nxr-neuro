@@ -1,4 +1,4 @@
-// json.dumps as Python writes it (ensure_ascii; ", " and ": " separators, or one item a line with `indent`; floats as repr), for the command line's output.
+// json.dumps as Python writes it (ensure_ascii; ", " and ": " separators, or one item a line with `indent`; floats as repr): the command line's output and the files its commands write (`import scan --out`).
 #pragma once
 #include <cmath>
 #include <cstdio>

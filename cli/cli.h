@@ -13,7 +13,7 @@
 #include "nxr/io/json_text.h"
 #include "nxr/io/task/commands.h"
 #include "nxr/io/writer.h"
-#include "py_json.h"
+#include "nxr/io/py_json.h"
 
 #ifndef NXR_NEURO_VERSION
 #define NXR_NEURO_VERSION "0.0.0"

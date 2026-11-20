@@ -175,4 +175,14 @@ struct QueryMeasurementsRequest {
 };
 CommandResult query_measurements(const QueryMeasurementsRequest& request);
 
+/** `export measurements`: the stored measurements as a measurement table (one row a subject) with its data dictionary and provenance, a study release's layout.
+ *  Result: the folder, the tables, the dictionary and the provenance written. */
+struct ExportMeasurementsRequest {
+  std::string dataset, labelling, fields, table, out;
+  std::optional<std::vector<std::string>> statistics, subjects, exclude;
+  std::optional<std::string> recipe, layout, scaling;
+  bool keep_all = false;                   // no member excluded (`exclude` cleared)
+};
+CommandResult export_measurements(const ExportMeasurementsRequest& request);
+
 }  // namespace nxr::pipelines::face

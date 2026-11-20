@@ -10,6 +10,7 @@
 #include "nxr/pipelines/dataset.h"
 #include "nxr/pipelines/face.h"
 #include "nxr/pipelines/listing.h"
+#include "nxr/pipelines/measure.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/registration.h"
 #include "nxr/signal/crossspectral.h"
@@ -209,6 +210,26 @@ CommandResult query_measurements(const QueryMeasurementsRequest& rq) {
   } catch (const std::invalid_argument& e) {   // the query's own refusals of the request (a level, a factor, a measure): the command's usage errors, as before
     throw Refused(e.what());
   }
+  return r;
+}
+
+CommandResult export_measurements(const ExportMeasurementsRequest& rq) {
+  MeasureExportOptions o;
+  o.labelling = rq.labelling; o.fields = rq.fields; o.table = rq.table; o.out = rq.out;
+  if (rq.statistics) o.statistics = *rq.statistics;
+  if (rq.subjects) o.subjects = *rq.subjects;
+  o.recipe = rq.recipe;
+  if (rq.exclude) o.exclude = *rq.exclude;
+  if (rq.keep_all) o.exclude.clear();
+  if (rq.layout) o.layout = *rq.layout;
+  if (rq.scaling) o.scaling = *rq.scaling;
+  CommandResult r;
+  try {
+    r.result = measure_export(rq.dataset, o);
+  } catch (const std::invalid_argument& e) {   // the export's refusals of the request: the command's usage errors, as before
+    throw Refused(e.what());
+  }
+  r.result.erase("stage");
   return r;
 }
 

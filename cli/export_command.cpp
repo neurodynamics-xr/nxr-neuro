@@ -6,18 +6,15 @@
 //   nxr-neuro export tsv --package PATH --out STEM (--statistic NAME | --partition NAME --field NAME --measures a,b,...)
 //   nxr-neuro export gifti --package PATH (--field NAME | --labelling NAME) --out STEM [--kind func|shape] [--with-surface] [--hemispheres] [--surface-unit m|mm] [--from S --to S | --all]
 //
-// The command parses and prints; io's exporters (nxr/exporters/) do the work. A series needs its time range (--from and --to in seconds, or --all): there is no default.
+// The command parses, calls its library function (nxr/io/task/commands.h) once and prints; io's exporters (nxr/exporters/) do the work. A series needs its time range (--from and --to in seconds, or --all): there is no default.
 // Progress and results are JSON lines.
 #include <cstdlib>
 
 #include "cli.h"
-#include "nxr/exporters/bids.h"
-#include "nxr/exporters/fif.h"
-#include "nxr/exporters/gifti.h"
-#include "nxr/exporters/tsv.h"
 
 using namespace nxr::io;
 using namespace cli;
+namespace task = nxr::io::task;
 
 namespace {
 // seconds as `12.5`, `1:30` or `1:02:03`
@@ -47,140 +44,92 @@ std::string command_line(const std::string& what, const std::vector<std::string>
   return c;
 }
 
+// the time range as given: --from and --to in seconds (or m:ss), or --all
+task::ExportRange range_of(const std::string& prog, const Args& a) {
+  task::ExportRange r;
+  if (const auto v = a.maybe("--from")) r.from = seconds_of(prog, "--from", *v);
+  if (const auto v = a.maybe("--to")) r.to = seconds_of(prog, "--to", *v);
+  r.all = a.flag.count("--all") > 0;
+  return r;
+}
+
+// what the export records of this command: the version, the command as typed, its options (flags too, unless `flags` is false)
+task::ExportProvenance provenance_of(const std::string& what, const std::vector<std::string>& rest, const Args& a, bool flags = true) {
+  task::ExportProvenance p;
+  p.version = NXR_NEURO_VERSION;
+  p.command = command_line(what, rest);
+  for (const auto& kv : a.opt) p.options[kv.first.substr(2)] = kv.second;
+  if (flags) for (const auto& f : a.flag) p.options[f.substr(2)] = true;
+  return p;
+}
+
 int gifti_command(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro export gifti";
   const Args a = parse(prog, rest, {"--package", "--field", "--labelling", "--out", "--kind", "--surface-unit", "--from", "--to"}, {"--with-surface", "--hemispheres", "--all"}, {"--package", "--out"});
-  nxr::exporters::GiftiExport o;
-  o.field = a.maybe("--field").value_or("");
-  o.labelling = a.maybe("--labelling").value_or("");
-  if (o.field.empty() == o.labelling.empty()) throw Usage(prog + ": error: give exactly one of --field and --labelling");
-  o.out = a.get("--out");
-  o.kind = a.maybe("--kind").value_or("func");
-  o.surface = a.flag.count("--with-surface") > 0;
-  o.hemispheres = a.flag.count("--hemispheres") > 0;
-  o.surface_unit = a.maybe("--surface-unit");
-  const bool from = a.maybe("--from").has_value(), to = a.maybe("--to").has_value(), all = a.flag.count("--all") > 0;
-  if (from != to) throw Usage(prog + ": error: --from and --to go together: give both");
-  if (all && from) throw Usage(prog + ": error: give one time range: --from and --to, or --all");
-  if (from) o.range = nxr::exporters::SeriesRange{false, seconds_of(prog, "--from", a.get("--from")), seconds_of(prog, "--to", a.get("--to"))};
-  if (all) o.range = nxr::exporters::SeriesRange{true, 0, 0};
-  o.ctx.version = NXR_NEURO_VERSION;
-  o.ctx.command = command_line("gifti", rest);
-  Json opts = Json::object();
-  for (const auto& kv : a.opt) opts[kv.first.substr(2)] = kv.second;
-  for (const auto& f : a.flag) opts[f.substr(2)] = true;
-  o.ctx.options = opts;
-  o.ctx.progress = [](const Json& j) { emit(j); };
-  Json out = nxr::exporters::export_gifti(a.get("--package"), o);
-  Json line = Json{{"stage", "result"}};
-  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
-  emit(line);
+  task::ExportGiftiRequest rq;
+  rq.package = a.get("--package");
+  rq.out = a.get("--out");
+  rq.field = a.maybe("--field");
+  rq.labelling = a.maybe("--labelling");
+  rq.kind = a.maybe("--kind");
+  rq.surface_unit = a.maybe("--surface-unit");
+  rq.with_surface = a.flag.count("--with-surface") > 0;
+  rq.hemispheres = a.flag.count("--hemispheres") > 0;
+  rq.range = range_of(prog, a);
+  rq.provenance = provenance_of("gifti", rest, a);
+  emit_result(call(prog, [&] { return task::export_gifti(rq, progress()); }).result);
   return 0;
 }
+
 int bids_command(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro export bids-derivatives";
   const Args a = parse(prog, rest, {"--package", "--out", "--results", "--space", "--session", "--task", "--run", "--from", "--to", "--measurements"}, {"--with-surface", "--stc", "--all"},
                        {"--package", "--out", "--results"});
-  nxr::exporters::BidsDerivativesExport o;
-  o.root = a.get("--out");
-  o.results = a.get("--results");
-  o.space = a.maybe("--space");
-  o.session = a.maybe("--session");
-  o.task = a.maybe("--task");
-  o.run = a.maybe("--run");
-  o.with_surface = a.flag.count("--with-surface") > 0;
-  o.stc = a.flag.count("--stc") > 0;
-  o.measurements = a.maybe("--measurements").value_or("");
-  const bool from = a.maybe("--from").has_value(), to = a.maybe("--to").has_value(), all = a.flag.count("--all") > 0;
-  if (from != to) throw Usage(prog + ": error: --from and --to go together: give both");
-  if (all && from) throw Usage(prog + ": error: give one time range: --from and --to, or --all");
-  if (from) o.range = nxr::exporters::SeriesRange{false, seconds_of(prog, "--from", a.get("--from")), seconds_of(prog, "--to", a.get("--to"))};
-  if (all) o.range = nxr::exporters::SeriesRange{true, 0, 0};
-  o.ctx.version = NXR_NEURO_VERSION;
-  o.ctx.command = command_line("bids-derivatives", rest);
-  Json opts = Json::object();
-  for (const auto& kv : a.opt) opts[kv.first.substr(2)] = kv.second;
-  for (const auto& f : a.flag) opts[f.substr(2)] = true;
-  o.ctx.options = opts;
-  o.ctx.progress = [](const Json& j) { emit(j); };
-  Json out = nxr::exporters::export_bids_derivatives(a.get("--package"), o);
-  Json line = Json{{"stage", "result"}};
-  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
-  emit(line);
+  task::ExportBidsDerivativesRequest rq;
+  rq.package = a.get("--package");
+  rq.out = a.get("--out");
+  rq.results = a.get("--results");
+  rq.space = a.maybe("--space");
+  rq.session = a.maybe("--session");
+  rq.task = a.maybe("--task");
+  rq.run = a.maybe("--run");
+  rq.measurements = a.maybe("--measurements");
+  rq.with_surface = a.flag.count("--with-surface") > 0;
+  rq.stc = a.flag.count("--stc") > 0;
+  rq.range = range_of(prog, a);
+  rq.provenance = provenance_of("bids-derivatives", rest, a);
+  emit_result(call(prog, [&] { return task::export_bids_derivatives(rq, progress()); }).result);
   return 0;
 }
 
 int fif_command(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro export fif";
   const Args a = parse(prog, rest, {"--package", "--field", "--covariance", "--forward", "--inverse", "--out", "--from", "--to"}, {"--all"}, {"--package", "--out"});
-  if (a.maybe("--forward") || a.maybe("--inverse"))
-    throw Usage(prog + ": error: a forward solution and an inverse operator are not written: an MNE forward needs each channel's FIF info (kind, coil type, position), which a package does not keep, and an MNE inverse operator is the eigen-decomposition of the whitened forward, which a stored kernel does not hold");
-  if (a.maybe("--covariance") && a.maybe("--field")) throw Usage(prog + ": error: give a field (--field) or a covariance (--covariance), not both");
-  if (!a.maybe("--covariance") && !a.maybe("--field")) throw Usage(prog + ": error: the following arguments are required: --field or --covariance");
-  if (a.maybe("--covariance")) {
-    if (a.maybe("--from") || a.maybe("--to") || a.flag.count("--all")) throw Usage(prog + ": error: a covariance has no time range");
-    nxr::exporters::CovarianceExport c;
-    c.statistic = a.get("--covariance");
-    c.out = a.get("--out");
-    c.ctx.version = NXR_NEURO_VERSION;
-    c.ctx.command = command_line("fif", rest);
-    Json copts = Json::object();
-    for (const auto& kv : a.opt) copts[kv.first.substr(2)] = kv.second;
-    c.ctx.options = copts;
-    c.ctx.progress = [](const Json& j) { emit(j); };
-    Json cout_ = nxr::exporters::export_covariance(a.get("--package"), c);
-    Json cline = Json{{"stage", "result"}};
-    for (auto it = cout_.begin(); it != cout_.end(); ++it) cline[it.key()] = it.value();
-    emit(cline);
-    return 0;
-  }
-  if (!a.maybe("--field")) throw Usage(prog + ": error: --field is required");
-  nxr::exporters::StcExport o;
-  o.field = a.get("--field");
-  o.out = a.get("--out");
-  const bool from = a.maybe("--from").has_value(), to = a.maybe("--to").has_value(), all = a.flag.count("--all") > 0;
-  if (from != to) throw Usage(prog + ": error: --from and --to go together: give both");
-  if (all && from) throw Usage(prog + ": error: give one time range: --from and --to, or --all");
-  if (from) o.range = nxr::exporters::SeriesRange{false, seconds_of(prog, "--from", a.get("--from")), seconds_of(prog, "--to", a.get("--to"))};
-  if (all) o.range = nxr::exporters::SeriesRange{true, 0, 0};
-  o.ctx.version = NXR_NEURO_VERSION;
-  o.ctx.command = command_line("fif", rest);
-  Json opts = Json::object();
-  for (const auto& kv : a.opt) opts[kv.first.substr(2)] = kv.second;
-  for (const auto& f : a.flag) opts[f.substr(2)] = true;
-  o.ctx.options = opts;
-  o.ctx.progress = [](const Json& j) { emit(j); };
-  Json out = nxr::exporters::export_stc(a.get("--package"), o);
-  Json line = Json{{"stage", "result"}};
-  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
-  emit(line);
+  task::ExportFifRequest rq;
+  rq.package = a.get("--package");
+  rq.out = a.get("--out");
+  rq.field = a.maybe("--field");
+  rq.covariance = a.maybe("--covariance");
+  rq.forward = a.maybe("--forward");
+  rq.inverse = a.maybe("--inverse");
+  rq.range = range_of(prog, a);
+  rq.provenance = provenance_of("fif", rest, a, !rq.covariance);   // a covariance's record lists the valued options only, as it always did
+  emit_result(call(prog, [&] { return task::export_fif(rq, progress()); }).result);
   return 0;
 }
 
 int tsv_command(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro export tsv";
   const Args a = parse(prog, rest, {"--package", "--out", "--statistic", "--partition", "--field", "--measures"}, {}, {"--package", "--out"});
-  nxr::exporters::TsvExport o;
-  o.statistic = a.maybe("--statistic").value_or("");
-  o.partition = a.maybe("--partition").value_or("");
-  o.field = a.maybe("--field").value_or("");
-  if (const auto m = a.maybe("--measures")) {
-    std::string cur;
-    for (const char c : *m + ",") { if (c == ',') { if (!cur.empty()) o.measures.push_back(cur); cur.clear(); } else cur += c; }
-  }
-  if (o.statistic.empty() == (o.partition.empty() && o.field.empty() && o.measures.empty()))
-    throw Usage(prog + ": error: give either --statistic, or --partition with --field and --measures");
-  o.out = a.get("--out");
-  o.ctx.version = NXR_NEURO_VERSION;
-  o.ctx.command = command_line("tsv", rest);
-  Json opts = Json::object();
-  for (const auto& kv : a.opt) opts[kv.first.substr(2)] = kv.second;
-  o.ctx.options = opts;
-  o.ctx.progress = [](const Json& j) { emit(j); };
-  Json out = nxr::exporters::export_tsv(a.get("--package"), o);
-  Json line = Json{{"stage", "result"}};
-  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
-  emit(line);
+  task::ExportTsvRequest rq;
+  rq.package = a.get("--package");
+  rq.out = a.get("--out");
+  rq.statistic = a.maybe("--statistic");
+  rq.partition = a.maybe("--partition");
+  rq.field = a.maybe("--field");
+  if (const auto m = a.maybe("--measures")) rq.measures = split_commas(*m);
+  rq.provenance = provenance_of("tsv", rest, a);
+  emit_result(call(prog, [&] { return task::export_tsv(rq, progress()); }).result);
   return 0;
 }
 }  // namespace
