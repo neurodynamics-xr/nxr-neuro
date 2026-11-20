@@ -1651,12 +1651,14 @@ const std::map<std::string, std::string>& retired_steps() {
 const StepSpec& step(const std::string& name) {
   for (const auto& s : registry()) if (s.name == name) return s;
   if (const auto it = retired_steps().find(name); it != retired_steps().end()) refuse("the step '" + name + "' is retired: use " + it->second);
+  if (const ExternalNodes* x = ExternalNodes::current())
+    if (const StepSpec* s = x->find_step(name)) return *s;
   std::vector<std::string> n;
   for (const auto& s : registry()) n.push_back(s.name);
   std::sort(n.begin(), n.end());
   std::string list;
   for (const auto& x : n) list += (list.empty() ? "" : ", ") + x;
-  refuse("no pipeline step '" + name + "' (registered: " + list + ")");
+  refuse("no pipeline step '" + name + "' (registered: " + list + "; a node another program implements is declared by its signature to `compile`)");
 }
 
 std::vector<std::string> undeclared_traits() {
@@ -1668,6 +1670,31 @@ std::vector<std::string> undeclared_traits() {
 void check_traits(const StepSpec& node) {
   if (!node.traits.declared())
     refuse(node.name + ": the node declares no time behaviour or numeric precision (NodeTraits, registry.h): a node is registered with its traits (windowed: with its window rule)");
+}
+
+namespace {
+thread_local const ExternalNodes* external_scope = nullptr;
+}  // namespace
+
+ExternalNodes::ExternalNodes(std::vector<nxr::graph::NodeSpec> nodes) : nodes_(std::move(nodes)) {
+  for (const auto& n : nodes_) {
+    for (const auto& s : registry())
+      if (s.name == n.name) refuse("the external node " + n.name + " is a registered step: a declared signature never replaces nxr-neuro's own");
+    if (retired_steps().count(n.name)) refuse("the external node " + n.name + " has a retired step's name (use another)");
+    steps_.push_back(describe_native(n));                                  // the definition reader sees its ports and parameters; the executor's node is `n` itself
+  }
+  previous_ = external_scope;
+  external_scope = this;
+}
+ExternalNodes::~ExternalNodes() { external_scope = previous_; }
+const ExternalNodes* ExternalNodes::current() { return external_scope; }
+const StepSpec* ExternalNodes::find_step(const std::string& name) const {
+  for (const auto& s : steps_) if (s.name == name) return &s;
+  return nullptr;
+}
+const nxr::graph::Signature* ExternalNodes::signature(const std::string& name) const {
+  for (const auto& n : nodes_) if (n.name == name && n.signature) return &*n.signature;
+  return nullptr;
 }
 
 Json catalogue() {

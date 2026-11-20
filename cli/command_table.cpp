@@ -15,6 +15,7 @@ std::vector<const char*> command_table_text() {
   return {
 R"TBL(verb run	Run a pipeline on a subject: a built-in (psd, crossspectrum, phasegradient, measure, ...), a built-in definition, or a definition file
 verb compute	Compute a node or a graph on arrays or files (reserved: not available yet; pipelines are run with `run`)
+verb compile	Compile a pipeline definition without running it: expand it, type-check every connection, print the compiled graph with every value's type
 verb list	List datasets, subjects, recordings, kernels, results or pipelines
 verb show	Show a dataset or a subject
 verb read	Read stored arrays and derived readings
@@ -323,6 +324,11 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --set	NAME=VALUE	Set a pipeline parameter, NAME=VALUE with VALUE read as YAML (8, [15, 29], dSPM); repeatable.	none	-
 --set@run surrogate_lagfree_vortex_compare	NAME=VALUE	Parameter of every null draw (repeatable); {recording} stands for each recording's name	none	-
 --set@run surrogate_lagfree_spatial_events_compare	NAME=VALUE	A parameter of every surrogate draw's spatial-events run (levels, threshold, band, ...); repeatable.	none (the data's parameters)	-
+--set@compile	NAME=VALUE	A parameter of the definition, NAME=VALUE with VALUE read as YAML (8, [15, 29], dSPM); NAME alone chooses one of its presets. Repeatable.	none (the definition's own values)	-
+--signatures@compile	FILE	A JSON file of node signatures another program implements ({"nodes": [...]}: ports with types or type variables, the move, parameters): checked with nxr-neuro's nodes, never run.	none (nxr-neuro's nodes only)	-
+--inputs@compile	FILE	Without --dataset: a JSON file giving each input's type by name (the structured JSON form or the printed form).	none	-
+--dataset@compile	PATH	The dataset whose subject's stored records type the inputs (read only; with --subject).	none (the input types come from --inputs)	-
+--subject@compile	NAME	The subject whose stored records type the inputs (with --dataset).	none	-
 --set@run	NAME=VALUE	Override a parameter of the pipeline definition; the value is read as YAML (8, [15, 29], dSPM). Repeatable.	none (the definition's own values)	-
 --shape	morlet|meyer|power_partition	Band filter shape: morlet (Gaussian centred on the band, FWHM equal to its width) or meyer (surrogate_lagfree_pairs).	morlet	-
 --shift	absolute|relative	How the eigenvalue solve is shifted: at one absolute shift (reference method) or by a scale-aware relative ladder.	absolute	-
@@ -1066,6 +1072,13 @@ old: measure export
 alias: refused
 summary: Export stored measurements as a table for statistics (a row per subject), with its dictionary and provenance.
 opts: --dataset* --exclude --fields* --keep-all --labelling* --layout --out* --recipe --scaling --statistics --subjects --table*
+)TBL",
+R"TBL(@ compile
+old: __compile
+summary: Compile a pipeline definition without running it: expand it, type-check every connection (with nodes other programs declare by signature), and print the compiled graph with every value's type.
+pos: DEFINITION
+example: nxr-neuro compile psd --dataset /data/study --subject sub-01 --set recording=rest
+opts: --dataset --inputs --set+ --signatures --subject
 )TBL",
 R"TBL(@ run surrogate_lagfree_spatial_events_compare
 old: __surrogate_lagfree_spatial_events_compare compute

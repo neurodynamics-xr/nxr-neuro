@@ -55,6 +55,7 @@ test_codec_pipeline	unit
 test_compact	unit
 test_compute_types	unit
 test_connection_laplacian	unit
+test_compile	integration
 test_connectome	unit
 test_connectome_definition	integration
 test_connectome_gate	unit
@@ -133,6 +134,7 @@ test_graph_eigen	unit
 test_graph_frames	unit
 test_graph_moves	unit
 test_graph_types	unit
+test_graph_type_json	unit
 test_group_tree	golden
 test_groups	unit
 test_hat	golden

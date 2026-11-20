@@ -300,6 +300,8 @@ ng::Registry node_registry(const std::shared_ptr<Binding>& binding) {
   register_partition_nodes();
   for (const auto& st : registry()) if (!st.native) r.add(node_of(st, binding));
   for (const auto& name : nxr::graph::registry().names()) r.add(nxr::graph::registry().at(name));   // the native nodes (grouped names): pure, run as they are
+  if (const ExternalNodes* x = ExternalNodes::current())                        // the nodes a caller declared by signature (compile only): checked as the others, never run
+    for (const auto& n : x->nodes()) r.add(n);
   return r;
 }
 
