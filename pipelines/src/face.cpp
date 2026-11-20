@@ -85,7 +85,9 @@ Json pipelines() {
 
 Json run(const fs::path& dataset, const std::string& subject, const RunRequest& rq, const Progress& progress) {
   const int given = (rq.from || rq.to ? 1 : 0) + (rq.all ? 1 : 0);
-  if (given == 0) refuse("a time range is required: give from and to (seconds), or all for the whole recording");
+  const bool streams = g::streams_recording(g::load(rq.pipeline));         // a definition that reads no recording takes no time range
+  if (given == 0 && streams) refuse("a time range is required: give from and to (seconds), or all for the whole recording");
+  if (given > 0 && !streams) refuse(rq.pipeline + " reads no recording: it takes no time range (give neither from/to nor all)");
   if (given > 1) refuse("give one time range: from and to, or all");
   if ((rq.from.has_value()) != (rq.to.has_value())) refuse("from and to go together: give both");
   if (!rq.parameters.is_object()) refuse("the parameters are a set of names and values");

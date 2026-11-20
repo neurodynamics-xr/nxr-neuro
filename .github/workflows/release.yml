@@ -1,8 +1,9 @@
 name: release
 
-# Release builds of the `nxr-neuro` command.
-# - On a version tag (`v*`): build a portable Linux binary (x86_64, glibc 2.28 baseline) and a macOS binary (arm64), check them, and attach
-#   `nxr-neuro-<version>-linux-x86_64.tar.gz`, `nxr-neuro-<version>-macos-arm64.tar.gz` and `SHA256SUMS` to a GitHub release.
+# Release builds of the `nxr-neuro` command and of the WebAssembly package `@nxr/neuro`.
+# - On a version tag (`v*`): build a portable Linux binary (x86_64, glibc 2.28 baseline) and a macOS binary (arm64), check them, build and test the
+#   WebAssembly package, and attach `nxr-neuro-<version>-linux-x86_64.tar.gz`, `nxr-neuro-<version>-macos-arm64.tar.gz`,
+#   `nxr-neuro-wasm-<version>.tgz` and `SHA256SUMS` to a GitHub release.
 # - By hand (`workflow_dispatch`): the same builds and checks, uploaded as workflow artefacts; no release is made.
 # Each tarball holds the binary, LICENSE, THIRD_PARTY_NOTICES.md and a short README (.github/release/README.txt).
 # Compiled objects are cached with ccache, as in ci.yml.
@@ -193,10 +194,53 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
+  wasm:
+    # the WebAssembly package (@nxr/neuro): built, tested with the Node suite, packed as nxr-neuro-wasm-<version>.tgz (a dependency by URL: npm install <release URL>)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build tools and system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build ccache libsqlite3-dev zlib1g-dev libzstd-dev pkg-config
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-wasm-release-${{ github.sha }}
+          restore-keys: |
+            ccache-wasm-main-
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: "5.0.6"
+          actions-cache-folder: emsdk-cache
+      - name: Emscripten's zlib port
+        run: embuilder build zlib
+      - name: Build and test the package (the Node suite)
+        run: bash bindings/wasm-io/test/run.sh "$PWD/build/wasm"
+      - name: Stage and pack
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then export NXR_PACKAGE_VERSION="${GITHUB_REF_NAME#v}"; fi
+          P="$(bash bindings/wasm-io/stage.sh "$PWD/build/wasm")"
+          mkdir -p dist
+          V="$(node -p "require('$P/package.json').version")"
+          (cd "$P" && npm pack --pack-destination "$GITHUB_WORKSPACE/dist")
+          mv dist/nxr-neuro-*.tgz "dist/nxr-neuro-wasm-$V.tgz"
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nxr-neuro-wasm
+          path: dist/nxr-neuro-wasm-*.tgz
   publish:
-    # only on a version tag: the release, with the two tarballs and their checksums
+    # only on a version tag: the release, with the two command tarballs, the WebAssembly package and their checksums
     if: github.ref_type == 'tag'
-    needs: [linux, linux-verify, macos]
+    needs: [linux, linux-verify, macos, wasm]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -208,11 +252,11 @@ jobs:
       - name: Checksums
         run: |
           cd dist
-          sha256sum nxr-neuro-*.tar.gz > SHA256SUMS
+          sha256sum nxr-neuro-*.tar.gz nxr-neuro-wasm-*.tgz > SHA256SUMS
           cat SHA256SUMS
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "nxr-neuro ${GITHUB_REF_NAME#v}" \
-            --notes "Binaries of the \`nxr-neuro\` command: Linux x86_64 (glibc 2.28 or newer) and macOS arm64 (not signed or notarised). Check the SHA-256 sums in \`SHA256SUMS\`; installation is described in the README."
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.tgz dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "nxr-neuro ${GITHUB_REF_NAME#v}" \
+            --notes "Binaries of the \`nxr-neuro\` command: Linux x86_64 (glibc 2.28 or newer) and macOS arm64 (not signed or notarised). The WebAssembly package \`@nxr/neuro\` (Node 22 or newer): \`npm install <its URL>\`. Check the SHA-256 sums in \`SHA256SUMS\`; installation is described in the README."
