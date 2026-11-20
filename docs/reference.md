@@ -14,7 +14,7 @@ provenance stored with the result.
 - **not the Python analysis code:** `nxr` stays the reference that the C++ is tested against.
 - **no Brainstorm code:** Brainstorm is GPLv3; the maths here is written from the papers, and Brainstorm's outputs are only goldens.
 
-**Not done yet:** the default subject's option resolutions, HCP-1065 and Frequency manifold; BEM head models (sphere models only); MNE-Python's filter option set; modalities other than MEG/EEG; the dataset API in MATLAB and WebAssembly (the Python face carries every command; MATLAB carries `run`, `list`, `read`; `run` in the faces takes the definitions: the other hand-wired pipelines follow).
+**Not done yet:** the default subject's option resolutions, HCP-1065 and Frequency manifold; BEM head models (sphere models only); MNE-Python's filter option set; modalities other than MEG/EEG; the dataset API in MATLAB (the Python and JavaScript faces carry every command; MATLAB carries `run`, `list`, `read`; `run` in the faces takes the definitions: the other hand-wired pipelines follow).
 
 ## Layout
 
@@ -25,7 +25,7 @@ nxr-neuro/
   pipelines/   nxr_pipelines the glue: read with io, compute with compute, write with io, cached; every verb of the command below (the surface: eigen, frames, tiles; the sensors:
                filters, psd, noisecov; the sources: headmodel, inverse, sourcepsd, quadrature, hodgepower; the patterns: flow_modes, speedspectrum)
   meeg/        nxr_meeg      MEG/EEG source imaging: whitener, depth weights, unconstrained minimum-norm kernel, chunk-wise noise covariance; Eigen only; no file I/O
-  bindings/    MEX, Node (N-API), wasm and a CLI smoke around nxr_compute (Python carries every command of the command line, MATLAB the pipeline level `run`, `list`, `read`, through `pipelines/face.h` and io's task commands); python/: the wheel (nxr_compute, io/formats and the dataset API)
+  bindings/    MEX, Node (N-API), wasm and a CLI smoke around nxr_compute (Python and WebAssembly carry every command of the command line, MATLAB the pipeline level `run`, `list`, `read`, through `pipelines/face.h` and io's task commands); python/: the wheel (nxr_compute, io/formats and the dataset API)
   cli/         the one command `nxr-neuro`
   cmake/       shared CMake (Eigen 3.4)
   CMakeLists.txt   the one top-level build
@@ -247,8 +247,8 @@ the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subcl
   `read dataset FOLDER`, `compile DEFINITION`, `import templates TEMPLATES_DIR` as `templates_dir`) is the one positional parameter; every option is given by name.
 - **Values.** A flag is a boolean; a repeatable option (`--templates DIR ...`) a list; an option the command line takes comma-separated (`--subjects A,B`, `--rows 0,2`) a
   list or that text. Required options are required; an option left out takes the command line's default (the library fills the same request). Arrays go in as NumPy
-  arrays (any array-like, in its own precision) or a path to a .npy file: the face hands them to the library as .npy files, the command line's array format, named after the
-  option (`values.npy`: what the producer records). `add measurements --measure NAME=FILE.npy` is `measure={"NAME": array}`; `compile --set NAME=VALUE` is
+  arrays (any array-like, in its own precision) or a path to a .npy file: the face hands them to the library in memory (dtype, shape, bytes; no temporary file), under the name the
+  producer records (named after the option, `values.npy`). `add measurements --measure NAME=FILE.npy` is `measure={"NAME": array}`; `compile --set NAME=VALUE` is
   `set={"NAME": value}` (or the command line's strings), `--signatures` and `--inputs` a dict (or the JSON file's path).
 - **Results.** The command's result object (its `"stage": "result"` line) as an `nn.Result`, a dict; where the command line writes an array to a file or prints its
   checksum (`read <class>`, `read dataset --array`), the array is in `Result.arrays` (NumPy, C order, its stored dtype). `export ...` writes its files and returns their
@@ -261,8 +261,9 @@ the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subcl
   takes `subjects=[...]` and `into=`. Returns {pipeline, subject, cache, stored, runs, seconds}; read what was stored with `nn.read.<class>`.
 - **`nn.open(dataset, mode="read")`**: a handle whose methods are the same functions with the dataset bound (`d.read.field(subject=..., name=..., all=True)`,
   `d.run("psd", "S1", all=True)`, `d.compile(...)`). `mode="write"` takes the dataset folder's writer lock now and holds it until `close()` (a context manager; released at
-  exit): the handle's commands borrow it (io's handshake `NXR_WRITER_LOCK_HELD`), another process's write is refused (`WriterLockHeld`). Each call still opens the database
-  for its own duration (the library's commands take a path).
+  exit): the handle's commands borrow it (io's handshake `NXR_WRITER_LOCK_HELD`, lent by the library's `task::Handle`), another process's write is refused (`WriterLockHeld`).
+  The library keeps the subject's database open between the handle's reading calls (`task::Handle`, `open_reader`: read-only, no lock, no migration); a write command opens
+  its own database for the length of its unit, since a package's record and content hash are finished when its writer closes.
 - **Refused, naming the new form** (the first wheel's calls; no aliases): `nn.read(dataset, subject, name, ...)` (now `nn.read.<class>`, a recording's range as `from_`/`to`
   in seconds), `nn.run(..., start=, stop=)` (now `from_=`, `to=`), `nn.list.results(dataset, subject, kind)` (now `nn.list.results | recordings | kernels`),
   `nn.list.subjects(names=)` (now `subjects=`). `nn.Stored` and `nn.RunResult` are removed.
@@ -381,11 +382,40 @@ Bindings: MATLAB MEX builds when MATLAB is found (`build/bindings/mex/nxr_comput
 **nxr-io in WebAssembly** (2026-11-11): under Emscripten `io/` builds whole, the Brainstorm importers with matio (no HDF5), with SQLite 3.51 from its amalgamation (the schema's views need 3.44 or newer; Emscripten's port is 3.39), zlib from Emscripten,
 the zstd c-blosc carries, and WebAssembly exceptions (io reports errors by throwing). `bindings/wasm-io/smoke.sh` builds it and checks it against the native CLI
 both ways (WASM writes, the CLI reads; the CLI writes, WASM reads).
-**`wasmClient(datastore)`** (`bindings/wasm-io/js/index.mjs`, spec `docs/specs/2026-11-11-wasm-io.md`) is the Cortical Flow Studio's `DataClient` backed by this
-module, so the Studio can use nxr-neuro wherever it uses a data client. Step 1 (done): status, a subject's bundle (`nxr/io/bundle.h`, a port of the Studio's
-`bundleOf`), views, rows, array reads (as stored, cast, sliced) and array create/put/delete; step 2 has subject edit and delete, fields, selections, measurements, operators, manifolds, dictionaries, jobs, `layout` and imports — every call — and dataset create, delete and catalog. Imports run the command line's own `convert` code compiled into the module, with matio (no HDF5: a v7.3 `.mat` is refused by name); and every analysis verb (eigen solve, head model, noise covariance, inverse kernel, PSDs, filters, flow) runs the same way, `compute`, `meeg` and `pipelines` compiled in; and the geometry compute on meshes in memory (the Manifold API: operators, eigenmodes, frames, geodesics, transport…) in the same instance — `nxrNeuro()` gives `compute` and `client(root)` (8.5 MB); the other row writes throw `unsupported` until they are ported.
-`bindings/wasm-io/test/parity.sh <studio checkout>` compares it with the Studio's own `bundleOf`, queries and `read` on a synthetic dataset folder (143 read checks, the stored statistics included), and its writes with the Studio's own service on two copies (118 checks: every database, every file and the drained zarr.json), its imports with the Studio's running the native `nxr-neuro` (9 checks), and its analyses with the native command (18 checks: bit-equal or to the last places; an eigensolve to its tolerance). The checks read a store's keys, not its files, so they hold at store format 51 (files) and 52 (a subject's small keys as rows of its `small_files.sqlite`: `bindings/wasm-io/test/store_keys.mjs`). In Node it
-reads and writes the real disk; the browser's file connection (a folder the user grants) comes later.
+## The JavaScript face (`@nxr/neuro`, `bindings/wasm-io`; spec `docs/specs/2026-11-19-io-service.md`, step 5)
+
+The command line as functions, in Node: `nxr-neuro <verb> <noun> --option VALUE` is `nxr.<verb>.<noun>({ option: VALUE })`, a Promise, for every command of the command table
+(`cli/command_table.cpp`), `nxr.run` and `nxr.open`; and the geometry compute on meshes in memory (`nxr.compute`), in the same module instance. The module is the C++ library
+under Emscripten (SQLite 3.51 from its amalgamation, zlib, the zstd c-blosc carries, WebAssembly exceptions; no HDF5, so a v7.3 `.mat` is refused by name); in Node it reads and
+writes the real disk (NODERAWFS). The browser's file connection (a folder the user grants) comes later. The old `Datastore` class (28 functions, its own SQL) and `wasmClient` are
+removed, with no aliases; the parity tests against the Studio's service went with them.
+
+    import { nxrNeuro } from '@nxr/neuro'
+    const nxr = await nxrNeuro()
+    await nxr.create.dataset({ dataset: 'study/demo' })
+    await nxr.create.subject({ dataset: 'study/demo', name: 'sub-01' })
+    await nxr.add.field({ dataset: 'study/demo', subject: 'sub-01', name: 'w', manifold: 'sensors', values: new Float32Array([0.5, -1.25, 3]) })
+    const r = await nxr.read.field({ dataset: 'study/demo', subject: 'sub-01', name: 'w' })   // r.arrays.values: a Float32Array with .shape and .dtype
+
+- **Names.** The command line's options with dashes as underscores (`--from-sphere` is `from_sphere`; `export bids-derivatives` is `nxr.export.bids_derivatives`); JavaScript needs
+  no trailing underscore (`nxr.import.bids({ from })`, `nxr.import.subject(...)`). The positional argument (`protocol`, `folder`, `file`, `definition`, `templates_dir`) is a key of
+  the options or the first argument (`nxr.read.dataset(folder, { array })`). A flag is a boolean; a repeatable option an array.
+- **Arrays in** are typed arrays (their precision is kept), `{ data, shape, dtype? }`, or the path of a .npy file; the face hands them to the library in memory, under the name the
+  producer records (`values.npy`). `add measurements --measure` is `measure: { NAME: array }`; `compile --set` is `set: { NAME: value }`.
+- **Arrays out.** The command's result object (its `"stage": "result"` line); where the command line writes an array to a file or prints its checksum, the object has `arrays`:
+  typed arrays by name in the stored precision (a 64-bit integer array is a `BigInt64Array`), each with `shape` and `dtype`. `progress` (a function) receives each progress line.
+- **Errors** are an `NxrError` with the library's `.code` (`invalid_argument`, `no_such_row`, `ambiguous`, `already_exists`, `not_found`, `writer_lock_held`, `not_writable`,
+  `schema_version`, ...).
+- **`nxr.run(pipeline, { dataset, subject, from, to | all, replace, dry_run, preset, subjects, into, ...parameters })`**: the time range is required (seconds); `nxr.list.pipelines()`.
+- **`nxr.open(dataset, mode = 'read')`**: a handle with the verbs' functions and the dataset bound (`d.read.field({ subject, name })`, `d.run('psd', { subject, all: true })`,
+  `d.close()`). The library keeps the subject's database open between reading calls (read-only); `'write'` takes the dataset's writer lock now and holds it until `close()`.
+- **One native call** (`command(handle, verb, noun, optionsJson, arrays, progress)` in `bindings/wasm-io/src/binding.cpp`) converts through `bindings/common/commands.h`, the same
+  code as the Python face; the face has no SQL and no logic. `js/commands.mjs` and `js/commands.d.ts` are generated from the command table (`node tools/command_table.mjs`).
+- **Tests.** `bindings/wasm-io/test/run.sh [<wasm build folder>]` builds the module and runs `test/commands.test.mjs` (every command has its function with the table's options, no
+  function without a command, the generated files are current) and `test/dataset.test.mjs` (create, add and read each class, query measurements, compile and run, the writer lock
+  across processes) with `node --test`, on synthetic datasets. `bindings/wasm-io/smoke.sh` still builds the io-only module and checks it against the native command both ways.
+- **What the Cortical Flow Studio used** (`Datastore`: views, rows, key-level array access, the repositories' row-level writes, `layout`, jobs) has no public equivalent by design
+  (spec, Appendix B); the Studio's opt-in `NXR_BACKEND=nxr-neuro` backend is rewritten onto this API in the Studio's own step.
 
 ## The command `nxr-neuro`
 

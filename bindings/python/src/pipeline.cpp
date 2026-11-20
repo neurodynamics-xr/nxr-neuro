@@ -10,6 +10,8 @@
 #include <string>
 
 #include "arrays.h"
+#include "commands.h"
+#include "handle.h"
 #include "nxr/pipelines/face.h"
 
 namespace nxrpy {
@@ -26,8 +28,12 @@ void bind_pipeline(nb::module_& m) {
   m.def(
       "_run",
       [](const std::string& dataset, const std::string& subject, const std::string& pipeline, const std::string& parameters, std::optional<double> from, std::optional<double> to,
-         bool all, bool replace, bool dry_run, const std::string& preset, const std::vector<std::string>& subjects, const std::string& into, nb::object progress) {
-        const Json params = Json::parse(parameters);
+         bool all, bool replace, bool dry_run, const std::string& preset, const std::vector<std::string>& subjects, const std::string& into, nb::object progress,
+         HandlePtr handle) {
+        Json args = Json{{"pipeline", pipeline}, {"dataset", dataset}, {"subject", subject}, {"parameters", Json::parse(parameters)}, {"all", all}, {"replace", replace},
+                         {"dry_run", dry_run}, {"preset", preset}, {"subjects", subjects}, {"into", into}};
+        if (from) args["from"] = *from;
+        if (to) args["to"] = *to;
         face::Progress say;
         if (!progress.is_none()) say = [&progress](const Json& j) {   // called from the library with the GIL released: take it for the Python callback
           nb::gil_scoped_acquire gil;
@@ -35,32 +41,11 @@ void bind_pipeline(nb::module_& m) {
         };
         std::string out;
         nb::gil_scoped_release release;
-        if (!subjects.empty() || !into.empty()) {   // a group run: the members and the group package are the caller's
-          face::GroupRunRequest rq;
-          rq.pipeline = pipeline;
-          rq.parameters = params;
-          rq.subjects = subjects;
-          rq.into = into;
-          rq.replace = replace;
-          rq.preset = preset;
-          rq.dry_run = dry_run;
-          out = face::run_group(dataset, rq, say).dump();
-        } else {
-          face::RunRequest rq;
-          rq.pipeline = pipeline;
-          rq.parameters = params;
-          rq.from = from;
-          rq.to = to;
-          rq.all = all;
-          rq.replace = replace;
-          rq.preset = preset;
-          rq.dry_run = dry_run;
-          out = face::run(dataset, subject, rq, say).dump();
-        }
+        out = nxr::bindings::run(args, say, handle ? handle->handle.get() : nullptr).dump();
         return out;
       },
       nb::arg("dataset"), nb::arg("subject"), nb::arg("pipeline"), nb::arg("parameters"), nb::arg("from").none(), nb::arg("to").none(), nb::arg("all"), nb::arg("replace"),
-      nb::arg("dry_run"), nb::arg("preset"), nb::arg("subjects"), nb::arg("into"), nb::arg("progress").none());
+      nb::arg("dry_run"), nb::arg("preset"), nb::arg("subjects"), nb::arg("into"), nb::arg("progress").none(), nb::arg("handle").none() = nb::none());
   m.def(
       "_synthetic_dataset",
       [](const std::string& datastore, const std::string& name, const std::string& subject, const std::string& recording, int channels, double sfreq, double seconds) {

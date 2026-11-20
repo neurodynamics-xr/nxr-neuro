@@ -7,7 +7,7 @@ are required; an option left out takes the command line's default (the library's
 
 What comes back is the command's result object (its `"stage": "result"` line) as a `Result`, a dict; where the command line writes an array to a file or prints its
 checksum, the array is in `Result.arrays` (NumPy, in its stored precision). Arrays go in as NumPy arrays (or any array-like, or a path to a .npy file); they are handed to the
-library as .npy files, the command line's array format, in a temporary folder named after the option (`values.npy`).
+library in memory (dtype, shape, bytes), under the name the producer records for them (`values.npy`); no temporary file is written.
 
 COMMANDS is the table this module is made from; `tests/test_commands.py` checks it against the command line's table (cli/command_table.cpp).
 """
@@ -20,9 +20,7 @@ import json
 import keyword
 import os
 import sys
-import tempfile
 import types
-import weakref
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -117,7 +115,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("export", "bids-derivatives", "", "all! from measurements out* package* results* run session space stc! task to with_surface!"),
 ]
 
-# the options that take an array: handed to the library as a .npy file (`add measurements --measure NAME=FILE.npy`: a dict of arrays)
+# the options that take an array: handed to the library in memory (or as a .npy path) (`add measurements --measure NAME=FILE.npy`: a dict of arrays)
 ARRAY_OPTIONS = {
     ("add", "field"): {"values"},
     ("add", "selection"): {"members", "indices", "spans"},
@@ -179,16 +177,17 @@ def _plain(value):
     raise TypeError(f"{type(value).__name__} is not a value a command takes")
 
 
-def _npy(folder: str, name: str, value) -> str:
-    """An array as the .npy file the command line takes (C order, little-endian, its own precision); a path is passed as it is."""
+def _memory(option: str, name: str, value):
+    """An array for the library in memory: (option, name recorded, dtype, shape, bytes), C order, little-endian, its own precision; a path is returned as it is."""
     if isinstance(value, (str, os.PathLike)):
         return os.fspath(value)
     a = np.asarray(value)
+    if a.dtype.kind not in "biuf":
+        raise TypeError(f"{option}: an array of {a.dtype} is not taken (float32, float64, integers, bool)")
     if a.dtype.byteorder == ">":
         a = a.astype(a.dtype.newbyteorder("<"))
-    path = os.path.join(folder, f"{name}.npy")
-    np.save(path, np.ascontiguousarray(a), allow_pickle=False)
-    return path
+    a = np.ascontiguousarray(a)
+    return (option, f"{name}.npy", a.dtype.name, tuple(int(d) for d in a.shape), a.tobytes())
 
 
 def _json_value(value):
@@ -207,24 +206,38 @@ def _arrays(raw) -> dict[str, np.ndarray]:
     return out
 
 
-def call(verb: str, noun: str, options: dict[str, Any], progress: Callable[[dict], None] | None = None) -> Result:
+def call(verb: str, noun: str, options: dict[str, Any], progress: Callable[[dict], None] | None = None, handle=None) -> Result:
     """One command with its options (keyed by the command line's names, underscores for dashes): its Result."""
-    arrays = ARRAY_OPTIONS.get((verb, noun), set())
-    with tempfile.TemporaryDirectory(prefix="nxr-neuro-") as tmp:
-        given = {}
-        for k, v in options.items():
+    array_options = ARRAY_OPTIONS.get((verb, noun), set())
+    given = {}
+    in_memory = []
+    for k, v in options.items():
+        if v is None:
+            continue
+        if k in array_options:
+            m = _memory(k, k, v)
+            if isinstance(m, str):
+                v = m
+            else:
+                in_memory.append(m)
+                continue
+        elif (verb, noun, k) == ("add", "measurements", "measure") and isinstance(v, dict):
+            paths = []
+            for name, a in v.items():
+                m = _memory(f"measure.{name}", name, a)
+                if isinstance(m, str):
+                    paths.append(f"{name}={m}")
+                else:
+                    in_memory.append(m)
+            v = paths or None
             if v is None:
                 continue
-            if k in arrays:
-                v = _npy(tmp, k, v)
-            elif (verb, noun, k) == ("add", "measurements", "measure") and isinstance(v, dict):
-                v = [f"{m}={_npy(tmp, m, a)}" for m, a in v.items()]
-            elif (verb, noun) == ("compile", "") and k in ("signatures", "inputs"):
-                v = _json_value(v)
-            elif (verb, noun, k) == ("compile", "", "set") and isinstance(v, dict):
-                v = [f"{name}={json.dumps(_plain(x) if isinstance(x, (np.generic, np.ndarray)) else x)}" for name, x in v.items()]
-            given[k] = v
-        text, raw = _core._command(verb, noun, json.dumps(given, default=_plain), None if progress is None else (lambda line: progress(json.loads(line))))
+        elif (verb, noun) == ("compile", "") and k in ("signatures", "inputs"):
+            v = _json_value(v)
+        elif (verb, noun, k) == ("compile", "", "set") and isinstance(v, dict):
+            v = [f"{name}={json.dumps(_plain(x) if isinstance(x, (np.generic, np.ndarray)) else x)}" for name, x in v.items()]
+        given[k] = v
+    text, raw = _core._command(verb, noun, json.dumps(given, default=_plain), None if progress is None else (lambda line: progress(json.loads(line))), in_memory or None, handle)
     return Result(json.loads(text), _arrays(raw))
 
 
@@ -234,8 +247,8 @@ def _call_form(verb: str, noun: str, positional: str, options: list[Option]) -> 
     return f"nxr_neuro.{where}({', '.join(args)}{', ...' if any(not o.required for o in options) else ''})"
 
 
-def make(verb: str, noun: str, positional: str, options_text: str, bound: dict[str, Any] | None = None, around: Callable | None = None) -> Callable:
-    """The function of one command, with the signature the command line's options give it (less the options in `bound`, which are set)."""
+def make(verb: str, noun: str, positional: str, options_text: str, bound: dict[str, Any] | None = None, handle_of: Callable | None = None) -> Callable:
+    """The function of one command, with the signature the command line's options give it (less the options in `bound`, which are set). `handle_of`: gives the handle the call works through."""
     options = parse_options(options_text)
     bound = bound or {}
     params = []
@@ -262,10 +275,7 @@ def make(verb: str, noun: str, positional: str, options_text: str, bound: dict[s
         progress = ba.arguments.pop("progress")
         for k, v in ba.arguments.items():
             given[names.get(k, k)] = v
-        if around is not None:
-            with around():
-                return call(verb, noun, given, progress)
-        return call(verb, noun, given, progress)
+        return call(verb, noun, given, progress, None if handle_of is None else handle_of())
 
     words = f"{verb} {noun}".strip()
     command.__signature__ = sig
@@ -337,7 +347,7 @@ def verbs() -> dict[str, _Verb]:
 
 def run(pipeline: str, dataset=None, subject: str | None = None, *, from_: float | None = None, to: float | None = None, all: bool = False, replace: bool = False,
         dry_run: bool = False, preset: str | None = None, subjects: list[str] | None = None, into: str | None = None, progress: Callable[[dict], None] | None = None,
-        **parameters) -> Result:
+        _handle=None, **parameters) -> Result:
     """`nxr-neuro run PIPELINE --dataset D --subject S (--from S --to S | --all) [--<parameter> VALUE ...]`: a pipeline on a subject.
 
     The time range is REQUIRED and the caller's: `from_` and `to` in seconds on the recording's clock (both), or `all=True` (the whole recording, still read one chunk at a
@@ -358,7 +368,7 @@ def run(pipeline: str, dataset=None, subject: str | None = None, *, from_: float
         raise TypeError("nxr_neuro.run needs the subject: run(pipeline, dataset=..., subject=..., from_=..., to=... | all=True)")
     text = _core._run(os.fspath(dataset), subject or "", os.fspath(pipeline), json.dumps(parameters, default=_plain), None if from_ is None else float(from_),
                       None if to is None else float(to), bool(all), bool(replace), bool(dry_run), preset or "", [str(s) for s in (subjects or [])], into or "",
-                      None if progress is None else (lambda line: progress(json.loads(line))))
+                      None if progress is None else (lambda line: progress(json.loads(line))), _handle)
     return Result(json.loads(text))
 
 
@@ -376,19 +386,16 @@ class _Bound:
 
 class Dataset:
     """A dataset opened once (`nxr_neuro.open(dataset)`): its methods are the command functions with `dataset` bound (`d.show.dataset()`, `d.read.field(subject=...,
-    name=..., all=True)`, `d.run("psd", subject=..., all=True)`). With mode="write" the dataset's writer lock is taken now and held until `close()` (or the end of a `with`
-    block, or the process): every command through the handle borrows it, and another process's write is refused (WriterLockHeld) meanwhile. mode="read" takes no lock."""
+    name=..., all=True)`, `d.run("psd", subject=..., all=True)`). The library keeps the subject's database open between the handle's reading calls (read-only: it never migrates,
+    recovers or locks). With mode="write" the dataset's writer lock is taken now and held until `close()` (or the end of a `with` block, or the process): every command through
+    the handle borrows it, and another process's write is refused (WriterLockHeld) meanwhile. mode="read" takes no lock."""
 
     def __init__(self, dataset, mode: str = "read"):
         if mode not in ("read", "write"):
             raise InvalidArgumentError(f"mode is 'read' or 'write' (got {mode!r})")
         self.dataset = os.fspath(dataset)
         self.mode = mode
-        self._lock = None
-        self._finalizer = None
-        if mode == "write":
-            self._lock = _core._writer_lock(self.dataset)
-            self._finalizer = weakref.finalize(self, self._lock.release)
+        self._handle = _core._Handle(self.dataset, mode == "write")
         for verb, noun, positional, options in COMMANDS:
             names = {o.name for o in parse_options(options)}
             key = "dataset" if "dataset" in names else ("folder" if positional == "folder" else None)
@@ -398,25 +405,23 @@ class Dataset:
             if holder is None:
                 holder = _Bound(f"{py_name(verb)} ({self.dataset})")
                 setattr(self, py_name(verb), holder)
-            setattr(holder, py_name(noun), make(verb, noun, positional, options, {key: self.dataset}, self._borrowing))
-        self.compile = make("compile", "", "definition", dict((c[0], c[3]) for c in COMMANDS if not c[1])["compile"], {"dataset": self.dataset}, self._borrowing)
+            setattr(holder, py_name(noun), make(verb, noun, positional, options, {key: self.dataset}, self._through))
+        self.compile = make("compile", "", "definition", dict((c[0], c[3]) for c in COMMANDS if not c[1])["compile"], {"dataset": self.dataset}, self._through)
 
     def run(self, pipeline: str, subject: str | None = None, **kwargs) -> Result:
         """`nxr_neuro.run` with the dataset bound."""
-        with self._borrowing():
-            return run(pipeline, self.dataset, subject, **kwargs)
+        return run(pipeline, self.dataset, subject, _handle=self._handle, **kwargs)
 
-    def _borrowing(self):
-        return _Borrow(self)
+    def _through(self):
+        return self._handle
 
     @property
     def closed(self) -> bool:
-        return self._finalizer is not None and not self._finalizer.alive
+        return self._handle.closed
 
     def close(self) -> None:
-        """Release the writer lock (a read handle: nothing to release)."""
-        if self._finalizer is not None:
-            self._finalizer()
+        """Close the open databases and release the writer lock (a read handle: nothing to release); the handle's calls are refused afterwards."""
+        self._handle.close()
 
     def __enter__(self):
         return self
@@ -426,33 +431,6 @@ class Dataset:
 
     def __repr__(self) -> str:
         return f"<nxr_neuro.Dataset {self.dataset!r} mode={self.mode}{' closed' if self.closed else ''}>"
-
-
-class _Borrow:
-    """While a command runs through a write handle, the library borrows the handle's lock (io's handshake: NXR_WRITER_LOCK_HELD=<lock file>:<pid>)."""
-
-    def __init__(self, d: Dataset):
-        self.d = d
-        self.previous = None
-
-    def __enter__(self):
-        if self.d._lock is None:
-            return self
-        if self.d.closed:
-            raise InvalidArgumentError(f"the handle of {self.d.dataset} is closed (its writer lock released): open it again")
-        env = _core._writer_lock_env
-        self.previous = os.environ.get(env)
-        os.environ[env] = f"{self.d._lock.file}:{os.getpid()}"
-        return self
-
-    def __exit__(self, *exc):
-        if self.d._lock is None:
-            return
-        env = _core._writer_lock_env
-        if self.previous is None:
-            os.environ.pop(env, None)
-        else:
-            os.environ[env] = self.previous
 
 
 def open(dataset, mode: str = "read") -> Dataset:  # noqa: A001  (nxr_neuro.open, as the spec names it)

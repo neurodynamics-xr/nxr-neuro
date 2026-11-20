@@ -17,6 +17,7 @@
 #include "nxr/io.h"
 #include "nxr/io/npy.h"
 #include "nxr/io/task/commands.h"
+#include "nxr/io/task/handle.h"
 #include "nxr/pipelines/face.h"
 
 using namespace nxr::io;
@@ -290,6 +291,105 @@ int main() {
     const task::CommandResult m = face::read_manifold(rq("tetra"));
     CHECK(array_named(m, "cells_2").shape == (std::vector<std::int64_t>{4, 3}));
     CHECK(has(thrown([&] { task::AddSurfaceRequest no = s; no.name.reset(); task::add_surface(no); }), "named by --name"));
+  }
+
+  {   // arrays IN MEMORY (ArrayInput::memory): the same results as the files, the producer recording the name given; a size that does not match its bytes is refused
+    auto mem = [&](const std::string& name, const std::string& dtype, const std::vector<std::int64_t>& shape, auto v) { return task::ArrayInput::memory(name, dtype, shape, raw(v)); };
+    task::AddFieldRequest f;
+    base(f, "mem_w");
+    f.manifold = "sensors";
+    f.values = mem("values.npy", "float32", {3}, std::vector<float>{0.5f, -1.25f, 3.0f});
+    task::add_field(f);
+    const task::CommandResult r = face::read_field(rq("mem_w"));
+    CHECK(r.arrays.at(0).bytes == raw(std::vector<float>{0.5f, -1.25f, 3.0f}) && r.arrays.at(0).dtype == "float32");
+    CHECK(has(r.result["producer"].dump(), "\"values.npy\""));
+    f.name = "mem_bad";
+    f.values = task::ArrayInput::memory("values.npy", "float64", {3}, raw(std::vector<float>{1, 2, 3}));
+    CHECK(has(thrown([&] { task::add_field(f); }), "values.npy: 12 bytes are not 3 values of float64"));
+    f.values = mem("values.npy", "float64", {4}, std::vector<double>{1, 2, 3, 4});
+    CHECK(has(thrown([&] { task::add_field(f); }), "--values values.npy is [4]"));
+    task::AddSelectionRequest s;
+    base(s, "mem_parts");
+    s.manifold = "sensors";
+    s.type = "partition";
+    s.members = mem("members.npy", "int64", {3}, std::vector<std::int64_t>{0, 1, 0});
+    s.entries = {"left", "right"};
+    task::add_selection(s);
+    CHECK(array_named(face::read_selection(rq("mem_parts")), "values").bytes == raw(std::vector<std::int32_t>{0, 1, 0}));
+    task::AddMeasurementsRequest m;
+    m.dataset = D; m.subject = "S1"; m.created_by = by;
+    m.selection = "mem_parts";
+    m.field = "mem_w";
+    m.measure_arrays = {{"mean", mem("mean.npy", "float64", {2}, std::vector<double>{4.5, 3.5})}};
+    task::add_measurements(m);
+    face::ReadNodeRequest mr = rq("mem_parts");
+    mr.measure = "mean";
+    mr.field = "mem_w";
+    CHECK(array_named(face::read_selection(mr), "value").bytes == raw(std::vector<double>{4.5, 3.5}));
+    task::AddOperatorRequest o;
+    base(o, "mem_mix");
+    o.from_manifold = "sensors";
+    o.to_manifold = "sensors";
+    o.values = mem("values.npy", "float64", {3, 3}, std::vector<double>{1, 0, 0, 0, 2, 0, 0.5, 0, 3});
+    task::add_operator(o);
+    task::AddPointsRequest p;
+    base(p, "mem_electrodes");
+    p.positions = mem("positions.npy", "float64", {2, 3}, std::vector<double>{0, 0, 1, 0, 1, 0});
+    task::add_points(p);
+    task::AddSurfaceRequest sf;
+    sf.dataset = D; sf.subject = "S1"; sf.created_by = by;
+    sf.name = "mem_tetra";
+    sf.no_primary = true;
+    sf.vertices = mem("vertices.npy", "float64", {4, 3}, std::vector<double>{0, 0, 1, 0, 1, 0, 1, 0, 0, 0.5, 0.5, 0.5});
+    sf.faces = mem("faces.npy", "int32", {4, 3}, std::vector<std::int32_t>{0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3});
+    CHECK_EQ(task::add_surface(sf).result["n_vertices"].get<std::int64_t>(), std::int64_t(4));
+  }
+
+  {   // a HANDLE (#166): a read handle keeps the subject's database open across calls (the same reader), sees what is stored meanwhile, takes no lock; a write handle holds the writer
+      // lock until closed (another process's write is refused) while its own commands borrow it; a closed handle refuses
+    task::Handle reading(D, task::Handle::Mode::read, by);
+    {
+      task::HandleScope use(&reading);
+      task::Lease a = task::open_reader(D, "S1"), b = task::open_reader(D, "S1");
+      CHECK(&*a == &*b);                                                                   // one open reader, not one a call
+      CHECK(reading.lock_file().empty());
+      const task::CommandResult first = face::read_field(rq("w"));
+      CHECK(first.arrays.at(0).bytes == face::read_field(rq("w")).arrays.at(0).bytes);
+    }
+    task::AddLineRequest late;
+    base(late, "stored_between");
+    late.n = 5;
+    late.spacing = 1.0;
+    late.unit = "s";
+    task::add_line(late);                                                                  // another call, no handle, while the handle's reader is open
+    {
+      task::HandleScope use(&reading);
+      CHECK_EQ(face::read_manifold(rq("stored_between")).result["class"].get<std::string>(), std::string("manifold"));
+    }
+    task::Handle writing(D, task::Handle::Mode::write, by);
+    CHECK(!writing.lock_file().empty());
+    {
+      task::HandleScope use(&writing);
+      task::AddLineRequest l;
+      base(l, "through_the_handle");
+      l.n = 3;
+      l.spacing = 1.0;
+      l.unit = "s";
+      task::add_line(l);                                                                   // borrows the lock the handle holds
+      CHECK_EQ(face::read_manifold(rq("through_the_handle")).result["class"].get<std::string>(), std::string("manifold"));
+    }
+    task::AddLineRequest other;
+    base(other, "from_outside");
+    other.n = 3;
+    other.spacing = 1.0;
+    other.unit = "s";
+    CHECK(has(thrown([&] { task::add_line(other); }), "writer_lock_held"));                // no handle: the lock is held by the write handle
+    writing.close();
+    writing.close();                                                                       // twice is not an error
+    task::add_line(other);                                                                 // released
+    CHECK(has(thrown([&] { task::HandleScope use(&writing); }), "is closed"));
+    reading.close();
+    CHECK(has(thrown([&] { task::HandleScope use(&reading); }), "is closed"));
   }
 
 #ifdef NXR_TEST_CLI

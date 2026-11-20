@@ -1,6 +1,7 @@
 // The commands' library functions (nxr/io/task/commands.h): what each command of the command line does, moved out of cli/ so the command line, the Python binding
 // and the WebAssembly binding call one function. Behaviour, refusals and results are the command line's, unchanged.
 #include "nxr/io/task/commands.h"
+#include "nxr/io/task/handle.h"
 #include "commands_open.h"
 
 #include <zlib.h>
@@ -102,7 +103,8 @@ CommandResult show_dataset(const ShowDatasetRequest& rq, const Progress& progres
                     {"source_tool", opt("source_tool")}, {"source_protocol", opt("source_protocol")}, {"created_utc", opt("created_utc")}};
     return r;
   }
-  DatasetWriter ds = open_dataset(rq.dataset, std::nullopt, reader(), {}, progress);
+  Lease lease = open_reader(rq.dataset, std::nullopt, {}, progress);
+  DatasetWriter& ds = *lease;
   Json kinds = Json::object();
   std::int64_t total = 0;
   for (const auto& k : Dataset::of(ds).subject_kinds()) {
@@ -234,7 +236,8 @@ CommandResult list_subjects(const ListSubjectsRequest& rq, const Progress& progr
   }
   if (rq.subjects || rq.where)
     throw Refused("--subjects and --where need a catalogue dataset (made by `create dataset --dataset PATH`); " + rq.dataset + " is a one-database dataset");
-  DatasetWriter ds = open_dataset(rq.dataset, std::nullopt, reader(), {}, progress);
+  Lease lease = open_reader(rq.dataset, std::nullopt, {}, progress);
+  DatasetWriter& ds = *lease;
   Json rows = Json::array();
   for (const auto& s : Dataset::of(ds).subjects()) rows.push_back(Json{{"name", s.name}, {"kind", s.kind}, {"status", s.status}, {"path", s.path}});
   r.result = Json{{"dataset", text(ds.row(), "name")}, {"subjects", rows}};
@@ -242,7 +245,8 @@ CommandResult list_subjects(const ListSubjectsRequest& rq, const Progress& progr
 }
 
 CommandResult show_subject(const ShowSubjectRequest& rq, const Progress& progress) {
-  DatasetWriter ds = open_dataset(rq.dataset, rq.subject, reader(), rq.templates, progress);
+  Lease lease = open_reader(rq.dataset, rq.subject, rq.templates, progress);
+  DatasetWriter& ds = *lease;
   SubjectWriter s = SubjectWriter::open(ds, rq.subject);
   const NodeCounts n = Subject::of(s).node_counts();
   CommandResult r;
@@ -299,13 +303,15 @@ CommandResult add_surface(const AddSurfaceRequest& rq, const Progress& progress)
   if (arrays && !rq.name) throw Refused("a surface from arrays is named by --name");
   Mesh mesh;
   if (arrays) {
-    const NpyFile v = NpyFile::open(*rq.vertices), f = NpyFile::open(*rq.faces);
-    if (v.shape().size() != 2 || v.shape()[1] != 3) throw Refused("--vertices " + fs::path(*rq.vertices).filename().string() + ": the vertices are [n x 3]");
-    if (f.shape().size() != 2 || f.shape()[1] != 3) throw Refused("--faces " + fs::path(*rq.faces).filename().string() + ": the faces are [m x 3], three vertex indices each (0-based)");
-    if (f.descr()[1] != 'i' && f.descr()[1] != 'u') throw Refused("--faces " + fs::path(*rq.faces).filename().string() + ": vertex indices are integers (" + f.descr() + " given)");
-    mesh.vertices = v.all<double>();
-    for (const auto i : f.all<std::int64_t>()) {
-      if (i < 0 || i >= v.shape()[0]) throw Refused("--faces " + fs::path(*rq.faces).filename().string() + ": vertex " + std::to_string(i) + " is not one of the " + std::to_string(v.shape()[0]) + " vertices");
+    const std::string vname = rq.vertices->label(), fname = rq.faces->label();
+    const std::vector<std::int64_t> vshape = array_shape(*rq.vertices), fshape = array_shape(*rq.faces);
+    if (vshape.size() != 2 || vshape[1] != 3) throw Refused("--vertices " + vname + ": the vertices are [n x 3]");
+    if (fshape.size() != 2 || fshape[1] != 3) throw Refused("--faces " + fname + ": the faces are [m x 3], three vertex indices each (0-based)");
+    const std::string fdtype = array_dtype(*rq.faces);
+    if (fdtype.rfind("int", 0) != 0 && fdtype.rfind("uint", 0) != 0) throw Refused("--faces " + fname + ": vertex indices are integers (" + fdtype + " given)");
+    mesh.vertices = array_all<double>(*rq.vertices);
+    for (const auto i : array_all<std::int64_t>(*rq.faces)) {
+      if (i < 0 || i >= vshape[0]) throw Refused("--faces " + fname + ": vertex " + std::to_string(i) + " is not one of the " + std::to_string(vshape[0]) + " vertices");
       mesh.faces.push_back(static_cast<std::int32_t>(i));
     }
   } else {
@@ -319,7 +325,7 @@ CommandResult add_surface(const AddSurfaceRequest& rq, const Progress& progress)
   for (auto& x : mesh.vertices) x *= rq.scale;
   SurfaceOptions so;
   so.name = name;
-  so.source = arrays ? fs::path(*rq.vertices).filename().string() + ", " + fs::path(*rq.faces).filename().string() : fs::path(rq.file).filename().string();
+  so.source = arrays ? rq.vertices->label() + ", " + rq.faces->label() : fs::path(rq.file).filename().string();
   so.primary = !rq.no_primary;
   SurfaceInfo info;
   sub.compose([&] { info = nxr::io::add_surface(sub, so, mesh.vertices, mesh.faces); });

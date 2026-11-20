@@ -17,6 +17,7 @@
 #include <functional>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -44,6 +45,32 @@ struct CommandArray {
 struct CommandResult {
   Json result = Json::object();
   std::vector<CommandArray> arrays;
+};
+
+/** An array a command takes: a .npy file by path (the command line's form), or an array in memory (the faces': Python and JavaScript hand their arrays over directly, with no
+ *  temporary file). The name the producer records for it is the file's name, or the in-memory array's `name` (e.g. "values.npy"), never a path. A string converts to the file form. */
+struct ArrayInput {
+  std::string path;                      // the .npy file (when not in memory)
+  bool in_memory = false;
+  std::string name;                      // in memory: the name recorded as the input
+  std::string dtype;                     // in memory: as the store names it (float32, float64, int8 to int64, uint8 to uint64, bool)
+  std::vector<std::int64_t> shape;       // in memory: C order
+  std::vector<std::uint8_t> bytes;       // in memory: the values of `dtype`, little-endian
+
+  ArrayInput() = default;
+  ArrayInput(std::string file) : path(std::move(file)) {}
+  ArrayInput(const char* file) : path(file) {}
+  static ArrayInput memory(std::string name, std::string dtype, std::vector<std::int64_t> shape, std::vector<std::uint8_t> bytes) {
+    ArrayInput a;
+    a.in_memory = true;
+    a.name = std::move(name);
+    a.dtype = std::move(dtype);
+    a.shape = std::move(shape);
+    a.bytes = std::move(bytes);
+    return a;
+  }
+  /** the name a message and the producer record give it: the file's name (never its path), or the in-memory array's name */
+  std::string label() const { return in_memory ? name : std::filesystem::path(path).filename().string(); }
 };
 
 // ---- datasets ----
@@ -121,7 +148,7 @@ CommandResult delete_subject(const DeleteSubjectRequest& request);
 struct AddSurfaceRequest {
   std::string dataset, subject;
   std::string file;                        // the mesh file (the positional FILE); or empty and
-  std::optional<std::string> vertices, faces;   // the surface from arrays: vertices [n x 3] and faces [m x 3] (0-based) as .npy files (both; then `name` is required)
+  std::optional<ArrayInput> vertices, faces;   // the surface from arrays: vertices [n x 3] and faces [m x 3] (0-based), .npy files or in memory (both; then `name` is required)
   std::optional<std::string> name;
   double scale = 1.0;
   bool primary = false, no_primary = false;
@@ -131,7 +158,7 @@ struct AddSurfaceRequest {
 CommandResult add_surface(const AddSurfaceRequest& request, const Progress& progress = {});
 
 // ---- `add <class>`: what a user computed, stored as ONE unit (docs/specs/2026-11-19-io-service.md, 4.2) ----
-// Each reads its arrays from .npy files (C order, little-endian), keeps their precision (float32 stays float32), checks them against the manifold or selection they lie on
+// Each reads its arrays from .npy files or from memory (ArrayInput; C order, little-endian), keeps their precision (float32 stays float32), checks them against the manifold or selection they lie on
 // (a refusal says what was expected), and stores one node through io's typed writes (task::Unit) with a producer record naming the command, the program, the input FILES'
 // NAMES (never their paths) and the user's `description`. A name already used in the subject is refused unless `replace`: the old node is then moved aside, never deleted.
 // Result: {class, name, id, path, (replaced: where the old one went)} and what the command checked (n, shape, dtype).
@@ -139,7 +166,8 @@ CommandResult add_surface(const AddSurfaceRequest& request, const Progress& prog
 /** `add field`: values [n] or [n x components...] on a manifold (n its vertices, or its edges or faces by `cell`), or with `time` [n x samples x components...] on the
  *  manifold and a time line (a time-resolved field, read back with `read field --from/--to | --all`) */
 struct AddFieldRequest {
-  std::string dataset, subject, name, manifold, values;   // values: the .npy file
+  std::string dataset, subject, name, manifold;
+  ArrayInput values;                       // a .npy file, or in memory
   std::optional<std::string> time;         // a time line (by name): the field is time-resolved
   std::string value_type = "scalar";       // scalar · integer · complex · vector2 · vector3 · matrix3 · quaternion · hermitian3 (its components trail the element axes)
   std::string kind = "added";              // what its values are
@@ -154,7 +182,7 @@ CommandResult add_field(const AddFieldRequest& request, const Progress& progress
  *  stop or [k x 3] start, stop, code; in the line's unit); `entries` name the labels (codes) 0, 1, ... */
 struct AddSelectionRequest {
   std::string dataset, subject, name, manifold, type;   // type: partition | set | indices | spans
-  std::optional<std::string> members, indices, spans;   // the .npy file of its type
+  std::optional<ArrayInput> members, indices, spans;   // the array of its type: a .npy file, or in memory
   std::vector<std::string> entries;
   std::optional<std::string> description;
   bool replace = false;
@@ -165,7 +193,8 @@ CommandResult add_selection(const AddSelectionRequest& request, const Progress& 
 
 /** `add statistic`: values on named axes, each running along a manifold (`axes`: NAME:MANIFOLD, one an axis, in order), of a field (`of_field`) or computed elsewhere (detached) */
 struct AddStatisticRequest {
-  std::string dataset, subject, name, measure, method, values;
+  std::string dataset, subject, name, measure, method;
+  ArrayInput values;
   std::vector<std::string> axes;           // NAME:MANIFOLD
   std::string value_type = "scalar";
   std::optional<std::string> of_field, partition, unit, description;
@@ -180,6 +209,7 @@ struct AddMeasurementsRequest {
   std::string dataset, subject, selection;
   std::optional<std::string> field, unit;
   std::vector<std::string> measure;        // MEASURE=FILE.npy
+  std::vector<std::pair<std::string, ArrayInput>> measure_arrays;   // MEASURE and its values given as arrays (in memory, or a file): after `measure`
   bool replace = false;
   std::vector<std::string> templates;
   std::string created_by;
@@ -191,7 +221,7 @@ CommandResult add_measurements(const AddMeasurementsRequest& request, const Prog
 struct AddOperatorRequest {
   std::string dataset, subject, name, from_manifold, to_manifold;
   std::string kind = "added";              // what the operator is
-  std::optional<std::string> values, data, indices, indptr;
+  std::optional<ArrayInput> values, data, indices, indptr;
   std::optional<std::string> description;
   bool replace = false;
   std::vector<std::string> templates;
@@ -201,7 +231,8 @@ CommandResult add_operator(const AddOperatorRequest& request, const Progress& pr
 
 /** `add points`: a manifold of points, positions [n x 3] (in `coordinate_system`, default scs) or one coordinate each [n] (default: a line of its own name) */
 struct AddPointsRequest {
-  std::string dataset, subject, name, positions;
+  std::string dataset, subject, name;
+  ArrayInput positions;
   std::optional<std::string> coordinate_system, description;
   bool replace = false;
   std::vector<std::string> templates;

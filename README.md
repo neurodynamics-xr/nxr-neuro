@@ -77,6 +77,19 @@ One wheel per platform serves every Python 3.12 or newer. Only NumPy is required
 
 The functions, their options and the readers are listed in [docs/reference.md](docs/reference.md), section "The Python face".
 
+## JavaScript (WebAssembly, Node)
+
+Every command of the command line is a function too, `nxr.<verb>.<noun>({ option: value })`, returning a Promise; arrays go in and come back as typed arrays with `shape` and
+`dtype`, a refusal is an `NxrError` with the library's `.code`, and `nxr.open(dataset, mode)` gives a handle that keeps the dataset open. Built from the same C++ library as the
+command (`bindings/wasm-io`; nothing is published to npm yet).
+
+    import { nxrNeuro } from '@nxr/neuro'
+    const nxr = await nxrNeuro()
+    await nxr.create.dataset({ dataset: 'study/demo' })
+    const psd = await nxr.read.statistic({ dataset: 'study/demo', subject: 'sub-01', name: 'rest_psd_welch' })   // psd.arrays.values: a Float32Array with .shape and .dtype
+
+See [docs/reference.md](docs/reference.md), section "The JavaScript face".
+
 ## The command
 
 One command, verb first: `nxr-neuro <verb> <what> [options]`.

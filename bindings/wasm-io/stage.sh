@@ -14,7 +14,7 @@ fi
 cmake --build "$W" --target nxr_io_wasm >/dev/null
 P="$W/package"
 mkdir -p "$P"
-for f in index.mjs index.d.ts compute.mjs nxr_io.mjs nxr_io.wasm; do cp "$W/bindings/wasm-io/$f" "$P/$f"; done
+for f in index.mjs index.d.ts commands.mjs commands.d.ts arrays.mjs compute.mjs nxr_io.mjs nxr_io.wasm; do cp "$W/bindings/wasm-io/$f" "$P/$f"; done
 VERSION="$(sed -n 's/^project(nxr_neuro VERSION \([0-9.]*\).*/\1/p' "$ROOT/CMakeLists.txt" | head -1)"
 REV="$(git -C "$ROOT" rev-parse --short=10 HEAD)$(git -C "$ROOT" diff --quiet || echo -dirty)"
 # the version names the commit it was built from (a local build: 0.1.0-dev.<rev>)
