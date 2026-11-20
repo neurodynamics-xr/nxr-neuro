@@ -239,10 +239,10 @@ made by io's writers, `face::synthetic_dataset` or `create recording --synthetic
 | 2 | **The command functions** (`io/include/nxr/io/task/commands.h`, `face.h`): one a command, the command line calling them; logic left in `cli/` moved in. Two PRs: datasets, subjects, packages, read, query; then imports and exports | the existing CLI tests, unchanged and green (they now test the functions too) |
 | 3 | **The new verbs** `read <class>` and `add <class>`, in the library and on the command line, in the command table | one round trip a class: `add` from synthetic arrays, `read` gives them back byte for byte; `--replace` moves aside; a name used is refused |
 | 4 | **Python**: the verb modules (`nn.create`, `nn.list`, `nn.show`, `nn.read`, `nn.query`, `nn.add`, `nn.delete`, `nn.import_`, `nn.export`, ...), `nn.run` and `nn.read` changed to the mirror (old forms refused), `nn.open`, the exception classes; the coverage test against the command table | pytest: the coverage test; create a dataset and subject, `add` and `read` each class, `query measurements`; the writer lock refused across two processes |
-| 5 | **WebAssembly**: the same verbs on the same functions; the `Datastore` class and its 28 functions removed (no aliases); `js/index.mjs` and `index.d.ts` give `nxr.<verb>.<noun>` | the coverage test; the same round trips in Node on a synthetic dataset |
+| 5 | **WebAssembly** (**done, 2026-11-20**): the same verbs on the same functions; the `Datastore` class and its 28 functions removed (no aliases); `js/index.mjs` and `index.d.ts` give `nxr.<verb>.<noun>`. With it: arrays in memory in the `add <class>` requests (#167) and a handle that keeps the database open (#166), for Python and JavaScript alike | the coverage test (`bindings/wasm-io/test/commands.test.mjs`); the same round trips in Node on a synthetic dataset (`dataset.test.mjs`) |
 
 Steps 1 and 2 touch io, pipelines and the command line only; 4 and 5 can follow 3 in either order. The wasm-io parity tests against the Studio's
-service are retired with the `Datastore` class (the Studio is rewritten onto the public API).
+service are retired with the `Datastore` class (the Studio is rewritten onto the public API; its opt-in `NXR_BACKEND=nxr-neuro` backend used `Datastore`).
 
 ## 9. Questions for the maintainers
 
