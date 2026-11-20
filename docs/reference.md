@@ -731,8 +731,8 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
   a write id that is unknown, committed, rolled back, another handle's, or of the other class (a field's write committed as a statistic).
 
 **`delete subject --node CLASS:NAME`** removes one node by its class (manifold, field, selection, operator, statistic or dictionary) and name, since names repeat across classes. io removes what the node owns:
-a manifold's geometry and topology, a field's arrays and the measurements made of it, a selection's members and its weights array, an operator's by-products (its eigenvalues), and the operator a deleted
-field was made by when nothing else uses it (`also_removed`). It **refuses a node other nodes depend on, naming them** (`error: manifold sensors is used by field f1, operator mix: delete those first`):
+a manifold's geometry and topology, a field's arrays and the measurements made of it, a selection's members and its weights array, and an operator's by-products (its eigenvalues). The operator a field was made by
+(an inverse kernel, a forward model) is a stored node of its own and is never removed with the field: it is deleted only when named. It **refuses a node other nodes depend on, naming them** (`error: manifold sensors is used by field f1, operator mix: delete those first`):
 for a manifold, the fields, selections, operators, statistics, products and derived manifolds on it; for a field, the fields derived from it, the selections and statistics that name it as theirs and the fields
 mapped from it; for a selection, the operators, statistics and joint selections that read it; for an operator, the fields made by it and the operators derived from or composed of it; for a dictionary, the
 selections that read it. The old `--node NAME` form (a store path, or a name) is kept: a path is unique; a name only when one class holds it, else the delete is refused (`ambiguous`) naming the

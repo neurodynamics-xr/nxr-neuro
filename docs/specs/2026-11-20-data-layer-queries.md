@@ -84,7 +84,7 @@ The descriptions are nxr-neuro's typed model: named, nested and versioned (`sche
   - The three steps are one unit: until it is committed, the field is not in the subject. An unfinished write is rolled back by `recover dataset`.
   - The handle (`nn.open`, `nxr.open`) carries the write id between calls. The same form serves `add statistic`.
 - **Deletes.** `delete subject --node CLASS:NAME` names a node by its class, since names can repeat across classes.
-  - io removes what the node owns: a manifold's geometry and topology, and the operator a field was made by.
+  - io removes what the node owns: a manifold's geometry and topology, a field's arrays and measurements, a selection's members and weights. The operator a field was made by (an inverse kernel) is a node of its own: never removed with the field, deleted only when named.
   - It refuses a node that other nodes depend on, naming them.
 
 ### 3.8 Jobs

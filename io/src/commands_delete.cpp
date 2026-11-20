@@ -139,9 +139,6 @@ CommandResult delete_node(DatasetWriter& ds, const std::string& subject, const s
   const std::vector<std::string> deps = dependants(db, t->cls, t->id, sub.id());
   if (!deps.empty())
     throw Error(code::invalid_argument, t->cls + " " + t->name + " is used by " + list_of(deps) + ": delete those first (" + t->cls + " " + t->name + " was not deleted)");
-  std::optional<std::string> maker;   // the operator a deleted field was made by
-  if (t->cls == "field")
-    if (const auto r = db.one("SELECT by_operator_id FROM field WHERE id = ?", {V(t->id)}); r && !is_null(*r, "by_operator_id")) maker = text(*r, "by_operator_id");
   if (t->cls == "dictionary") {
     db.tx([&] { delete_row(db, "dictionary", t->id); });
   } else {
@@ -149,12 +146,7 @@ CommandResult delete_node(DatasetWriter& ds, const std::string& subject, const s
   }
   CommandResult r;
   r.result = Json{{"removed", t->name}, {"class", t->cls}, {"table", t->cls}, {"by", by}};
-  if (maker) {
-    if (const auto o = db.one("SELECT name FROM operator WHERE id = ?", {V(*maker)}); o && dependants(db, "operator", *maker, sub.id()).empty()) {
-      td.remove(Cls::operator_, *maker);
-      r.result["also_removed"] = Json::array({Json{{"class", "operator"}, {"name", text(*o, "name")}, {"why", "made the deleted field and nothing else uses it"}}});
-    }
-  }
+  // the operator a field was made by (an inverse kernel, a forward model) is never removed with it: it is a stored node of its own, deleted only when named
   return r;
 }
 

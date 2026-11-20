@@ -431,9 +431,11 @@ int main() {
       const std::string aside = "_replaced-" + now_utc(false).substr(0, 10) + "/" + text(*ds.subject("S1"), "path") + "/sensor/";
       CHECK(ds.node_store().exists_prefix(aside + "weighted") && ds.node_store().exists_prefix(aside + "weighted.weights"));
     }
-    // the operator a deleted field was made by goes with it, when nothing else uses it
+    // the operator a deleted field was made by stays: it is a stored node of its own (an inverse kernel), deleted only when named
     const task::CommandResult re = del("field:est");
-    CHECK(re.result.contains("also_removed") && re.result["also_removed"][0]["name"] == "mix");
+    CHECK(!re.result.contains("also_removed"));
+    CHECK(named(list("operators"), "mix") != nullptr);
+    del("operator:mix");
     CHECK(named(list("operators"), "mix") == nullptr);
     CHECK_EQ(count_arrays("mix"), std::size_t(0));
     // an operator two fields were made by stays after one is deleted
@@ -448,6 +450,8 @@ int main() {
     CHECK(!del("field:ea").result.contains("also_removed"));
     CHECK(named(list("operators"), "mix2") != nullptr);
     del("field:eb");
+    CHECK(named(list("operators"), "mix2") != nullptr);   // still there with no field left: only a delete that names it removes it
+    del("operator:mix2");
     CHECK(named(list("operators"), "mix2") == nullptr);
     // a manifold with nothing on it goes with its geometry and topology
     task::AddPointsRequest pts;
