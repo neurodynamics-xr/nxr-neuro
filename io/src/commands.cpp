@@ -1,6 +1,7 @@
 // The commands' library functions (nxr/io/task/commands.h): what each command of the command line does, moved out of cli/ so the command line, the Python binding
 // and the WebAssembly binding call one function. Behaviour, refusals and results are the command line's, unchanged.
 #include "nxr/io/task/commands.h"
+#include "nxr/io/task/handle.h"
 #include "commands_open.h"
 
 #include <zlib.h>
@@ -102,7 +103,8 @@ CommandResult show_dataset(const ShowDatasetRequest& rq, const Progress& progres
                     {"source_tool", opt("source_tool")}, {"source_protocol", opt("source_protocol")}, {"created_utc", opt("created_utc")}};
     return r;
   }
-  DatasetWriter ds = open_dataset(rq.dataset, std::nullopt, reader(), {}, progress);
+  Lease lease = open_reader(rq.dataset, std::nullopt, {}, progress);
+  DatasetWriter& ds = *lease;
   Json kinds = Json::object();
   std::int64_t total = 0;
   for (const auto& k : Dataset::of(ds).subject_kinds()) {
@@ -234,7 +236,8 @@ CommandResult list_subjects(const ListSubjectsRequest& rq, const Progress& progr
   }
   if (rq.subjects || rq.where)
     throw Refused("--subjects and --where need a catalogue dataset (made by `create dataset --dataset PATH`); " + rq.dataset + " is a one-database dataset");
-  DatasetWriter ds = open_dataset(rq.dataset, std::nullopt, reader(), {}, progress);
+  Lease lease = open_reader(rq.dataset, std::nullopt, {}, progress);
+  DatasetWriter& ds = *lease;
   Json rows = Json::array();
   for (const auto& s : Dataset::of(ds).subjects()) rows.push_back(Json{{"name", s.name}, {"kind", s.kind}, {"status", s.status}, {"path", s.path}});
   r.result = Json{{"dataset", text(ds.row(), "name")}, {"subjects", rows}};
@@ -242,7 +245,8 @@ CommandResult list_subjects(const ListSubjectsRequest& rq, const Progress& progr
 }
 
 CommandResult show_subject(const ShowSubjectRequest& rq, const Progress& progress) {
-  DatasetWriter ds = open_dataset(rq.dataset, rq.subject, reader(), rq.templates, progress);
+  Lease lease = open_reader(rq.dataset, rq.subject, rq.templates, progress);
+  DatasetWriter& ds = *lease;
   SubjectWriter s = SubjectWriter::open(ds, rq.subject);
   const NodeCounts n = Subject::of(s).node_counts();
   CommandResult r;

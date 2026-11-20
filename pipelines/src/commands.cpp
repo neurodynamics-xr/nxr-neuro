@@ -6,6 +6,7 @@
 #include "nxr/io/catalogue.h"
 #include "nxr/io/errors.h"
 #include "nxr/io/subject_package.h"
+#include "nxr/io/task/handle.h"
 #include "nxr/io/writer.h"
 #include "nxr/pipelines/dataset.h"
 #include "nxr/pipelines/face.h"
@@ -38,9 +39,8 @@ DatasetWriter open_subject_dataset(const std::string& folder, const std::string&
 }
 
 CommandResult list_nodes(const ListNodesRequest& rq, const std::string& what, const Progress& progress) {
-  OpenOptions o;
-  o.lock = false;
-  DatasetWriter ds = open_subject_dataset(rq.dataset, rq.subject, o, rq.templates, progress);
+  task::Lease lease = task::open_reader(rq.dataset, rq.subject, rq.templates, progress);
+  DatasetWriter& ds = *lease;
   SubjectWriter sub = SubjectWriter::open(ds, rq.subject);
   CommandResult r;
   r.result = Json{{"subject", sub.name()}, {what, list_subject_nodes(ds, sub, what)}};

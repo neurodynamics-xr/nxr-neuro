@@ -19,6 +19,7 @@
 #include "nxr/io/finder.h"
 #include "nxr/io/npy.h"
 #include "nxr/io/task/dataset.h"
+#include "nxr/io/task/handle.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/default_subject.h"
 #include "nxr/io/selection_store.h"
@@ -256,7 +257,8 @@ std::pair<int, Json> level_for(const std::string& to, const Json& grid) {
 Json measurement_query(const fs::path& dataset, const std::string& subject, const MeasurementQuery& q) {
   if (q.where != "io" && q.where != "compute") refuse("measurement query: where is io (the SQL query) or compute (in memory)");
   if (q.selection.empty() || q.measure.empty()) refuse("measurement query: name the selection and the measure");
-  DatasetWriter ds = open_for(dataset, subject, false);
+  task::Lease lease = task::open_reader(dataset.string(), subject);
+  DatasetWriter& ds = *lease;
   SubjectWriter sub = SubjectWriter::open(ds, subject);
   const task::Subject ts = task::Subject::of(sub);
   const auto sel = ts.by_id_or_name(task::Cls::selection, q.selection);
@@ -308,7 +310,8 @@ Json measurement_query(const fs::path& dataset, const std::string& subject, cons
   std::vector<Json> fines{measurement_ingredients_of(sub, sel->id, field_id.empty() ? std::nullopt : std::optional<std::string>(field_id), q.measure)};
   for (const auto& other : q.subjects) {
     if (other == subject) continue;
-    DatasetWriter ods = open_for(dataset, other, false);
+    task::Lease olease = task::open_reader(dataset.string(), other);
+    DatasetWriter& ods = *olease;
     SubjectWriter osub = SubjectWriter::open(ods, other);
     const task::Subject ots = task::Subject::of(osub);
     const auto osel = ots.by_id_or_name(task::Cls::selection, q.selection);
@@ -363,13 +366,15 @@ Json subjects(const fs::path& dataset, const std::vector<std::string>& names, co
     return Json{{"dataset", text(cat.dataset_row(), "name")}, {"subjects", rows}};
   }
   if (!names.empty() || where) refuse("subjects: names and where need a catalogue dataset; " + dataset.string() + " is a one-database dataset");
-  DatasetWriter ds = open_writer(dataset, OpenOptions{false, std::nullopt});
+  task::Lease lease = task::open_reader(dataset.string(), std::nullopt);
+  DatasetWriter& ds = *lease;
   for (const auto& r : task::Dataset::of(ds).subjects()) rows.push_back(Json{{"name", r.name}, {"kind", r.kind}, {"status", r.status}, {"path", r.path}});
   return Json{{"dataset", text(ds.row(), "name")}, {"subjects", rows}};
 }
 
 Json results(const fs::path& dataset, const std::string& subject, const std::string& what) {
-  DatasetWriter ds = open_for(dataset, subject, false);
+  task::Lease lease = task::open_reader(dataset.string(), subject);
+  DatasetWriter& ds = *lease;
   SubjectWriter sub = SubjectWriter::open(ds, subject);
   return list_subject_nodes(ds, sub, what);
 }
@@ -527,7 +532,8 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
 Stored read(const fs::path& dataset, const std::string& subject, const std::string& name, const ReadRequest& rq) {
   if (!rq.cls.empty() && rq.cls != "field" && rq.cls != "statistic" && rq.cls != "operator" && rq.cls != "selection" && rq.cls != "manifold")
     refuse("read: class '" + rq.cls + "' (field, statistic, operator, selection or manifold)");
-  DatasetWriter ds = open_for(dataset, subject, false, rq.templates);
+  task::Lease lease = task::open_reader(dataset.string(), subject, rq.templates);
+  DatasetWriter& ds = *lease;
   SubjectWriter sub = SubjectWriter::open(ds, subject);
   const task::Subject ts = task::Subject::of(sub);
   const std::optional<std::string>& measure = rq.measure;

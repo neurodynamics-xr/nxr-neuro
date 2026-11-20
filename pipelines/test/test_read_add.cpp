@@ -17,6 +17,7 @@
 #include "nxr/io.h"
 #include "nxr/io/npy.h"
 #include "nxr/io/task/commands.h"
+#include "nxr/io/task/handle.h"
 #include "nxr/pipelines/face.h"
 
 using namespace nxr::io;
@@ -342,6 +343,53 @@ int main() {
     sf.vertices = mem("vertices.npy", "float64", {4, 3}, std::vector<double>{0, 0, 1, 0, 1, 0, 1, 0, 0, 0.5, 0.5, 0.5});
     sf.faces = mem("faces.npy", "int32", {4, 3}, std::vector<std::int32_t>{0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3});
     CHECK_EQ(task::add_surface(sf).result["n_vertices"].get<std::int64_t>(), std::int64_t(4));
+  }
+
+  {   // a HANDLE (#166): a read handle keeps the subject's database open across calls (the same reader), sees what is stored meanwhile, takes no lock; a write handle holds the writer
+      // lock until closed (another process's write is refused) while its own commands borrow it; a closed handle refuses
+    task::Handle reading(D, task::Handle::Mode::read, by);
+    {
+      task::HandleScope use(&reading);
+      task::Lease a = task::open_reader(D, "S1"), b = task::open_reader(D, "S1");
+      CHECK(&*a == &*b);                                                                   // one open reader, not one a call
+      CHECK(reading.lock_file().empty());
+      const task::CommandResult first = face::read_field(rq("w"));
+      CHECK(first.arrays.at(0).bytes == face::read_field(rq("w")).arrays.at(0).bytes);
+    }
+    task::AddLineRequest late;
+    base(late, "stored_between");
+    late.n = 5;
+    late.spacing = 1.0;
+    late.unit = "s";
+    task::add_line(late);                                                                  // another call, no handle, while the handle's reader is open
+    {
+      task::HandleScope use(&reading);
+      CHECK_EQ(face::read_manifold(rq("stored_between")).result["class"].get<std::string>(), std::string("manifold"));
+    }
+    task::Handle writing(D, task::Handle::Mode::write, by);
+    CHECK(!writing.lock_file().empty());
+    {
+      task::HandleScope use(&writing);
+      task::AddLineRequest l;
+      base(l, "through_the_handle");
+      l.n = 3;
+      l.spacing = 1.0;
+      l.unit = "s";
+      task::add_line(l);                                                                   // borrows the lock the handle holds
+      CHECK_EQ(face::read_manifold(rq("through_the_handle")).result["class"].get<std::string>(), std::string("manifold"));
+    }
+    task::AddLineRequest other;
+    base(other, "from_outside");
+    other.n = 3;
+    other.spacing = 1.0;
+    other.unit = "s";
+    CHECK(has(thrown([&] { task::add_line(other); }), "writer_lock_held"));                // no handle: the lock is held by the write handle
+    writing.close();
+    writing.close();                                                                       // twice is not an error
+    task::add_line(other);                                                                 // released
+    CHECK(has(thrown([&] { task::HandleScope use(&writing); }), "is closed"));
+    reading.close();
+    CHECK(has(thrown([&] { task::HandleScope use(&reading); }), "is closed"));
   }
 
 #ifdef NXR_TEST_CLI
