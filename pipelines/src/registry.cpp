@@ -201,7 +201,11 @@ void band_check(const Json& p, const Value& x, const std::string& who, bool opti
   if (optional && band.is_null()) return;
   need(band.is_array() && band.size() == 2 && band[0].is_number() && band[1].is_number() && band[0].get<double>() >= 0 && band[0].get<double>() < band[1].get<double>(),
        who + ": band " + band.dump() + ": [lo, hi] in Hz, lo < hi" + (optional ? " (or null: the plain Hilbert, cut at 1024 taps)" : ""));
-  need(p["shape"] == "morlet" || p["shape"] == "meyer", who + ": shape " + p["shape"].dump() + ": morlet (the default: a Gaussian centred on the band, its width the FWHM) or meyer (compact edges, half_width octaves)");
+  const bool ladder = p.contains("voices") && p["shape"] == "morlet_ladder";
+  need(p["shape"] == "morlet" || p["shape"] == "meyer" || ladder, who + ": shape " + p["shape"].dump() + ": morlet (the default: a Gaussian centred on the band, its width the FWHM) or meyer (compact edges, half_width octaves)" +
+                                                               (p.contains("voices") ? std::string(" or morlet_ladder (the squared gains of a Morlet ladder's members in the band: ladder_min, ladder_max, voices)") : std::string()));
+  if (ladder) need(p["ladder_min"].is_number() && p["ladder_max"].is_number() && p["ladder_min"].get<double>() > 0 && p["ladder_max"].get<double>() > p["ladder_min"].get<double>() && p["voices"].is_number_integer() && p["voices"].get<int>() >= 1,
+                   who + ": morlet_ladder: 0 < ladder_min < ladder_max (Hz) and voices a whole number of at least 1");
   need(p["half_width"].is_number() && p["half_width"].get<double>() > 0, who + ": half_width " + p["half_width"].dump() + ": a positive number of octaves (the Meyer edges' half width; unused by morlet)");
   need(band[1].get<double>() < x.rate / 2, who + ": band " + band.dump() + " reaches past Nyquist (" + std::to_string(x.rate / 2) + " Hz)");
 }
@@ -249,7 +253,7 @@ Json where_range(const Json& range, const std::string& m) {
 struct BandAnalytic { std::vector<std::int32_t> channels; double sfreq = 0; nxr::signal::timefilterbank::Family shape = nxr::signal::timefilterbank::Family::Morlet; std::vector<std::pair<double, double>> bank; std::int64_t halo = 0; };
 std::vector<StepSpec> build() {
   std::vector<StepSpec> r;
-  r.push_back({"signal.band_filter", "chunk", {"x"}, {}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}},
+  r.push_back({"signal.band_filter", "chunk", {"x"}, {}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}, {"ladder_min", 1.0}, {"ladder_max", 64.0}, {"voices", 8}},
                "Studio engine/gpu/deviceChain.ts gainTaps · convolveRows (a wavelet band of the Signal chain: toolbox/wavelets/dyadicFrame.ts meyerBand; `shape` morlet, the default: kernels.ts morlet, nxr vortex.morlet_gain); nxr.filters.taps; compute nxr::signal",
                "a field on … × time filtered to a band, zero phase: the band's gain taken to taps once, each chunk convolved with them over its halo",
                [](const Values& ins, const Json& p, const PlanContext&) {
@@ -737,6 +741,8 @@ std::function<double(double)> band_gain(const Json& p) {
   if (p["band"].is_null()) return [](double) { return 1.0; };
   const double lo = p["band"][0].get<double>(), hi = p["band"][1].get<double>(), hw = p["half_width"].get<double>();
   if (p["shape"] == "morlet") return [lo, hi](double f) { return nxr::signal::graphfilterbank::morletBand(f, lo, hi); };
+  if (p["shape"] == "morlet_ladder")                                     // the band's members of a Morlet ladder, their squared gains summed (the reference Gabor detector's R² signal)
+    return nxr::signal::timefilterbank::morletLadderGain(lo, hi, p["ladder_min"].get<double>(), p["ladder_max"].get<double>(), p["voices"].get<int>());
   return [lo, hi, hw](double f) { return nxr::signal::graphfilterbank::meyerBand(f, lo, hi, hw); };
 }
 struct AnalyticTaps { std::vector<float> even, odd; };

@@ -1006,6 +1006,26 @@ void redirect_summarize(StepSpec& sc) {
     req.ddof = p["ddof"].get<int>();
     const std::string combine = p["combine"].get<std::string>();
     req.combine = combine == "each" ? nm::Combine::each : combine == "pool" ? nm::Combine::pool : nm::Combine::mean;
+    // ROW GROUPS, EACH OVER ITS OWN MEMBERS (a series whose groups of rows lie on different tilings of the time line: `signal.gabor`'s widths, each on its own decimated frames): each group is
+    // summarised over its own members, per row, by the same function; x's values are `row_groups[g].offset + (row - first) x members + member`
+    if (x.meta.contains("row_groups")) {
+      need(combine == "each", "summarize: x's rows lie on different partitions (row groups): per row only (combine each)");
+      const std::int64_t S = static_cast<std::int64_t>(req.names.size());
+      Array y{x.rows, S, std::vector<double>(static_cast<std::size_t>(x.rows * S), kNaN)};
+      Json used = Json::array();
+      for (const auto& gr : x.meta["row_groups"]) {
+        const std::int64_t r0 = gr["first_row"].get<std::int64_t>(), R = gr["rows"].get<std::int64_t>(), n = gr["members"].get<std::int64_t>(), off = gr["offset"].get<std::int64_t>();
+        Eigen::MatrixXd values(R, std::max<std::int64_t>(1, n));
+        for (std::int64_t r = 0; r < R; ++r) for (std::int64_t m = 0; m < values.cols(); ++m) values(r, m) = n ? x.at(static_cast<std::size_t>(off + r * n + m)) : kNaN;
+        const Eigen::MatrixXd out = nm::summarize(values, req);
+        for (std::int64_t r = 0; r < R; ++r) for (std::int64_t k = 0; k < S; ++k) y.data[static_cast<std::size_t>((r0 + r) * S + k)] = out(r, k);
+        used.push_back(n);
+      }
+      Json sj = Json::array();
+      for (const auto& nme : req.names) sj.push_back(Json{{"name", nme}});
+      y.meta = Json{{"summaries", sj}, {"combine", p["combine"]}, {"ddof", p["ddof"]}, {"members_by_group", used}, {"measures", Json::array({Json{{"name", x.meta.value("measure", std::string())}}})}, {"of", Json{{"row_groups", x.meta["row_groups"]}}}};
+      return Arrays{{"y", std::move(y)}};
+    }
     // THE MEASURES OF x are its columns [rows x members x measures]: each is summarised, the statistic's columns measure-major (measure c, summary s at column c * summaries + s)
     const std::int64_t C = std::max<std::int64_t>(1, x.comps);
     std::vector<std::string> column_names;

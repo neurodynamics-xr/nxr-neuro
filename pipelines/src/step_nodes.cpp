@@ -112,8 +112,9 @@ ng::NodeSpec node_of(const StepSpec& st, const std::shared_ptr<Binding>& binding
                      "is applied (give it to the first linear map as `pre_operator`, e.g. apply_kernel's)");
     ng::Planned out;
     for (const auto& [port, v] : made) out.out[port] = port_of(v);
-    // the halo a chunk step needs is known from its prepared state (the taps designed, the frame tiling read); prepared here on the records alone, as the plan reads nothing stored
-    if (s->kind == "chunk" && s->halo) {
+    // the halo a chunk step needs is known from its prepared state (the taps designed, the frame tiling read); prepared here on the records alone, as the plan reads nothing stored.
+    // An ACCUMULATING step may declare one too (the executor hands it the block with the loop's halo, as it does a Welch segment family's): its own columns are folded, the halo only read
+    if ((s->kind == "chunk" || s->kind == "accumulate") && s->halo) {
       if (s->halo_at_plan) out.halo = s->halo_at_plan(ins, params);
       else {
         ExecContext ec{*binding->bound, nullptr, {}};
@@ -301,6 +302,7 @@ Value value_of(const ng::PortType& t) {
   if (!d["row"].is_null()) v.row = json_row(d["row"]);
   if (!d["unit"].is_null()) v.unit = d["unit"].get<std::string>();
   v.facts = d["facts"];
+  if (d.contains("manifold_facts") && d["manifold_facts"].is_object()) v.manifold_facts = d["manifold_facts"];   // what io described of its manifolds (their sizes), as value_json wrote it
   return v;
 }
 
