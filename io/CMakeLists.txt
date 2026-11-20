@@ -107,6 +107,9 @@ if(NXR_IO_WASM)
   FetchContent_MakeAvailable(matio)
   target_compile_options(matio PRIVATE -w -sUSE_ZLIB=1)
   add_subdirectory(formats)   # the pure formats (own target; nxr_io links it)
+  file(READ ${CMAKE_CURRENT_SOURCE_DIR}/convert/manifest/template_sources.json NXR_TEMPLATE_SOURCES_JSON)
+  file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/gen/template_sources_json.inc "R\"NXRSRC(${NXR_TEMPLATE_SOURCES_JSON})NXRSRC\"")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/convert/manifest/template_sources.json)
   add_library(nxr_io
     src/codec_zstd.cpp src/codec_pipeline.cpp src/dtype.cpp src/metadata.cpp src/chunking.cpp src/zarr_store.cpp src/sparse.cpp src/schema.cpp
     src/dataset.cpp src/array_reader.cpp src/json_text.cpp src/database.cpp src/records.cpp src/selection.cpp src/selection_store.cpp src/selection_measurement.cpp src/task.cpp src/task_dataset.cpp src/named_paths.cpp src/layout.cpp src/writer_lock.cpp src/array_writer.cpp src/compact.cpp
@@ -114,8 +117,12 @@ if(NXR_IO_WASM)
     src/bst_mat.cpp src/bst_protocol.cpp src/bst_subject.cpp src/bst_entities.cpp src/bst_sensors.cpp src/bst_projectors.cpp src/bst_mri.cpp src/bst_naming.cpp
     src/bst_session.cpp src/bst_recording.cpp src/bst_events.cpp src/bst_resample.cpp src/bst_frequency.cpp src/bst_inverse.cpp src/bst_maps.cpp src/bst_timefreq.cpp
     src/bst_fibers.cpp src/fibers.cpp src/bst_templates.cpp src/chunk_loop.cpp src/constant_q.cpp src/store.cpp src/small_file_store.cpp
-    src/subject_package.cpp src/subject_filter.cpp src/catalogue.cpp src/participants.cpp src/dataset_index.cpp src/migrate.cpp src/migrate_selection.cpp src/migrate_measurement.cpp src/templates.cpp)
-  target_include_directories(nxr_io PRIVATE ${CMAKE_CURRENT_BINARY_DIR} src ${ZSTD_INCLUDE_DIR} ${c-blosc_SOURCE_DIR}/blosc ${CMAKE_CURRENT_SOURCE_DIR}/extern)
+    src/subject_package.cpp src/subject_filter.cpp src/catalogue.cpp src/participants.cpp src/dataset_index.cpp src/migrate.cpp src/migrate_selection.cpp src/migrate_measurement.cpp src/templates.cpp
+    src/commands.cpp src/commands_add.cpp src/commands_import.cpp src/commands_export.cpp src/handle.cpp   # the commands (nxr/io/task/commands.h), which the JavaScript face calls
+    convert/trk.cpp convert/fibers_import.cpp convert/templates.cpp convert/recording.cpp convert/fif_objects.cpp convert/import_origin.cpp convert/nifti_import.cpp convert/world_frames.cpp
+    convert/freesurfer_import.cpp convert/gifti_import.cpp convert/cifti_import.cpp convert/sensor_frames.cpp convert/recording_operators.cpp convert/bids.cpp convert/synthetic.cpp
+    export/common.cpp export/gifti.cpp export/tsv.cpp export/cortex.cpp export/fif.cpp export/bids.cpp)
+  target_include_directories(nxr_io PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/gen src ${ZSTD_INCLUDE_DIR} ${c-blosc_SOURCE_DIR}/blosc ${CMAKE_CURRENT_SOURCE_DIR}/extern)
   set_source_files_properties(src/yaml.cpp PROPERTIES COMPILE_OPTIONS "-w")   # rapidyaml (vendored) compiled here, its warnings not ours
   target_include_directories(nxr_io PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
   # -fwasm-exceptions: nxr_io reports every error by throwing (Emscripten turns C++ exceptions off by default, and a throw then aborts); WebAssembly's own

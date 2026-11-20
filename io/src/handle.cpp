@@ -72,7 +72,10 @@ HandleScope::HandleScope(Handle* handle) : s_(std::make_unique<State>()) {
   current = handle;
   if (i.lock) {   // the commands borrow the lock the handle holds
     if (const char* e = std::getenv(kWriterLockEnv)) s_->env_before = e;
-    const std::string held = i.lock.file().string() + ":" + std::to_string(::getpid());
+    // the pid the lock file names (this process's: in WebAssembly under Node, the host's process.pid, not Emscripten's stand-in)
+    long long pid = ::getpid();
+    if (const auto h = read_writer_lock(i.lock.file().parent_path()); h && h->contains("pid") && (*h)["pid"].is_number_integer()) pid = (*h)["pid"].get<long long>();
+    const std::string held = i.lock.file().string() + ":" + std::to_string(pid);
     ::setenv(kWriterLockEnv, held.c_str(), 1);
     s_->lent = true;
   }
