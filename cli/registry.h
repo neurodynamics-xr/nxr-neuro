@@ -23,6 +23,7 @@ struct CommandDoc {
   std::string group;                     // the topic a computation is listed under
   std::string summary, example;
   std::string positional;                // the placeholder of the one positional argument, or empty
+  bool positional_optional = false;      // `pos: FILE?`: the positional argument may be left out (`add surface` from --vertices and --faces)
   bool span = false;                     // a computation over a recording: needs --from/--to or --all
   bool seconds = true;                   // the span may be given in seconds (else only --all)
   bool alias = true;                     // the old spelling is a hidden alias (false: the new command shares its words)

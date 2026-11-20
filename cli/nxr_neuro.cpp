@@ -18,6 +18,7 @@
 //   nxr-neuro read <dataset folder> [--array <subject> <path> [--region a:b,c:d] [--out FILE]]
 //
 // Like nxr's, progress and results are JSON lines on stdout (`stage` keyed); a failure is a `stage: error` line and exit 1 (a usage error: exit 2).
+#include <algorithm>
 #include <atomic>
 #include <csignal>
 #include <cstdio>
@@ -172,12 +173,16 @@ int surface_main(const std::vector<std::string>& argv) {
   if (argv.empty() || argv[0] != "add") throw Usage("nxr-neuro surface: error: the following arguments are required: action (add)");
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const std::string prog = "nxr-neuro surface add";
-  const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--scale"}, {"--primary", "--no-primary"}, {"--dataset", "--subject"}, 1);
+  // a mesh FILE, or the surface from arrays (--vertices and --faces, .npy): then no positional argument
+  const bool arrays = std::find(rest.begin(), rest.end(), "--vertices") != rest.end() || std::find(rest.begin(), rest.end(), "--faces") != rest.end();
+  const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--scale", "--vertices", "--faces"}, {"--primary", "--no-primary"}, {"--dataset", "--subject"}, arrays ? 0 : 1);
   task::AddSurfaceRequest rq;
   rq.scale = a.maybe("--scale") ? std::stod(*a.maybe("--scale")) : 1.0;
   rq.dataset = a.get("--dataset");
   rq.subject = a.get("--subject");
-  rq.file = a.pos[0];
+  if (!arrays) rq.file = a.pos[0];
+  rq.vertices = a.maybe("--vertices");
+  rq.faces = a.maybe("--faces");
   rq.name = a.maybe("--name");
   rq.primary = a.flag.count("--primary") > 0;
   rq.no_primary = a.flag.count("--no-primary") > 0;
@@ -241,8 +246,12 @@ int package_main(const std::vector<std::string>& argv);   // cli/package_command
 int import_main(const std::vector<std::string>& argv);    // cli/import_command.cpp
 int export_main(const std::vector<std::string>& argv);    // cli/export_command.cpp
 int crossspectrum_read_main(const std::vector<std::string>& rest);   // cli/meeg_command.cpp
+int read_node_main(const std::vector<std::string>& argv);   // cli/node_command.cpp
+int add_node_main(const std::vector<std::string>& argv);    // cli/node_command.cpp
 int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
   if (cmd == "__list") return list_nodes_main(rest);
+  if (cmd == "__read") return read_node_main(rest);           // `read field | statistic | operator | selection | manifold`
+  if (cmd == "__add") return add_node_main(rest);             // `add field | selection | statistic | measurements | operator | points | line`
   if (cmd == "read") {
     std::vector<std::string> store = {"read"};
     store.insert(store.end(), rest.begin(), rest.end());
