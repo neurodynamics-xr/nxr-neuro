@@ -3,10 +3,13 @@
 //     carried by a handle, and every refusal (a region outside the shape, a region twice or overlapping, a commit with regions missing, an unknown write, another handle's write, a wrong dtype or shape);
 //   - `delete subject --node CLASS:NAME`: what a node owns goes (its arrays), what depends on it refuses the delete and is named, an ambiguous name is refused naming the CLASS:NAME forms;
 //   - `run` and `import` leave a job row (done, and failed), `list jobs` reads it back.
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <sstream>
 #include <filesystem>
 #include <functional>
 
@@ -51,6 +54,10 @@ std::vector<float> block(const std::vector<float>& all, int r0, int r1, int c0, 
   std::vector<float> out;
   for (int r = r0; r < r1; ++r) for (int c = c0; c < c1; ++c) out.push_back(all[static_cast<std::size_t>(r * 50 + c)]);
   return out;
+}
+int exit_of(const std::string& command) {
+  const int r = std::system(command.c_str());
+  return WIFEXITED(r) ? WEXITSTATUS(r) : -1;
 }
 }  // namespace
 
@@ -304,6 +311,43 @@ int main() {
     CHECK_EQ(writes(), std::size_t(0));
   }
 
+#ifdef NXR_TEST_CLI
+  // ---- the command line: the write id works across separate processes (begin, append, append, commit), and `recover dataset` rolls an abandoned one back
+  {
+    const std::string cli = std::string(NXR_TEST_CLI) + " add field --dataset " + D + " ", quiet = " 2>&1";
+    const fs::path out = root / "cli_out.txt";
+    auto run_cli = [&](const std::string& args) {
+      const int rc = exit_of(cli + args + " > " + out.string() + quiet);
+      std::ifstream f(out);
+      std::stringstream ss;
+      ss << f.rdbuf();
+      return std::make_pair(rc, ss.str());
+    };
+    const auto began = run_cli("--subject S1 --name cli_pieces --manifold sensors --time epoch_time --begin --shape 3,50 --dtype float32");
+    CHECK_EQ(began.first, 0);
+    const auto at = began.second.find("\"write\": \"");
+    std::string w = at == std::string::npos ? "" : began.second.substr(at + 10, began.second.find('"', at + 10) - (at + 10));
+    CHECK(w.rfind("w-", 0) == 0);
+    const std::string top = npy(root / "in" / "top.npy", "float32", {2, 50}, block(values, 0, 2, 0, 50)), bottom = npy(root / "in" / "bottom.npy", "float32", {1, 50}, block(values, 2, 3, 0, 50));
+    CHECK_EQ(run_cli("--append --write " + w + " --region 0:2,0:50 --values " + top).first, 0);
+    const auto early = run_cli("--commit --write " + w);
+    CHECK(early.first != 0 && has(early.second, "is not complete") && has(early.second, "[2:3, 0:50]"));    // one process later: still there, still unfinished
+    const auto twice = run_cli("--append --write " + w + " --region 1:2,0:50 --values " + bottom);
+    CHECK(twice.first != 0 && has(twice.second, "overlaps"));
+    CHECK_EQ(run_cli("--append --write " + w + " --region 2:3,0:50 --values " + bottom).first, 0);
+    CHECK_EQ(run_cli("--commit --write " + w).first, 0);
+    const task::CommandResult a = face::read_field(reading("whole")), b = face::read_field(reading("cli_pieces"));
+    CHECK(!a.arrays.empty() && !b.arrays.empty() && a.arrays[0].bytes == b.arrays[0].bytes);
+    const auto lost = run_cli("--subject S1 --name cli_lost --manifold sensors --time epoch_time --begin --shape 3,50 --dtype float32");
+    CHECK_EQ(lost.first, 0);
+    CHECK_EQ(writes(), std::size_t(1));
+    CHECK_EQ(exit_of(std::string(NXR_TEST_CLI) + " recover dataset --dataset " + D + " > /dev/null 2>&1"), 0);
+    CHECK_EQ(writes(), std::size_t(0));
+    CHECK_EQ(exit_of(std::string(NXR_TEST_CLI) + " delete subject --dataset " + D + " --subject S1 --node field:cli_pieces > /dev/null 2>&1"), 0);
+    CHECK(named(list("fields"), "cli_pieces") == nullptr);
+  }
+#endif
+
   // ---- delete by class: what the node owns goes, what depends on it refuses the delete
   {
     task::AddFieldRequest f;
@@ -369,6 +413,24 @@ int main() {
     del("selection:parts");
     CHECK(!array_there("sensor/parts") && !array_there("sensor/parts.weights"));                       // the weights array went with the selection
     CHECK(named(list("selections"), "parts") == nullptr);
+    // issue 182: replacing a selection that had weights, by one without, moves the weights array aside with its values (never left under the old name, never lost)
+    task::AddSelectionRequest w1 = p;
+    w1.name = "weighted";
+    task::add_selection(w1);
+    CHECK(array_there("sensor/weighted.weights"));
+    w1.weights.reset();
+    w1.replace = true;
+    const task::CommandResult swapped = task::add_selection(w1);
+    CHECK(!swapped.result["replaced"].get<std::string>().empty());
+    CHECK(!array_there("sensor/weighted.weights"));
+    CHECK(array_there("sensor/weighted"));
+    {   // where it went: beside the selection's values, in the day's `_replaced-` folder of the subject
+      OpenOptions ro;
+      ro.lock = false;
+      DatasetWriter ds = open_writer(folder, ro);
+      const std::string aside = "_replaced-" + now_utc(false).substr(0, 10) + "/" + text(*ds.subject("S1"), "path") + "/sensor/";
+      CHECK(ds.node_store().exists_prefix(aside + "weighted") && ds.node_store().exists_prefix(aside + "weighted.weights"));
+    }
     // the operator a deleted field was made by goes with it, when nothing else uses it
     const task::CommandResult re = del("field:est");
     CHECK(re.result.contains("also_removed") && re.result["also_removed"][0]["name"] == "mix");

@@ -644,6 +644,10 @@ std::string Unit::replace(Cls cls, const std::string& path, bool replace, const 
     moved = a.second;
   };
   move_aside(cls == Cls::selection ? opt_text(*r, "array_path").value_or("") : opt_text(*r, "path").value_or(""));
+  if (cls == Cls::selection) {   // the weights array a selection keeps beside its own (named in its parameters) is moved aside with it, not left behind or removed with the row (issue 182)
+    const Json params = Json::parse(opt_text(*r, "params_json").value_or("{}"), nullptr, false);
+    if (params.is_object() && params.contains("weights") && params["weights"].is_string()) move_aside(params["weights"].get<std::string>());
+  }
   if (cls == Cls::selection && text(*r, "type") == "ladder") {
     // a grid's ladder: its level rows go with it, and their arrays and nodes (tile codes, areas, centres, adjacency), as they were written together, are MOVED ASIDE with it (--replace
     // never deletes; a constant-Q ladder's levels hold no node)

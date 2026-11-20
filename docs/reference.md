@@ -601,7 +601,7 @@ every subject's nodes. The filters are named options, never SQL: `--name` the no
 manifold's, selection's or operator's type or kind, a statistic's measure, a dictionary's scope, a space's geometry or a job's kind, `--on` the nodes that lie on the manifold of that name (a
 field on it or on a product of it, a selection on it, an operator from or to it, a statistic with an axis along it, the manifolds built on it: its products, components and derivations).
 Rows come in name order; `--limit N` gives N rows a page and `next`, an opaque cursor (null after the last row), is passed back as `--after` for the following page: every row comes exactly
-once. `list jobs` reads the `job` table (what ran, when, the program and the outcome): rows appear when `run` and `import` record them (a later step); until then it is empty.
+once. `list jobs` reads the `job` table (what ran, when, the program and the outcome): rows come from `run` and `import` (see *Writes in pieces, deletes by class and jobs*).
 `list recordings`, `list kernels` and `list results` are unchanged.
 
 **`show dataset`** gains `nodes`: {manifolds, fields, selections, operators, statistics, dictionaries, spaces, acquisitions, jobs}, the count of each class summed over the dataset's
@@ -660,7 +660,7 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
 | command | what it does | old spelling |
 |---|---|---|
 | `nxr-neuro delete dataset` | Delete a dataset: its folder, inside the folder given by `--datastore`. | `dataset delete` |
-| `nxr-neuro delete subject` | Delete a subject, or one of its nodes, from a dataset. | `subject delete` |
+| `nxr-neuro delete subject` | Delete a subject, or one of its nodes (`--node CLASS:NAME`), from a dataset. | `subject delete` |
 
 ### `compact`: Compact a dataset
 
@@ -672,7 +672,7 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
 
 | command | what it does | old spelling |
 |---|---|---|
-| `nxr-neuro recover dataset` | Finish or roll back an interrupted write in a dataset. | `dataset recover` |
+| `nxr-neuro recover dataset` | Finish or roll back an interrupted write in a dataset, and roll back the unfinished writes in pieces. | `dataset recover` |
 
 ### `reduce`: Reduce stored results across subjects
 
@@ -706,7 +706,44 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
   time-resolved field's second its line's samples, a value type's components trail (complex [.. x 2], vector3 [.. x 3]); a partition's labels one an element; an operator
   [to x from]; a measure one value a member;
 - each node records a producer naming the command, the program and the input files by NAME (never their paths), with `--description`;
-- a name already used in the subject is refused unless `--replace`, which moves the old node aside (never deletes it) and says where (`replaced`).
+- a name already used in the subject is refused unless `--replace`, which moves the old node aside (never deletes it: a selection's weights array moves with its values) and says where (`replaced`).
+
+### Writes in pieces, deletes by class and jobs (spec `docs/specs/2026-11-20-data-layer-queries.md`, 3.7 and 3.8; `io/src/commands_pieces.cpp`, `commands_delete.cpp`, `jobs.cpp`)
+
+**`add field | statistic` in three steps** for values too large to hand over at once. The three steps are ONE unit: until the commit the node is not in the subject (`read subject`, `list <class>` and
+`read <class>` do not see it).
+- `--begin` takes the full `--shape N,N,...` of the values (as the one-shot `--values` would be) and the stored `--dtype` (float32, float64, int32, int64, uint8 or bool; no default: precision follows the
+  caller's data), with the command's usual options (`--subject`, `--name`, `--manifold`, `--time`, `--value-type`, `--axes`, ...). Everything the one-shot command checks without the values is checked now
+  (the manifold, the name, the shape, the axes). It prints a write id.
+- `--append --write ID --region START:STOP,START:STOP --values R.npy` writes one region, `[START, STOP)` along each axis, comma separated (`0:5000,0:3`); the values are the region's own shape and the begin's
+  dtype. A region **may not overlap one already written**, and a region given twice is refused as such (a region is written once). Regions may come in any order.
+- `--commit --write ID` stores the node by the one-shot command's own unit, once every value of the shape is covered; otherwise it is refused and names the parts missing (`[2:3, 0:20]`, at most six, and
+  the count). The result is the one-shot command's, with `write` and `regions`. The stored values equal the one-shot's byte for byte (`test_pieces_deletes_jobs`).
+- **Where an unfinished write lives:** in io's staging folder `<dataset>/.writes/<write id>/` (`write.json`: what the command was asked, the shape, the dtype and the regions written; `values.npy`: the values, a
+  sparse file, zeros where nothing is written), outside the database. So the write id works across separate command-line processes. The commit loads the staged values as the one-shot command loads
+  its file (memory: the whole array at the commit; the appends hold one region each).
+- **Rolled back, never stored:** `recover dataset` removes every unfinished write (`writes_rolled_back` in its result; on a catalogue it removes only these, the packages recover when opened); a handle
+  (`nn.open(..., mode="write")`, `nxr.open`) rolls back the writes it began when it closes, and a writable open removes the writes of a handle whose process is gone. A write begun through the command line
+  (no handle) waits for its commit or `recover dataset`.
+- **Handles:** a write begun through a handle belongs to it: another handle or process is refused (`belongs to another handle`). Through the handle `--write` may be left out while it holds one
+  unfinished write (several: refused, naming them).
+- **Refused:** a region outside the shape or with start >= stop; one given twice or overlapping one written; values of another shape or dtype than the region and begin; a commit with regions missing;
+  a write id that is unknown, committed, rolled back, another handle's, or of the other class (a field's write committed as a statistic).
+
+**`delete subject --node CLASS:NAME`** removes one node by its class (manifold, field, selection, operator, statistic or dictionary) and name, since names repeat across classes. io removes what the node owns:
+a manifold's geometry and topology, a field's arrays and the measurements made of it, a selection's members and its weights array, an operator's by-products (its eigenvalues), and the operator a deleted
+field was made by when nothing else uses it (`also_removed`). It **refuses a node other nodes depend on, naming them** (`error: manifold sensors is used by field f1, operator mix: delete those first`):
+for a manifold, the fields, selections, operators, statistics, products and derived manifolds on it; for a field, the fields derived from it, the selections and statistics that name it as theirs and the fields
+mapped from it; for a selection, the operators, statistics and joint selections that read it; for an operator, the fields made by it and the operators derived from or composed of it; for a dictionary, the
+selections that read it. The old `--node NAME` form (a store path, or a name) is kept: a path is unique; a name only when one class holds it, else the delete is refused (`ambiguous`) naming the
+`CLASS:NAME` forms. A catalogue's node is deleted in its package; deleting a whole subject still needs a one-database dataset.
+
+**Jobs.** `run` and `import <what>` leave a row in the dataset's `job` table (a package's, for a file importer), written after the work in its own short unit: `kind` (`run:psd`, `import:recording`),
+`params_json` (the pipeline and its parameters as given; the import's options), `inputs_json` (the nodes a run read), `result_json` (what it stored), `requested_by` (the program), `started_utc`,
+`finished_utc`, `status` (`done`, or `failed` with the `error` message), and the subject. A run whose result was a cache hit did no work and leaves no row; a dry run and a plan refused before any
+data was read leave none; a run made inside another command (a surrogate's draws) leaves none. A request refused as given (a usage error) did not run: no row. A failure while it ran is recorded and the
+error goes on. When the row cannot be written, the outcome of the work stands (a note, or `job_error` in an import's result). The rows are not content: the package hash does not cover them. `list jobs`
+reads them back (filter `--kind run:psd`).
 
 **The options of `add`, dictionaries and `edit`** (spec `docs/specs/2026-11-20-data-layer-queries.md`, 3.3 to 3.6; each is one unit, in `io/src/commands_add.cpp` and `commands_edit.cpp`; the
 refusals store nothing). Each option is stored in a column the schema already has:

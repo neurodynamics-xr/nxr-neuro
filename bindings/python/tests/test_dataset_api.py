@@ -232,6 +232,59 @@ def test_compile_and_run_with_from_and_to(demo):
     assert all(run["cache"] == "planned" for run in dry["runs"])
 
 
+def test_writes_in_pieces_deletes_by_class_and_jobs(demo):
+    """Step 3 of the data-layer spec: `add field | statistic` in pieces (carried by the handle, one unit, rolled back by `recover dataset` and by the handle's close), `delete subject --node CLASS:NAME`
+    (a dependant refuses the delete and is named), and the job row of a run."""
+    nn.add.line(dataset=demo, subject="S1", name="epoch_time", n=50, spacing=0.01, unit="s")
+    values = (np.arange(150, dtype=np.float32) * 0.5 - 7.0).reshape(3, 50)
+    nn.add.field(dataset=demo, subject="S1", name="whole", manifold="sensors", time="epoch_time", values=values)
+    # through a handle: the write id is carried, the field is not in the subject until the commit
+    with nn.open(demo, mode="write") as d:
+        began = d.add.field(subject="S1", name="pieces", manifold="sensors", time="epoch_time", begin=True, shape=[3, 50], dtype="float32")
+        assert began["shape"] == [3, 50] and began["write"].startswith("w-")
+        d.add.field(append=True, region=[[0, 2], [0, 50]], values=values[0:2])          # no write id: the handle's one unfinished write
+        assert [f["name"] for f in d.list.fields(subject="S1")["rows"]].count("pieces") == 0
+        with pytest.raises(nn.InvalidArgumentError, match=r"is not complete: 50 of 150 values: \[2:3, 0:50\] missing"):
+            d.add.field(commit=True)
+        with pytest.raises(nn.InvalidArgumentError, match="overlaps region"):
+            d.add.field(append=True, region="1:3,0:50", values=values[1:3])
+        with pytest.raises(nn.InvalidArgumentError, match="is not inside the shape"):
+            d.add.field(append=True, region=[[2, 4], [0, 50]], values=values[2:4])
+        d.add.field(append=True, region="2:3,0:50", values=values[2:3])
+        done = d.add.field(commit=True)
+        assert done["name"] == "pieces" and done["regions"] == 2
+        d.add.field(subject="S1", name="abandoned", manifold="sensors", time="epoch_time", begin=True, shape=[3, 50], dtype="float32")
+    names = [f["name"] for f in nn.list.fields(dataset=demo, subject="S1")["rows"]]
+    assert "pieces" in names and "abandoned" not in names                              # closing the handle rolled the unfinished write back
+    assert np.array_equal(nn.read.field(dataset=demo, subject="S1", name="pieces", all=True).arrays["values"], nn.read.field(dataset=demo, subject="S1", name="whole", all=True).arrays["values"])
+    # a statistic in pieces, and `recover dataset` rolling an abandoned write back
+    psd = np.arange(150, dtype=np.float64).reshape(3, 50)
+    w = nn.add.statistic(dataset=demo, subject="S1", name="psd_pieces", measure="power_density", method="welch", axes=["channel:sensors", "t:epoch_time"],
+                         begin=True, shape=[3, 50], dtype="float64")["write"]
+    nn.add.statistic(dataset=demo, append=True, write=w, region=[[0, 3], [0, 50]], values=psd)
+    assert nn.add.statistic(dataset=demo, commit=True, write=w)["name"] == "psd_pieces"
+    assert np.array_equal(nn.read.statistic(dataset=demo, subject="S1", name="psd_pieces").arrays["values"], psd)
+    lost = nn.add.field(dataset=demo, subject="S1", name="lost", manifold="sensors", begin=True, shape=[3], dtype="float32")["write"]
+    assert nn.recover.dataset(dataset=demo)["writes_rolled_back"] == 1
+    with pytest.raises(nn.NoSuchRow, match="no unfinished write"):
+        nn.add.field(dataset=demo, commit=True, write=lost)
+    # deletes by class: a dependant refuses the delete and is named; an ambiguous name is refused naming the forms
+    nn.add.field(dataset=demo, subject="S1", name="a", manifold="sensors", values=np.ones(3))
+    nn.add.field(dataset=demo, subject="S1", name="b", manifold="sensors", values=np.ones(3), derived_from="a")
+    with pytest.raises(nn.InvalidArgumentError, match="field a is used by field b"):
+        nn.delete.subject(dataset=demo, subject="S1", node="field:a")
+    nn.add.selection(dataset=demo, subject="S1", name="a", manifold="sensors", type="partition", members=np.array([0, 1, 0], dtype=np.int32))
+    with pytest.raises(nn.Error, match="field:a, selection:a"):
+        nn.delete.subject(dataset=demo, subject="S1", node="a")
+    assert nn.delete.subject(dataset=demo, subject="S1", node="field:b")["class"] == "field"
+    assert nn.delete.subject(dataset=demo, subject="S1", node="field:a")["removed"] == "a"
+    assert [s["name"] for s in nn.list.selections(dataset=demo, subject="S1")["rows"]].count("a") == 1
+    # a run leaves a job row
+    nn.run("psd", demo, "S1", recording="rest", segment_seconds=2.0, all=True)
+    jobs = nn.list.jobs(dataset=demo, subject="S1")["rows"]
+    assert any(j["kind"] == "run:psd" and j["status"] == "done" and j["finished_utc"] for j in jobs)
+
+
 def test_a_write_handle_holds_the_lock_across_processes(demo):
     child = textwrap.dedent(f"""
         import sys, nxr_neuro as nn
