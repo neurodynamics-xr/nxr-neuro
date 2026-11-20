@@ -1076,6 +1076,9 @@ nxr::signal::filters::FilterOptions filter_options(const Json& p, double sfreq) 
   if (p.contains("method") && !p["method"].is_null()) o.method = p["method"].get<std::string>() == "iir" ? Method::Iir : Method::Fir;
   if (const auto v = num("ripple")) o.ripple = *v;
   if (const auto v = num("transition")) o.transitionBandwidth = *v;
+  const std::string design = p.contains("design") && p["design"].is_string() ? p["design"].get<std::string>() : std::string("brainstorm");
+  if (design != "brainstorm" && design != "brainstorm_2018") ng::refuse("filter: design is brainstorm (the current release's rule) or brainstorm_2018 (the release of 2018-10-12), got '" + design + "'");
+  if (design == "brainstorm_2018") { o.transitionRule = TransitionRule::Brainstorm2018; o.edge = Edge::Zeros; }   // that release's transition bands, and its ends padded with zeros
   if (p.contains("edge") && !p["edge"].is_null()) o.edge = p["edge"].get<std::string>() == "zeros" ? Edge::Zeros : Edge::MeanOfTransient;
   if (const auto v = num("transient_energy")) o.transientEnergy = *v;
   if (const auto v = num("transient_samples")) o.transientSamples = static_cast<std::size_t>(*v);
@@ -1101,6 +1104,8 @@ const std::vector<ng::ParamSpec>& filter_parameters() {
       {"method", Json(), "fir | iir; null: the reference's (FIR, but IIR for bandstop and notch)", "-", {"fir", "iir"}, true},
       {"ripple", Json(), "FIR: the passband and stopband deviation (linear); null: 1e-3", "-", {}, true},
       {"transition", Json(), "FIR: each transition band; null: the reference's rule", "Hz", {}, true},
+      {"design", Json("brainstorm"), "FIR: the reference's rule for the transition bands: brainstorm (the current release: 0.5 Hz, 1 Hz above a 5 Hz high-pass edge) | brainstorm_2018 (the release of 2018-10-12: stop edges at 0.5 x (0.85 x above 5 Hz) the high-pass edge and 1.15 x the low-pass edge, the ends padded with zeros)", "-", {"brainstorm", "brainstorm_2018"}, false},
+      {"ends", Json("recording"), "the record whose ends are padded: recording (the whole recording; a block reads its halo across the run's span) | span (the run's span is the record, as a reference that filters only the time window it loaded: nothing outside it is read, and the output is 0 outside it)", "-", {"recording", "span"}, false},
       {"edge", Json(), "FIR: the record's ends padded with the mean of the transient (mean_of_transient) or zeros", "-", {"mean_of_transient", "zeros"}, true},
       {"transient_energy", Json(), "FIR: the transient holds this fraction of the response's energy; null: 0.99", "-", {}, true},
       {"transient_samples", Json(), "FIR: the transient's length stated", "samples", {}, true},
@@ -1113,7 +1118,7 @@ const std::vector<ng::ParamSpec>& filter_parameters() {
 
 // (filter.channel_mean is retired: `reduce` measure mean over the run's span, the preset channel_span_mean of the definition measure)
 
-struct FilterPrepared { nxr::signal::filters::FilterOptions options; nxr::signal::filters::Design design; Eigen::VectorXd mean; std::int64_t halo = 0; };
+struct FilterPrepared { nxr::signal::filters::FilterOptions options; nxr::signal::filters::Design design; Eigen::VectorXd mean; std::int64_t halo = 0; bool span = false; };
 ng::NodeSpec filter_apply() {
   ng::NodeSpec n;
   n.name = "signal.filter";
@@ -1153,19 +1158,34 @@ ng::NodeSpec filter_apply() {
     pr.design = d;
     pr.mean = mean;
     pr.halo = static_cast<std::int64_t>(std::max(d.lookBehind, d.lookAhead));
+    const std::string ends = p.value("ends", std::string("recording"));
+    if (ends != "recording" && ends != "span") ng::refuse("signal.filter: ends is recording or span, got '" + ends + "'");
+    pr.span = ends == "span";
     return std::any(std::move(pr));
   };
   n.chunk = [](const std::any& prepared, const ng::Blocks& in, std::int64_t keep, const ng::Place& at) {
     const FilterPrepared& pr = std::any_cast<const FilterPrepared&>(prepared);
     const ng::Block& b = in.at("x");
     const Eigen::Map<const RowMajorF> all(b.re.data(), b.rows, b.width);
-    const bool at_start = at.first - b.left == 0 && b.left < pr.halo + keep, at_end = b.right < pr.halo + keep;
     const std::int64_t left = b.left - keep, own = b.own() + 2 * keep;
-    const Eigen::MatrixXd yb = nxr::signal::filters::filter(all.cast<double>(), pr.options, pr.design, pr.mean, static_cast<std::size_t>(left), static_cast<std::size_t>(own), at_start, at_end);
     ng::Block y;
     y.rows = b.rows; y.width = own; y.left = keep; y.right = keep;
-    y.re.resize(static_cast<std::size_t>(b.rows * own));
-    for (std::int64_t r = 0; r < b.rows; ++r) for (std::int64_t c = 0; c < own; ++c) y.re[static_cast<std::size_t>(r * own + c)] = static_cast<float>(yb(r, c));
+    y.re.assign(static_cast<std::size_t>(b.rows * own), 0.0f);
+    if (!pr.span) {
+      const bool at_start = at.first - b.left == 0 && b.left < pr.halo + keep, at_end = b.right < pr.halo + keep;
+      const Eigen::MatrixXd yb = nxr::signal::filters::filter(all.cast<double>(), pr.options, pr.design, pr.mean, static_cast<std::size_t>(left), static_cast<std::size_t>(own), at_start, at_end);
+      for (std::int64_t r = 0; r < b.rows; ++r) for (std::int64_t c = 0; c < own; ++c) y.re[static_cast<std::size_t>(r * own + c)] = static_cast<float>(yb(r, c));
+      return ng::Blocks{{"y", std::move(y)}};
+    }
+    // THE SPAN IS THE RECORD: the block's columns outside [origin, end) are not read; the span's ends are padded as the option set says; the output outside the span is 0
+    const std::int64_t s0 = at.first - b.left;                                            // the block's first column on the recording's line
+    const std::int64_t c0 = std::clamp<std::int64_t>(at.origin - s0, 0, b.width), c1 = std::clamp<std::int64_t>(at.end - s0, 0, b.width);
+    const std::int64_t r0 = std::max(left, c0), r1 = std::min(left + own, c1);           // the output columns inside the span
+    if (r1 > r0) {
+      const Eigen::MatrixXd yb = nxr::signal::filters::filter(all.middleCols(c0, c1 - c0).cast<double>(), pr.options, pr.design, pr.mean, static_cast<std::size_t>(r0 - c0), static_cast<std::size_t>(r1 - r0),
+                                                              at.origin >= s0, at.end <= s0 + b.width);
+      for (std::int64_t r = 0; r < b.rows; ++r) for (std::int64_t c = r0; c < r1; ++c) y.re[static_cast<std::size_t>(r * own + (c - left))] = static_cast<float>(yb(r, c - r0));
+    }
     return ng::Blocks{{"y", std::move(y)}};
   };
   return n;

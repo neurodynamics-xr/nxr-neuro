@@ -10,6 +10,8 @@
 //     Spectrum  P_k = |X_k|^2 / (sum w)^2           power          (scipy scaling="spectrum")
 //     Chain     P_k = |X_k|^2 / (n * sum w^2)       the Studio's / nxr's chain Welch (nxr.spectral.chain._welch): power per sample, per bin
 // and the ONE-SIDED spectrum doubles every bin but DC (and, for an even n, Nyquist): P_k *= 2, k = 1 .. ceil(n/2) - 1.
+//     Brainstorm2018  P_k = |2 X_k / n|^2  EVERY bin, DC and Nyquist included (Brainstorm's bst_psd of its 2018-10-12 release, measure power: the amplitude spectrum 2 |X| / n squared, the
+//                     window's power not corrected; the MEG fingerprinting release's spectra). Real Welch (`Welch`) only: the other estimators refuse it.
 // Frequencies are k * fs / n, k = 0 .. n/2.
 //
 // ONE ACCUMULATION: the estimate is the mean over the family of segments of a per-segment quantity, `nxr::measurement::SegmentMean` (estimate.h, spec docs/specs/2026-11-17-consolidation.md);
@@ -41,7 +43,7 @@ namespace nxr::signal::spectral {
 
 enum class Window { Hann, Hamming, Blackman, Rectangular };
 enum class Detrend { None, Constant, Linear };
-enum class Scaling { Density, Spectrum, Chain };
+enum class Scaling { Density, Spectrum, Chain, Brainstorm2018 };
 
 struct WelchOptions {
     double sfreq = 1.0;                       // sampling frequency, Hz (required in practice: sets the frequencies and the density)

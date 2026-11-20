@@ -41,6 +41,12 @@ namespace nxr::signal::filters {
 enum class Kind { Lowpass, Highpass, Bandpass, Bandstop, Notch };
 enum class Method { Fir, Iir };
 enum class Edge { MeanOfTransient, Zeros };   // FIR: the two ends of the record are padded with the mean of the first / last K samples (Brainstorm) · nothing
+/** FIR: how the transition bands are set when `transitionBandwidth` is not stated.
+ *  Brainstorm      the current release's rule: 0.5 Hz (1 Hz when the high-pass edge is above 5 Hz; 1 Hz for a low-pass alone), the same width at both edges.
+ *  Brainstorm2018  the rule of Brainstorm's release of 2018-10-12 (bst_bandpass_hfilter of that release, the version the MEG fingerprinting paper used): the high-pass stop edge at
+ *                  0.5 x the edge (0.85 x when the edge is above 5 Hz), the low-pass stop edge at 1.15 x the edge (1.05 x for a low-pass alone); kaiserord on the narrower transition,
+ *                  the cut-offs at the transitions' midpoints. With it the release pads the record's ends with zeros (Edge::Zeros) after removing its mean. */
+enum class TransitionRule { Brainstorm, Brainstorm2018 };
 
 struct FilterOptions {
     Kind kind = Kind::Bandpass;
@@ -52,6 +58,7 @@ struct FilterOptions {
     // ---- FIR
     double ripple = 1e-3;                     // Kaiser: the passband and stopband deviation (linear); the stopband attenuation is -20 log10(ripple) = 60 dB  (Brainstorm "relax": 1e-2)
     std::optional<double> transitionBandwidth;    // Hz, each transition band (the lower edge's with Firwin); unset: the reference's rule
+    TransitionRule transitionRule = TransitionRule::Brainstorm;   // the reference's rule when `transitionBandwidth` is unset
     Edge edge = Edge::MeanOfTransient;
     double transientEnergy = 0.99;            // MeanOfTransient: K = the shortest one-sided impulse response holding this fraction of its energy
     std::optional<std::size_t> transientSamples;    // MeanOfTransient: K stated (samples), instead of the energy rule (Brainstorm's own rule for K is not published: ours agrees to within 1 sample)
