@@ -1345,7 +1345,18 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   if (group) {                                                              // the members, and what each one's input found: the result is of these
     Json members = Json::object();
     for (const auto& [k, list] : group->ids) { Json per = Json::object(); for (std::size_t i = 0; i < group->subjects.size(); ++i) per[group->subjects[i]] = list[i]; members[k] = per; }
-    producer["group"] = Json{{"subjects", group->subjects}, {"inputs", members}};
+    // per member: its subject and, for each per-subject input, the id and name of what was read in the member's own package (a group result links no member's row)
+    Json each = Json::array();
+    for (std::size_t i = 0; i < group->subjects.size(); ++i) {
+      Json in = Json::object();
+      for (const auto& [k, list] : group->ids) {
+        Json one = Json{{"id", list[i]}};
+        if (group->names.count(k) && i < group->names.at(k).size()) one["name"] = group->names.at(k)[i];
+        in[k] = one;
+      }
+      each.push_back(Json{{"subject", group->subjects[i]}, {"inputs", in}});
+    }
+    producer["group"] = Json{{"subjects", group->subjects}, {"inputs", members}, {"members", each}};
   }
   if (!P.preset.empty()) producer["preset"] = P.preset;                      // provenance only: the key holds the resolved parameters
   if (!d.chains.empty()) producer["chains"] = d.chains;
@@ -1587,18 +1598,63 @@ Json grid_recorded(const nxr::io::Row& r) {
   if (pj.contains("grid_key")) return pj["grid_key"];
   return Json();
 }
+// an axis of a stored statistic as members compare it: its name, size and entries, without the ids of what it lies on (each package has its own)
+Json axis_compared(const Json& axis) {
+  Json a = Json::object();
+  if (axis.is_object()) for (const auto& [key, v] : axis.items()) if (key.size() < 3 || key.compare(key.size() - 3, 3, "_id") != 0) a[key] = v;
+  return a;
+}
+// A STORED STATISTIC of every member (a per-subject `statistic` input: each member's feature, found by name), its values a row: [subjects x values], C order over the statistic's axes. Every member's
+// has one shape, the same axes (names, sizes, entries; not the ids of what they lie on) and one unit and value type; a mismatch is refused naming the member and the first one.
+nxr::graph::Array stack_statistics(const std::vector<GroupMember>& members, const std::vector<Values>& found, const std::string& k, const std::vector<std::string>& subjects) {
+  nxr::graph::Array a;
+  a.rows = static_cast<std::int64_t>(members.size());
+  std::vector<std::int64_t> shape0;
+  Json axes0, unit0, type0;
+  for (std::size_t i = 0; i < members.size(); ++i) {
+    const nxr::io::Row& row = *found[i].at(k).row;
+    const Bound b(*members[i].sub, members[i].ds);
+    std::vector<std::int64_t> shape;
+    const std::vector<double> v = b.array_double(text(row, "path"), &shape);
+    Json axes = Json::array();
+    for (const auto& ax : Json::parse(nxr::io::opt_text(row, "axes_json").value_or("[]"), nullptr, false)) axes.push_back(axis_compared(ax));
+    const auto u = nxr::io::opt_text(row, "unit");
+    const Json unit = u && !u->empty() ? Json(*u) : Json();
+    const Json type = nxr::io::opt_text(row, "value_type").value_or("scalar");
+    if (i == 0) {
+      shape0 = shape; axes0 = axes; unit0 = unit; type0 = type;
+      a.meta["name"] = text(row, "name");
+      a.meta["axes"] = Json::parse(nxr::io::opt_text(row, "axes_json").value_or("[]"), nullptr, false);
+      a.meta["stored_precision"] = nxr::io::ArrayReader::open(members[i].sub->store(), text(row, "path")).dtype() == nxr::io::DType::Float64 ? "float64" : "float32";
+    } else {
+      const std::string who = members[i].name + ": its " + k + " '" + text(row, "name") + "'";
+      if (shape != shape0) refuse(who + " has the shape " + Json(shape).dump() + ", " + members.front().name + "'s " + Json(shape0).dump() + " (the features of a cohort have one length)");
+      if (axes != axes0) refuse(who + " lies on other axes (" + axes.dump() + ") than " + members.front().name + "'s (" + axes0.dump() + ")");
+      if (unit != unit0) refuse(who + " is in " + unit.dump() + ", " + members.front().name + "'s in " + unit0.dump());
+      if (type != type0) refuse(who + " holds " + type.dump() + " values, " + members.front().name + "'s " + type0.dump());
+    }
+    a.data.insert(a.data.end(), v.begin(), v.end());
+  }
+  a.cols = a.rows > 0 ? static_cast<std::int64_t>(a.data.size()) / a.rows : 0;
+  a.meta["subjects"] = subjects; a.meta["member_shape"] = shape0; a.meta["axes_compared"] = axes0; a.meta["value_type"] = type0; a.meta["stack"] = "subjects";
+  if (!unit0.is_null()) a.meta["unit"] = unit0;
+  return a;
+}
+
 // THE MEMBERS' VALUES stacked: for each per-subject selection input, its members' measurements (the measures of the run's `measures` parameter, of the field the member's per-subject field input found, when there is
 // one) as one array [subjects x measures x rows x members]. Every member must have the same rows and members (the group tree's codes); a mismatch is refused naming the subject.
+// For each per-subject STATISTIC input, the members' stored statistics as rows (stack_statistics).
 GroupInputs stack_members(const std::vector<GroupMember>& members, const std::vector<Values>& found, const std::vector<std::string>& per, const Json& params, const std::string& pipeline) {
   GroupInputs g;
   for (const auto& m : members) g.subjects.push_back(m.name);
   std::string field_input;
   for (const auto& k : per) if (found.front().at(k).cls == "field") { field_input = k; break; }
-  bool any_keyed = false;
-  for (const auto& k : per) any_keyed = any_keyed || found.front().at(k).cls == "measurement";
-  if (!any_keyed && (!params.contains("measures") || !params["measures"].is_array() || params["measures"].empty())) refuse(pipeline + ": a group run states the measures to roll up (the parameter `measures`, a list)");
+  bool any_keyed = false, any_selection = false;
+  for (const auto& k : per) { any_keyed = any_keyed || found.front().at(k).cls == "measurement"; any_selection = any_selection || found.front().at(k).cls == "selection"; }
+  if (any_selection && !any_keyed && (!params.contains("measures") || !params["measures"].is_array() || params["measures"].empty())) refuse(pipeline + ": a group run states the measures to roll up (the parameter `measures`, a list)");
   for (const auto& k : per) {
-    for (std::size_t i = 0; i < members.size(); ++i) g.ids[k].push_back(text(*found[i].at(k).row, "id"));
+    for (std::size_t i = 0; i < members.size(); ++i) { g.ids[k].push_back(text(*found[i].at(k).row, "id")); g.names[k].push_back(text(*found[i].at(k).row, "name")); }
+    if (found.front().at(k).cls == "statistic") { g.stacked[k] = stack_statistics(members, found, k, g.subjects); continue; }
     const bool keyed = found.front().at(k).cls == "measurement";            // a stored measurement found by its key: its own measure and of, in each member
     if (found.front().at(k).cls != "selection" && !keyed) continue;
     nxr::graph::Array a;
@@ -1651,7 +1707,9 @@ std::vector<Json> run_group(nxr::io::DatasetWriter& group_ds, nxr::io::SubjectWr
     // each member's per-subject inputs: exactly one match, found in the member's own rows
     std::vector<Values> found;
     for (const auto& m : members) {
-      const auto matches = nxr::io::finder::resolve(m.sub->db(), m.sub->id(), per, params);
+      std::vector<Values> matches;
+      try { matches = nxr::io::finder::resolve(m.sub->db(), m.sub->id(), per, params); }
+      catch (const std::exception& e) { refuse(m.name + ": " + d.name + "'s per-subject inputs: " + e.what()); }   // the member a missing input is missing from, named
       if (matches.size() != 1) refuse(m.name + ": " + d.name + " needs exactly one match of its per-subject inputs (" + std::to_string(matches.size()) + " found)");
       found.push_back(matches.front());
     }

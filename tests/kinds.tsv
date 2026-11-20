@@ -199,6 +199,7 @@ test_passthrough_accessors	unit
 test_patches_pipeline	integration
 test_patterns	unit
 test_pca	golden
+test_identification	golden
 test_phase	golden
 test_phasegradient	integration
 test_pipelines	integration
@@ -207,6 +208,7 @@ test_progress	unit
 test_psd_golden	golden
 test_psd_linear_map	unit
 test_psd_pipeline	integration	slow
+test_fingerprint_pipeline	integration
 test_pyramid	golden
 test_quadrature	golden
 test_quadrature_pipeline	integration

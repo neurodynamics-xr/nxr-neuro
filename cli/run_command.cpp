@@ -49,7 +49,7 @@ int run_main(const std::vector<std::string>& rest) {
     return 0;
   }
   if (a.pos.empty()) usage(prog, "name a DEFINITION (one of nxr-neuro's: `list pipelines`; or a .yaml path)");
-  if (!a.maybe("--dataset") || !a.maybe("--subject")) usage(prog, "--dataset and --subject are required");
+  if (!a.maybe("--dataset")) usage(prog, "--dataset is required");
   Json set = Json::object();
   std::string preset;                                    // `--set NAME` (no `=`): one of the definition's named parameter sets; the caller's own `--set P=V` and `--P V` win over it
   if (a.multi.count("--set"))
@@ -64,6 +64,26 @@ int run_main(const std::vector<std::string>& rest) {
       set[s.substr(0, eq)] = parse_yaml(s.substr(eq + 1), "--set " + s.substr(0, eq));
     }
   const g::Definition d = g::load(a.pos[0]);
+  if (d.scope == "group") {
+    // A GROUP definition: its members are the parameter `subjects` (a list, or names joined by commas; no default), its results go to the dataset's default subject or, in a catalogue, to the
+    // group package named by the parameter `into`: one call to the library's group run (face.h), as the bindings make it.
+    if (a.maybe("--subject")) usage(prog, d.name + " is a group definition: name its members with --subjects A,B,C, not --subject");
+    nxr::pipelines::face::GroupRunRequest rq;
+    rq.pipeline = a.pos[0];
+    const Json subjects = set.value("subjects", Json());
+    if (subjects.is_string()) { std::stringstream ss(subjects.get<std::string>()); std::string n; while (std::getline(ss, n, ',')) if (!n.empty()) rq.subjects.push_back(n); }
+    else if (subjects.is_array()) for (const auto& n : subjects) rq.subjects.push_back(n.is_string() ? n.get<std::string>() : n.dump());
+    if (rq.subjects.empty()) usage(prog, d.name + " is a group definition: name its members with --subjects A,B,C (there is no default group)");
+    set["subjects"] = rq.subjects;
+    if (set.contains("into") && set["into"].is_string()) rq.into = set["into"].get<std::string>();
+    rq.parameters = set;
+    rq.replace = a.flag.count("--replace") > 0;
+    rq.preset = preset;
+    rq.dry_run = a.flag.count("--dry-run") > 0;
+    cli::emit_result(cli::call(prog, [&] { return nxr::pipelines::face::run_group(a.get("--dataset"), rq, [](const Json& j) { cli::emit(j); }); }));
+    return 0;
+  }
+  if (!a.maybe("--subject")) usage(prog, "--dataset and --subject are required");
   if (a.flag.count("--dry-run")) {
     // the subject is opened as `run` opens it (a one-database dataset or a catalogue of subject packages: the subject's own database); opening writes nothing and nothing is computed or stored
     DatasetWriter ds = open_dataset(a);

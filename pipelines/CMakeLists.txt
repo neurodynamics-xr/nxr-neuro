@@ -40,6 +40,7 @@ add_library(nxr_pipelines
   src/quadrature_steps.cpp
   src/partition_steps.cpp
   src/pca_steps.cpp
+  src/identification_steps.cpp
   src/flow_steps.cpp
   src/form_steps.cpp
   src/verb_steps.cpp
@@ -130,6 +131,10 @@ if(NXR_NEURO_BUILD_TESTS)
     target_compile_definitions(test_psd_pipeline PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_psd_pipeline COMMAND test_psd_pipeline)
+  add_executable(test_fingerprint_pipeline test/test_fingerprint_pipeline.cpp)   # the fingerprint definition as a group run on a synthetic cohort
+  target_link_libraries(test_fingerprint_pipeline PRIVATE nxr_pipelines)
+  target_include_directories(test_fingerprint_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_fingerprint_pipeline COMMAND test_fingerprint_pipeline)
   add_executable(test_face test/test_face.cpp)   # what the Python and MATLAB faces call (face.h): run, list, read, on a synthetic dataset; the same result as the command line's
   target_link_libraries(test_face PRIVATE nxr_pipelines)
   target_include_directories(test_face PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test)
