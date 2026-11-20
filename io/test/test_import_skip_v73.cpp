@@ -1,6 +1,6 @@
 // A Brainstorm import in a build that cannot read MATLAB v7.3 (HDF5) files, the WebAssembly one: each v7.3 file is SKIPPED and the rest imported, the file named with its reason in
 // the command's result (`skipped`, `message`) and in its job row; any other unreadable file is still refused; a build that reads v7.3 (the native one) imports everything as before.
-// The WebAssembly path is forced natively (nxr::bst::set_v73_readable(false)). Synthetic data only: a default anatomy of small octahedra, two of its files written as v7.3 by matio.
+// The WebAssembly path is forced natively (nxr::bst::set_v73_readable(false)). Synthetic data only: a default anatomy of small octahedra (v5), one cortex written as v7.3 by matio.
 #include <unistd.h>
 
 #include <cstdlib>
@@ -54,25 +54,40 @@ void write_tess(const fs::path& p, mat_ft version, double scale) {
   write(m, chars("Comment", "cortex_synthetic"));
   Mat_Close(m);
 }
-// a subject image: a 4 x 4 x 4 Cube and its voxel size
+// a subject image: a 4 x 4 x 4 uint8 Cube, its voxel size and its registration frames
 void write_image(const fs::path& p, mat_ft version) {
-  std::vector<double> cube(64);
-  for (std::size_t i = 0; i < cube.size(); ++i) cube[i] = static_cast<double>(i % 7);
+  std::vector<std::uint8_t> cube(64);   // an anatomical image is uint8, as Brainstorm stores one
+  for (std::size_t i = 0; i < cube.size(); ++i) cube[i] = static_cast<std::uint8_t>(i % 7);
   size_t d[3] = {4, 4, 4};
   mat_t* m = Mat_CreateVer(p.string().c_str(), nullptr, version);
-  write(m, Mat_VarCreate("Cube", MAT_C_DOUBLE, MAT_T_DOUBLE, 3, d, cube.data(), 0));
+  write(m, Mat_VarCreate("Cube", MAT_C_UINT8, MAT_T_UINT8, 3, d, cube.data(), 0));
   write(m, numeric("Voxsize", {1, 1, 1}, 1, 3));
   write(m, chars("Comment", "MRI"));
+  {   // the registration frames an import requires, as Brainstorm writes them: SCS with its landmarks (voxel units), NCS (identity axes, shifted so that the nasion is at +x, the left ear at +y, the right ear at -y, all three at z = 0)
+    const char* fn[] = {"R", "T", "NAS", "LPA", "RPA"};
+    size_t one[2] = {1, 1};
+    matvar_t* sc = Mat_VarCreateStruct("SCS", 2, one, fn, 5);
+    Mat_VarSetStructFieldByName(sc, "R", 0, numeric(nullptr, {1, 0, 0, 0, 1, 0, 0, 0, 1}, 3, 3));
+    Mat_VarSetStructFieldByName(sc, "T", 0, numeric(nullptr, {0, -50, -2}, 3, 1));
+    Mat_VarSetStructFieldByName(sc, "NAS", 0, numeric(nullptr, {50, 25, 2}, 1, 3));
+    Mat_VarSetStructFieldByName(sc, "LPA", 0, numeric(nullptr, {2, 99, 2}, 1, 3));
+    Mat_VarSetStructFieldByName(sc, "RPA", 0, numeric(nullptr, {2, 1, 2}, 1, 3));
+    write(m, sc);
+    const char* nf[] = {"R", "T"};
+    matvar_t* nc = Mat_VarCreateStruct("NCS", 2, one, nf, 2);
+    Mat_VarSetStructFieldByName(nc, "R", 0, numeric(nullptr, {1, 0, 0, 0, 1, 0, 0, 0, 1}, 3, 3));
+    Mat_VarSetStructFieldByName(nc, "T", 0, numeric(nullptr, {-100, -120, -80}, 3, 1));
+    write(m, nc);
+  }
   Mat_Close(m);
 }
-// a protocol whose default anatomy has a v5 cortex and image, and a v7.3 cortex and image
+// a protocol whose default anatomy has a v5 cortex and image (both platforms' matio read them) and ONE v7.3 file, the second cortex
 fs::path protocol(const fs::path& root) {
   const fs::path a = root / "anat" / "@default_subject";
   fs::create_directories(a);
   write_tess(a / "tess_cortex_pial_low.mat", MAT_FT_MAT5, 1.0);
   write_tess(a / "tess_cortex_white_low.mat", MAT_FT_MAT73, 0.9);
   write_image(a / "subjectimage_T1.mat", MAT_FT_MAT5);
-  write_image(a / "subjectimage_T2.mat", MAT_FT_MAT73);
   return root;
 }
 std::string dataset(const fs::path& store, const std::string& name) {
@@ -98,6 +113,11 @@ int main() {
   const fs::path proto = protocol(root / "protocol");
   CHECK(nxr::bst::is_v73(proto / "anat" / "@default_subject" / "tess_cortex_white_low.mat"));
   CHECK(!nxr::bst::is_v73(proto / "anat" / "@default_subject" / "tess_cortex_pial_low.mat"));
+  CHECK(!nxr::bst::is_v73(proto / "anat" / "@default_subject" / "subjectimage_T1.mat"));
+  {   // the image's registration frame reads back (the import needs it)
+    const auto scs = nxr::bst::read_variable(proto / "anat" / "@default_subject" / "subjectimage_T1.mat", "SCS");
+    CHECK(scs && scs->is_struct() && scs->field("R") != nullptr && scs->field("NAS") != nullptr);
+  }
 
   // ---- a build that cannot read v7.3 (the WebAssembly one, forced): the two v7.3 files skipped, the rest imported, both named in the result and the job row
   {
@@ -111,8 +131,7 @@ int main() {
     CHECK(r["surfaces"] == Json::array({"cortex_pial_low"}));
     CHECK_EQ(r["volumes"].size(), std::size_t(1));
     CHECK(named(r["skipped"], "tess_cortex_white_low.mat"));
-    CHECK(named(r["skipped"], "subjectimage_T2.mat"));
-    CHECK(r["message"].is_string() && r["message"].get<std::string>().find("2 files skipped") != std::string::npos &&
+    CHECK(r["message"].is_string() && r["message"].get<std::string>().find("1 file skipped") != std::string::npos &&
           r["message"].get<std::string>().find("tess_cortex_white_low.mat") != std::string::npos);
     task::ListClassRequest jobs;
     jobs.cls = "jobs";
@@ -149,7 +168,7 @@ int main() {
     rq.created_by = "test";
     const Json r = task::import_template(rq).result;
     CHECK_EQ(r["surfaces"].size(), std::size_t(2));
-    CHECK_EQ(r["volumes"].size(), std::size_t(2));
+    CHECK_EQ(r["volumes"].size(), std::size_t(1));
     CHECK(r["skipped"].empty());
     CHECK(!r.contains("message"));
   }
