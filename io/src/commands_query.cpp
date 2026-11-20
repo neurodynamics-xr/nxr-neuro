@@ -537,9 +537,9 @@ CommandResult list_class(const ListClassRequest& rq, const Progress& progress) {
     // the columns of the class: from the first row, or, with no row, from an empty description of the class (a name no node can have)
     if (known.empty()) {
       static const std::map<std::string, std::vector<std::string>> by_class = {
-          {"manifolds", {"subject", "id", "name", "kind", "type", "label", "description", "primary", "acquisition", "coordinates", "size", "factors", "component_of", "component_ordinal", "derived_from", "derived_by", "stored", "provenance"}},
+          {"manifolds", {"subject", "id", "name", "kind", "type", "label", "description", "primary", "acquisition", "coordinates", "size", "factors", "component_of", "component_ordinal", "from_index", "derived_from", "derived_by", "stored", "provenance"}},
           {"fields", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "stored", "lineage", "provenance"}},
-          {"selections", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "elements", "members", "of_field", "weights", "stored", "dictionary", "entries", "provenance"}},
+          {"selections", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "elements", "members", "member_of", "member_ordinal", "code", "of_field", "weights", "stored", "dictionary", "entries", "provenance"}},
           {"operators", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "from", "to", "method", "parameters", "shape", "stored", "lineage", "provenance"}},
           {"statistics", {"subject", "id", "name", "measure", "method", "type", "label", "acquisition", "description", "of_field", "of_statistic", "partition", "members", "members_skipped", "dof", "axes", "stored", "provenance"}},
           {"dictionaries", {"subject", "id", "name", "scope", "description", "entries", "provenance"}},
