@@ -114,6 +114,7 @@ Json run(const fs::path& dataset, const std::string& subject, const RunRequest& 
         refuse(d.name + " has no parameter '" + it.key() + "' (its parameters: " + (all.empty() ? "none" : all) + ")");
       }
     g::RunOptions o;
+    o.requested_by = stamp();
     if (rq.from) { o.start = *rq.from; o.stop = *rq.to; }
     if (rq.all) o.chunks = "all";
     o.replace = rq.replace;
@@ -171,6 +172,7 @@ Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progres
   }
   SubjectWriter group_sub = SubjectWriter::open(*group_ds, group_name, oo);
   g::RunOptions o;
+  o.requested_by = stamp();
   o.replace = rq.replace;
   o.preset = rq.preset;
   Json runs = Json::array(), stored = Json::array();

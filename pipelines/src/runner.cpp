@@ -33,6 +33,7 @@
 #include "nxr/pipelines/reading.h"
 
 #include "nxr/io/finder.h"
+#include "nxr/io/task/jobs.h"
 
 namespace nxr::pipelines::graph {
 
@@ -1513,6 +1514,47 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   return report;
 }
 
+
+namespace {
+// THE JOB ROW OF A RUN (docs/specs/2026-11-20-data-layer-queries.md, 3.8): written after the plan's execution, in its own short unit, as done (what it stored) or failed (its message). A run that was a cache hit did no
+// work and leaves no row. The row is io's (nxr/io/task/jobs.h); when it cannot be written the run's own outcome stands and a note says so.
+class JobCapture {
+ public:
+  JobCapture(nxr::io::SubjectWriter& sub, const Definition& d, const Plan& P, const RunOptions& opt, const std::function<void(const Json&)>& progress) : sub_(sub), progress_(progress), on_(!opt.requested_by.empty()) {
+    if (!on_) return;
+    job_.kind = "run:" + d.name;
+    job_.requested_by = opt.requested_by;
+    job_.started_utc = nxr::io::now_utc();
+    job_.params = Json{{"pipeline", d.name + "@" + std::to_string(d.version)}, {"parameters", P.parameters}, {"chunks", opt.chunks ? Json(*opt.chunks) : Json()}, {"start", opt.start ? Json(*opt.start) : Json()},
+                       {"stop", opt.stop ? Json(*opt.stop) : Json()}, {"replace", opt.replace}, {"preset", P.preset.empty() ? Json() : Json(P.preset)}};
+    job_.inputs = nxr::io::finder::describe(P.found);
+  }
+  void done(const Json& report) {
+    if (!on_ || report.value("hit", false)) return;
+    job_.status = "done";
+    job_.result = Json{{"stored", report.contains("stored") ? report["stored"] : Json::array()}};
+    write();
+  }
+  void failed(const std::string& message) {
+    if (!on_) return;
+    job_.status = "failed";
+    job_.error = message;
+    write();
+  }
+
+ private:
+  void write() {
+    job_.finished_utc = nxr::io::now_utc();
+    try { nxr::io::task::record_job(sub_, job_); }
+    catch (const std::exception& e) { if (progress_) progress_(Json{{"stage", "note"}, {"note", std::string("the job row was not written: ") + e.what()}}); }
+  }
+  nxr::io::SubjectWriter& sub_;
+  const std::function<void(const Json&)>& progress_;
+  nxr::io::task::JobRecord job_;
+  bool on_;
+};
+}  // namespace
+
 std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Definition& d, const Json& set, const RunOptions& opt, bool dry_run,
                       const std::function<void(const Json&)>& progress) {
   if (d.outputs.empty()) refuse("run " + d.name + ": the definition stores nothing (its steps end in sink nodes): compile it instead; run has nothing to store");
@@ -1524,8 +1566,13 @@ std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, c
       if (const auto a = d.anchor()) r["anchor"] = text(*P.found.at(*a).row, "name");
       out.push_back(r);
     } else {
-      try { out.push_back(execute(ds, sub, P, opt, progress)); }
-      catch (const std::invalid_argument& e) { refuse(e.what()); }       // a node's refusal (compute throws std::invalid_argument) is the run's: an io error with its code
+      JobCapture job(sub, d, P, opt, progress);
+      try {
+        out.push_back(execute(ds, sub, P, opt, progress));
+        job.done(out.back());
+      }
+      catch (const std::invalid_argument& e) { job.failed(e.what()); refuse(e.what()); }       // a node's refusal (compute throws std::invalid_argument) is the run's: an io error with its code
+      catch (const std::exception& e) { job.failed(e.what()); throw; }
     }
   }
   return out;
@@ -1636,7 +1683,12 @@ std::vector<Json> run_group(nxr::io::DatasetWriter& group_ds, nxr::io::SubjectWr
         continue;
       }
       const GroupInputs g = stack_members(members, found, e.per_subject, params, d.name);
-      out.push_back(execute(group_ds, group_sub, P, opt, progress, &g));
+      JobCapture job(group_sub, d, P, opt, progress);
+      try {
+        out.push_back(execute(group_ds, group_sub, P, opt, progress, &g));
+        job.done(out.back());
+      }
+      catch (const std::exception& e) { job.failed(e.what()); throw; }
     }
   }
   return out;

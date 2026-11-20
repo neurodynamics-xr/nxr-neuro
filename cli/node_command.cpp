@@ -21,6 +21,9 @@
 //
 // Arrays go in and out as .npy files (C order, little-endian, the stored precision). The command parses, calls its library function once (nxr/pipelines/face.h for read,
 // nxr/io/task/commands.h for add) and prints the result.
+#include <algorithm>
+#include <array>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -55,6 +58,32 @@ std::int64_t integer_of(const std::string& prog, const std::string& option, cons
 
 void need_noun(const std::vector<std::string>& argv, const std::string& verb, const char* nouns) {
   if (argv.empty()) throw Usage("nxr-neuro " + verb + ": error: the following arguments are required: what (" + nouns + ")");
+}
+
+
+// a write in pieces (commands.h `PieceOptions`): --begin --shape N,N --dtype D | --append --write ID --region A:B,C:D --values FILE.npy | --commit --write ID
+task::PieceOptions piece_of(const std::string& prog, const Args& a) {
+  task::PieceOptions p;
+  p.begin = a.flag.count("--begin") > 0;
+  p.append = a.flag.count("--append") > 0;
+  p.commit = a.flag.count("--commit") > 0;
+  p.write = a.maybe("--write");
+  if (const auto v = a.maybe("--shape")) {
+    std::vector<std::int64_t> shape;
+    for (const auto& d : split_commas(*v)) shape.push_back(integer_of(prog, "--shape", d));
+    p.shape = shape;
+  }
+  p.dtype = a.maybe("--dtype");
+  if (const auto v = a.maybe("--region")) {
+    std::vector<std::array<std::int64_t, 2>> region;
+    for (const auto& r : split_commas(*v)) {
+      const auto colon = r.find(':');
+      if (colon == std::string::npos) throw Usage(prog + ": error: argument --region: START:STOP for each axis, comma separated (got '" + r + "')");
+      region.push_back({integer_of(prog, "--region", r.substr(0, colon)), integer_of(prog, "--region", r.substr(colon + 1))});
+    }
+    p.region = region;
+  }
+  return p;
 }
 
 }  // namespace
@@ -175,13 +204,19 @@ int add_node_main(const std::vector<std::string>& argv) {
   };
   task::CommandResult r;
   if (what == "field") {
-    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--manifold", "--values", "--time", "--value-type", "--kind", "--unit", "--cell", "--derived-from", "--description", "--by-operator", "--producer", "--contribution"},
-                         {"--replace"}, {"--dataset", "--subject", "--name", "--manifold", "--values"}, 0, {"--contribution"});
+    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--manifold", "--values", "--time", "--value-type", "--kind", "--unit", "--cell", "--derived-from", "--description", "--by-operator", "--producer", "--contribution",
+                                      "--write", "--shape", "--dtype", "--region"},
+                         {"--replace", "--begin", "--append", "--commit"}, {"--dataset"}, 0, {"--contribution", "--templates"});
     task::AddFieldRequest rq;
-    common(a, rq);
-    rq.name = a.get("--name");
-    rq.manifold = a.get("--manifold");
-    rq.values = a.get("--values");
+    rq.dataset = a.get("--dataset");
+    rq.subject = a.maybe("--subject").value_or("");
+    rq.replace = a.flag.count("--replace") > 0;
+    rq.templates = values_of(a, "--templates");
+    rq.created_by = by;
+    rq.piece = piece_of(prog, a);
+    rq.name = a.maybe("--name").value_or("");
+    rq.manifold = a.maybe("--manifold").value_or("");
+    if (const auto v = a.maybe("--values")) rq.values = *v;
     rq.time = a.maybe("--time");
     if (const auto v = a.maybe("--value-type")) rq.value_type = *v;
     if (const auto v = a.maybe("--kind")) rq.kind = *v;
@@ -211,14 +246,19 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.producer = a.maybe("--producer");
     r = call(prog, [&] { return task::add_selection(rq, progress()); });
   } else if (what == "statistic") {
-    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--measure", "--method", "--values", "--value-type", "--of-field", "--partition", "--unit", "--description"}, {"--replace"},
-                         {"--dataset", "--subject", "--name", "--measure", "--method", "--values", "--axes"}, 0, {"--axes"});
+    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--measure", "--method", "--values", "--value-type", "--of-field", "--partition", "--unit", "--description", "--write", "--shape", "--dtype", "--region"},
+                         {"--replace", "--begin", "--append", "--commit"}, {"--dataset"}, 0, {"--axes", "--templates"});
     task::AddStatisticRequest rq;
-    common(a, rq);
-    rq.name = a.get("--name");
-    rq.measure = a.get("--measure");
-    rq.method = a.get("--method");
-    rq.values = a.get("--values");
+    rq.dataset = a.get("--dataset");
+    rq.subject = a.maybe("--subject").value_or("");
+    rq.replace = a.flag.count("--replace") > 0;
+    rq.templates = values_of(a, "--templates");
+    rq.created_by = by;
+    rq.piece = piece_of(prog, a);
+    rq.name = a.maybe("--name").value_or("");
+    rq.measure = a.maybe("--measure").value_or("");
+    rq.method = a.maybe("--method").value_or("");
+    if (const auto v = a.maybe("--values")) rq.values = *v;
     rq.axes = values_of(a, "--axes");
     if (const auto v = a.maybe("--value-type")) rq.value_type = *v;
     rq.of_field = a.maybe("--of-field");

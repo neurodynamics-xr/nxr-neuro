@@ -71,6 +71,7 @@ struct RunOptions {
   std::optional<std::string> chunks;
   std::optional<double> start, stop;
   bool replace = false;
+  std::string requested_by;                    // the program (`nxr-neuro 0.1 / C++17`) the run's job row names (docs/specs/2026-11-20-data-layer-queries.md, 3.8); empty: no job row (a run made inside another command, e.g. a surrogate's draws)
   std::string preset;                          // the definition's named parameter set to start from (`--set NAME`); empty: the defaults
   /** the width (samples) of the time SUB-BLOCKS a chunk's pointwise tail runs on: after the last chunk step that needs a halo (a band's taps), every step is pointwise in
    *  time, so it runs on the chunk's own columns a sub-block at a time and folds in time order. The result does not depend on it (as on the chunk size); only memory does.

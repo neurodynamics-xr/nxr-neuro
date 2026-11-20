@@ -129,6 +129,12 @@ CommandResult delete_dataset(const DeleteDatasetRequest& rq) {
 }
 
 CommandResult recover_dataset(const RecoverDatasetRequest& rq) {
+  // the unfinished writes in pieces (add field | statistic --begin, never committed) are rolled back too: they live beside the database (nxr/io/task/commands.h `PieceOptions`)
+  CommandResult r;
+  if (is_catalogue_dataset(rq.dataset)) {   // a catalogue's packages recover when they are opened; what is left to roll back here is its unfinished writes
+    r.result = Json{{"rolled_back", 0}, {"finished", 0}, {"writes_rolled_back", pieces::discard_all(rq.dataset)}};
+    return r;
+  }
   OpenOptions o;
   o.recover = false;
   DatasetWriter ds = open_one_database(rq.dataset, "recover dataset", o);
@@ -136,8 +142,7 @@ CommandResult recover_dataset(const RecoverDatasetRequest& rq) {
   const Healed healed = td.recover();
   td.drain();
   write_catalog(ds.root());
-  CommandResult r;
-  r.result = Json{{"rolled_back", healed.rolled_back}, {"finished", healed.finished}};
+  r.result = Json{{"rolled_back", healed.rolled_back}, {"finished", healed.finished}, {"writes_rolled_back", pieces::discard_all(rq.dataset)}};
   ds.close();
   return r;
 }
@@ -260,42 +265,20 @@ CommandResult show_subject(const ShowSubjectRequest& rq, const Progress& progres
 }
 
 CommandResult delete_subject(const DeleteSubjectRequest& rq) {
+  if (rq.node) {   // one node, named CLASS:NAME (commands_delete.cpp); a catalogue's package opens through the catalogue
+    DatasetWriter ds = is_catalogue_dataset(rq.dataset) ? open_dataset(rq.dataset, rq.subject, OpenOptions{}, rq.templates, {}) : open_one_database(rq.dataset, "delete subject");
+    return delete_node(ds, rq.subject, *rq.node, rq.created_by);
+  }
   DatasetWriter ds = open_one_database(rq.dataset, "delete subject");
   OpenSubjectOptions oo;
   oo.created_by = rq.created_by;
   SubjectWriter sub = SubjectWriter::open(ds, rq.subject, oo);
-  CommandResult r;
   const Dataset td = Dataset::of(ds);
-  if (!rq.node) {
-    td.remove_subject(sub.id());
-    write_catalog(ds.root());
-    r.result = Json{{"removed", rq.subject}};
-    return r;
-  }
-  const std::string& node = *rq.node;
-  for (const Cls c : {Cls::manifold, Cls::field, Cls::operator_, Cls::selection}) {
-    const char* t = to_string(c);
-    if (const auto row = sub.find(t, node)) {
-      td.remove(c, text(*row, "id"));
-      r.result = Json{{"removed", node}, {"table", t}};
-      return r;
-    }
-  }
-  // no store path of that name: the node's NAME (a source estimate or a joint Selection has no path); unique within the subject, else refused with the matches
-  std::vector<std::pair<Cls, std::string>> hits;   // class, id
-  for (const Cls c : {Cls::manifold, Cls::field, Cls::operator_, Cls::selection, Cls::statistic})
-    if (const auto row = sub.by_name(to_string(c), node)) hits.push_back({c, text(*row, "id")});
-  if (hits.size() == 1) {
-    td.remove(hits[0].first, hits[0].second);
-    r.result = Json{{"removed", node}, {"table", to_string(hits[0].first)}, {"by", "name"}};
-    return r;
-  }
-  if (hits.size() > 1) {
-    std::string list;
-    for (const auto& h : hits) list += (list.empty() ? "" : ", ") + std::string(to_string(h.first)) + " " + h.second;
-    throw Error(code::invalid_argument, node + ": several nodes of " + rq.subject + " have this name (" + list + "); name a store path with --node instead");
-  }
-  throw Error(code::no_such_row, node + ": no node of " + rq.subject + " by store path or by name");
+  td.remove_subject(sub.id());
+  write_catalog(ds.root());
+  CommandResult r;
+  r.result = Json{{"removed", rq.subject}};
+  return r;
 }
 
 CommandResult add_surface(const AddSurfaceRequest& rq, const Progress& progress) {

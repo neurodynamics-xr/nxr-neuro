@@ -78,7 +78,7 @@ export function renderTypes(table) {
     lines.push(`export interface ${name} {`);
     if (c.positional) lines.push(`  /** the positional argument (\`nxr-neuro ${c.verb} ${c.noun} ${c.positional.toUpperCase()}\`) */`, `  ${c.positional}${c.optionalPositional ? '?' : ''}: string;`);
     for (const o of [...c.options].sort((a, b) => a.name.localeCompare(b.name))) {
-      const type = o.flag ? 'boolean' : arrays.has(o.name) ? 'ArrayInput | string' : jsons.has(o.name) ? 'Record<string, unknown> | unknown[] | string' : o.name === 'measure' && c.verb === 'add' ? 'Record<string, ArrayInput | string> | string[]' : o.multi ? 'string[] | string' : 'string | number';
+      const type = o.flag ? 'boolean' : arrays.has(o.name) ? 'ArrayInput | string' : jsons.has(o.name) ? 'Record<string, unknown> | unknown[] | string' : o.name === 'measure' && c.verb === 'add' ? 'Record<string, ArrayInput | string> | string[]' : o.name === 'shape' && c.verb === 'add' ? 'number[] | string' : o.name === 'region' && c.verb === 'add' ? 'Array<[number, number]> | string[] | string' : o.multi ? 'string[] | string' : 'string | number';
       lines.push(`  ${o.name}${o.required ? '' : '?'}: ${type};`);
     }
     lines.push('  /** receives each progress line the command prints, as an object */', '  progress?: (line: Record<string, unknown>) => void;', '}');

@@ -84,7 +84,7 @@ The descriptions are nxr-neuro's typed model: named, nested and versioned (`sche
   - The three steps are one unit: until it is committed, the field is not in the subject. An unfinished write is rolled back by `recover dataset`.
   - The handle (`nn.open`, `nxr.open`) carries the write id between calls. The same form serves `add statistic`.
 - **Deletes.** `delete subject --node CLASS:NAME` names a node by its class, since names can repeat across classes.
-  - io removes what the node owns: a manifold's geometry and topology, and the operator a field was made by.
+  - io removes what the node owns: a manifold's geometry and topology, a field's arrays and measurements, a selection's members and weights. The operator a field was made by (an inverse kernel) is a node of its own: never removed with the field, deleted only when named.
   - It refuses a node that other nodes depend on, naming them.
 
 ### 3.8 Jobs
@@ -102,7 +102,7 @@ The descriptions are nxr-neuro's typed model: named, nested and versioned (`sche
 
 1. `read subject` and `list <class>`, with `show dataset`'s counts. Test: round trips on a synthetic dataset; paging; filters; no column name of the schema in a result.
 2. The `add` options (3.3, 3.4), dictionaries (3.5), `edit manifold` (3.6). Test: one round trip each. **Done (2026-11-20):** `add product`, `add line --coordinates --kinds`, the options of `add field | selection | operator`, `add dictionary`, `edit dictionary`, `edit manifold`; each option is stored in an existing column (docs/reference.md, "The options of `add`, dictionaries and `edit`"); test `test_add_options`.
-3. Writes in pieces and deletes by class (3.7), jobs (3.8). Test: an unfinished write is invisible and rolled back; a refused delete names its dependants.
+3. Writes in pieces and deletes by class (3.7), jobs (3.8). Test: an unfinished write is invisible and rolled back; a refused delete names its dependants. **Done (2026-11-20):** `add field | statistic --begin | --append | --commit` (staged beside the database, stored by the one-shot command's unit; regions may not overlap), `delete subject --node CLASS:NAME` (owned arrays go, dependants refuse the delete and are named), job rows for `run` and `import` in the existing `job` table (docs/reference.md, "Writes in pieces, deletes by class and jobs"); test `test_pieces_deletes_jobs`.
 
 Each step adds its commands to the command table, so the command line, Python and JavaScript get them together. The coverage tests already enforce this.
 

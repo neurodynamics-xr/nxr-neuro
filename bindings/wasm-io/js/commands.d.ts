@@ -694,23 +694,30 @@ export interface ReadManifoldOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddFieldOptions {
+  append?: boolean;
+  begin?: boolean;
   by_operator?: string | number;
   cell?: string | number;
+  commit?: boolean;
   contribution?: string[] | string;
   dataset: string | number;
   derived_from?: string | number;
   description?: string | number;
+  dtype?: string | number;
   kind?: string | number;
-  manifold: string | number;
-  name: string | number;
+  manifold?: string | number;
+  name?: string | number;
   producer?: Record<string, unknown> | unknown[] | string;
+  region?: Array<[number, number]> | string[] | string;
   replace?: boolean;
-  subject: string | number;
+  shape?: number[] | string;
+  subject?: string | number;
   templates?: string[] | string;
   time?: string | number;
   unit?: string | number;
   value_type?: string | number;
-  values: ArrayInput | string;
+  values?: ArrayInput | string;
+  write?: string | number;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -734,20 +741,27 @@ export interface AddSelectionOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddStatisticOptions {
-  axes: string[] | string;
+  append?: boolean;
+  axes?: string[] | string;
+  begin?: boolean;
+  commit?: boolean;
   dataset: string | number;
   description?: string | number;
-  measure: Record<string, ArrayInput | string> | string[];
-  method: string | number;
-  name: string | number;
+  dtype?: string | number;
+  measure?: Record<string, ArrayInput | string> | string[];
+  method?: string | number;
+  name?: string | number;
   of_field?: string | number;
   partition?: string | number;
+  region?: Array<[number, number]> | string[] | string;
   replace?: boolean;
-  subject: string | number;
+  shape?: number[] | string;
+  subject?: string | number;
   templates?: string[] | string;
   unit?: string | number;
   value_type?: string | number;
-  values: ArrayInput | string;
+  values?: ArrayInput | string;
+  write?: string | number;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }

@@ -140,11 +140,16 @@ CommandResult show_subject(const ShowSubjectRequest& request, const Progress& pr
 
 struct DeleteSubjectRequest {
   std::string dataset, subject;
-  std::optional<std::string> node;         // one node (a store path, or a name unique in the subject) instead of the subject
+  /** one node instead of the subject: `CLASS:NAME` (class: manifold | field | selection | operator | statistic | dictionary), since names repeat across classes; a store path, or a bare name held by one
+   *  class only, is accepted too (a name several classes hold is refused, naming the CLASS:NAME forms). What the node owns goes with it (a manifold's geometry and topology, a field's arrays and measurements,
+   *  a selection's members and weights array, and the operator a deleted field was made by when nothing else uses it); a node other nodes depend on is refused, naming them. */
+  std::optional<std::string> node;
   std::vector<std::string> templates;
   std::string created_by;
 };
 CommandResult delete_subject(const DeleteSubjectRequest& request);
+/** `delete subject --node`'s work on an opened dataset (commands_delete.cpp) */
+CommandResult delete_node(DatasetWriter& ds, const std::string& subject, const std::string& node, const std::string& created_by);
 
 /** `read subject` (docs/specs/2026-11-20-data-layer-queries.md, 3.1): every node's DESCRIPTION, no arrays, as nxr-neuro's typed model: {schema: "nxr-neuro-subject@1", subject: {id, name, kind, template},
  *  manifolds, fields, selections, operators, statistics, dictionaries, spaces, acquisitions: [description...]} (only the `classes` asked for), each node named and nested, never a table row (docs/reference.md,
@@ -195,6 +200,21 @@ CommandResult add_surface(const AddSurfaceRequest& request, const Progress& prog
 // NAMES (never their paths) and the user's `description`. A name already used in the subject is refused unless `replace`: the old node is then moved aside, never deleted.
 // Result: {class, name, id, path, (replaced: where the old one went)} and what the command checked (n, shape, dtype).
 
+/** A WRITE IN PIECES (docs/specs/2026-11-20-data-layer-queries.md, 3.7): `add field` and `add statistic` in three steps that are ONE unit, for values too large to hand over at once.
+ *  - `begin`: the full `shape` and the stored `dtype` (and the command's other options: name, manifold, value type, ...); everything the one-shot command checks is checked now. Result: {write, class, name, shape, dtype}.
+ *  - `append` (with `write`): `values`, an array of the region's own shape, written at `region`, [start, stop) per axis (a region outside the shape, or one that overlaps one written, is refused).
+ *  - `commit` (with `write`): every value of the shape must be written (the regions missing are named); the node is then stored by the one-shot command, as one unit.
+ *  Until the commit nothing is in the subject: the pieces wait in the dataset's staging folder (`<dataset>/.writes/<write>/`, io's), invisible to every reader; `recover dataset` rolls an unfinished write back, as does the close of the
+ *  handle that began it (and the next writable open, when the process that began it is gone). A write begun through a handle belongs to it. Through a handle `write` may be left out when the handle holds one unfinished write. */
+struct PieceOptions {
+  bool begin = false, append = false, commit = false;
+  std::optional<std::string> write;                           // the write id (append, commit)
+  std::optional<std::vector<std::int64_t>> shape;             // begin: the full shape of the values
+  std::optional<std::string> dtype;                           // begin: the stored dtype (float32, float64, int8 to int64, uint8 to uint64, bool)
+  std::optional<std::vector<std::array<std::int64_t, 2>>> region;   // append: [start, stop) per axis
+  bool active() const { return begin || append || commit; }
+};
+
 /** `add field`: values [n] or [n x components...] on a manifold (n its vertices, or its edges or faces by `cell`), or with `time` [n x samples x components...] on the
  *  manifold and a time line (a time-resolved field, read back with `read field --from/--to | --all`) */
 struct AddFieldRequest {
@@ -208,6 +228,7 @@ struct AddFieldRequest {
   std::vector<std::string> contribution;   // SUBJECT:FIELD[:WEIGHT], repeatable: the fields a mapped field is made from (the subject each lies in, by name; the weight a number, default 1)
   std::optional<std::string> producer;     // JSON text: what the maker says of how it was made, added to the producer record
   bool replace = false;
+  PieceOptions piece;                      // a write in pieces (`values` then is the region's, and absent at begin and commit)
   std::vector<std::string> templates;
   std::string created_by;
 };
@@ -237,6 +258,7 @@ struct AddStatisticRequest {
   std::string value_type = "scalar";
   std::optional<std::string> of_field, partition, unit, description;
   bool replace = false;
+  PieceOptions piece;                      // a write in pieces, as add field's
   std::vector<std::string> templates;
   std::string created_by;
 };

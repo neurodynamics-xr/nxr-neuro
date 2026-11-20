@@ -6,6 +6,7 @@
 // Values: a string, a number, a boolean (a flag), null (not given), or a list (a repeatable option, or an option the command line takes comma-separated). An option the
 // command does not take is refused, naming it; a required option missing is refused as the command line refuses it. Shared by the Python binding (and the WebAssembly one).
 #pragma once
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -123,6 +124,46 @@ class CommandOptions {
     used_.insert(k);
     return has(k) ? j_[k] : Json();
   }
+  /** a write in pieces (commands.h `PieceOptions`): `begin`, `append`, `commit` flags; `write` the id; `shape` a list of whole numbers (or comma-separated text); `dtype`; `region` START:STOP for each axis, as a list of
+   *  [start, stop] pairs, a list of "START:STOP" texts, or the comma-separated text */
+  task::PieceOptions piece() {
+    task::PieceOptions p;
+    p.begin = flag("begin");
+    p.append = flag("append");
+    p.commit = flag("commit");
+    p.write = maybe("write");
+    p.dtype = maybe("dtype");
+    if (has("shape")) {
+      std::vector<std::int64_t> shape;
+      const Json& j = j_["shape"];
+      if (j.is_array()) { for (const auto& v : j) shape.push_back(whole("shape", v)); }
+      else if (j.is_number_integer()) shape.push_back(j.get<std::int64_t>());
+      else for (const auto& t : commas("shape")) shape.push_back(whole("shape", t));
+      p.shape = shape;
+    }
+    used_.insert("shape");
+    if (has("region")) {
+      std::vector<std::array<std::int64_t, 2>> region;
+      const Json& j = j_["region"];
+      auto pair_of = [&](const std::string& t) {
+        const auto colon = t.find(':');
+        if (colon == std::string::npos) throw task::Refused(prog_ + ": region is START:STOP for each axis (got '" + t + "')");
+        return std::array<std::int64_t, 2>{whole("region", t.substr(0, colon)), whole("region", t.substr(colon + 1))};
+      };
+      if (j.is_array()) {
+        for (const auto& v : j) {
+          if (v.is_array() && v.size() == 2) region.push_back({whole("region", v[0]), whole("region", v[1])});
+          else if (v.is_string()) region.push_back(pair_of(v.get<std::string>()));
+          else throw task::Refused(prog_ + ": region is a list of [start, stop] for each axis");
+        }
+      } else {
+        for (const auto& t : commas("region")) region.push_back(pair_of(t));
+      }
+      p.region = region;
+    }
+    used_.insert("region");
+    return p;
+  }
   /** every option given was read: one left is an option the command does not take (an option given as null is an option not given) */
   void done() const {
     for (auto it = j_.begin(); it != j_.end(); ++it)
@@ -133,6 +174,18 @@ class CommandOptions {
   const std::string& prog() const { return prog_; }
 
  private:
+  std::int64_t whole(const std::string& k, const Json& v) {
+    if (v.is_number_integer()) return v.get<std::int64_t>();
+    throw task::Refused(prog_ + ": " + k + " holds whole numbers (got " + v.dump() + ")");
+  }
+  std::int64_t whole(const std::string& k, const std::string& t) {
+    try {
+      std::size_t used = 0;
+      const long long x = std::stoll(t, &used);
+      if (used == t.size()) return x;
+    } catch (const std::exception&) {}
+    throw task::Refused(prog_ + ": " + k + " holds whole numbers (got '" + t + "')");
+  }
   std::string text(const std::string& k, const Json& v) {
     used_.insert(k);
     if (v.is_string()) return v.get<std::string>();
@@ -313,10 +366,11 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
   } else if (c == "add field") {
     task::AddFieldRequest q;
     q.dataset = o.str("dataset");
-    q.subject = o.str("subject");
-    q.name = o.str("name");
-    q.manifold = o.str("manifold");
-    q.values = o.array_required("values");
+    q.subject = o.maybe("subject").value_or("");
+    q.name = o.maybe("name").value_or("");
+    q.manifold = o.maybe("manifold").value_or("");
+    if (const auto v = o.array("values")) q.values = *v;
+    q.piece = o.piece();
     q.time = o.maybe("time");
     if (const auto v = o.maybe("value_type")) q.value_type = *v;
     if (const auto v = o.maybe("kind")) q.kind = *v;
@@ -353,12 +407,12 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
   } else if (c == "add statistic") {
     task::AddStatisticRequest q;
     q.dataset = o.str("dataset");
-    q.subject = o.str("subject");
-    q.name = o.str("name");
-    q.measure = o.str("measure");
-    q.method = o.str("method");
-    q.values = o.array_required("values");
-    if (!o.has("axes")) throw task::Refused(o.prog() + ": the following arguments are required: axes");
+    q.subject = o.maybe("subject").value_or("");
+    q.name = o.maybe("name").value_or("");
+    q.measure = o.maybe("measure").value_or("");
+    q.method = o.maybe("method").value_or("");
+    if (const auto v = o.array("values")) q.values = *v;
+    q.piece = o.piece();
     q.axes = o.list("axes");
     if (const auto v = o.maybe("value_type")) q.value_type = *v;
     q.of_field = o.maybe("of_field");

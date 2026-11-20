@@ -6,8 +6,10 @@
 #include <cstdlib>
 #include <map>
 #include <mutex>
+#include <random>
 
 #include "commands_open.h"
+#include "pieces.h"
 #include "nxr/io/writer_lock.h"
 
 namespace nxr::io::task {
@@ -25,6 +27,7 @@ std::string canonical(const std::string& p) {
 }  // namespace
 
 struct Handle::Impl {
+  std::string token;                     // names this handle (the owner of the writes in pieces it begins)
   std::string dataset, where, program;   // `where`: the dataset's canonical path (what a command's folder is compared with)
   Mode mode = Mode::read;
   bool closed = false;
@@ -39,7 +42,15 @@ Handle::Handle(const std::string& dataset, Mode mode, const std::string& program
   impl_->where = canonical(dataset);
   impl_->program = program;
   impl_->mode = mode;
-  if (mode == Mode::write) impl_->lock = acquire_writer_lock(dataset, program);
+  {
+    static std::mt19937_64 rng{std::random_device{}()};
+    static const char* hex = "0123456789abcdef";
+    for (int i = 0; i < 16; ++i) impl_->token.push_back(hex[rng() & 15]);
+  }
+  if (mode == Mode::write) {
+    impl_->lock = acquire_writer_lock(dataset, program);
+    pieces::discard_orphans(dataset);   // the lock is ours: the unfinished writes of handles whose process is gone are rolled back, as the rows pending are
+  }
 }
 Handle::~Handle() { try { close(); } catch (...) {} }
 const std::string& Handle::dataset() const { return impl_->dataset; }
@@ -50,6 +61,7 @@ void Handle::close() {
   if (impl_->closed) return;
   impl_->closed = true;
   impl_->readers.clear();   // the databases first, the lock after them
+  pieces::discard_owned(impl_->dataset, impl_->token);   // the writes in pieces this handle began and did not commit are rolled back
   if (impl_->lock) impl_->lock.release();
 }
 
@@ -87,6 +99,10 @@ HandleScope::~HandleScope() {
     if (s_->env_before) ::setenv(kWriterLockEnv, s_->env_before->c_str(), 1);
     else ::unsetenv(kWriterLockEnv);
   }
+}
+
+std::optional<std::string> current_handle_token(const std::string& dataset) {
+  return current && !current->impl_->closed && canonical(dataset) == current->impl_->where ? std::optional<std::string>(current->impl_->token) : std::nullopt;
 }
 
 Lease open_reader(const std::string& folder, const std::optional<std::string>& subject, const std::vector<std::string>& templates, const Progress& progress) {
