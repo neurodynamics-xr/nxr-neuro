@@ -392,19 +392,126 @@ bool is_array_key(const Store& store, const std::string& key) {
   const std::string t = store.get_text(join_key(key, "zarr.json")).value_or("");
   return t.find("\"node_type\":\"array\"") != std::string::npos || t.find("\"node_type\": \"array\"") != std::string::npos;
 }
-void collect_arrays(const Store& store, const std::string& key, const std::string& name, std::vector<StoredArray>& out) {
+// the arrays under a key (one array, or a group's), each with the name the read gives it; nothing is read
+void collect_keys(const Store& store, const std::string& key, const std::string& name, std::vector<std::pair<std::string, std::string>>& out) {
   if (!store.exists(join_key(key, "zarr.json"))) return;
-  if (is_array_key(store, key)) {
-    const ArrayReader a = ArrayReader::open(store, key);
-    StoredArray s;
-    s.name = name;
-    s.dtype = dtype_to_string(a.dtype());
-    s.shape = a.shape();
-    s.bytes = a.read();
-    out.push_back(std::move(s));
-    return;
+  if (is_array_key(store, key)) { out.emplace_back(key, name); return; }
+  for (const auto& k : store.list(key).prefixes) collect_keys(store, join_key(key, k), name.empty() ? k : name + "/" + k, out);
+}
+
+std::string size_text(double bytes) {
+  char t[64];
+  if (bytes >= 1e9) std::snprintf(t, sizeof t, "%.0f bytes (%.2f GB)", bytes, bytes / 1e9);
+  else if (bytes >= 1e6) std::snprintf(t, sizeof t, "%.0f bytes (%.1f MB)", bytes, bytes / 1e6);
+  else std::snprintf(t, sizeof t, "%.0f bytes", bytes);
+  return t;
+}
+std::string dims_text(const std::vector<std::int64_t>& shape) {
+  std::string t;
+  for (const auto d : shape) t += (t.empty() ? "" : " x ") + std::to_string(d);
+  return "[" + t + "]";
+}
+
+// THE PART OF A NODE A READ GIVES, AND ITS BUDGET: `region` is [start, stop) per leading axis of each array (a stop past an array's extent is cut to it); before any array is read, the
+// bytes of every array the read gives are added up, and a read above `budget` is refused, naming its size and the region that would fit. `regions` records what each array read.
+struct Window {
+  std::vector<std::array<std::int64_t, 2>> region;
+  double budget = 1e9;
+  std::string node;
+  Json regions = Json::object();
+
+  void check_region() const {
+    for (const auto& r : region)
+      if (r[0] < 0 || r[1] < r[0]) throw task::Refused("--region " + std::to_string(r[0]) + ":" + std::to_string(r[1]) + ": START:STOP with 0 <= START <= STOP, one a leading axis");
   }
-  for (const auto& k : store.list(key).prefixes) collect_arrays(store, join_key(key, k), name.empty() ? k : name + "/" + k, out);
+  // the [start, stop) of each axis of an array of `shape` this read takes
+  std::pair<std::vector<std::int64_t>, std::vector<std::int64_t>> part(const std::string& name, const std::vector<std::int64_t>& shape) const {
+    if (region.size() > shape.size())
+      throw task::Refused("--region names " + std::to_string(region.size()) + " axes; '" + node + "' " + (name.empty() ? std::string("values") : name) + " is " + dims_text(shape) + " (" +
+                          std::to_string(shape.size()) + " axes)");
+    std::vector<std::int64_t> lo(shape.size(), 0), hi = shape;
+    for (std::size_t d = 0; d < region.size(); ++d) {
+      lo[d] = std::min(region[d][0], shape[d]);
+      hi[d] = std::min(region[d][1], shape[d]);
+    }
+    return {lo, hi};
+  }
+  void record(const std::string& name, const std::vector<std::int64_t>& lo, const std::vector<std::int64_t>& hi) {
+    if (region.empty()) return;
+    Json r = Json::array();
+    for (std::size_t d = 0; d < lo.size(); ++d) r.push_back(Json::array({lo[d], hi[d]}));
+    regions[name] = r;
+  }
+  // refused when `bytes` (the read's arrays, `what` each) is above the budget; `row_bytes`: the bytes of one index of the first axis of the largest array (for the region suggested)
+  void need(double bytes, const std::string& what, double row_bytes, bool regions_apply = true) const {
+    if (bytes <= budget) return;
+    std::string msg = "'" + node + "' as asked is " + size_text(bytes) + " (" + what + "), above the read's budget of " + size_text(budget) + ": nothing was read; ";
+    if (regions_apply && row_bytes > 0) {
+      const auto fit = static_cast<std::int64_t>(std::floor(budget / row_bytes));
+      msg += "read a part with --region START:STOP (along the first axis, e.g. --region 0:" + std::to_string(std::max<std::int64_t>(fit, 1)) + "), or raise --budget";
+    } else {
+      msg += "raise --budget";
+    }
+    throw task::Refused(msg);
+  }
+};
+
+// The arrays at `keys`, each read over the window's region, after their total size is checked against its budget (nothing is read when it is above)
+void read_keys(const Store& store, const std::vector<std::pair<std::string, std::string>>& keys, Window& w, std::vector<StoredArray>& out) {
+  struct Part { const ArrayReader* a; std::string name; std::vector<std::int64_t> lo, hi; };
+  std::vector<ArrayReader> readers;
+  readers.reserve(keys.size());
+  for (const auto& k : keys) readers.push_back(ArrayReader::open(store, k.first));
+  std::vector<Part> parts;
+  double total = 0, row = 0, largest = -1;
+  std::string what;
+  for (std::size_t i = 0; i < keys.size(); ++i) {
+    const ArrayReader& a = readers[i];
+    auto [lo, hi] = w.part(keys[i].second, a.shape());
+    double n = static_cast<double>(a.itemsize());
+    for (std::size_t d = 0; d < lo.size(); ++d) n *= static_cast<double>(hi[d] - lo[d]);
+    total += n;
+    what += (what.empty() ? "" : ", ") + (keys[i].second.empty() ? std::string("values") : keys[i].second) + " " + dims_text(a.shape()) + " " + dtype_to_string(a.dtype());
+    if (n > largest) {
+      largest = n;
+      row = static_cast<double>(a.itemsize());
+      for (std::size_t d = 1; d < a.shape().size(); ++d) row *= static_cast<double>(a.shape()[d]);
+    }
+    parts.push_back(Part{&a, keys[i].second, lo, hi});
+  }
+  w.need(total, what, row);
+  for (const Part& p : parts) {
+    StoredArray s;
+    s.name = p.name;
+    s.dtype = dtype_to_string(p.a->dtype());
+    s.shape.resize(p.lo.size());
+    for (std::size_t d = 0; d < p.lo.size(); ++d) s.shape[d] = p.hi[d] - p.lo[d];
+    const bool whole = s.shape == p.a->shape();
+    s.bytes = whole ? p.a->read() : p.a->read(p.lo, p.hi);
+    w.record(p.name.empty() ? "values" : p.name, p.lo, p.hi);
+    out.push_back(std::move(s));
+  }
+}
+
+// An array the read made (a selection's spans, a labelling's codes, a measurement table): the window's region of it along its one axis, then the budget
+void window_made(std::vector<StoredArray>& arrays, Window& w) {
+  double total = 0;
+  std::string what;
+  for (auto& a : arrays) {
+    auto [lo, hi] = w.part(a.name, a.shape);
+    if (!w.region.empty() && a.shape.size() == 1) {
+      const std::size_t item = a.shape[0] ? a.bytes.size() / static_cast<std::size_t>(a.shape[0]) : 0;
+      std::vector<std::uint8_t> b(a.bytes.begin() + static_cast<std::ptrdiff_t>(lo[0] * item), a.bytes.begin() + static_cast<std::ptrdiff_t>(hi[0] * item));
+      a.bytes = std::move(b);
+      a.shape[0] = hi[0] - lo[0];
+      w.record(a.name, lo, hi);
+    } else if (!w.region.empty()) {
+      throw task::Refused("--region: '" + w.node + "' " + a.name + " is " + dims_text(a.shape) + ", read whole");
+    }
+    total += static_cast<double>(a.bytes.size());
+    what += (what.empty() ? "" : ", ") + a.name + " " + dims_text(a.shape) + " " + a.dtype;
+  }
+  w.need(total, what, 0, false);
 }
 
 StoredArray doubles(const std::string& name, const std::vector<double>& v) {
@@ -433,6 +540,16 @@ Json dictionary_json(const std::vector<task::DictionaryLevel>& levels) {
   return out;
 }
 
+Window window_of(const ReadRequest& rq, const std::string& node) {
+  Window w;
+  w.region = rq.region;
+  w.budget = rq.budget;
+  w.node = node;
+  w.check_region();
+  if (!(w.budget > 0)) throw task::Refused("--budget is the bytes a read may hold, above 0");
+  return w;
+}
+
 // A TIME-RESOLVED FIELD read through the chunk service (the one door, reading.h): the rows and samples asked, chunk by chunk, into one array in the field's stored precision
 Stored read_series(SubjectWriter& sub, const task::Subject& ts, const task::Node& n, const finder::Value& v, const ReadRequest& rq) {
   if (rq.reading != "samples" && rq.reading != "shape") refuse("read: reading is samples or shape (got '" + rq.reading + "')");
@@ -442,6 +559,7 @@ Stored read_series(SubjectWriter& sub, const task::Subject& ts, const task::Node
   if (ranges > 1) throw task::Refused("give one time range: --from and --to (seconds), or --all");
   if (ranges == 0 && rq.range_required && rq.reading != "shape")
     throw task::Refused("'" + n.name + "' is a time-resolved field: a time range is required: give --from SECONDS --to SECONDS, or --all for the whole field (read one chunk at a time)");
+  if (!rq.region.empty()) throw task::Refused("'" + n.name + "' is a time-resolved field: its part is named by --rows and --from/--to, not --region");
   const Projectors projectors = projectors_from(rq.projectors);
   ChunkSource src = nxr::pipelines::source_of(sub, n, v.rate, v.origin, rq.rows, std::nullopt, projectors);
   for (const std::int32_t r : rq.rows)
@@ -467,11 +585,21 @@ Stored read_series(SubjectWriter& sub, const task::Subject& ts, const task::Node
   if (n.manifold_id) if (const auto m = ts.by_id(task::Cls::manifold, *n.manifold_id)) out.meta["manifold"] = m->name;
   if (const auto line = ts.by_id(task::Cls::manifold, *v.time)) out.meta["time"] = line->name;
   if (rq.reading == "shape") return out;
+  const bool single = dtype == "float32";
+  {   // the budget, before the array is made: the samples asked of the rows asked
+    const double bytes = static_cast<double>(rows) * static_cast<double>(width) * (single ? 4.0 : 8.0);
+    if (bytes > rq.budget) {
+      const double per_second = static_cast<double>(rows) * (single ? 4.0 : 8.0) * v.rate;
+      char fit[64];
+      std::snprintf(fit, sizeof fit, "%.3g", per_second > 0 ? rq.budget / per_second : 0.0);
+      throw task::Refused("'" + n.name + "' as asked is " + size_text(bytes) + " (" + std::to_string(rows) + " rows x " + std::to_string(width) + " samples, " + dtype + "), above the read's budget of " +
+                          size_text(rq.budget) + ": nothing was read; read a shorter time range (at most " + fit + " s of these rows), fewer --rows, or raise --budget");
+    }
+  }
   StoredArray a;
   a.name = "values";
   a.dtype = dtype;
   a.shape = {rows, width};
-  const bool single = dtype == "float32";
   a.bytes.resize(static_cast<std::size_t>(rows * width) * (single ? sizeof(float) : sizeof(double)));
   if (width > 0)
     chunk_loop(src, span, [&](const Chunk& c) {
@@ -503,12 +631,18 @@ Stored read_manifold(SubjectWriter& sub, const task::Subject& ts, const task::No
     else for (const auto& [code, nm] : members.names) dict.push_back(Json{{"code", code}, {"name", nm}});
     out.meta = Json{{"class", "labelling"}, {"name", text(*row, "name")}, {"id", id}, {"family", *rq.family}, {"manifold", m.name}, {"manifold_id", m.id},
                     {"n", static_cast<std::int64_t>(members.member_of.size())}, {"dictionary", dict}};
+    Window w = window_of(rq, m.name);
+    window_made(out.arrays, w);
+    if (!rq.region.empty()) out.meta["regions"] = w.regions;
     return out;
   }
   const task::Geometry g = ts.geometry(m.id);
-  if (g.positions_path) collect_arrays(sub.store(), *g.positions_path, "positions", out.arrays);
-  if (m.producer.is_object() && m.producer.contains("kinds") && m.producer["kinds"].is_string()) collect_arrays(sub.store(), m.producer["kinds"].get<std::string>(), "kinds", out.arrays);   // a stored line's code a point
-  for (const auto& [rank, path] : g.cells) collect_arrays(sub.store(), path, "cells_" + std::to_string(rank), out.arrays);
+  std::vector<std::pair<std::string, std::string>> keys;
+  if (g.positions_path) collect_keys(sub.store(), *g.positions_path, "positions", keys);
+  if (m.producer.is_object() && m.producer.contains("kinds") && m.producer["kinds"].is_string()) collect_keys(sub.store(), m.producer["kinds"].get<std::string>(), "kinds", keys);   // a stored line's code a point
+  for (const auto& [rank, path] : g.cells) collect_keys(sub.store(), path, "cells_" + std::to_string(rank), keys);
+  Window w = window_of(rq, m.name);
+  read_keys(sub.store(), keys, w, out.arrays);
   Json axes = Json::array();
   for (const auto& a : g.axes)
     axes.push_back(Json{{"name", a.name ? Json(*a.name) : Json()}, {"n", a.n_vertices}, {"spacing", a.spacing ? Json(*a.spacing) : Json()}, {"origin", a.origin ? Json(*a.origin) : Json()},
@@ -524,6 +658,7 @@ Stored read_manifold(SubjectWriter& sub, const task::Subject& ts, const task::No
                   {"coordinate_system", g.coordinate_system ? Json{{"name", *g.coordinate_system}, {"unit", g.coordinate_unit ? Json(*g.coordinate_unit) : Json()}, {"space", g.space ? Json(*g.space) : Json()}} : Json()},
                   {"axes", axes}, {"names", names},
                   {"selections", nxr::io::selection_names_on(sub, m.id)}, {"producer", m.producer}};
+  if (!rq.region.empty()) out.meta["regions"] = w.regions;
   return out;
 }
 
@@ -580,28 +715,29 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
     }
     out.arrays = {doubles("code", code_v), doubles("value", value), doubles("weight", weight), doubles("members", members)};
     out.meta = Json{{"class", "measurements"}, {"name", name}, {"selection", sel->id}, {"measure", *measure}, {"rows", rows.size()}};
+    Window w = window_of(rq, name);
+    window_made(out.arrays, w);
+    if (!rq.region.empty()) out.meta["regions"] = w.regions;
     return out;
   }
   if (const auto st = wanted("statistic") ? ts.by_id_or_name(task::Cls::statistic, name) : std::nullopt) {
     no_series("a statistic");
-    const StoredStatistic s = read_statistic(sub, st->name);
-    // in the stored precision: a float32 statistic is given back as float32 (its values read as float64 and narrowed again, exactly)
-    const bool single = st->path && is_array_key(sub.store(), *st->path) && ArrayReader::open(sub.store(), *st->path).dtype() == DType::Float32;
-    StoredArray a;
-    a.name = "values";
-    a.dtype = single ? "float32" : "float64";
-    a.shape = s.shape;
-    if (single) {
-      std::vector<float> f(s.values.begin(), s.values.end());
-      a.bytes.resize(f.size() * sizeof(float));
-      if (!f.empty()) std::memcpy(a.bytes.data(), f.data(), a.bytes.size());
+    const StoredStatistic s = read_statistic(sub, st->name, false);   // its record; the values are read here, in the stored precision, over the region asked
+    Window w = window_of(rq, st->name);
+    if (st->path && is_array_key(sub.store(), *st->path)) {
+      const ArrayReader ar = ArrayReader::open(sub.store(), *st->path);
+      if (ar.dtype() != DType::Float32 && ar.dtype() != DType::Float64) throw Error(code::invalid_argument, st->name + ": a statistic's values are float32 or float64, not " + dtype_to_string(ar.dtype()));
+      read_keys(sub.store(), {{*st->path, "values"}}, w, out.arrays);
     } else {
-      a.bytes.resize(s.values.size() * sizeof(double));
-      if (!s.values.empty()) std::memcpy(a.bytes.data(), s.values.data(), a.bytes.size());
+      StoredArray a;
+      a.name = "values";
+      a.dtype = "float64";
+      a.shape = s.shape;
+      out.arrays.push_back(std::move(a));
     }
-    out.arrays.push_back(std::move(a));
     out.meta = Json{{"class", "statistic"}, {"name", st->name}, {"id", st->id}, {"measure", st->row.value("measure", "")}, {"method", st->row.value("method", "")}, {"unit", st->unit ? Json(*st->unit) : Json()},
                     {"axes", s.axes}, {"components", s.components}, {"span", s.span}, {"options", s.options}, {"producer", s.producer}, {"scaling", s.scaling}};
+    if (!rq.region.empty()) out.meta["regions"] = w.regions;
     return out;
   }
   for (const task::Cls c : {task::Cls::field, task::Cls::operator_, task::Cls::selection}) {
@@ -626,14 +762,30 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
       const auto line = n->manifold_id ? ts.by_id(task::Cls::manifold, *n->manifold_id) : std::nullopt;
       out.meta = Json{{"class", "selection"}, {"name", n->name}, {"id", n->id}, {"type", "spans"}, {"unit", "s"}, {"line", line ? Json(line->name) : Json()},
                       {"dictionary", n->dictionary_id ? dictionary_json(ts.dictionary_entries(*n->dictionary_id)) : Json::array()}, {"producer", n->producer}, {"params", n->params}};
-      if (n->params.is_object() && n->params.contains("weights") && n->params["weights"].is_string()) collect_arrays(sub.store(), n->params["weights"].get<std::string>(), "weights", out.arrays);
+      Window w = window_of(rq, n->name);
+      if (n->params.is_object() && n->params.contains("weights") && n->params["weights"].is_string()) {
+        std::vector<std::pair<std::string, std::string>> keys;
+        collect_keys(sub.store(), n->params["weights"].get<std::string>(), "weights", keys);
+        std::vector<StoredArray> weights;
+        read_keys(sub.store(), keys, w, weights);
+        window_made(out.arrays, w);
+        for (auto& x : weights) out.arrays.push_back(std::move(x));
+      } else {
+        window_made(out.arrays, w);
+      }
+      if (!rq.region.empty()) out.meta["regions"] = w.regions;
       return out;
     }
     if (!where) throw Error(code::unsupported, "'" + name + "' has no stored array (it is virtual: an analytic operator, a product, a tiling, or a set with nothing stored per element)");
-    collect_arrays(sub.store(), *where, "", out.arrays);
-    for (auto& a : out.arrays) if (a.name.empty()) a.name = "values";
+    std::vector<std::pair<std::string, std::string>> keys;
+    collect_keys(sub.store(), *where, "", keys);
+    if (keys.size() > 1 && !rq.region.empty())   // a sparse operator or field: its data, indices and indptr only make sense together
+      throw task::Refused("'" + n->name + "' is stored sparse (data, indices, indptr): it is read whole, not by --region");
+    for (auto& k : keys) if (k.second.empty()) k.second = "values";
     if (c == task::Cls::selection && n->params.is_object() && n->params.contains("weights") && n->params["weights"].is_string())   // one weight a member, stored beside it
-      collect_arrays(sub.store(), n->params["weights"].get<std::string>(), "weights", out.arrays);
+      collect_keys(sub.store(), n->params["weights"].get<std::string>(), "weights", keys);
+    Window w = window_of(rq, n->name);
+    read_keys(sub.store(), keys, w, out.arrays);
     out.meta = Json{{"class", task::to_string(c)}, {"name", n->name}, {"id", n->id}, {"kind", n->kind ? Json(*n->kind) : Json()}, {"unit", n->unit ? Json(*n->unit) : Json()},
                     {"value_type", n->value_type ? Json(*n->value_type) : Json()}, {"producer", n->producer}, {"params", n->params}};
     auto manifold_name = [&](const std::optional<std::string>& id) -> Json {
@@ -654,6 +806,7 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
       out.meta["manifold"] = manifold_name(n->manifold_id);
       if (n->dictionary_id) out.meta["dictionary"] = dictionary_json(ts.dictionary_entries(*n->dictionary_id));
     }
+    if (!rq.region.empty()) out.meta["regions"] = w.regions;
     return out;
   }
   if (const auto m = wanted("manifold") ? ts.by_id_or_name(task::Cls::manifold, name) : std::nullopt) {
@@ -675,6 +828,8 @@ CommandResult read_class(const std::string& cls, const ReadNodeRequest& r) {
   ReadRequest rq;
   rq.cls = cls;
   rq.templates = r.templates;
+  rq.region = r.region;
+  rq.budget = r.budget;
   const bool series = r.from || r.to || r.all || !r.rows.empty() || r.projectors != "active" || r.shape_only;
   if (cls == "field") {
     rq.from = r.from;

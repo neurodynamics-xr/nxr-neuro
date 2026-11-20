@@ -109,6 +109,10 @@ struct ReadRequest {
   std::optional<std::string> family;       // the labelling of the manifold of that name (type, unit, quality, hemisphere, lobe, ...): its code per element and its dictionary
   std::string cls;                         // only a node of this class: field | statistic | operator | selection | manifold (empty: the first of statistic, field, operator, selection, manifold)
   std::vector<std::string> templates;      // where to look for the released templates a subject package is registered to
+  // A PART of a node with no time line: [start, stop) per leading axis of EACH array the read gives (empty: whole); a stop past an array's extent is cut to it, and the result's `regions`
+  // say what each array read. A time-resolved field is read by rows and a time range instead, a sparse operator or field whole.
+  std::vector<std::array<std::int64_t, 2>> region;
+  double budget = 1e9;                     // bytes: a read whose arrays would hold more is refused before any is read, naming the size (default 1 GB)
 };
 /** The stored thing `name` of the subject (a statistic, field, operator, selection or manifold, by name or id). Nothing is written (the dataset is opened for reading).
  *  - a statistic, an operator, a field with no time line: read whole (`values`, in the stored precision; a sparse operator `data`, `indices`, `indptr`); a field's meta names its
@@ -146,6 +150,8 @@ struct ReadNodeRequest {
   std::optional<std::string> family;       // manifold: one labelling of it
   std::optional<std::string> out;          // the .npy file (or stem) the arrays are written to
   std::vector<std::string> templates;
+  std::vector<std::array<std::int64_t, 2>> region;   // [start, stop) per leading axis of each array (`--region`; not with a time-resolved field: its rows and time range)
+  double budget = 1e9;                     // bytes (`--budget`): a larger read is refused before anything is read, naming its size and suggesting `--region`
 };
 CommandResult read_field(const ReadNodeRequest& request);
 CommandResult read_statistic(const ReadNodeRequest& request);

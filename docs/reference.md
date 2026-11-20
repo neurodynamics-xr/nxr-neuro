@@ -555,6 +555,12 @@ the stored precision: a float32 node is read as float32) and the result says whe
 `<stem>.data.npy`, `<stem>.indices.npy`, `<stem>.indptr.npy`, scipy.sparse.csr_matrix's arrays; a manifold: `positions` and `cells_<rank>`; spans: `start`, `stop`, `code`).
 A sparse operator is written as three .npy files rather than one .npz: the command line has one array format (.npy, read and written by io itself; a .npz is a zip archive
 io has no reader for), and the three arrays are exactly what `add operator --data --indices --indptr` takes back.
+- **A part, and the read's budget.** `--region START:STOP,...` reads [START, STOP) along each leading axis of each array the read gives (a manifold's `positions` and `cells_<rank>`, a
+  selection's spans, a statistic's values; a STOP past an array's extent is cut to it, and the result's `regions` {array: [[start, stop], ...]} say what each array read); the form is
+  `add field --append`'s. A time-resolved field is read by `--rows` and `--from/--to` instead, and a sparse operator or field whole. `--budget BYTES` (default 1e9, 1 GB) is the most a
+  read may hold: before any array is read (or made), the bytes of every array the read would give are added up and a read above the budget is refused, naming its size, each array's
+  shape and dtype, and the `--region` (or, for a time-resolved field, the time range) that fits. A large curve of fibres, read whole, is refused this way at once instead of failing
+  to allocate.
 - `read field`: a **time-resolved field** (a recording, a source series) needs its time range, `--from S --to S` (seconds or m:ss) or `--all`, and is read through the chunk
   service one chunk at a time; `--rows I,J` picks rows in order, `--projectors active|none` (a recording's active projectors applied, or the samples as stored), `--shape-only` the
   description alone. A field with no time line is read whole. The result names the field's `manifold` (and `manifold_id`) and `cell` ("0" vertices, "1" edges, "2" faces).

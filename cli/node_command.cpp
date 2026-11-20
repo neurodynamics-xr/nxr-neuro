@@ -4,6 +4,7 @@
 //   nxr-neuro read statistic | operator --dataset D --subject S --name N [--out FILE.npy]
 //   nxr-neuro read selection --dataset D --subject S --name N [--measure M [--field F]] [--out FILE.npy]
 //   nxr-neuro read manifold --dataset D --subject S --name N [--family NAME] [--out FILE.npy]
+//   (every read <class> but a time-resolved field also takes --region START:STOP,... (each array's part, per leading axis); every one --budget BYTES (default 1e9): a larger read is refused)
 //   nxr-neuro add field --dataset D --subject S --name N --manifold M --values FILE.npy [--time LINE] [--value-type T] [--kind K] [--unit U] [--cell 0|1|2] [--derived-from F] [--description TEXT] [--replace]
 //   nxr-neuro add selection --dataset D --subject S --name N --manifold M --type partition|set|indices|spans (--members | --indices | --spans FILE.npy) [--entries A,B] [--description TEXT] [--replace]
 //   nxr-neuro add statistic --dataset D --subject S --name N --measure M --method X --values FILE.npy --axes NAME:MANIFOLD ... [--value-type T] [--of-field F] [--partition P] [--unit U] [--description TEXT] [--replace]
@@ -61,6 +62,17 @@ void need_noun(const std::vector<std::string>& argv, const std::string& verb, co
 }
 
 
+// --region START:STOP,...: [start, stop) for each axis
+std::vector<std::array<std::int64_t, 2>> region_of(const std::string& prog, const std::string& text) {
+  std::vector<std::array<std::int64_t, 2>> region;
+  for (const auto& r : split_commas(text)) {
+    const auto colon = r.find(':');
+    if (colon == std::string::npos) throw Usage(prog + ": error: argument --region: START:STOP for each axis, comma separated (got '" + r + "')");
+    region.push_back({integer_of(prog, "--region", r.substr(0, colon)), integer_of(prog, "--region", r.substr(colon + 1))});
+  }
+  return region;
+}
+
 // a write in pieces (commands.h `PieceOptions`): --begin --shape N,N --dtype D | --append --write ID --region A:B,C:D --values FILE.npy | --commit --write ID
 task::PieceOptions piece_of(const std::string& prog, const Args& a) {
   task::PieceOptions p;
@@ -74,15 +86,7 @@ task::PieceOptions piece_of(const std::string& prog, const Args& a) {
     p.shape = shape;
   }
   p.dtype = a.maybe("--dtype");
-  if (const auto v = a.maybe("--region")) {
-    std::vector<std::array<std::int64_t, 2>> region;
-    for (const auto& r : split_commas(*v)) {
-      const auto colon = r.find(':');
-      if (colon == std::string::npos) throw Usage(prog + ": error: argument --region: START:STOP for each axis, comma separated (got '" + r + "')");
-      region.push_back({integer_of(prog, "--region", r.substr(0, colon)), integer_of(prog, "--region", r.substr(colon + 1))});
-    }
-    p.region = region;
-  }
+  if (const auto v = a.maybe("--region")) p.region = region_of(prog, *v);
   return p;
 }
 
@@ -148,7 +152,7 @@ int read_node_main(const std::vector<std::string>& argv) {
   const std::string what = argv[0];
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const std::string prog = "nxr-neuro read " + what;
-  std::set<std::string> valued = {"--dataset", "--subject", "--name", "--out"}, flags;
+  std::set<std::string> valued = {"--dataset", "--subject", "--name", "--out", "--region", "--budget"}, flags;
   if (what == "field") { valued.insert({"--from", "--to", "--rows", "--projectors"}); flags = {"--all", "--shape-only"}; }
   else if (what == "selection") valued.insert({"--measure", "--field"});
   else if (what == "manifold") valued.insert("--family");
@@ -173,6 +177,8 @@ int read_node_main(const std::vector<std::string>& argv) {
   rq.family = a.maybe("--family");
   rq.out = a.maybe("--out");
   rq.templates = values_of(a, "--templates");
+  if (const auto v = a.maybe("--region")) rq.region = region_of(prog, *v);
+  if (const auto v = a.maybe("--budget")) rq.budget = number_of(prog, "--budget", *v);
   const auto r = call(prog, [&] {
     if (what == "field") return face::read_field(rq);
     if (what == "statistic") return face::read_statistic(rq);

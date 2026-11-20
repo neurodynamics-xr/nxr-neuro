@@ -77,11 +77,11 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     # reading and querying
     ("read", "dataset", "folder", "array+ out region"),
     ("read", "crossspectrum", "", "dataset* name* pair reading seed subject* weights templates+"),
-    ("read", "field", "", "all! dataset* from name* out projectors rows shape_only! subject* to templates+"),
-    ("read", "statistic", "", "dataset* name* out subject* templates+"),
-    ("read", "operator", "", "dataset* name* out subject* templates+"),
-    ("read", "selection", "", "dataset* field measure name* out subject* templates+"),
-    ("read", "manifold", "", "dataset* family name* out subject* templates+"),
+    ("read", "field", "", "all! budget dataset* from name* out projectors region rows shape_only! subject* to templates+"),
+    ("read", "statistic", "", "budget dataset* name* out region subject* templates+"),
+    ("read", "operator", "", "budget dataset* name* out region subject* templates+"),
+    ("read", "selection", "", "budget dataset* field measure name* out region subject* templates+"),
+    ("read", "manifold", "", "budget dataset* family name* out region subject* templates+"),
     ("query", "measurements", "", "band dataset* factor field limit max_value measure* min_value order selection* spatial_scale subject* subjects tile templates+ where"),
     ("compile", "", "definition", "dataset inputs set+ signatures subject"),
     # add <class>

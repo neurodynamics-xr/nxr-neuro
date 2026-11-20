@@ -309,6 +309,16 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --reference-level	L	Spatial tile level whose power the blur patch is cut from.	6	level
 --region	a:b,c:d	Read only this region of the array: a start:stop range per dimension.	the whole array	samples
 --region@read dataset	a:b,c:d	Read only this region of the array: one start:stop index range per dimension, stop excluded; used with --array.	the whole array	samples
+--region@read field	START:STOP,...	A part of a field with no time line: [START, STOP) along each leading axis of each array it gives (a STOP past an array's extent is cut to it; the result's regions say what each array read). A time-resolved field is read by --rows and --from/--to instead; a sparse field whole.	the whole field	-
+--region@read statistic	START:STOP,...	A part of the statistic: [START, STOP) along each leading axis of each array the read gives (a STOP past an array's extent is cut to it; the result's regions say what each array read).	the whole statistic	-
+--region@read operator	START:STOP,...	A part of the operator: [START, STOP) along each leading axis of each array the read gives (a STOP past an array's extent is cut to it; the result's regions say what each array read). A sparse operator is read whole.	the whole operator	-
+--region@read selection	START:STOP,...	A part of the selection: [START, STOP) along each leading axis of each array the read gives (a STOP past an array's extent is cut to it; the result's regions say what each array read).	the whole selection	-
+--region@read manifold	START:STOP,...	A part of the manifold: [START, STOP) along each leading axis of each array the read gives (a STOP past an array's extent is cut to it; the result's regions say what each array read).	the whole manifold	-
+--budget@read field	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
+--budget@read statistic	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
+--budget@read operator	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
+--budget@read selection	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
+--budget@read manifold	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
 --regularisation	ridge|diagonal|none	Regularisation of the noise covariance when whitening	ridge	-
 --regulariser	connection|ambient	Smoothness term of the flow: connection (connection Laplacian on the signpost gauge) or ambient (Dirichlet energy of the ambient 3-vector field, Lefevre and Baillet).	connection	-
 --replace		Replace an existing result of the same name instead of refusing; the old one is moved aside, not deleted.	off	-
@@ -1209,31 +1219,31 @@ R"TBL(@ read field
 old: __read field
 summary: Read a stored field by name: its values (a time-resolved field over a stated time range, read one chunk at a time), its manifold and cells, as JSON or .npy.
 example: nxr-neuro read field --dataset /data/study --subject sub-01 --name rest --from 0 --to 10 --out rest.npy
-opts: --all --dataset* --from --name* --out --projectors --rows --shape-only --subject* --to --templates+
+opts: --all --budget --dataset* --from --name* --out --projectors --region --rows --shape-only --subject* --to --templates+
 )TBL",
 R"TBL(@ read statistic
 old: __read statistic
 summary: Read a stored statistic by name: its values on its axes, in the stored precision, as JSON or .npy.
 example: nxr-neuro read statistic --dataset /data/study --subject sub-01 --name rest_psd --out psd.npy
-opts: --dataset* --name* --out --subject* --templates+
+opts: --budget --dataset* --name* --out --region --subject* --templates+
 )TBL",
 R"TBL(@ read operator
 old: __read operator
 summary: Read a stored operator by name: dense values, or a sparse operator's data, indices and indptr, as JSON or .npy files.
 example: nxr-neuro read operator --dataset /data/study --subject sub-01 --name kernel --out kernel.npy
-opts: --dataset* --name* --out --subject* --templates+
+opts: --budget --dataset* --name* --out --region --subject* --templates+
 )TBL",
 R"TBL(@ read selection
 old: __read selection
 summary: Read a stored selection by name: its per-element array, or its spans and dictionary, or its measurement table of a measure.
 example: nxr-neuro read selection --dataset /data/study --subject sub-01 --name rest_bad_segments --out bad.npy
-opts: --dataset* --field --measure --name* --out --subject* --templates+
+opts: --budget --dataset* --field --measure --name* --out --region --subject* --templates+
 )TBL",
 R"TBL(@ read manifold
 old: __read manifold
 summary: Read a stored manifold by name: its positions and cells, axes, element names and coordinate system, or one labelling of it.
 example: nxr-neuro read manifold --dataset /data/study --subject sub-01 --name cortex --out cortex.npy
-opts: --dataset* --family --name* --out --subject* --templates+
+opts: --budget --dataset* --family --name* --out --region --subject* --templates+
 )TBL",
 R"TBL(@ add field
 old: __add field

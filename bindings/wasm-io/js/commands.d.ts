@@ -642,11 +642,13 @@ export interface CompileOptions {
 }
 export interface ReadFieldOptions {
   all?: boolean;
+  budget?: string | number;
   dataset: string | number;
   from?: string | number;
   name: string | number;
   out?: string | number;
   projectors?: string | number;
+  region?: string | number;
   rows?: string | number;
   shape_only?: boolean;
   subject: string | number;
@@ -656,39 +658,47 @@ export interface ReadFieldOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface ReadStatisticOptions {
+  budget?: string | number;
   dataset: string | number;
   name: string | number;
   out?: string | number;
+  region?: string | number;
   subject: string | number;
   templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface ReadOperatorOptions {
+  budget?: string | number;
   dataset: string | number;
   name: string | number;
   out?: string | number;
+  region?: string | number;
   subject: string | number;
   templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface ReadSelectionOptions {
+  budget?: string | number;
   dataset: string | number;
   field?: string | number;
   measure?: string | number;
   name: string | number;
   out?: string | number;
+  region?: string | number;
   subject: string | number;
   templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface ReadManifoldOptions {
+  budget?: string | number;
   dataset: string | number;
   family?: string | number;
   name: string | number;
   out?: string | number;
+  region?: string | number;
   subject: string | number;
   templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
