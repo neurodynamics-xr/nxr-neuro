@@ -29,26 +29,25 @@ std::string shape_text(const std::vector<std::int64_t>& shape) {
   return "[" + t + "]";
 }
 
-std::string file_name(const std::string& path) { return fs::path(path).filename().string(); }
+std::string file_name(const ArrayInput& a) { return a.label(); }
 
-// A .npy file as io's Values, in its own precision: float32 and float64 kept; integers as int32 (refused when a value does not fit); uint8 and bool as uint8.
-Values values_of(const std::string& path, const std::string& what) {
-  const NpyFile f = NpyFile::open(path);
-  const std::string dtype = npy_dtype_name(f.descr());
+// An array input (a .npy file or in memory) as io's Values, in its own precision: float32 and float64 kept; integers as int32 (refused when a value does not fit); uint8 and bool as uint8.
+Values values_of(const ArrayInput& in, const std::string& what) {
+  const std::string dtype = array_dtype(in);
   Values v;
-  v.shape = f.shape();
-  if (dtype == "float32") v.f32 = f.all<float>();
-  else if (dtype == "float64") v.f64 = f.all<double>();
-  else if (dtype == "uint8" || dtype == "bool") v.u8 = f.all<std::uint8_t>();
+  v.shape = array_shape(in);
+  if (dtype == "float32") v.f32 = array_all<float>(in);
+  else if (dtype == "float64") v.f64 = array_all<double>(in);
+  else if (dtype == "uint8" || dtype == "bool") v.u8 = array_all<std::uint8_t>(in);
   else {
-    const std::vector<std::int64_t> all = f.all<std::int64_t>();
+    const std::vector<std::int64_t> all = array_all<std::int64_t>(in);
     if (dtype == "uint64") {   // read through int64: a value above its range wraps negative
-      const std::vector<double> check = f.all<double>();
-      for (const double x : check) if (x > static_cast<double>(std::numeric_limits<std::int32_t>::max())) throw Refused(what + " (" + file_name(path) + "): a value does not fit int32");
+      const std::vector<double> check = array_all<double>(in);
+      for (const double x : check) if (x > static_cast<double>(std::numeric_limits<std::int32_t>::max())) throw Refused(what + " (" + file_name(in) + "): a value does not fit int32");
     }
     v.i32.reserve(all.size());
     for (const auto x : all) {
-      if (x < std::numeric_limits<std::int32_t>::min() || x > std::numeric_limits<std::int32_t>::max()) throw Refused(what + " (" + file_name(path) + "): the value " + std::to_string(x) + " does not fit int32");
+      if (x < std::numeric_limits<std::int32_t>::min() || x > std::numeric_limits<std::int32_t>::max()) throw Refused(what + " (" + file_name(in) + "): the value " + std::to_string(x) + " does not fit int32");
       v.i32.push_back(static_cast<std::int32_t>(x));
     }
   }
@@ -56,7 +55,7 @@ Values values_of(const std::string& path, const std::string& what) {
 }
 std::string dtype_of(const Values& v) { return !v.f32.empty() ? "float32" : !v.f64.empty() ? "float64" : !v.u8.empty() ? "uint8" : !v.i32.empty() ? "int32" : "float64"; }
 // float32 or float64 values, refused otherwise (a statistic, an operator, measurements, positions)
-void need_real(const Values& v, const std::string& what, const std::string& path) {
+void need_real(const Values& v, const std::string& what, const ArrayInput& path) {
   if (v.f32.empty() && v.f64.empty() && v.size() > 0) throw Refused(what + " (" + file_name(path) + ") holds " + dtype_of(v) + " values: give float32 or float64");
 }
 Values as_f64(const Values& v) {
@@ -188,13 +187,13 @@ CommandResult add_field(const AddFieldRequest& rq, const Progress& progress) {
 }
 
 CommandResult add_selection(const AddSelectionRequest& rq, const Progress& progress) {
-  const std::map<std::string, std::optional<std::string>> files = {{"partition", rq.members}, {"set", rq.members}, {"indices", rq.indices}, {"spans", rq.spans}};
+  const std::map<std::string, std::optional<ArrayInput>> files = {{"partition", rq.members}, {"set", rq.members}, {"indices", rq.indices}, {"spans", rq.spans}};
   const auto it = files.find(rq.type);
   if (it == files.end()) throw Refused("--type " + rq.type + " (partition, set, indices or spans)");
   const char* option = rq.type == "indices" ? "--indices" : rq.type == "spans" ? "--spans" : "--members";
   if (!it->second) throw Refused("a selection of type " + rq.type + " takes its arrays from " + option + " FILE.npy");
   if ((rq.members ? 1 : 0) + (rq.indices ? 1 : 0) + (rq.spans ? 1 : 0) != 1) throw Refused("give one of --members, --indices and --spans: the one its --type takes (" + std::string(option) + ")");
-  const std::string path_in = *it->second;
+  const ArrayInput path_in = *it->second;
   const Values v = values_of(path_in, option);
   Json inputs = Json{{option + 2, file_name(path_in)}};
   return in_unit(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_of("add selection", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
@@ -308,14 +307,18 @@ CommandResult add_statistic(const AddStatisticRequest& rq, const Progress& progr
 }
 
 CommandResult add_measurements(const AddMeasurementsRequest& rq, const Progress& progress) {
-  if (rq.measure.empty()) throw Refused("give each measure and its values: --measure NAME=FILE.npy ...");
-  std::vector<std::pair<std::string, std::string>> given;
+  if (rq.measure.empty() && rq.measure_arrays.empty()) throw Refused("give each measure and its values: --measure NAME=FILE.npy ...");
+  std::vector<std::pair<std::string, ArrayInput>> given;
   Json inputs = Json::object();
   for (const auto& m : rq.measure) {
     const auto eq = m.find('=');
     if (eq == std::string::npos || eq == 0 || eq + 1 == m.size()) throw Refused("--measure " + m + ": a measure is NAME=FILE.npy");
-    given.emplace_back(m.substr(0, eq), m.substr(eq + 1));
-    inputs[m.substr(0, eq)] = file_name(m.substr(eq + 1));
+    given.emplace_back(m.substr(0, eq), ArrayInput(m.substr(eq + 1)));
+    inputs[m.substr(0, eq)] = file_name(given.back().second);
+  }
+  for (const auto& [name, array] : rq.measure_arrays) {
+    given.emplace_back(name, array);
+    inputs[name] = file_name(array);
   }
   return in_unit(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_of("add measurements", rq.created_by, inputs, std::nullopt), progress, [&](const Subject& ts, Unit& u) {
     const auto sel = ts.by_id_or_name(Cls::selection, rq.selection);

@@ -5,8 +5,10 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/tuple.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "commands.h"
 #include "nxr/io/writer_lock.h"
@@ -32,8 +34,19 @@ struct HeldLock {
 void bind_commands(nb::module_& m) {
   m.def(
       "_command",
-      [](const std::string& verb, const std::string& noun, const std::string& options, nb::object progress) {
+      [](const std::string& verb, const std::string& noun, const std::string& options, nb::object progress, nb::object arrays) {
         const Json opts = Json::parse(options);
+        // the arrays in memory: [(option, name, dtype, shape, bytes)] (no temporary file; the name is what the producer records)
+        nxr::bindings::Arrays held;
+        if (!arrays.is_none())
+          for (nb::handle item : arrays) {
+            nb::tuple t = nb::cast<nb::tuple>(item);
+            std::vector<std::int64_t> shape;
+            for (nb::handle d : nb::cast<nb::tuple>(t[3])) shape.push_back(nb::cast<std::int64_t>(d));
+            nb::bytes data = nb::cast<nb::bytes>(t[4]);
+            const auto* p = reinterpret_cast<const std::uint8_t*>(data.c_str());
+            held[nb::cast<std::string>(t[0])] = nxr::io::task::ArrayInput::memory(nb::cast<std::string>(t[1]), nb::cast<std::string>(t[2]), std::move(shape), std::vector<std::uint8_t>(p, p + data.size()));
+          }
         nxr::io::task::Progress say;
         if (!progress.is_none()) say = [&progress](const Json& j) {   // called from the library with the GIL released: take it for the Python callback
           nb::gil_scoped_acquire gil;
@@ -42,7 +55,7 @@ void bind_commands(nb::module_& m) {
         nxr::io::task::CommandResult r;
         {
           nb::gil_scoped_release release;
-          r = nxr::bindings::command(verb, noun, opts, say, nxr::pipelines::face::stamp());
+          r = nxr::bindings::command(verb, noun, opts, say, nxr::pipelines::face::stamp(), held);
         }
         nb::list arrays;
         for (const auto& a : r.arrays) {
@@ -52,8 +65,8 @@ void bind_commands(nb::module_& m) {
         }
         return nb::make_tuple(r.result.dump(), arrays);
       },
-      nb::arg("verb"), nb::arg("noun"), nb::arg("options"), nb::arg("progress").none(),
-      "The command `nxr-neuro VERB NOUN` with its options (JSON text): (the result as JSON text, [(name, dtype, shape, bytes)]).");
+      nb::arg("verb"), nb::arg("noun"), nb::arg("options"), nb::arg("progress").none(), nb::arg("arrays").none() = nb::none(),
+      "The command `nxr-neuro VERB NOUN` with its options (JSON text) and its arrays in memory: (the result as JSON text, [(name, dtype, shape, bytes)]).");
 
   nb::class_<HeldLock>(m, "_HeldLock")
       .def_prop_ro("file", &HeldLock::file)

@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -26,11 +27,41 @@ using nxr::io::Json;
 namespace task = nxr::io::task;
 namespace face = nxr::pipelines::face;
 
+/** The arrays of one call, in memory, by the option they are the value of: `values`, `members`, ... (a path to a .npy file goes in the options instead); for `add measurements`,
+ *  `measure.NAME` for the measure NAME. A face hands its arrays over here (no temporary file); the name each carries is what the producer records. */
+using Arrays = std::map<std::string, task::ArrayInput>;
+
 /** The options of one call, read once each: what is left unread when the command is called is an option the command does not take. */
 class CommandOptions {
  public:
-  CommandOptions(std::string prog, const Json& options) : prog_(std::move(prog)), j_(options.is_null() ? Json::object() : options) {
+  CommandOptions(std::string prog, const Json& options, const Arrays& arrays = {}) : prog_(std::move(prog)), j_(options.is_null() ? Json::object() : options), arrays_(arrays) {
     if (!j_.is_object()) throw task::Refused(prog_ + ": the options are a set of names and values");
+  }
+  /** an option that takes an array: in memory (`arrays`), or the path of a .npy file (the options); not both */
+  std::optional<task::ArrayInput> array(const std::string& k) {
+    used_.insert(k);
+    const auto it = arrays_.find(k);
+    if (it != arrays_.end()) {
+      if (has(k)) throw task::Refused(prog_ + ": " + k + " is given twice, as a file and as an array");
+      return it->second;
+    }
+    if (!has(k)) return std::nullopt;
+    return task::ArrayInput(text(k, j_[k]));
+  }
+  task::ArrayInput array_required(const std::string& k) {
+    auto a = array(k);
+    if (!a) throw task::Refused(prog_ + ": the following arguments are required: " + k);
+    return *a;
+  }
+  /** the measures given as arrays (`add measurements`): NAME and its values, in name order */
+  std::vector<std::pair<std::string, task::ArrayInput>> measure_arrays() {
+    std::vector<std::pair<std::string, task::ArrayInput>> out;
+    for (const auto& [k, a] : arrays_)
+      if (k.rfind("measure.", 0) == 0) {
+        used_.insert(k);
+        out.emplace_back(k.substr(8), a);
+      }
+    return out;
   }
   bool has(const std::string& k) const { return j_.contains(k) && !j_[k].is_null(); }
   std::string str(const std::string& k) {
@@ -95,6 +126,8 @@ class CommandOptions {
   void done() const {
     for (auto it = j_.begin(); it != j_.end(); ++it)
       if (!it.value().is_null() && !used_.count(it.key())) throw task::Refused(prog_ + ": unrecognized argument: " + it.key());
+    for (const auto& [k, a] : arrays_)
+      if (!used_.count(k)) throw task::Refused(prog_ + ": unrecognized argument: " + k);
   }
   const std::string& prog() const { return prog_; }
 
@@ -113,12 +146,14 @@ class CommandOptions {
   }
   std::string prog_;
   Json j_;
+  Arrays arrays_;
   std::set<std::string> used_;
 };
 
 /** The command `verb noun` with its options: the library's result and arrays. `created_by` is the producer stamp (the face's: "nxr-neuro <version> / C++17"). */
-inline task::CommandResult command(const std::string& verb, const std::string& noun, const Json& options, const task::Progress& progress, const std::string& created_by) {
-  CommandOptions o("nxr-neuro " + verb + (noun.empty() ? "" : " " + noun), options);
+inline task::CommandResult command(const std::string& verb, const std::string& noun, const Json& options, const task::Progress& progress, const std::string& created_by,
+                                   const Arrays& arrays = {}) {
+  CommandOptions o("nxr-neuro " + verb + (noun.empty() ? "" : " " + noun), options, arrays);
   const std::string c = verb + " " + noun;
   task::CommandResult r;
   auto call = [&](auto&& f) {
@@ -240,8 +275,8 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.dataset = o.str("dataset");
     q.subject = o.str("subject");
     q.file = o.maybe("file").value_or("");
-    q.vertices = o.maybe("vertices");
-    q.faces = o.maybe("faces");
+    q.vertices = o.array("vertices");
+    q.faces = o.array("faces");
     q.name = o.maybe("name");
     q.scale = o.number("scale").value_or(1.0);
     q.primary = o.flag("primary");
@@ -257,7 +292,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.subject = o.str("subject");
     q.name = o.str("name");
     q.manifold = o.str("manifold");
-    q.values = o.str("values");
+    q.values = o.array_required("values");
     q.time = o.maybe("time");
     if (const auto v = o.maybe("value_type")) q.value_type = *v;
     if (const auto v = o.maybe("kind")) q.kind = *v;
@@ -276,9 +311,9 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.name = o.str("name");
     q.manifold = o.str("manifold");
     q.type = o.str("type");
-    q.members = o.maybe("members");
-    q.indices = o.maybe("indices");
-    q.spans = o.maybe("spans");
+    q.members = o.array("members");
+    q.indices = o.array("indices");
+    q.spans = o.array("spans");
     q.entries = o.commas("entries");
     q.description = o.maybe("description");
     q.replace = o.flag("replace");
@@ -292,7 +327,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.name = o.str("name");
     q.measure = o.str("measure");
     q.method = o.str("method");
-    q.values = o.str("values");
+    q.values = o.array_required("values");
     if (!o.has("axes")) throw task::Refused(o.prog() + ": the following arguments are required: axes");
     q.axes = o.list("axes");
     if (const auto v = o.maybe("value_type")) q.value_type = *v;
@@ -311,7 +346,8 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.selection = o.str("selection");
     q.field = o.maybe("field");
     q.unit = o.maybe("unit");
-    if (!o.has("measure")) throw task::Refused(o.prog() + ": the following arguments are required: measure");
+    q.measure_arrays = o.measure_arrays();
+    if (!o.has("measure") && q.measure_arrays.empty()) throw task::Refused(o.prog() + ": the following arguments are required: measure");
     q.measure = o.list("measure");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
@@ -325,10 +361,10 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.from_manifold = o.str("from_manifold");
     q.to_manifold = o.str("to_manifold");
     if (const auto v = o.maybe("kind")) q.kind = *v;
-    q.values = o.maybe("values");
-    q.data = o.maybe("data");
-    q.indices = o.maybe("indices");
-    q.indptr = o.maybe("indptr");
+    q.values = o.array("values");
+    q.data = o.array("data");
+    q.indices = o.array("indices");
+    q.indptr = o.array("indptr");
     q.description = o.maybe("description");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
@@ -339,7 +375,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.dataset = o.str("dataset");
     q.subject = o.str("subject");
     q.name = o.str("name");
-    q.positions = o.str("positions");
+    q.positions = o.array_required("positions");
     q.coordinate_system = o.maybe("coordinate_system");
     q.description = o.maybe("description");
     q.replace = o.flag("replace");

@@ -292,6 +292,58 @@ int main() {
     CHECK(has(thrown([&] { task::AddSurfaceRequest no = s; no.name.reset(); task::add_surface(no); }), "named by --name"));
   }
 
+  {   // arrays IN MEMORY (ArrayInput::memory): the same results as the files, the producer recording the name given; a size that does not match its bytes is refused
+    auto mem = [&](const std::string& name, const std::string& dtype, const std::vector<std::int64_t>& shape, auto v) { return task::ArrayInput::memory(name, dtype, shape, raw(v)); };
+    task::AddFieldRequest f;
+    base(f, "mem_w");
+    f.manifold = "sensors";
+    f.values = mem("values.npy", "float32", {3}, std::vector<float>{0.5f, -1.25f, 3.0f});
+    task::add_field(f);
+    const task::CommandResult r = face::read_field(rq("mem_w"));
+    CHECK(r.arrays.at(0).bytes == raw(std::vector<float>{0.5f, -1.25f, 3.0f}) && r.arrays.at(0).dtype == "float32");
+    CHECK(has(r.result["producer"].dump(), "\"values.npy\""));
+    f.name = "mem_bad";
+    f.values = task::ArrayInput::memory("values.npy", "float64", {3}, raw(std::vector<float>{1, 2, 3}));
+    CHECK(has(thrown([&] { task::add_field(f); }), "values.npy: 12 bytes are not 3 values of float64"));
+    f.values = mem("values.npy", "float64", {4}, std::vector<double>{1, 2, 3, 4});
+    CHECK(has(thrown([&] { task::add_field(f); }), "--values values.npy is [4]"));
+    task::AddSelectionRequest s;
+    base(s, "mem_parts");
+    s.manifold = "sensors";
+    s.type = "partition";
+    s.members = mem("members.npy", "int64", {3}, std::vector<std::int64_t>{0, 1, 0});
+    s.entries = {"left", "right"};
+    task::add_selection(s);
+    CHECK(array_named(face::read_selection(rq("mem_parts")), "values").bytes == raw(std::vector<std::int32_t>{0, 1, 0}));
+    task::AddMeasurementsRequest m;
+    m.dataset = D; m.subject = "S1"; m.created_by = by;
+    m.selection = "mem_parts";
+    m.field = "mem_w";
+    m.measure_arrays = {{"mean", mem("mean.npy", "float64", {2}, std::vector<double>{4.5, 3.5})}};
+    task::add_measurements(m);
+    face::ReadNodeRequest mr = rq("mem_parts");
+    mr.measure = "mean";
+    mr.field = "mem_w";
+    CHECK(array_named(face::read_selection(mr), "value").bytes == raw(std::vector<double>{4.5, 3.5}));
+    task::AddOperatorRequest o;
+    base(o, "mem_mix");
+    o.from_manifold = "sensors";
+    o.to_manifold = "sensors";
+    o.values = mem("values.npy", "float64", {3, 3}, std::vector<double>{1, 0, 0, 0, 2, 0, 0.5, 0, 3});
+    task::add_operator(o);
+    task::AddPointsRequest p;
+    base(p, "mem_electrodes");
+    p.positions = mem("positions.npy", "float64", {2, 3}, std::vector<double>{0, 0, 1, 0, 1, 0});
+    task::add_points(p);
+    task::AddSurfaceRequest sf;
+    sf.dataset = D; sf.subject = "S1"; sf.created_by = by;
+    sf.name = "mem_tetra";
+    sf.no_primary = true;
+    sf.vertices = mem("vertices.npy", "float64", {4, 3}, std::vector<double>{0, 0, 1, 0, 1, 0, 1, 0, 0, 0.5, 0.5, 0.5});
+    sf.faces = mem("faces.npy", "int32", {4, 3}, std::vector<std::int32_t>{0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3});
+    CHECK_EQ(task::add_surface(sf).result["n_vertices"].get<std::int64_t>(), std::int64_t(4));
+  }
+
 #ifdef NXR_TEST_CLI
   {   // the command line: the same functions, a refusal is a usage error (exit 2), and a field written with --out comes back from add field as the same file
     const std::string cli = std::string(NXR_TEST_CLI) + " ", ds = " --dataset " + D + " --subject S1 ", quiet = " > /dev/null 2>&1";

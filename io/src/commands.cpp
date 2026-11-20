@@ -299,13 +299,15 @@ CommandResult add_surface(const AddSurfaceRequest& rq, const Progress& progress)
   if (arrays && !rq.name) throw Refused("a surface from arrays is named by --name");
   Mesh mesh;
   if (arrays) {
-    const NpyFile v = NpyFile::open(*rq.vertices), f = NpyFile::open(*rq.faces);
-    if (v.shape().size() != 2 || v.shape()[1] != 3) throw Refused("--vertices " + fs::path(*rq.vertices).filename().string() + ": the vertices are [n x 3]");
-    if (f.shape().size() != 2 || f.shape()[1] != 3) throw Refused("--faces " + fs::path(*rq.faces).filename().string() + ": the faces are [m x 3], three vertex indices each (0-based)");
-    if (f.descr()[1] != 'i' && f.descr()[1] != 'u') throw Refused("--faces " + fs::path(*rq.faces).filename().string() + ": vertex indices are integers (" + f.descr() + " given)");
-    mesh.vertices = v.all<double>();
-    for (const auto i : f.all<std::int64_t>()) {
-      if (i < 0 || i >= v.shape()[0]) throw Refused("--faces " + fs::path(*rq.faces).filename().string() + ": vertex " + std::to_string(i) + " is not one of the " + std::to_string(v.shape()[0]) + " vertices");
+    const std::string vname = rq.vertices->label(), fname = rq.faces->label();
+    const std::vector<std::int64_t> vshape = array_shape(*rq.vertices), fshape = array_shape(*rq.faces);
+    if (vshape.size() != 2 || vshape[1] != 3) throw Refused("--vertices " + vname + ": the vertices are [n x 3]");
+    if (fshape.size() != 2 || fshape[1] != 3) throw Refused("--faces " + fname + ": the faces are [m x 3], three vertex indices each (0-based)");
+    const std::string fdtype = array_dtype(*rq.faces);
+    if (fdtype.rfind("int", 0) != 0 && fdtype.rfind("uint", 0) != 0) throw Refused("--faces " + fname + ": vertex indices are integers (" + fdtype + " given)");
+    mesh.vertices = array_all<double>(*rq.vertices);
+    for (const auto i : array_all<std::int64_t>(*rq.faces)) {
+      if (i < 0 || i >= vshape[0]) throw Refused("--faces " + fname + ": vertex " + std::to_string(i) + " is not one of the " + std::to_string(vshape[0]) + " vertices");
       mesh.faces.push_back(static_cast<std::int32_t>(i));
     }
   } else {
@@ -319,7 +321,7 @@ CommandResult add_surface(const AddSurfaceRequest& rq, const Progress& progress)
   for (auto& x : mesh.vertices) x *= rq.scale;
   SurfaceOptions so;
   so.name = name;
-  so.source = arrays ? fs::path(*rq.vertices).filename().string() + ", " + fs::path(*rq.faces).filename().string() : fs::path(rq.file).filename().string();
+  so.source = arrays ? rq.vertices->label() + ", " + rq.faces->label() : fs::path(rq.file).filename().string();
   so.primary = !rq.no_primary;
   SurfaceInfo info;
   sub.compose([&] { info = nxr::io::add_surface(sub, so, mesh.vertices, mesh.faces); });

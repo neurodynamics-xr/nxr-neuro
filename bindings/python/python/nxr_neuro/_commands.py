@@ -7,7 +7,7 @@ are required; an option left out takes the command line's default (the library's
 
 What comes back is the command's result object (its `"stage": "result"` line) as a `Result`, a dict; where the command line writes an array to a file or prints its
 checksum, the array is in `Result.arrays` (NumPy, in its stored precision). Arrays go in as NumPy arrays (or any array-like, or a path to a .npy file); they are handed to the
-library as .npy files, the command line's array format, in a temporary folder named after the option (`values.npy`).
+library in memory (dtype, shape, bytes), under the name the producer records for them (`values.npy`); no temporary file is written.
 
 COMMANDS is the table this module is made from; `tests/test_commands.py` checks it against the command line's table (cli/command_table.cpp).
 """
@@ -20,7 +20,6 @@ import json
 import keyword
 import os
 import sys
-import tempfile
 import types
 import weakref
 from dataclasses import dataclass, field
@@ -117,7 +116,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("export", "bids-derivatives", "", "all! from measurements out* package* results* run session space stc! task to with_surface!"),
 ]
 
-# the options that take an array: handed to the library as a .npy file (`add measurements --measure NAME=FILE.npy`: a dict of arrays)
+# the options that take an array: handed to the library in memory (or as a .npy path) (`add measurements --measure NAME=FILE.npy`: a dict of arrays)
 ARRAY_OPTIONS = {
     ("add", "field"): {"values"},
     ("add", "selection"): {"members", "indices", "spans"},
@@ -179,16 +178,17 @@ def _plain(value):
     raise TypeError(f"{type(value).__name__} is not a value a command takes")
 
 
-def _npy(folder: str, name: str, value) -> str:
-    """An array as the .npy file the command line takes (C order, little-endian, its own precision); a path is passed as it is."""
+def _memory(option: str, name: str, value):
+    """An array for the library in memory: (option, name recorded, dtype, shape, bytes), C order, little-endian, its own precision; a path is returned as it is."""
     if isinstance(value, (str, os.PathLike)):
         return os.fspath(value)
     a = np.asarray(value)
+    if a.dtype.kind not in "biuf":
+        raise TypeError(f"{option}: an array of {a.dtype} is not taken (float32, float64, integers, bool)")
     if a.dtype.byteorder == ">":
         a = a.astype(a.dtype.newbyteorder("<"))
-    path = os.path.join(folder, f"{name}.npy")
-    np.save(path, np.ascontiguousarray(a), allow_pickle=False)
-    return path
+    a = np.ascontiguousarray(a)
+    return (option, f"{name}.npy", a.dtype.name, tuple(int(d) for d in a.shape), a.tobytes())
 
 
 def _json_value(value):
@@ -209,22 +209,36 @@ def _arrays(raw) -> dict[str, np.ndarray]:
 
 def call(verb: str, noun: str, options: dict[str, Any], progress: Callable[[dict], None] | None = None) -> Result:
     """One command with its options (keyed by the command line's names, underscores for dashes): its Result."""
-    arrays = ARRAY_OPTIONS.get((verb, noun), set())
-    with tempfile.TemporaryDirectory(prefix="nxr-neuro-") as tmp:
-        given = {}
-        for k, v in options.items():
+    array_options = ARRAY_OPTIONS.get((verb, noun), set())
+    given = {}
+    in_memory = []
+    for k, v in options.items():
+        if v is None:
+            continue
+        if k in array_options:
+            m = _memory(k, k, v)
+            if isinstance(m, str):
+                v = m
+            else:
+                in_memory.append(m)
+                continue
+        elif (verb, noun, k) == ("add", "measurements", "measure") and isinstance(v, dict):
+            paths = []
+            for name, a in v.items():
+                m = _memory(f"measure.{name}", name, a)
+                if isinstance(m, str):
+                    paths.append(f"{name}={m}")
+                else:
+                    in_memory.append(m)
+            v = paths or None
             if v is None:
                 continue
-            if k in arrays:
-                v = _npy(tmp, k, v)
-            elif (verb, noun, k) == ("add", "measurements", "measure") and isinstance(v, dict):
-                v = [f"{m}={_npy(tmp, m, a)}" for m, a in v.items()]
-            elif (verb, noun) == ("compile", "") and k in ("signatures", "inputs"):
-                v = _json_value(v)
-            elif (verb, noun, k) == ("compile", "", "set") and isinstance(v, dict):
-                v = [f"{name}={json.dumps(_plain(x) if isinstance(x, (np.generic, np.ndarray)) else x)}" for name, x in v.items()]
-            given[k] = v
-        text, raw = _core._command(verb, noun, json.dumps(given, default=_plain), None if progress is None else (lambda line: progress(json.loads(line))))
+        elif (verb, noun) == ("compile", "") and k in ("signatures", "inputs"):
+            v = _json_value(v)
+        elif (verb, noun, k) == ("compile", "", "set") and isinstance(v, dict):
+            v = [f"{name}={json.dumps(_plain(x) if isinstance(x, (np.generic, np.ndarray)) else x)}" for name, x in v.items()]
+        given[k] = v
+    text, raw = _core._command(verb, noun, json.dumps(given, default=_plain), None if progress is None else (lambda line: progress(json.loads(line))), in_memory or None)
     return Result(json.loads(text), _arrays(raw))
 
 
