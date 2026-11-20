@@ -208,7 +208,7 @@ struct MinNormPrepared {
   Json projectors = Json::object();          // which projectors went where (the provenance)
 };
 
-// the projectors handed with the covariance (the runner reads its channels' projector Operators: `meta.projectors`)
+// the projectors handed with the covariance (the runner reads its channels' projector Operators, those the caller chose with the run's projectors option: `meta.projectors`)
 std::vector<nxr::bst::StoredProjector> projectors_of(const Json& meta) {
   std::vector<nxr::bst::StoredProjector> out;
   if (!meta.contains("projectors") || !meta["projectors"].is_array()) return out;
@@ -436,6 +436,7 @@ ng::NodeSpec minimum_norm() {
     }
     const MinNormInputs mi = minimum_norm_inputs(Fall, C, pr.channels, pr.types, projectors_of(S.meta), cov_projs, pr.conventions, p.value("average_reference", true));
     pr.G = mi.G; pr.C = mi.C; pr.right = mi.right; pr.averaged = mi.averaged; pr.projectors = mi.record;
+    if (S.meta.contains("projectors_choice")) pr.projectors["choice"] = S.meta["projectors_choice"];   // which projectors the caller had handed (the run's --projectors), for the provenance
     return std::any(std::move(pr));
   };
   n.run = [](const std::any& prepared, const ng::Arrays&) {

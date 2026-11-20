@@ -775,6 +775,42 @@ Json store_home(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const P
   const std::string id = sub.statistic(std::move(st));
   return Json{{"output", o}, {"statistic", name}, {"path", path}, {"id", id}, {"frames", h["frames"]}};
 }
+
+// the channels manifold of a statistic's first channel axis over a pick (the binding's `meta.channels_manifold_id`), when it has one
+std::optional<std::string> channel_manifold_of(nxr::io::SubjectWriter& sub, const Row& row) {
+  const Json axes = Json::parse(nxr::io::opt_text(row, "axes_json").value_or("[]"), nullptr, false);
+  if (!axes.is_array()) return std::nullopt;
+  for (const auto& ax : axes) {
+    if (!ax.contains("selection_id") || ax.value("name", std::string()) != "channel") continue;
+    const auto sel = sub.db().read("selection", ax["selection_id"].get<std::string>());
+    if (!sel || nxr::io::is_null(*sel, "array_path")) return std::nullopt;
+    return nxr::io::opt_text(*sel, "manifold_id").value_or("");
+  }
+  return std::nullopt;
+}
+
+// THE PROJECTORS HANDED WITH A STATISTIC OVER CHANNELS (`meta.projectors`, for a node that applies them as its reference does: the inverse kernel), as the CALLER chose them (RunOptions.projectors):
+// active: every projector Operator of the channels, with its stored status (the node's reference rule picks by status); none: none; named: exactly those, their status set to active (the caller chose
+// them, whatever their stored status). The choice of data is made here, in the preparation; the node applies what it is handed. An unknown name is refused, naming the valid ones.
+std::vector<nxr::bst::StoredProjector> handed_projectors(nxr::io::SubjectWriter& sub, const std::string& channels_manifold_id, const nxr::io::Projectors& choice) {
+  std::vector<nxr::bst::StoredProjector> all = nxr::bst::stored_projectors(sub.db(), sub.store(), channels_manifold_id);
+  std::vector<std::string> names;
+  for (const auto& q : all) names.push_back(q.name);
+  if (choice.choice == nxr::io::Projectors::Choice::named && all.empty()) return all;   // a statistic over channels with no projector: nothing to choose among (a recording's reading refuses)
+  nxr::io::check_projector_names(choice, names);
+  if (choice.choice == nxr::io::Projectors::Choice::active) return all;
+  std::vector<nxr::bst::StoredProjector> out;
+  if (choice.choice == nxr::io::Projectors::Choice::none) return out;
+  for (auto& q : all)
+    if (std::find(choice.names.begin(), choice.names.end(), q.name) != choice.names.end()) { q.status = 1; out.push_back(std::move(q)); }
+  return out;
+}
+// what was handed, for the cache key and the provenance: the choice and each projector's name and status as handed
+Json handed_record(const std::vector<nxr::bst::StoredProjector>& handed, const nxr::io::Projectors& choice) {
+  Json list = Json::array();
+  for (const auto& q : handed) list.push_back(Json{{"name", q.name}, {"status", q.status}});
+  return Json{{"option", nxr::io::to_string(choice)}, {"handed", list}};
+}
 }  // namespace
 
 // the dense matrix of a stored operator [rows x cols] and, in `meta.channels`, the elements of its `from` manifold its columns lie over (its from_selection), for a node that applies it
@@ -876,6 +912,17 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     }
   }
   key.input = Json{{"inputs", ids}, {"span", span_json}};
+  {
+    // the projectors handed with a statistic over channels (handed_projectors): the choice and the stored statuses are data a node uses, so they are in the key (a status edited is a new result)
+    Json handed = Json::object();
+    for (const auto& [k, v] : P.found) {
+      if (v.cls != "statistic" || !v.row || (group && group->ids.count(k))) continue;
+      const auto mid = channel_manifold_of(sub, *v.row);
+      if (!mid || mid->empty() || nxr::bst::stored_projectors(sub.db(), sub.store(), *mid).empty()) continue;
+      handed[k] = handed_record(handed_projectors(sub, *mid, opt.projectors), opt.projectors);
+    }
+    if (!handed.empty()) key.input["channel_projectors"] = handed;
+  }
   const Json projection_json = source ? source->projection_record() : Json();   // the projectors the load applied (null: the recording has no active projector)
   if (!projection_json.is_null()) key.input["projectors"] = projection_json;
   key.compute = NXR_COMPUTE_VERSION;
@@ -1112,9 +1159,11 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
             Json types = Json::array();
             for (const auto c : ch) types.push_back(c >= 0 && static_cast<std::size_t>(c) < all.size() ? all[static_cast<std::size_t>(c)] : std::string());
             a.meta["channel_types"] = types;
-            // the channels' projector Operators (SSP, ICA), for a node that applies them as its reference does (the inverse kernel)
+            // the channels' projector Operators (SSP, ICA), for a node that applies them as its reference does (the inverse kernel): those the caller chose (handed_projectors)
             Json projs = Json::array();
-            for (const auto& q : nxr::bst::stored_projectors(sub.db(), sub.store(), mid)) {
+            const std::vector<nxr::bst::StoredProjector> handed = handed_projectors(sub, mid, opt.projectors);
+            if (!nxr::bst::stored_projectors(sub.db(), sub.store(), mid).empty()) a.meta["projectors_choice"] = handed_record(handed, opt.projectors);
+            for (const auto& q : handed) {
               Json j{{"name", q.name}, {"kind", q.kind}, {"method", q.method}, {"order", q.order}, {"status", q.status}, {"m", q.m}};
               if (!q.vectors.empty()) j["vectors"] = q.vectors;
               if (!q.matrix.empty()) j["matrix"] = q.matrix;

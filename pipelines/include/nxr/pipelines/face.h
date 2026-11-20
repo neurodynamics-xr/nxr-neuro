@@ -100,7 +100,8 @@ struct ReadRequest {
   // A TIME-RESOLVED FIELD (a recording, a source series: [rows x samples] on its time line) is read through io's chunk service, one chunk at a time:
   std::optional<std::int64_t> start, stop; // the samples [start, stop) of its time axis (both, or neither: the whole recording, still read chunk by chunk)
   std::vector<std::int32_t> rows;          // its rows (channels), in the order given; empty: every row
-  std::string projectors = "active";       // the chunk service's option: "active" (the recording's active projectors applied, as every run reads it) or "none" (the samples as stored)
+  std::string projectors = "active";       // the chunk service's option: "active" (the recording's active projectors applied, as every run reads it), "none" (the samples as stored), or
+                                           // "NAME[,NAME...]" (exactly those projectors, whatever their stored status; an unknown name is refused)
   std::string reading = "samples";         // "samples", or "shape": the description only (rate, origin, samples, channels, unit, projection, provenance), no sample read
   std::optional<double> from, to;          // or the time range in seconds on the field's clock (both; not with start and stop), read chunk by chunk
   bool all = false;                        // or the whole field, read chunk by chunk
@@ -140,7 +141,7 @@ struct ReadNodeRequest {
   std::optional<double> from, to;          // field: the time range in seconds (both), or
   bool all = false;                        // field: the whole field (a time-resolved field needs one of the two; read one chunk at a time)
   std::vector<std::int32_t> rows;          // field: its rows, in order (empty: all)
-  std::string projectors = "active";       // field: active | none
+  std::string projectors = "active";       // field: active | none | NAME[,NAME...]
   bool shape_only = false;                 // field: its description only, no sample read
   std::optional<std::string> measure, field;   // selection: its measurement table of this measure (of this field)
   std::optional<std::string> family;       // manifold: one labelling of it

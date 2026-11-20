@@ -18,7 +18,7 @@ verb compute	Compute a node or a graph on arrays or files (reserved: not availab
 verb compile	Compile a pipeline definition without running it: expand it, type-check every connection, print the compiled graph with every value's type
 verb list	List datasets, subjects, recordings, kernels, results or pipelines
 verb show	Show a dataset or a subject
-verb edit	Edit what a subject holds without touching its arrays: a manifold's label, description and primary flag, a dictionary's entries
+verb edit	Edit what a subject holds without touching its arrays: a manifold's label, description and primary flag, a dictionary's entries, a projector's status
 verb read	Read stored arrays and derived readings: a stored field, statistic, operator, selection or manifold by name, as .npy files or JSON
 verb query	Query stored measurements
 verb export	Export stored results: measurements as a table, cortical maps as GIFTI
@@ -277,8 +277,8 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --prefer@import scan	protocol.mat|walk	Which reader to use for the protocol: its protocol.mat file or a walk of the folders.	automatic (protocol.mat when present)	-
 --primary		Mark the added mesh as the subject's primary surface	on	-
 --primary@add surface		Mark the added surface as the subject's primary surface (the one other commands use when no --surface is named).	on	-
---projectors	active|none	The recording's projectors (SSP, ICA) when it is read: active applies its active projectors to every block loaded, as Brainstorm and MNE-Python do on reading; none reads the samples as recorded. Recorded in the provenance and the cache key.	active	-
---projectors@run	active|none	The recording's active projectors applied to every block loaded (active), or the samples read as recorded (none); recorded in the run's provenance and cache key.	active	-
+--projectors	active|none|NAME,...	The recording's projectors (SSP, ICA) when it is read: active applies its active projectors to every block loaded, as Brainstorm and MNE-Python do on reading; none reads the samples as recorded; NAME,... applies exactly the projectors named (their operator names on the channels), whatever their stored status, and refuses a name that is not one of them. Recorded in the provenance and the cache key.	active	-
+--projectors@run	active|none|NAME,...	The channels' projectors: active applies the recording's active projectors to every block loaded, none reads the samples as recorded, NAME,... applies exactly the projectors named, whatever their stored status (an unknown name is refused, listing the valid ones). The same choice selects the projectors a node applies as its reference does (run inverse: active hands them all to its conventions' rule, none none, NAME,... only those). Recorded in the run's provenance and cache key.	active	-
 --provenance	FILE	A JSON file of provenance to store with the imported maps.	none	-
 --provenance@import map	FILE	A JSON file of provenance to store with each imported map.	none	-
 --psd	NAME	The recording's stored Welch spectrum, whose shape gives the band's effective bandwidth.	none (required)	-
@@ -1105,7 +1105,7 @@ R"TBL(--name@read field	NAME	The stored field to read, by name or id.	required	-
 --templates@read field	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
 --out@read field	FILE.npy	Write the values as a .npy file (C order, little-endian, the stored precision) and print the result with the file's path.	none (the result only, as JSON)	-
 --rows@read field	I,J,...	The rows (channels) of a time-resolved field to read, by index, in the order given.	every row	-
---projectors@read field	active|none	A recording's projectors when it is read: active applies its active projectors to every block loaded (as a run reads it), none reads the samples as stored.	active	-
+--projectors@read field	active|none|NAME,...	A recording's projectors when it is read: active applies its active projectors to every block loaded (as a run reads it), none reads the samples as stored, NAME,... applies exactly the projectors named, whatever their stored status (an unknown name is refused, listing the valid ones).	active	-
 --shape-only@read field		Print the description of a time-resolved field (rate, origin, samples, channels, unit, projection) and read no sample.	off	-
 )TBL",
 R"TBL(--name@read statistic	NAME	The stored statistic to read, by name or id.	required	-
@@ -1448,6 +1448,11 @@ R"TBL(--begin@add field		Write the field in pieces, step 1: take its shape (--sh
 --params@edit dictionary	JSON	The new parameters of the entry, JSON.	unchanged	-
 --entries@edit dictionary	FILE.json	Every entry, as in add dictionary (with --replace): the list replaces the entries; the codes a selection reads must stay.	none	-
 --replace@edit dictionary		With --entries: replace the whole list of entries.	off	-
+--templates@edit operator	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@edit operator	NAME	The projector operator to change, by name or id; another kind of operator is refused.	required	-
+--status@edit operator	0|1	The projector's status: 1 active (applied by --projectors active, the default of read field, run and run inverse), 0 inactive (not applied unless named); recorded in the operator's provenance.	required	-
+--note@edit operator	TEXT	Why the status is changed, kept in the edit entry of the operator's provenance.	none	-
+--by@edit operator	TEXT	Who changes it, kept in the edit entry of the operator's provenance.	none	-
 )TBL",
 R"TBL(@ add product
 old: __add product
@@ -1472,6 +1477,12 @@ old: __edit dictionary
 summary: Change one entry of a dictionary (name, label, colour, description, parameters), or replace its entries from a JSON file, as one unit.
 example: nxr-neuro edit dictionary --dataset /data/study --name quality --entry 2 --colour #ff8800
 opts: --colour --dataset* --description --entries --entry --label --name* --name-of --params --replace --subject --templates+
+)TBL",
+R"TBL(@ edit operator
+old: __edit operator
+summary: Set a stored projector's status, active (1) or inactive (0), as one unit, recorded in its provenance (who, when, why, before and after); its arrays are untouched.
+example: nxr-neuro edit operator --dataset /data/study --subject sub-01 --name rec_ssp_2 --status 0 --note "not the artefact it is named for"
+opts: --by --dataset* --name* --note --status* --subject* --templates+
 )TBL"
   };
 }

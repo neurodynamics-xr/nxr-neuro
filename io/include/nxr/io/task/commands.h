@@ -357,6 +357,16 @@ struct EditManifoldRequest {
 };
 CommandResult edit_manifold(const EditManifoldRequest& request, const Progress& progress = {});
 
+/** `edit operator`: a PROJECTOR's status, "0" (inactive) or "1" (active): which projectors `active` applies (a reading, a run, the inverse's default). Recorded in the operator's provenance
+ *  (`producer_json.edits`: by, when, the note, the status before and after); reversible, nothing deleted. Another kind of operator is refused. */
+struct EditOperatorRequest {
+  std::string dataset, subject, name;
+  std::optional<std::string> status, note, by;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult edit_operator(const EditOperatorRequest& request, const Progress& progress = {});
+
 // ---- subject packages and the catalogue ----
 
 struct CreatePackageRequest { std::string package, name, home_dataset; std::string kind = "subject"; std::string created_by; };

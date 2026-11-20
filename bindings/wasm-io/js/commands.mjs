@@ -91,4 +91,5 @@ export const COMMANDS = [
   ["add", "dictionary", "", "dataset* description entries* name* scope* subject templates+"],
   ["edit", "manifold", "", "dataset* description label name* primary subject* templates+"],
   ["edit", "dictionary", "", "colour dataset* description entries entry label name* name_of params replace! subject templates+"],
+  ["edit", "operator", "", "by dataset* name* note status* subject* templates+"],
 ];

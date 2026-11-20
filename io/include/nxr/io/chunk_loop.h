@@ -19,7 +19,7 @@
 //   THE PROJECTORS                   a recording is stored AS RECORDED; its ACTIVE projectors (status 1, Operators of kind `projector` on its channels) are applied to every
 //                                    block the service loads, BY DEFAULT, as Brainstorm's in_fread applies the channel file's active projectors and MNE-Python applies
 //                                    info['projs'] on load: the selected SSP vectors stacked and re-orthogonalised, the others in the file's order (nxr::bst::joint_projector).
-//                                    `Projectors::none` reads the samples as recorded. Which were applied is the run's provenance and in its cache key (`load_projection`).
+//                                    `Projectors::none` reads the samples as recorded; a NAMED choice applies exactly those projectors, whatever their status. Which were applied is the run's provenance and in its cache key (`load_projection`).
 //                                    An SSP or ICA projector is idempotent (P P = P), so samples that already carry one come out the same up to rounding: no guard is kept.
 //   defaults                         the process's progress, cancel and queue (`set_chunk_loop_defaults`), set once by the command line; pipelines pass nothing.
 //
@@ -95,18 +95,32 @@ struct LoadProjection {
   std::int64_t n = 0;
   std::vector<double> matrix;
 };
-/** what a run asks of the recording's projectors: `active` (the default: every block is P x) or `none` (the samples as recorded) */
-enum class Projectors { active, none };
-/** the projection of `recording` (a Field row) under `option`, and its record: {option, active: [the status-1 projectors' names, in the file's order], applied: [those applied]};
- *  the record is null when the recording's channels carry no active projector (nothing to apply or skip). */
+/** which of the recording's projectors a reading applies: `active` (the default: its status-1 projectors, every block is P x), `none` (the samples as recorded), or `named`
+ *  (exactly the projectors named, by their Operator names on the channels, WHATEVER THEIR STORED STATUS: the caller chose them; an unknown name is refused, naming the valid ones) */
+struct Projectors {
+  enum class Choice { active, none, named };
+  Choice choice = Choice::active;
+  std::vector<std::string> names;          // named: the projectors applied (composed in the file's order, not the order given)
+  static const Projectors active;
+  static const Projectors none;
+  static Projectors named(std::vector<std::string> names) { return Projectors{Choice::named, std::move(names)}; }
+  bool operator==(const Projectors& o) const { return choice == o.choice && names == o.names; }
+  bool operator!=(const Projectors& o) const { return !(*this == o); }
+};
+inline const Projectors Projectors::active{};
+inline const Projectors Projectors::none{Projectors::Choice::none, {}};
+/** a `named` choice checked against the names of the projectors stored with the channels (`stored`, in the file's order): a name that is not one of them is an Error naming the valid ones */
+void check_projector_names(const Projectors& option, const std::vector<std::string>& stored);
+/** the projection of `recording` (a Field row) under `option`, and its record: {option, active: [the status-1 projectors' names, in the file's order], applied: [those applied]}
+ *  (and, for a named choice, chosen: [the names given]); the record is null when the recording's channels carry no active projector and none is named (nothing to apply or skip). */
 struct ProjectionOf {
   std::shared_ptr<const LoadProjection> projection;   // null: nothing is applied
   Json record;
 };
 ProjectionOf load_projection(const Database& db, const Store& store, const Row& recording, Projectors option);
-/** the option's name and back ("active" | "none"); an unknown name is an Error naming the valid ones */
-const char* to_string(Projectors p);
-Projectors projectors_from(const std::string& name);
+/** the option as text and back: "active" | "none" | "NAME[,NAME...]" (a named choice, the names comma-separated); empty text or an empty name is an Error */
+std::string to_string(const Projectors& p);
+Projectors projectors_from(const std::string& text);
 
 class ChunkSource {
  public:

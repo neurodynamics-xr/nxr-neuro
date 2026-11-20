@@ -1237,6 +1237,40 @@ void Unit::edit_manifold(const std::string& manifold_id, const std::optional<boo
   db.execute("UPDATE manifold SET modified_utc = ?, modified_by = ? WHERE id = ?", {V(now_utc(false)), V(by_.tool), V(manifold_id)});
 }
 
+Json Unit::edit_projector_status(const std::string& operator_id, int status, const std::optional<std::string>& note, const std::optional<std::string>& by) {
+  need_open(open_);
+  Database& db = *impl_->db;
+  if (status != 0 && status != 1) throw Error(code::invalid_argument, "a projector's status is 0 (inactive) or 1 (active), not " + std::to_string(status));
+  const auto r = db.one("SELECT name, kind, params_json, producer_json, description FROM operator WHERE id = ?", {V(operator_id)});
+  if (!r) throw Error(code::no_such_row, "operator " + operator_id + ": no such row");
+  if (text(*r, "kind") != "projector")
+    throw Error(code::invalid_argument, "'" + text(*r, "name") + "' is an operator of kind " + text(*r, "kind") + ": a status applies to projector operators only (the SSP and ICA projectors on a recording's channels)");
+  Json params = Json::parse(opt_text(*r, "params_json").value_or("{}"), nullptr, false);
+  if (!params.is_object()) params = Json::object();
+  const int before = params.value("status", 0);
+  if (before == status) return Json();
+  if (before == 2) throw Error(code::invalid_argument, "'" + text(*r, "name") + "' has status 2: it is already applied to the samples as recorded, which an edit cannot undo");
+  params["status"] = status;
+  Json producer = Json::parse(opt_text(*r, "producer_json").value_or("{}"), nullptr, false);
+  if (!producer.is_object()) producer = Json::object();
+  if (!producer.contains("edits") || !producer["edits"].is_array()) producer["edits"] = Json::array();
+  const std::string now = now_utc(false);
+  Json entry = Json{{"edit", "status"}, {"from", before}, {"to", status}, {"utc", now}, {"tool", by_.tool}};
+  entry["by"] = by ? Json(*by) : Json();
+  entry["note"] = note ? Json(*note) : Json();
+  producer["edits"].push_back(entry);
+  db.execute("UPDATE operator SET params_json = ?, producer_json = ?, modified_utc = ?, modified_by = ? WHERE id = ?", {V(jdump(params)), V(jdump(producer)), V(now), V(by_.tool), V(operator_id)});
+  if (const auto d = opt_text(*r, "description")) {                   // the importer's description names the status: kept true
+    const std::string was = "; status " + std::to_string(before) + " (";
+    if (const auto at = d->find(was); at != std::string::npos) {
+      std::string nd = *d;
+      nd.replace(at, was.size(), "; status " + std::to_string(status) + " (");
+      db.execute("UPDATE operator SET description = ? WHERE id = ?", {V(nd), V(operator_id)});
+    }
+  }
+  return entry;
+}
+
 void Unit::edit_dictionary_entry(const std::string& dictionary_id, std::int64_t code_of_entry, const EntryEdit& e) {
   need_open(open_);
   Database& db = *impl_->db;

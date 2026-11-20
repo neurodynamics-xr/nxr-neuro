@@ -482,6 +482,10 @@ class Unit {
   struct EntryEdit { std::optional<std::string> name, label, description; std::optional<std::array<int, 3>> colour; Json params; };
   void edit_dictionary_entry(const std::string& dictionary_id, std::int64_t code, const EntryEdit& edit);
   void replace_dictionary_entries(const std::string& dictionary_id, const std::vector<DictionaryOut::Entry>& entries);
+  // a PROJECTOR operator's status (0 inactive, 1 active; 2, already applied to the samples, is the importer's and is not set here): its parameters' `status` (and the store's attributes, synced from
+  // the row), with an edit entry appended to its provenance (`producer_json.edits`: who, when, the note, the status before and after); nothing is removed. Another kind of operator is refused.
+  // Returns the entry appended (null when the status was already the one asked: nothing changes).
+  Json edit_projector_status(const std::string& operator_id, int status, const std::optional<std::string>& note, const std::optional<std::string>& by);
   // a node with no arrays (an analytic operator) removed so that a new one of its name takes its place
   void remove_unstored(Cls cls, const std::string& id);
   // the place a result would take (what `replace` and the cache look at)

@@ -54,6 +54,7 @@ struct InverseComputeOptions {
   std::optional<double> snr;                // the amplitude signal-to-noise ratio; none: the conventions'
   bool mne_conventions = false;
   bool replace = false;
+  nxr::io::Projectors projectors = nxr::io::Projectors::active;   // the channels' projectors handed to the kernel (the run's --projectors)
 };
 struct InverseComputeResult {
   bool hit = false;
@@ -132,7 +133,9 @@ inline InverseComputeResult inverse_compute(nxr::io::DatasetWriter& ds, nxr::io:
   if (!o.name.empty()) set["name"] = o.name;
   if (!o.kernel.depth.enabled) set["depth_weighting"] = false;
   if (o.snr) set["snr"] = *o.snr;
-  const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("inverse"), set, span_options(std::nullopt, std::nullopt, std::nullopt, o.replace));
+  nxr::pipelines::graph::RunOptions ro = span_options(std::nullopt, std::nullopt, std::nullopt, o.replace);
+  ro.projectors = o.projectors;
+  const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("inverse"), set, ro);
   InverseComputeResult r;
   r.hit = !runs.empty() && runs[0].value("hit", false);
   if (const auto k = sub.by_name("operator", o.name)) {
