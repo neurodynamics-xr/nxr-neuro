@@ -104,7 +104,7 @@ int main() {
     CHECK(rel(k3.noiseWhitener, k.noiseWhitener) > 1e-3);
     // ... except a diagonal one, which whitens both covariances by their diagonal (the reference's rule)
     const LcmvKernel k4 = lcmvKernel(G, O, Cd, MatrixXd(Cn.diagonal().asDiagonal()), types);
-    CHECK(!k4.notes.empty());
+    CHECK(!k4.notes.empty() && k4.applied == TruncatedRegularisation::Diagonal);
     CHECK(rel(k4.dataWhitener, MatrixXd(Cd.diagonal().cwiseSqrt().cwiseInverse().asDiagonal())) < 1e-12);
     // the median rule (the default) differs from none on a covariance whose eigenvalues spread
     const LcmvKernel k5 = lcmvKernel(G, O, Cd, Cn, types);

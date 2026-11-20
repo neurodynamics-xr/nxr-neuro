@@ -27,6 +27,7 @@ node	geometry.glue	-	composite
 node	signal.gradient_power	-	composite
 node	operators.hodge_dirac	-	composite
 node	meeg.largest_component	-	composite
+node	meeg.lcmv	-	composite
 node	meeg.minimum_norm	-	composite
 node	meeg.noise_covariance	-	composite
 node	meeg.phase_gradient	-	composite

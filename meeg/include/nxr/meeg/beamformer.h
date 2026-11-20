@@ -59,6 +59,7 @@ struct LcmvKernel {
   Eigen::MatrixXd dataCovariance, noiseCovariance;   // [M x M] both as regularised
   std::vector<int> dataRanks, noiseRanks;
   Eigen::VectorXd gainNorm;             // [N] ||W_d l_k||: the whitened gain's norm of each source (0: a source the data cannot see, its row left zero)
+  TruncatedRegularisation applied = TruncatedRegularisation::Median;   // the rule both covariances were regularised by (Diagonal when the noise covariance is diagonal)
   std::vector<std::string> notes;       // what was decided (the diagonal rule, a source with no whitened gain)
 };
 /** The fixed-orientation LCMV kernel from the gain G [M x 3N] (x y z columns per source), the unit-normalised orientations [N x 3] of the sources, the data covariance and the noise

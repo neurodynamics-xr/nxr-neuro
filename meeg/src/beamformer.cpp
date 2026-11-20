@@ -125,6 +125,7 @@ LcmvKernel lcmvKernel(const Eigen::MatrixXd& G, const Eigen::MatrixXd& orientati
       out.notes.push_back("the noise covariance is diagonal: both covariances are whitened by their diagonal (the reference's rule)");
     }
   }
+  out.applied = rule.regularisation;
   const TruncatedWhitening d = truncatedWhitener(dataCovariance, types, rule), nz = truncatedWhitener(noiseCovariance, types, rule);
   out.dataWhitener = d.W; out.dataCovariance = d.C; out.dataRanks = d.ranks;
   out.noiseWhitener = nz.W; out.noiseCovariance = nz.C; out.noiseRanks = nz.ranks;
