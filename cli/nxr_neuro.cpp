@@ -49,6 +49,7 @@ int measure_main(const std::vector<std::string>& argv);        // cli/measure_co
 int surrogate_lagfree_spatial_events_compare_main(const std::vector<std::string>& argv);   // cli/measure_command.cpp
 int surrogate_lagfree_vortex_compare_main(const std::vector<std::string>& argv);           // cli/measure_command.cpp
 int run_main(const std::vector<std::string>& argv);            // cli/run_command.cpp
+int compile_main(const std::vector<std::string>& argv);        // cli/run_command.cpp
 #endif
 
 namespace {
@@ -261,6 +262,13 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       return run_main(rest);
 #else
       throw Error(code::unsupported, "nxr-neuro run needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
+#endif
+    }
+    if (cmd == "__compile") {                                                 // `compile <definition>`
+#ifdef NXR_NEURO_WITH_PIPELINES
+      return compile_main(rest);
+#else
+      throw Error(code::unsupported, "nxr-neuro compile needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
     if (cmd == "__surrogate_lagfree_spatial_events_compare") {               // `run surrogate_lagfree_spatial_events_compare` (the command table's internal words)
