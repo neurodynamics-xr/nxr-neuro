@@ -5,6 +5,7 @@
 #include "pieces.h"
 
 #include <signal.h>
+#include <fcntl.h>
 #include <sys/file.h>
 #include <unistd.h>
 
