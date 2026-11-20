@@ -49,7 +49,6 @@ using namespace nxr::geometry::transport;
 using namespace nxr::geometry::connection;
 using namespace nxr::operators::connection;
 using namespace nxr::geometry::parametrization;
-using namespace nxr::geometry::parametrization::stripes;
 using namespace nxr::geometry;
 using namespace nxr::geometry::query;
 using namespace nxr::synthesis;
@@ -189,17 +188,6 @@ static void testSmoothFields(const nxr::geometry::SurfaceArrays& m) {
     std::cout << "[field] PASS" << std::endl;
 }
 
-static void testStripes(const nxr::geometry::SurfaceArrays& m) {
-    std::cout << "[stripes] starting" << std::endl;
-    auto vfield = smoothVertex(m, 2);
-    auto stripes = compute(m, vfield.vertexFieldRaw, 8.0);
-    REQUIRE(stripes.segmentCount >= 0, "non-negative segment count");
-    REQUIRE(stripes.positions.rows() == stripes.segmentCount * 2,
-            "positions row count = 2 * segments");
-    REQUIRE(stripes.positions.cols() == 3, "positions cols = 3");
-    std::cout << "[stripes] PASS (segs=" << stripes.segmentCount << ")" << std::endl;
-}
-
 int main() {
     std::vector<double>  V;
     std::vector<int32_t> F;
@@ -211,7 +199,6 @@ int main() {
     testVectorHeat(m);
     testSignedHeat(m);
     testSmoothFields(m);
-    testStripes(m);
 
     std::cout << "all geometry-central extras tests PASSED" << std::endl;
     return 0;

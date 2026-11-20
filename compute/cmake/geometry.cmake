@@ -20,7 +20,6 @@ target_sources(nxr_compute PRIVATE
   src/geometry/query_measure.cpp
   src/geometry/signed_heat.cpp
   src/geometry/smooth_field.cpp
-  src/geometry/stripe_patterns.cpp
   src/geometry/topology.cpp
   src/geometry/transport.cpp
   src/geometry/vector_heat.cpp

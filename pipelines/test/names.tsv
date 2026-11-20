@@ -90,8 +90,6 @@ node	synthesis.lagfree	-	composite
 node	synthesis.lagfree_mixing	-	composite
 node	synthesis.lagfree_pairs	-	composite
 node	select.tile_crossings	-	composite
-addon	geometry.compute	nxr::geometry::parametrization::stripes::compute	ok
-addon	geometry.computeFreq	nxr::geometry::parametrization::stripes::computeFreq	ok
 addon	geometry.curvatures	nxr::geometry::curvatures	ok
 addon	geometry.exactDistance	nxr::geometry::query::exactDistance	ok
 addon	geometry.extendScalar	nxr::geometry::transport::extendScalar	ok
@@ -140,8 +138,6 @@ mex	compute.signal.xpsd	nxr::signal::xpsd	ok
 mex	compute.stats.pca	nxr::stats::pca	ok
 mex	compute.stats.reconstruct	nxr::stats::reconstruct	ok
 mex	geometry.bff	nxr::geometry::parametrization::bff	ok
-mex	geometry.compute	nxr::geometry::parametrization::stripes::compute	ok
-mex	geometry.computeFreq	nxr::geometry::parametrization::stripes::computeFreq	ok
 mex	geometry.curvatures	nxr::geometry::curvatures	ok
 mex	geometry.extendScalar	nxr::geometry::transport::extendScalar	ok
 mex	geometry.findCenter	nxr::geometry::transport::findCenter	ok
@@ -271,8 +267,6 @@ python	signal_bandEnvelope	nxr::signal::bandEnvelope	ok
 python	signal_timeBank	nxr::signal::timefilterbank::timeBank	ok
 python	signal_graphBank	nxr::signal::graphfilterbank::graphBank	ok
 wasm	geometry.bff	nxr::geometry::parametrization::bff	ok
-wasm	geometry.compute	nxr::geometry::parametrization::stripes::compute	ok
-wasm	geometry.computeFreq	nxr::geometry::parametrization::stripes::computeFreq	ok
 wasm	geometry.curvatures	nxr::geometry::curvatures	ok
 wasm	geometry.exactDistance	nxr::geometry::query::exactDistance	ok
 wasm	geometry.extendScalar	nxr::geometry::transport::extendScalar	ok
@@ -372,8 +366,6 @@ retired	signedHeat	mex	geometry.signedHeat
 retired	heat	mex	geometry.heat
 retired	smoothFace	mex	geometry.smoothFace
 retired	smoothVertex	mex	geometry.smoothVertex
-retired	compute	mex	geometry.compute
-retired	computeFreq	mex	geometry.computeFreq
 retired	assembleDECOperators	mex	operators.assembleDECOperators
 retired	assembleConnectionLaplacian	mex	operators.assembleConnectionLaplacian
 retired	trivialConnectionLaplacian	mex	operators.assembleTrivialConnectionLaplacian

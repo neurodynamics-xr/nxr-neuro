@@ -21,7 +21,7 @@
 %       M.measure.normal                [nV x 3] vertex normals
 %       M.interpolate.transport/extend/smoothVertex/smoothFace/trivial
 %       M.query.isoline                 struct (positions, segmentCount)
-%       M.uv.logMap / M.uv.stripe       structs
+%       M.uv.logMap                     struct
 %       M.reference.eigenvalues/normals/curvature   the surface's own fields
 %
 % It then validates the results both NUMERICALLY (Gauss-Bonnet, Hodge
@@ -139,10 +139,6 @@ M = store(M, 'interpolate.trivial',      @() nxr.manifold.interpolate.trivial(ct
 % query / uv
 M = store(M, 'query.isoline', @() nxr.manifold.query.isoline(ctx, M.reference.curvature, 0.0));
 M = store(M, 'uv.logMap',     @() nxr.manifold.uv.logMap(ctx, 1));
-if isfield(M, 'interpolate') && isfield(M.interpolate, 'smoothVertex')
-    vfRaw = M.interpolate.smoothVertex.vertexFieldRaw;   % stripe consumes the raw 2-RoSy field
-    M = store(M, 'uv.stripe', @() nxr.manifold.uv.stripe(ctx, vfRaw, 5.0));
-end
 
 % ── expected non-results: stored as explanatory strings ───────
 % bff needs a boundary; this cortex is closed.

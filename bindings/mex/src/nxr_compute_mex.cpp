@@ -438,32 +438,6 @@ void cmdSmoothVertex(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prh
     plhs[0] = s;
 }
 
-// ── Stripe patterns (Knöppel-Crane SIGGRAPH 2015) ───────────
-//
-// Returns positions as a (2*segCount)x3 matrix of endpoint pairs.
-// MATLAB users render with line() / patch() over consecutive pairs.
-
-mxArray* stripePatternResultToStruct(const geom::parametrization::stripes::StripePatternResult& r) {
-    return positionsSegmentsToStruct(r.positions, r.segmentCount);
-}
-
-void cmdStripes(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
-    argCount("geometry.compute", nrhs, 3, 4, "surface, vertexFieldRaw, frequency[, connect]");
-    const geom::SurfaceArrays surface = structToSurface(prhs[1]);
-    Eigen::VectorXd raw = mxToEigenVector(prhs[2]);
-    double freq = getDoubleArg(prhs[3]);
-    bool connect = (nrhs >= 5) ? flagArg(prhs[4]) : true;
-    plhs[0] = stripePatternResultToStruct(geom::parametrization::stripes::compute(surface, raw, freq, connect));
-}
-
-void cmdStripesFreq(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
-    argCount("geometry.computeFreq", nrhs, 3, 4, "surface, vertexFieldRaw, frequencies[, connect]");
-    const geom::SurfaceArrays surface = structToSurface(prhs[1]);
-    Eigen::VectorXd raw   = mxToEigenVector(prhs[2]);
-    Eigen::VectorXd freqs = mxToEigenVector(prhs[3]);
-    bool connect = (nrhs >= 5) ? flagArg(prhs[4]) : true;
-    plhs[0] = stripePatternResultToStruct(geom::parametrization::stripes::computeFreq(surface, raw, freqs, connect));
-}
 
 // ── operators: assembly ──────────────────────────────────────
 
@@ -843,8 +817,6 @@ void mexFunction(int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs) {
         else if (cmd == "geometry.signedHeat")                         cmdSignedHeat(nlhs, plhs, nrhs, prhs);
         else if (cmd == "geometry.smoothFace")                         cmdSmoothFace(nlhs, plhs, nrhs, prhs);
         else if (cmd == "geometry.smoothVertex")                       cmdSmoothVertex(nlhs, plhs, nrhs, prhs);
-        else if (cmd == "geometry.compute")                            cmdStripes(nlhs, plhs, nrhs, prhs);
-        else if (cmd == "geometry.computeFreq")                        cmdStripesFreq(nlhs, plhs, nrhs, prhs);
         else if (cmd == "operators.assembleDECOperators")              cmdAssembleDECOperators(nlhs, plhs, nrhs, prhs);
         else if (cmd == "operators.assembleConnectionLaplacian")       cmdAssembleConnectionLaplacian(nlhs, plhs, nrhs, prhs);
         else if (cmd == "operators.assembleTrivialConnectionLaplacian") cmdAssembleTrivialConnectionLaplacian(nlhs, plhs, nrhs, prhs);
@@ -875,7 +847,7 @@ void mexFunction(int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs) {
         else {
             mexErrMsgIdAndTxt("nxr:unknownCommand",
                 "Unknown command: \"%s\". Available: geometry.surfaceArrays (the surface as data, passed to every surface command), "
-                "geometry.{fixDelaunay, parallel, extendScalar, logMap, findCenter, signedHeat, heat, smoothFace, smoothVertex, compute, computeFreq, "
+                "geometry.{fixDelaunay, parallel, extendScalar, logMap, findCenter, signedHeat, heat, smoothFace, smoothVertex, "
                 "frames, vertexFrames, normals, curvatures, bff, tracePath}, "
                 "operators.{assembleManifoldOperators, assembleDECOperators, assembleConnectionLaplacian, assembleTrivialConnectionLaplacian, eigen, "
                 "normalize, removeDC, poisson, trivial, gradient, frameTransport, liftToWorld, liftToFrame, operatorById, fieldById}, "
