@@ -16,6 +16,7 @@
 #include "nxr/io/dataset_index.h"
 #include "nxr/io/errors.h"
 #include "nxr/io/migrate.h"
+#include "nxr/io/npy.h"
 #include "nxr/io/small_file_store.h"
 #include "nxr/io/store.h"
 #include "nxr/io/subject_package.h"
@@ -290,7 +291,26 @@ CommandResult delete_subject(const DeleteSubjectRequest& rq) {
 }
 
 CommandResult add_surface(const AddSurfaceRequest& rq, const Progress& progress) {
-  Mesh mesh = read_mesh(rq.file);
+  // a mesh file, or (--vertices and --faces) the surface from arrays: vertices [n x 3], faces [m x 3] 0-based, as .npy files
+  const bool arrays = rq.vertices || rq.faces;
+  if (arrays && !rq.file.empty()) throw Refused("give a mesh FILE or --vertices and --faces (.npy), not both");
+  if (!arrays && rq.file.empty()) throw Refused("the following arguments are required: FILE (or --vertices and --faces)");
+  if (arrays && !(rq.vertices && rq.faces)) throw Refused("a surface from arrays takes both --vertices FILE.npy [n x 3] and --faces FILE.npy [m x 3]");
+  if (arrays && !rq.name) throw Refused("a surface from arrays is named by --name");
+  Mesh mesh;
+  if (arrays) {
+    const NpyFile v = NpyFile::open(*rq.vertices), f = NpyFile::open(*rq.faces);
+    if (v.shape().size() != 2 || v.shape()[1] != 3) throw Refused("--vertices " + fs::path(*rq.vertices).filename().string() + ": the vertices are [n x 3]");
+    if (f.shape().size() != 2 || f.shape()[1] != 3) throw Refused("--faces " + fs::path(*rq.faces).filename().string() + ": the faces are [m x 3], three vertex indices each (0-based)");
+    if (f.descr()[1] != 'i' && f.descr()[1] != 'u') throw Refused("--faces " + fs::path(*rq.faces).filename().string() + ": vertex indices are integers (" + f.descr() + " given)");
+    mesh.vertices = v.all<double>();
+    for (const auto i : f.all<std::int64_t>()) {
+      if (i < 0 || i >= v.shape()[0]) throw Refused("--faces " + fs::path(*rq.faces).filename().string() + ": vertex " + std::to_string(i) + " is not one of the " + std::to_string(v.shape()[0]) + " vertices");
+      mesh.faces.push_back(static_cast<std::int32_t>(i));
+    }
+  } else {
+    mesh = read_mesh(rq.file);
+  }
   const std::string name = sanitize_node_name(rq.name.value_or(mesh_name(rq.file)));
   DatasetWriter ds = open_dataset(rq.dataset, rq.subject, OpenOptions{}, rq.templates, progress);
   OpenSubjectOptions oo;
@@ -299,7 +319,7 @@ CommandResult add_surface(const AddSurfaceRequest& rq, const Progress& progress)
   for (auto& x : mesh.vertices) x *= rq.scale;
   SurfaceOptions so;
   so.name = name;
-  so.source = fs::path(rq.file).filename().string();
+  so.source = arrays ? fs::path(*rq.vertices).filename().string() + ", " + fs::path(*rq.faces).filename().string() : fs::path(rq.file).filename().string();
   so.primary = !rq.no_primary;
   SurfaceInfo info;
   sub.compose([&] { info = nxr::io::add_surface(sub, so, mesh.vertices, mesh.faces); });
