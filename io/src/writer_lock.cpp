@@ -17,6 +17,7 @@
 #include <cstring>
 #include <fstream>
 #include <mutex>
+#include <random>
 #include <set>
 #include <sstream>
 
@@ -36,6 +37,9 @@ namespace {
 constexpr double kUnreadableStaleS = 30.0;
 constexpr double kBootSlackS = 60.0;
 constexpr double kBreakGraceS = 10.0;
+#ifdef __EMSCRIPTEN__
+constexpr double kProcessSlackS = 1.0;   // a lock written by this process is never earlier than its start; the slack absorbs the clocks' rounding
+#endif
 
 std::mutex g_mu;
 std::set<fs::path>& held() { static std::set<fs::path> s; return s; }
@@ -54,33 +58,37 @@ EM_JS(int, nxr_js_alive, (double pid), {
   if (typeof process === 'undefined' || !process.kill) return 1;
   try { process.kill(pid, 0); return 1; } catch (e) { return e && e.code === 'EPERM' ? 1 : 0; }
 });
-// THE LOCKS THIS PROCESS HOLDS. A lock file naming this process's pid is live only while the process holds it, and `held()` says which it holds. In WebAssembly each module
-// instance has its own memory, so its `held()` sees only its own locks: two instances in one Node process would each take a lock file naming the shared pid as stale. The
-// process-wide record is therefore kept in the host, on `globalThis` (one Set of lock files for every instance of the module in the process).
-EM_JS(int, nxr_js_lock_held, (const char* file), { const s = globalThis.__nxrWriterLocksHeld; return s && s.has(UTF8ToString(file)) ? 1 : 0; });
-EM_JS(void, nxr_js_lock_add, (const char* file), { (globalThis.__nxrWriterLocksHeld = globalThis.__nxrWriterLocksHeld || new Set()).add(UTF8ToString(file)); });
-EM_JS(void, nxr_js_lock_remove, (const char* file), { if (globalThis.__nxrWriterLocksHeld) globalThis.__nxrWriterLocksHeld.delete(UTF8ToString(file)); });
+// THE LOCKS OF THIS PROCESS. Natively one process has one `held()`: a lock file naming this process's pid is live exactly while `held()` lists it. In WebAssembly a Node process
+// can run several module instances, on its main thread and in its worker threads, each with its own memory (its own `held()`) and its own `globalThis`, so no record in either
+// is the process's. The lock file's own owner fields are used instead: the pid, and an INSTANCE token naming the module instance that wrote it. A lock naming this pid that
+// this instance does not hold is another instance's (on any thread), live while this process is, and refused; it is stale only when it carries this instance's own token
+// (left behind), or when it was written before this process started (a dead process's, whose pid was reused). Where the process's start is unknown (no `process`, no
+// `performance`), a lock naming this pid is stale unless this instance holds it.
+EM_JS(double, nxr_js_process_start_s, (), {
+  try {
+    if (typeof process !== 'undefined' && process.uptime) return Date.now() / 1000 - process.uptime();   // the process's, the same on every thread
+    if (typeof performance !== 'undefined' && performance.timeOrigin) return performance.timeOrigin / 1000;
+  } catch (e) {}
+  return 0;
+});
 #endif
 
-// does this process hold the lock file (any module instance of it, in WebAssembly)? Called under g_mu.
-bool process_holds(const fs::path& file) {
 #ifdef __EMSCRIPTEN__
-  if (nxr_js_lock_held(file.c_str())) return true;
-#endif
-  return held().count(file) != 0;
+// this module instance's token (random, made once): the lock files it writes carry it
+const std::string& this_instance() {
+  static const std::string token = [] {
+    std::random_device rd;
+    char b[40];
+    std::snprintf(b, sizeof b, "%08x%08x%08x%08x", rd(), rd(), rd(), rd());
+    return std::string(b);
+  }();
+  return token;
 }
-void process_took(const fs::path& file) {
-  held().insert(file);
-#ifdef __EMSCRIPTEN__
-  nxr_js_lock_add(file.c_str());
+std::string instance_of(const std::optional<Json>& h) { return h && h->contains("instance") && (*h)["instance"].is_string() ? (*h)["instance"].get<std::string>() : std::string(); }
 #endif
-}
-void process_released(const fs::path& file) {
-  held().erase(file);
-#ifdef __EMSCRIPTEN__
-  nxr_js_lock_remove(file.c_str());
-#endif
-}
+
+void process_took(const fs::path& file) { held().insert(file); }
+void process_released(const fs::path& file) { held().erase(file); }
 
 long long this_pid() {
 #ifdef __EMSCRIPTEN__
@@ -198,13 +206,34 @@ bool stale(const fs::path& file, const std::optional<Json>& h) {
   if ((*h)["host"].get<std::string>() != hostname()) return false;
   const long long pid = (*h)["pid"].get<long long>();
   if (pid == this_pid()) {
-    std::lock_guard<std::mutex> l(g_mu);
-    return !process_holds(file);
+    {
+      std::lock_guard<std::mutex> l(g_mu);
+      if (held().count(file)) return false;   // this process (natively), this module instance (in WebAssembly), holds it
+    }
+#ifdef __EMSCRIPTEN__
+    if (instance_of(h) == this_instance()) return true;   // this instance's own, left behind
+    const double start = nxr_js_process_start_s();
+    if (start <= 0) return true;                          // no process to compare with: as natively
+    const auto started = h->contains("started_utc") && (*h)["started_utc"].is_string() ? parse_utc((*h)["started_utc"].get<std::string>()) : std::nullopt;
+    return started && *started < start - kProcessSlackS;  // written before this process started (a reused pid); otherwise another instance of this process holds it
+#else
+    return true;
+#endif
   }
   if (!pid_alive(pid)) return true;
   const auto boot = boot_time();
   const auto started = h->contains("started_utc") && (*h)["started_utc"].is_string() ? parse_utc((*h)["started_utc"].get<std::string>()) : std::nullopt;
   return boot && started && *started < *boot - kBootSlackS;
+}
+
+// does the lock name this holder: this process (natively), this module instance (in WebAssembly)? Only then is it removed on release.
+bool names_this_holder(const std::optional<Json>& h) {
+  if (!h || (*h)["pid"].get<long long>() != this_pid()) return false;
+#ifdef __EMSCRIPTEN__
+  return instance_of(h) == this_instance();
+#else
+  return true;
+#endif
 }
 
 std::string holder_json() {
@@ -217,8 +246,12 @@ std::string holder_json() {
   const auto us = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count() % 1000000;
   char frac[16] = "";
   if (us) std::snprintf(frac, sizeof frac, ".%06lld", static_cast<long long>(us));
-  // json.dumps' own layout (", " and ": "), as nxr's Python writes it
-  return "{\"pid\": " + std::to_string(this_pid()) + ", \"host\": " + js_json(Json(hostname())) + ", \"program\": \"nxr-io\", \"started_utc\": \"" + ts + frac + "Z\"}";
+  // json.dumps' own layout (", " and ": "), as nxr's Python writes it; in WebAssembly the module instance's token too (the readers ignore a field they do not use)
+  std::string extra;
+#ifdef __EMSCRIPTEN__
+  extra = ", \"instance\": \"" + this_instance() + "\"";
+#endif
+  return "{\"pid\": " + std::to_string(this_pid()) + ", \"host\": " + js_json(Json(hostname())) + ", \"program\": \"nxr-io\", \"started_utc\": \"" + ts + frac + "Z\"" + extra + "}";
 }
 
 int take_over(const fs::path& file, const std::optional<Json>& stale_holder, const Identity& was) {
@@ -257,10 +290,7 @@ void release_all() {
   std::lock_guard<std::mutex> l(g_mu);
   for (const auto& f : held()) {
     const auto h = read_writer_lock(f.parent_path());
-    if (h && (*h)["pid"].get<long long>() == this_pid()) ::unlink(f.c_str());
-#ifdef __EMSCRIPTEN__
-    nxr_js_lock_remove(f.c_str());
-#endif
+    if (names_this_holder(h)) ::unlink(f.c_str());
   }
   held().clear();
 }
@@ -304,7 +334,7 @@ void WriterLock::release() {
   s_->released = true;
   { std::lock_guard<std::mutex> l(g_mu); process_released(s_->file); }
   const auto h = read_writer_lock(s_->file.parent_path());
-  if (h && (*h)["pid"].get<long long>() == this_pid()) ::unlink(s_->file.c_str());
+  if (names_this_holder(h)) ::unlink(s_->file.c_str());
 }
 
 WriterLock acquire_writer_lock(const fs::path& dataset_dir, const std::string& program) {

@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { Worker } from 'node:worker_threads';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -191,7 +192,7 @@ test('compile and run with from and to', { skip }, async () => {
   } finally { done(); }
 });
 
-test('a write handle holds the lock across processes; a read handle keeps its database open and sees what is stored meanwhile', { skip }, async () => {
+test('a write handle holds the lock across processes, module instances and worker threads; a read handle keeps its database open and sees what is stored meanwhile', { skip }, async () => {
   const { nxr, NxrError, demo: D, done } = await demo();
   try {
     const child = `import { nxrNeuro } from ${JSON.stringify(pathToFileURL(join(PACKAGE, 'index.mjs')).href)};
@@ -232,5 +233,22 @@ test('a write handle holds the lock across processes; a read handle keeps its da
     assert.throws(() => nxr.open(D, 'write'), (e) => e.code === 'writer_lock_held');
     second.close();
     nxr.open(D, 'write').close();
+
+    // a module instance in a WORKER THREAD of this process (its own memory and its own globalThis): refused while this thread's handle holds the lock, granted once it is closed
+    const url = pathToFileURL(join(PACKAGE, 'index.mjs')).href;
+    const inWorker = () => new Promise((resolve, reject) => {
+      const w = new Worker(`const { parentPort, workerData } = require('node:worker_threads');
+        import(workerData.url).then(async (m) => {
+          const n = await m.nxrNeuro();
+          try { n.open(workerData.D, 'write').close(); parentPort.postMessage('granted'); } catch (e) { parentPort.postMessage('refused:' + e.code); }
+        });`, { eval: true, workerData: { url, D } });
+      w.once('error', reject);
+      w.once('message', (m) => { w.terminate().then(() => resolve(m), reject); });
+    });
+    const held = nxr.open(D, 'write');
+    assert.equal(await inWorker(), 'refused:writer_lock_held');
+    held.close();
+    assert.equal(await inWorker(), 'granted');
+    nxr.open(D, 'write').close();                                                                      // the worker's close released it
   } finally { done(); }
 });
