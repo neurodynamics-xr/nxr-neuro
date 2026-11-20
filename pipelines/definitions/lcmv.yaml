@@ -1,0 +1,75 @@
+# THE LCMV BEAMFORMER of a subject (fixed orientation, the pseudo neural activity index): from a head model (an operator of kind forward, gain channels x 3 sources), a DATA covariance and a
+# NOISE covariance (statistics over one pick of the head model's channels, both made by `nxr-neuro run noisecov`: the data covariance on the recording the kernel is for, the noise
+# covariance on the empty room) and the source surface, whose vertex normals orient the sources. Written from Van Veen et al. 1997 and the documented behaviour of Brainstorm's 2016 source
+# estimation (process_inverse_2016 / bst_inverse_linear_2016, LCMV, measure NAI, orientation fixed, regularisation median) of its release of 2018-10-12, the version the MEG fingerprinting
+# paper used (da Silva Castanheira J, Orozco Perez HD, Misic B, Baillet S (2021) Nat Commun 12:5713, doi:10.1038/s41467-021-25895-8; megFingerprinting v1.0.0, 06fdba8). Every stored
+# result carries these references (producer_json.references).
+# Each covariance is truncated to its rank and regularised type by type; the kernel row of a source is (W_d l)^T W_d / ||W_d l|| (W_d the data whitener, l the gain along the normal).
+# Stored: the kernel `<name>` (an operator from the channels to the head model's sources, scalar), its channels `<name>_channels`, the noise whitener `<name>_whitener` (an operator of the
+# noise covariance: the reference stores it; the kernel does not use it) and the data whitener `<name>_data_whitener` (an operator of the data covariance, the one the kernel is made with).
+# It cannot resolve: correlated sources (they partly cancel); its output is an index normalised to the data covariance's own span, not a current; the regularisation trades resolution for stability.
+#
+#   nxr-neuro run noisecov --dataset <folder> --subject sub-01 --recording rest --all --block-seconds <10000 samples> --divisor samples_minus_one --name rest_data_cov
+#   nxr-neuro run noisecov --dataset <folder> --subject sub-01 --recording emptyroom --all --block-seconds <10000 samples> --divisor samples_minus_one --name emptyroom_noise_cov
+#   nxr-neuro run lcmv --dataset <folder> --subject sub-01 --data-cov rest_data_cov --noise-cov emptyroom_noise_cov [--forward NAME]
+pipeline: lcmv
+version: 1
+description: the fixed-orientation LCMV beamformer (the pseudo neural activity index) of a head model, a data covariance and a noise covariance
+scope: subject
+
+inputs:
+  forward:          {operator: forward, where: {name: $forward}}
+  data_covariance:  {statistic: any, where: {measure: covariance, name: $data_cov}}
+  noise_covariance: {statistic: any, where: {measure: covariance, name: $noise_cov}}
+  sources:          {manifold: surface, is: forward.from}
+
+parameters:
+  forward: {default: none, meaning: "the head model's name, or none: the subject's one head model", unit: "-"}
+  data_cov: {default: required, meaning: "the data covariance's name: a statistic of the recording the kernel is for (`nxr-neuro run noisecov` on it)", unit: "-"}
+  noise_cov: {default: required, meaning: "the noise covariance's name: a statistic of the empty room (`nxr-neuro run noisecov` on it), on the same channels", unit: "-"}
+  name: {default: "{forward}_lcmv", meaning: "the kernel's name; beside it <name>_channels, <name>_whitener and <name>_data_whitener", unit: "-"}
+  regularisation: {default: median, meaning: "how each covariance is regularised after truncation to its rank, type by type: median (the eigenvalue tail set to the median: the reference's) | ridge | diagonal | none", unit: "-", choices: [median, ridge, diagonal, none]}
+  ridge_fraction: {default: 0.1, meaning: "the ridge's fraction of the largest eigenvalue (ridge only; the reference passes 0.1 with median, where it has no effect)", unit: "fraction"}
+  detect_diagonal: {default: true, meaning: "a diagonal noise covariance whitens both covariances by their diagonal (the reference's rule)", unit: "-"}
+  average_reference: {default: true, meaning: "apply the average reference of EEG, sEEG and ECoG to the gain and both covariances, per family", unit: "-"}
+  normals: {default: brainstorm, meaning: "the sources' orientations: brainstorm (the reference's VertNormals: minus the sum of the incident faces' unit normals, normalised) | corner_angle (geometry-central's corner-angle weighted normals)", unit: "-", choices: [brainstorm, corner_angle]}
+
+steps:
+  before:
+    - node: meeg.lcmv
+      in: {forward: forward, data_covariance: data_covariance, noise_covariance: noise_covariance, sources: sources}
+      with: {regularisation: $regularisation, ridge_fraction: $ridge_fraction, detect_diagonal: $detect_diagonal, average_reference: $average_reference, normals: $normals}
+      out: [kernel, channels, whitener, data_whitener]
+
+outputs:
+  kernel:
+    kind: operator
+    operator_kind: inverse kernel
+    name: $name
+    from: forward.to
+    to: forward.from
+    from_selection: channels
+    derived_from: forward
+  channels:
+    kind: selection
+    type: indices
+    name: "$name_channels"
+    on: forward.to
+  whitener:
+    kind: operator
+    operator_kind: whitener
+    name: "$name_whitener"
+    from: forward.to
+    to: forward.to
+    from_selection: channels
+    to_selection: channels
+    of_statistic: noise_covariance
+  data_whitener:
+    kind: operator
+    operator_kind: whitener
+    name: "$name_data_whitener"
+    from: forward.to
+    to: forward.to
+    from_selection: channels
+    to_selection: channels
+    of_statistic: data_covariance

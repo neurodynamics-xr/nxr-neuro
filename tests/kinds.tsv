@@ -24,6 +24,8 @@ layering_sql_only_in_io	guard
 layering_sql_only_in_io_catches	guard
 layering_toolboxes_catches	guard
 layering_toolboxes_follow_the_dag	guard
+meeg_test_beamformer	unit
+meeg_test_beamformer_parity	golden
 meeg_test_forward	unit
 meeg_test_forward_parity	golden
 meeg_test_inverse	unit
@@ -164,6 +166,7 @@ test_isoline_methods	unit
 test_jointbank	golden
 test_ladder	golden
 test_lag	unit
+test_lcmv_pipeline	integration
 test_magnetic	golden
 test_mass_variants	unit
 test_measure_pipeline	integration
@@ -286,6 +289,7 @@ test_tracks	golden
 test_transport	unit
 test_value_types	unit
 test_vector_covariant_operators	unit
+test_vertex_normals_patch	golden
 test_visualization_primitives	unit
 test_vortex_cores_pipeline	integration
 test_wave	unit

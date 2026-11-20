@@ -441,6 +441,8 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 |---|---|---|
 | `nxr-neuro run noisecov` | The noise covariance of a recording's good channels. | `noisecov compute` |
 | `nxr-neuro run inverse` | The depth-weighted minimum-norm inverse kernel, from a noise covariance and a head model. | `inverse compute` |
+| `nxr-neuro run lcmv` | The fixed-orientation LCMV beamformer (Brainstorm's 2016 pseudo neural activity index), from a head model, a data covariance and a noise covariance. | (the definition) |
+| `nxr-neuro run region_pca` | Each region's signal as the first principal component of its sources over a span (Brainstorm's scout PCA with the sign flip): a region map of the channels and its offsets. | (the definition) |
 | `nxr-neuro run headmodel` | The sphere head model (gain matrix) for a subject's cortex, MEG and EEG. | `headmodel compute` |
 | `nxr-neuro run pointspread` | The instrument's blur: unit currents at sample vertices through the head model and inverse kernel. | `pointspread compute` |
 | `nxr-neuro run eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface, with the intrinsic complex and the modes' full forms (cached); `--glued` for a cortex of two hemispheres. | `eigen solve` |
@@ -919,6 +921,48 @@ The projectors handed are the head model's channel set's (the run's, chosen by `
 Goldens: `meeg/test/golden/gen_kernel_projectors_golden.py`/`.m` (one active SSP projector, both covariances), checked to 1e-12 (measured 4e-15 against Brainstorm, 6e-14 against MNE-Python).
 The kernel and its `_channels`, `_noise_cov`, `_whitener` and `_source_rr/_nn` are stored as the importer stores them, so a reader tells a computed kernel from an imported one by its producer string
 only. The maths is written from the papers, not translated from Brainstorm (GPLv3); Brainstorm and MNE-Python are reference outputs (goldens in `meeg/test/golden/`, with their generators).
+
+### The source model of MEG fingerprinting: the data covariance, the LCMV beamformer and the region signal (`run noisecov`, `run lcmv`, `run region_pca`; `meeg/include/nxr/meeg/beamformer.h`, `scouts.h`; spec `docs/specs/2026-11-16-meg-fingerprinting.md`, 11.2, steps 11, 14 and 15)
+
+**Why:** the published fingerprinting method compares region spectra of a beamformer's sources, the region signal being each region's first principal component taken before the spectrum. The
+defaults reproduce that method as its paper ran it: Brainstorm's release of 2018-10-12 (decided 2026-11-19: the goldens are made with that release, found through `BRAINSTORM_2018_HOME`, and Brainstorm's
+code is only run by the generator, never copied). Every stored result carries the citation (`producer_json.references`): Van Veen et al. (1997) IEEE Trans Biomed Eng 44:867; Brainstorm (Tadel et al.
+2011), its 2016 source estimation and scout PCA of the release of 2018-10-12; da Silva Castanheira, Orozco Perez, Mišić, Baillet (2021) Nat Commun 12:5713 and megFingerprinting v1.0.0 (06fdba8).
+
+- **The data covariance (step 11)** is the same statistic as the noise covariance (`measure: covariance`), made by `run noisecov` on the recording itself: nothing new is computed. The reference
+  (`process_noisecov` on the band-passed run, raw continuous file) reads blocks of 10 000 samples, removes each block's mean and divides the sum by N - 1: `--all --block-seconds <10000 / sfreq>
+  --divisor samples_minus_one`. The projectors are those the recording is read with (the chunk service applies its active projectors).
+- **The LCMV beamformer (step 14, `run lcmv`, the node `meeg.lcmv`, `nxr::meeg::lcmvKernel`)**: a definition of its own beside `run inverse` (a different method is a different graph, not a switch
+  of the minimum-norm node), reusing its preparation (`minimum_norm_inputs` under Brainstorm's conventions: the projectors of status 1 and 2 on the gain and both sides of each covariance, the
+  average reference per family; the channels are the data covariance's pick, the run's good channels, and the noise covariance is read on them in their order: an empty room on another channel set is
+  matched to the head model's channels by name when it is prepared, as `run inverse` does). Each covariance is truncated to its rank and regularised type by type (cross-type covariance zero),
+  by default `median` (the eigenvalue tail flattened to the median of the kept singular values); `ridge` (a fraction of the LARGEST eigenvalue, Brainstorm 2016's `reg`, `--ridge-fraction 0.1`),
+  `diagonal` and `none` are named options. A diagonal noise covariance whitens BOTH covariances by their diagonal (the reference's rule, `--detect-diagonal`). The sources are oriented along the
+  source surface's vertex normals (fixed orientation); the kernel row of source k is (W_d l_k)^T W_d / ||W_d l_k||, W_d the data whitener and l_k the gain along the normal: the LCMV weights
+  g^T C^-1 normalised by sqrt(g^T C^-1 g), which Brainstorm calls the pseudo neural activity index (measure `nai`). **The noise covariance does not enter the kernel**: the reference regularises it
+  and stores its whitener beside the kernel; so does this. Stored: the kernel `<name>` (an `inverse kernel` operator, scalar, `params.inverse`: measure LCMV, solver lcmv, orientation fixed), its
+  channels, `<name>_whitener` (of the noise covariance) and `<name>_data_whitener` (of the data covariance). Goldens: `meeg/test/golden/gen_lcmv_golden.m` (Brainstorm's bst_inverse_linear_2016:
+  200 sources on a sphere, 26 MEG channels of two types, a planted source; the rules median, ridge, none and a diagonal noise covariance): whiteners to 2e-12, kernels to 8e-9 of their largest entry.
+  **What it cannot resolve:** correlated sources partly cancel (the beamformer's blind spot); the output is an index normalised to the data covariance's own span (unit variance on it when nothing
+  is regularised), not a current, so kernels made from different spans are not on one scale; the regularisation trades resolution for stability.
+- **The region signal (step 15, `run region_pca`, the nodes `meeg.region_pca_basis` and `meeg.region_pca`, `nxr::meeg::scoutSignFlip`, `regionComponent`, `regionComponentSign`).** The reference
+  (bst_scout_value `pca` with the sign flip, applied before the spectrum over the span the spectrum reads): each source's series multiplied by the sign of its orientation's projection on the
+  region's dominant orientation (the fewest flipped); the series' means removed; the first left singular vector u1; the output u1^T F signed by the data (the sign of the peak source's largest
+  excursion times the sign of the component's) plus the peak source's mean. **The graph** (a span-wide component is a statistic made first, then applied pointwise): the channels' covariance over
+  the span (`run noisecov` over THE SAME span, one block) → `meeg.region_pca_basis` (before): per region the leading eigenvector of D K_R C K_R^T D (never the whole cortex's covariance) as channel
+  weights, and the peak source's flipped kernel row → `meeg.region_pca` (chunks): the 2R series measured over the span (max, min, mean: `nxr::measurement::reduce`, the span one member of a time
+  rule) → the signs, the region map (regions x channels) and the offsets. A run over another span than the covariance's is refused. Stored: the region map `<name>` (an operator of kind `region map`
+  from the channels to the partition's regions, `to_selection` the partition; a region's signal is map x + its offset) and its channels; per region in the map's provenance (`producer.regions`): its
+  sources, the sources flipped, the peak source, the share the component explains, its sign and its offset (the peak source's mean less the signed component's: a constant, which changes only the
+  signal's mean; a value per region stored as data would be a measurement over the partition, with a measure the registry does not have). A spectrum of the regions reads the map as it reads a kernel. Golden: the same generator (bst_scout_value over 8
+  regions, 900 samples): the region signals, sign included, to 6e-10. **What it cannot resolve:** the component is the direction of most variance within a region over THIS span, so it changes
+  between spans and people; it carries its share of the region's signal (`explained`) and leaves out the rest; its sign is a convention set by the span's extremes (an exact tie of the two
+  excursions takes +1, where the reference takes the earlier sample); the reference skips the flip when every value of a region is positive, which a signed beamformer output never is.
+- **The orientations** (`--normals`, both definitions): by default Brainstorm's (`brainstorm`: its surfaces' `VertNormals`, tess_normals of the release of 2018-10-12, MATLAB's patch normals:
+  minus the sum of the incident faces' unit normals, normalised; `nxr::geometry::vertexNormalsPatch`, held to that release by `test_vertex_normals_patch` to 7e-8, MATLAB's single precision),
+  computed from the stored surface; `corner_angle` (geometry-central's corner-angle weighted normals, `nxr::geometry::vertexNormals`) is a named option. The two differ in direction as well as
+  sign; the choice is in the provenance and the cache key. **Deviation to know:**
+  The covariance a region map is made from must be of the recording the run reads: the span is checked, the recording is the caller's.
 
 ## Temporal filters (`compute/include/nxr/filter.h`, `lowpass|highpass|bandpass|bandstop|notch`)
 

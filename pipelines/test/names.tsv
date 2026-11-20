@@ -27,10 +27,13 @@ node	geometry.glue	-	composite
 node	signal.gradient_power	-	composite
 node	operators.hodge_dirac	-	composite
 node	meeg.largest_component	-	composite
+node	meeg.lcmv	-	composite
 node	meeg.minimum_norm	-	composite
 node	meeg.noise_covariance	-	composite
 node	meeg.phase_gradient	-	composite
 node	meeg.positions_transition	-	composite
+node	meeg.region_pca	-	composite
+node	meeg.region_pca_basis	-	composite
 node	meeg.source_band_power	-	composite
 node	meeg.source_bins	-	composite
 node	meeg.source_tensor	-	composite
