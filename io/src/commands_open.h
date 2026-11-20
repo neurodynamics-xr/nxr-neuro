@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "nxr/io/catalogue.h"
+#include "nxr/io/errors.h"
 #include "nxr/io/npy.h"
 #include "nxr/io/task/task.h"
 #include "pieces.h"
@@ -48,6 +49,25 @@ inline DatasetWriter open_one_database(const std::string& folder, const std::str
   if (is_catalogue_dataset(folder))
     throw Refused(what + " works on a one-database dataset; " + folder + " is a catalogue of subject packages (`list subjects`, `show subject` and the `compute` verbs open its packages)", true);
   return open_writer(folder, o);
+}
+
+// ---- A NEW MEMBER OF A CATALOGUE (`create subject`, and the importers that make a subject, the template or the group) ----
+
+// where a member's package is made: in the dataset's folder, the subject's name + `.nxr.zarr`
+inline fs::path member_package_path(const Catalogue& cat, const std::string& name) { return cat.folder() / (name + kPackageSuffix); }
+// the package made for a new member, carrying the dataset as its home (its name, id and hint row) and the subject row `subject` describes; not registered yet
+inline DatasetWriter create_member_package(const Catalogue& cat, const std::string& name, const SubjectOptions& subject, const std::string& built_by) {
+  CreatePackageOptions po = cat.package_options();
+  po.subject = subject;
+  po.built_by = built_by;
+  return create_package(member_package_path(cat, name), name, po);
+}
+// the member's package registered in the catalogue; a refusal is the command's error, naming the reason
+inline void register_member(const std::string& dataset, const fs::path& package, const std::string& name, const std::string& registered_by) {
+  RegisterOptions ro;
+  ro.registered_by = registered_by;
+  const auto res = register_packages(dataset, {package}, ro);
+  if (res.empty() || res[0].outcome == "refused") throw Error(code::invalid_argument, name + ": " + (res.empty() ? std::string("not registered") : res[0].reason));
 }
 
 // ---- ARRAYS A COMMAND TAKES (ArrayInput): a .npy file, or an array in memory; the same checks and the same stored precision either way ----

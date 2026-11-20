@@ -436,14 +436,44 @@ Json compose_subject(SubjectWriter& sub, const fs::path& root, const std::string
   return Json{{"subject", subject}, {"sessions", sessions}, {"volumes", volumes}, {"maps", maps}, {"fibers", fibers}, {"connectomes", connectomes}, {"skipped", skipped}};
 }
 
+nxr::io::SubjectOptions subject_options(const fs::path& root, const std::string& subject, const std::string& created_by) {
+  nxr::io::SubjectOptions so;
+  so.source_format = "brainstorm";
+  so.source_path = py_path(anat_dir(root, subject).first.string());
+  so.created_by = created_by;
+  return so;
+}
+nxr::io::SubjectOptions template_options(const fs::path& root, const std::string& created_by) {
+  nxr::io::SubjectOptions so;
+  so.kind = "template";
+  so.source_format = "brainstorm";
+  so.source_path = py_path((root / "anat" / "@default_subject").string());
+  so.created_by = created_by;
+  return so;
+}
+nxr::io::SubjectOptions group_options(const fs::path& root, const std::string& created_by) {
+  nxr::io::SubjectOptions so;
+  so.kind = "group";
+  so.source_format = "brainstorm";
+  so.source_path = py_path((root / "data" / "Group_analysis" / "@intra").string());
+  so.created_by = created_by;
+  return so;
+}
+
+namespace {
+// the subject an import fills: created in a one-database dataset; in a package (a catalogue's member made for this import, with the same row) the package's own subject
+SubjectWriter subject_to_fill(nxr::io::DatasetWriter& ds, const std::string& name, const nxr::io::SubjectOptions& so) {
+  if (!ds.is_package()) return SubjectWriter::create(ds, name, so);
+  nxr::io::OpenSubjectOptions oo;
+  oo.created_by = so.created_by;
+  return SubjectWriter::open(ds, name, oo);
+}
+}  // namespace
+
 Json convert_subject(nxr::io::DatasetWriter& ds, const fs::path& root, const std::string& subject, const Emit& emit, const std::string& created_by,
                      std::optional<double> resample) {
   const auto anat_pair = anat_dir(root, subject);
-  nxr::io::SubjectOptions so;
-  so.source_format = "brainstorm";
-  so.source_path = py_path(anat_pair.first.string());
-  so.created_by = created_by;
-  SubjectWriter sub = SubjectWriter::create(ds, subject, so);
+  SubjectWriter sub = subject_to_fill(ds, subject, subject_options(root, subject, created_by));
   Json summary;
   sub.compose([&] { summary = compose_subject(sub, root, subject, emit, resample); });
 
@@ -473,12 +503,7 @@ Json convert_template(nxr::io::DatasetWriter& ds, const fs::path& root, const st
     });
   }
   if (files.empty()) throw Error(code::not_found, py_path(src.string()) + ": no tess_cortex_*_low.mat to export as the template's cortex");
-  nxr::io::SubjectOptions so;
-  so.kind = "template";
-  so.source_format = "brainstorm";
-  so.source_path = py_path(src.string());
-  so.created_by = created_by;
-  SubjectWriter sub = SubjectWriter::create(ds, "template", so);
+  SubjectWriter sub = subject_to_fill(ds, kTemplateSubject, template_options(root, created_by));
   Json names = Json::array(), vols = Json::array(), maps = Json::array(), skipped = Json::array();
   sub.compose([&] {
     for (std::size_t k = 0; k < files.size(); ++k) {
@@ -513,12 +538,7 @@ Json convert_template(nxr::io::DatasetWriter& ds, const fs::path& root, const st
 Json convert_group(nxr::io::DatasetWriter& ds, const fs::path& root, const Emit& emit, const std::string& created_by) {
   const fs::path src = root / "data" / "Group_analysis" / "@intra";
   if (!is_dir(src)) throw Error(code::not_found, py_path(src.string()) + ": not in this protocol");
-  nxr::io::SubjectOptions so;
-  so.kind = "group";
-  so.source_format = "brainstorm";
-  so.source_path = py_path(src.string());
-  so.created_by = created_by;
-  SubjectWriter sub = SubjectWriter::create(ds, "group", so);
+  SubjectWriter sub = subject_to_fill(ds, kGroupSubject, group_options(root, created_by));
   Json wrote = Json::array();
   sub.compose([&] {
     for (const auto& f : files_of(src, "timefreq_", ".mat"))

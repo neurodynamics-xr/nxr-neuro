@@ -1,6 +1,7 @@
 // The import commands' library functions (nxr/io/task/commands.h, "import"): Brainstorm protocols, files in the field's formats, BIDS and the participants, moved
 // out of cli/ so the command line and the faces call one function. Behaviour, refusals and results are the command line's, unchanged.
 #include <fstream>
+#include <functional>
 #include <sstream>
 
 #include "commands_open.h"
@@ -94,6 +95,34 @@ Json with_skipped(Json r, const nxr::bst::SkippedFiles& s) {
   return r;
 }
 
+// THE NEW MEMBER OF A CATALOGUE AN IMPORT MAKES (a subject, the template, the group: a catalogue is the default form): its package made in the dataset's folder as `create subject`
+// makes one, with the subject row `so`, filled by `fill`, closed, and only then registered. A failed import removes the package it made, and registers nothing, as a one-database
+// dataset removes a subject whose import failed. A name the catalogue lists, or a package of that name already in the folder, is refused (a subject is imported whole).
+Json into_new_member(const std::string& dataset, const std::string& name, const SubjectOptions& so, const std::string& created_by, const std::function<Json(DatasetWriter&)>& fill) {
+  pieces::discard_orphans(dataset);
+  const Catalogue cat = Catalogue::open(dataset);
+  if (cat.find(name)) throw Error(code::already_exists, name + ": already a subject of " + dataset + " - delete it first (a subject is imported whole)");
+  const fs::path pkg = member_package_path(cat, name);
+  if (fs::exists(pkg)) throw Error(code::already_exists, pkg.string() + ": a package of that name is already in the dataset's folder (`register package` lists it)");
+  Json r;
+  try {
+    DatasetWriter w = create_member_package(cat, name, so, created_by);
+    r = fill(w);
+    w.close();
+  } catch (...) {
+    std::error_code ec;
+    fs::remove_all(pkg, ec);   // the package this import made (nothing of it was registered)
+    throw;
+  }
+  register_member(dataset, pkg, name, created_by);
+  return r;
+}
+bool listed_in_catalogue(const std::string& dataset, const std::string& name) { return is_catalogue_dataset(dataset) && Catalogue::open(dataset).find(name).has_value(); }
+// where the job row of an import of the template or the group goes: a catalogue's member of that name (its package), or the one-database dataset itself
+std::optional<std::string> member_of(const std::string& dataset, const char* name) {
+  return is_catalogue_dataset(dataset) ? std::optional<std::string>(name) : std::nullopt;
+}
+
 void require_file(const std::string& file) {
   if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
 }
@@ -134,31 +163,40 @@ CommandResult import_subject(const ImportSubjectRequest& rq, const Progress& pro
 }
 
 static CommandResult import_subject_work(const ImportSubjectRequest& rq, const Progress& progress) {
-  DatasetWriter ds = open_one_database(rq.dataset, "import subject");
   const nxr::bst::SkippedFiles skipped;
-  return result_of(with_skipped(nxr::bst::convert_subject(ds, rq.protocol, rq.subject, said(progress), rq.created_by, rq.resample), skipped));
+  const auto convert = [&](DatasetWriter& ds) { return nxr::bst::convert_subject(ds, rq.protocol, rq.subject, said(progress), rq.created_by, rq.resample); };
+  if (is_catalogue_dataset(rq.dataset))   // the subject into a package of its own
+    return result_of(with_skipped(into_new_member(rq.dataset, rq.subject, nxr::bst::subject_options(rq.protocol, rq.subject, rq.created_by), rq.created_by, convert), skipped));
+  DatasetWriter ds = open_one_database(rq.dataset, "import subject");
+  return result_of(with_skipped(convert(ds), skipped));
 }
 
 static CommandResult import_template_work(const ImportTemplateRequest& rq, const Progress& progress);
 CommandResult import_template(const ImportTemplateRequest& rq, const Progress& progress) {
-  return recorded("import:template", JobTarget{rq.dataset, "", std::nullopt}, Json{{"protocol", rq.protocol}, {"surface", oj(rq.surface)}}, rq.created_by, [&] { return import_template_work(rq, progress); });
+  return recorded("import:template", JobTarget{rq.dataset, "", member_of(rq.dataset, nxr::bst::kTemplateSubject)}, Json{{"protocol", rq.protocol}, {"surface", oj(rq.surface)}}, rq.created_by, [&] { return import_template_work(rq, progress); });
 }
 
 static CommandResult import_template_work(const ImportTemplateRequest& rq, const Progress& progress) {
-  DatasetWriter ds = open_one_database(rq.dataset, "import template");
   const nxr::bst::SkippedFiles skipped;
-  return result_of(with_skipped(nxr::bst::convert_template(ds, rq.protocol, rq.surface, said(progress), rq.created_by), skipped));
+  const auto convert = [&](DatasetWriter& ds) { return nxr::bst::convert_template(ds, rq.protocol, rq.surface, said(progress), rq.created_by); };
+  if (is_catalogue_dataset(rq.dataset))   // the template into a package of its own (kind `template`), a member of the dataset
+    return result_of(with_skipped(into_new_member(rq.dataset, nxr::bst::kTemplateSubject, nxr::bst::template_options(rq.protocol, rq.created_by), rq.created_by, convert), skipped));
+  DatasetWriter ds = open_one_database(rq.dataset, "import template");
+  return result_of(with_skipped(convert(ds), skipped));
 }
 
 static CommandResult import_group_work(const ImportGroupRequest& rq, const Progress& progress);
 CommandResult import_group(const ImportGroupRequest& rq, const Progress& progress) {
-  return recorded("import:group", JobTarget{rq.dataset, "", std::nullopt}, Json{{"protocol", rq.protocol}}, rq.created_by, [&] { return import_group_work(rq, progress); });
+  return recorded("import:group", JobTarget{rq.dataset, "", member_of(rq.dataset, nxr::bst::kGroupSubject)}, Json{{"protocol", rq.protocol}}, rq.created_by, [&] { return import_group_work(rq, progress); });
 }
 
 static CommandResult import_group_work(const ImportGroupRequest& rq, const Progress& progress) {
-  DatasetWriter ds = open_one_database(rq.dataset, "import group");
   const nxr::bst::SkippedFiles skipped;
-  return result_of(with_skipped(nxr::bst::convert_group(ds, rq.protocol, said(progress), rq.created_by), skipped));
+  const auto convert = [&](DatasetWriter& ds) { return nxr::bst::convert_group(ds, rq.protocol, said(progress), rq.created_by); };
+  if (is_catalogue_dataset(rq.dataset))   // the protocol's group results into the dataset's group package (kind `group`)
+    return result_of(with_skipped(into_new_member(rq.dataset, nxr::bst::kGroupSubject, nxr::bst::group_options(rq.protocol, rq.created_by), rq.created_by, convert), skipped));
+  DatasetWriter ds = open_one_database(rq.dataset, "import group");
+  return result_of(with_skipped(convert(ds), skipped));
 }
 
 CommandResult import_templates(const ImportTemplatesRequest& rq) {
@@ -215,7 +253,6 @@ CommandResult import_condition(const ImportConditionRequest& rq, const Progress&
 
 static CommandResult import_condition_work(const ImportConditionRequest& rq, const Progress& progress) {
   const fs::path root = rq.protocol;
-  DatasetWriter ds = open_dataset(rq.dataset, rq.subject, OpenOptions{}, rq.templates, progress);
   nxr::bst::ConditionPlanOptions po;
   po.surface = rq.surface;
   if (rq.extra_surface) po.extra_surfaces = *rq.extra_surface;
@@ -228,23 +265,26 @@ static CommandResult import_condition_work(const ImportConditionRequest& rq, con
   co.write_gain = !rq.no_gain;
   co.all_surfaces = rq.all_surfaces;
   if (rq.resample) co.resample = *rq.resample;
-  std::optional<SubjectWriter> sub;
-  if (ds.subject(rq.subject)) {
-    OpenSubjectOptions oo;
-    oo.created_by = rq.created_by;
-    sub.emplace(SubjectWriter::open(ds, rq.subject, oo));
-  } else {
-    SubjectOptions so;
-    so.source_format = "brainstorm";
-    so.source_path = nxr::bst::py_path(nxr::bst::anat_dir(root, rq.subject).first.string());
-    so.created_by = rq.created_by;
-    sub.emplace(SubjectWriter::create(ds, rq.subject, so));
-  }
-  Json r;
   const nxr::bst::SkippedFiles skipped;
-  sub->compose([&] { r = nxr::bst::convert_condition(*sub, root, rq.condition, plan, co, said(progress)); });
-  if (!ds.is_package()) write_catalog(ds.root());
-  return result_of(with_skipped(std::move(r), skipped));
+  // the condition into the subject, which is made when the dataset has no such subject yet
+  const auto convert = [&](DatasetWriter& ds) {
+    std::optional<SubjectWriter> sub;
+    if (ds.subject(rq.subject)) {
+      OpenSubjectOptions oo;
+      oo.created_by = rq.created_by;
+      sub.emplace(SubjectWriter::open(ds, rq.subject, oo));
+    } else {
+      sub.emplace(SubjectWriter::create(ds, rq.subject, nxr::bst::subject_options(root, rq.subject, rq.created_by)));
+    }
+    Json r;
+    sub->compose([&] { r = nxr::bst::convert_condition(*sub, root, rq.condition, plan, co, said(progress)); });
+    if (!ds.is_package()) write_catalog(ds.root());
+    return r;
+  };
+  if (is_catalogue_dataset(rq.dataset) && !listed_in_catalogue(rq.dataset, rq.subject))   // a catalogue without the subject: its package is made, filled, then registered
+    return result_of(with_skipped(into_new_member(rq.dataset, rq.subject, nxr::bst::subject_options(root, rq.subject, rq.created_by), rq.created_by, convert), skipped));
+  DatasetWriter ds = open_dataset(rq.dataset, rq.subject, OpenOptions{}, rq.templates, progress);
+  return result_of(with_skipped(convert(ds), skipped));
 }
 
 static CommandResult import_inverse_work(const ImportInverseRequest& rq, const Progress& progress);
