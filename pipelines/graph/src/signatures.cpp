@@ -33,7 +33,10 @@ ManifoldRef with_of(const ManifoldRef& m, const ManifoldRef& of) { Manifold x = 
 ManifoldRef strip_glued(const ManifoldRef& m) { return m && m->form == Manifold::Form::derived && m->key == "glued" ? m->of : m; }
 bool is_members(const ManifoldRef& m) { return m && m->form == Manifold::Form::members; }
 // a member set of a partition (a measurement's factor), or the time tiles a node made of one: what a time event is found on
-bool member_like(const ManifoldRef& m) { return m && (m->form == Manifold::Form::members || m->role == Role::time_tiles || m->role == Role::frames); }
+bool member_like(const ManifoldRef& m) { return m && (m->form == Manifold::Form::members || is_tiled(*m)); }
+// a member set of a time partition (tile levels, frame tilings, events found on a line), or a frame line: what a reduction over time takes away. The tile pyramid is the selection system's
+// (members of its partitions); the type only says that the partition is of a line in seconds.
+bool time_partition(const Manifold& m) { return is_tiled(m) || (m.form == Manifold::Form::members && m.of && (in_seconds(*m.of) || time_partition(*m.of))); }
 std::string partition_id(const ManifoldRef& m) { return m->form == Manifold::Form::members ? m->by : m->key; }
 bool is_joint_members(const ManifoldRef& m) { return is_members(m) && m->label == "joint"; }
 bool is_surface(const ManifoldRef& m) { return m && m->kind == ManifoldKind::surface; }
@@ -92,7 +95,7 @@ Signature s_analytic_frames() {
         const PortType& t = u.type("tiling");
         if (!t.sel || t.sel->type != "tiling") u.fail("tiling", "is a " + (t.sel ? t.sel->type : std::string("?")) + " selection, not a frame tiling (a closed-form tiling of the time line)");
         PortType& y = u.out.at("y");
-        y.domain.factors.back() = members(id_of(u, "tiling"), u.type("x").domain.factors.back(), Role::frames);
+        y.domain.factors.back() = frame_members(id_of(u, "tiling"), u.type("x").domain.factors.back());
         y.axis = Axis::frames;
       });
 }
@@ -243,7 +246,7 @@ Signature s_reduce_members() {
         for (const char* port : {"values", "ingredients"}) {
           PortType& y = u.out.at(port);
           y.domain = x.domain;
-          y.domain.factors.back() = members(id_of(u, "over"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), Role::time_tiles, "", true);
+          y.domain.factors.back() = members(id_of(u, "over"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), "", true);
           y.quantity = x.quantity;
           y.value = x.value;
           y.complex_parts = x.complex_parts;
@@ -403,7 +406,7 @@ Signature s_summarize() {
         y.domain = dom_of({});
         for (std::size_t i = 0; i < x.domain.factors.size(); ++i) {
           const ManifoldRef& f = x.domain.factors[i];
-          const bool timelike = f->role == Role::time_tiles || f->role == Role::frames;
+          const bool timelike = time_partition(*f);
           const bool last_members = is_members(f) && i + 1 == x.domain.factors.size();
           if (!timelike && !last_members) y.domain.factors.push_back(f);
         }
@@ -420,7 +423,7 @@ Signature s_detect_spans() {
         const PortType& x = u.type("x");
         if (x.domain.factors.empty()) u.fail("x", "has no factor");
         const ManifoldRef& last = x.domain.factors.back();
-        if (!(last->role == Role::time_tiles || last->role == Role::frames) || !last->of)
+        if (!time_partition(*last) || !last->of)
           u.fail("x", "its last factor " + print(last) + " is not the member set of a time partition; events are found on a time line. Measure x over a time partition first.");
         if (u.has("baseline")) {
           const PortType& b = u.in.at("baseline");
@@ -443,7 +446,7 @@ Signature s_risefall() {
     const PortType& ev = u.type("events");
     if (!(x.cls == PortClass::measurement || (x.cls == PortClass::field && !x.streamed()))) u.fail("x", "must be the sample series of the run (`collect`)");
     if (!ev.sel || ev.sel->type != "spans" || ev.sel->detected_over.empty()) u.fail("events", "must be the spans `detect_spans` made");
-    for (const auto& o : outs) u.out.at(o).domain = dom_of({members(id_of(u, "events"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), Role::time_tiles, "", true)});
+    for (const auto& o : outs) u.out.at(o).domain = dom_of({members(id_of(u, "events"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), "", true)});
   });
 }
 
@@ -509,7 +512,7 @@ Signature s_extent_measure() {
         if (!l.sel || l.sel->type != "set" || l.domain.factors.empty() || !is_joint_members(l.domain.factors[0])) u.fail("labels", "must be the labelling `cell_extent` made");
         if (u.has("x") && !same(u.in.at("x").domain, l.domain)) u.fail("x", "its cells are not the labelling's");
         PortType& y = u.out.at("y");
-        y.domain = dom_of({members(id_of(u, "labels"), l.domain.factors[0]->of, Role::time_tiles, "", true)});
+        y.domain = dom_of({members(id_of(u, "labels"), l.domain.factors[0]->of, "", true)});
         y.quantity = p.value("measure", std::string());
       });
 }
@@ -651,7 +654,7 @@ Signature s_tile_crossings() {
         if (!p.contains("spatial_scale") || !has_level(p["spatial_scale"])) u.fail("tiles", "`spatial_scale` names the tile level");
         const std::string lvl = id_of(u, "tiles") + "@" + (level_number(p["spatial_scale"]) >= 0 ? std::to_string(level_number(p["spatial_scale"])) : p["spatial_scale"].get<std::string>());
         PortType& y = u.out.at("crossings");
-        y.domain = dom_of({members(lvl, t.domain.factors[0], Role::none)});
+        y.domain = dom_of({members(lvl, t.domain.factors[0])});
         if (p.value("as", std::string("measurement")) == "statistic") y.cls = PortClass::statistic;   // a null draw's crossings: a statistic of its own, never the data's rows
       });
 }

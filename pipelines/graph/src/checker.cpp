@@ -169,7 +169,7 @@ void measure_rule(Unified& u, const Signature& sg) {
         u.fail(over_port, "the ladder `" + id + "` is on " + print(P.domain) + "; x's time line is " + (xf.empty() ? "missing" : print(xf.back())));
       if (!x.res.band) u.fail("x", "x carries no band; a constant-Q level is chosen by the band (the level IS the band): band-limit it first");
       dom.assign(xf.begin(), xf.end() - 1);
-      dom.push_back(members(id + "@" + band_key(x.res), xf.back(), Role::time_tiles));
+      dom.push_back(members(id + "@" + band_key(x.res), xf.back()));
     } else {
       // a partition of factors of x: consecutive, in order (a joint partition of space x time covers two)
       std::size_t at = xf.size();
@@ -189,7 +189,7 @@ void measure_rule(Unified& u, const Signature& sg) {
       const bool streamed_partitioned = x.domain.streamed() && at + pf.size() == xf.size();
       if (streamed_partitioned && u.chunk_node) u.fail(over_port, "the partition `" + id + "` is of the streamed factor; a measure over it needs an accumulate node (a chunk node keeps the stream)");
       dom.assign(xf.begin(), xf.begin() + static_cast<std::ptrdiff_t>(at));
-      dom.push_back(members(id, pf.back(), streamed_partitioned ? Role::time_tiles : Role::none, pf.size() > 1 ? "joint" : "", P.sel && !P.sel->partition));   // an irregular selection's members are marked: nothing rolls up through them
+      dom.push_back(members(id, pf.back(), pf.size() > 1 ? "joint" : "", P.sel && !P.sel->partition));   // an irregular selection's members are marked: nothing rolls up through them
       dom.insert(dom.end(), xf.begin() + static_cast<std::ptrdiff_t>(at + pf.size()), xf.end());
     }
   }
@@ -284,6 +284,10 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
     const PortType& t = it->second;
     const std::string hint = pat.hint.empty() ? "" : " " + pat.hint;
     if (!t.typed) u.fail(port, "the value has no type in the type system's terms (no domain); the checker types only what is typed");
+    // THE STREAMED FACTOR (spec time-as-a-mesh): when a streamed value's domain names the line it streams over (its last factor is a line), that line is in seconds;
+    // a value whose time is implicit (a field on the cortex inside the loop, its samples the block's) names none and is not checked here, as before
+    if (t.streamed() && !t.domain.factors.empty() && t.domain.factors.back()->kind == ManifoldKind::line && !in_seconds(*t.domain.factors.back()))
+      u.fail(port, "is streamed, and the factor it streams over, " + print(t.domain.factors.back()) + ", is not a line in seconds (the chunk service walks a line in seconds).");
     if (pat.cls && t.cls != *pat.cls)
       u.fail(port, std::string("is a ") + to_string(t.cls) + "; a " + to_string(*pat.cls) + " is wanted." + hint);
     if (pat.is_streamed && !t.streamed()) u.fail(port, "is not a value inside the loop (samples or frames); this node reads a stream." + hint);

@@ -3,13 +3,15 @@
 // `parse_type`) stays the one people read, and the two say the same thing: `print(port_type_from_json(to_json(t))) == print(t)` (test_graph_type_json).
 //
 //   a type      {"class": "field", "value": "complex", "complex_parts": false, "components": 1,
-//                "domain": {"factors": [{"form": "id", "key": "rest", "label": "sensors", "kind": "points", "role": "none", "coordinate_system": {"space": "head", "name": "scs", "unit": "m"}},
-//                                       {"form": "id", "key": "rest", "label": "time", "kind": "line", "role": "time", ...}], "cells": "0"},
+//                "domain": {"factors": [{"form": "id", "key": "rest", "label": "sensors", "kind": "points", "coordinate_system": {"space": "head", "name": "scs", "unit": "m"}},
+//                                       {"form": "id", "key": "rest", "label": "time", "kind": "line", "topology": "path", "unit": "s", ...}], "cells": "0"},
 //                "axis": "samples", "streamed": true, "sfreq": 100, "rows": 3, "quantity": "signal", "unit": "T", "resolution": {"band": [8, 12], "band_shape": "morlet"},
 //                "nonlinear": false, "spin": 0, "typed": true, "text": "field<sensors(rest) × time(rest); complex; signal; band 8-12 Hz morlet; unit T>"}
 //               A string is read as the printed form; a quantity is checked against the vocabulary where it is used (the checker), as for the printed form. `facts` (a node's own notes for its preparation) are never part of it.
-//   a manifold  {"form": id | anonymous | variable | made | restricted | members | derived, "key", "label", "kind", "role", "coordinate_system", "n", "spacing", "origin",
-//                "rate", "unit", "of": <manifold>, "by", "irregular", "rest", "subsume", "text"}; a string is read as the printed form ("sensors(rest)", "M", "members(cells)").
+//   a manifold  {"form": id | anonymous | variable | made | restricted | members | derived, "key", "label", "kind", "topology": path | cycle, "coordinate_system", "n", "spacing", "origin",
+//                "rate", "unit", "samples", "made_from": {"relation": tiled | transform, "of": <line>}, "of": <manifold>, "by", "irregular", "rest", "subsume", "text"}; a string is read as the printed form
+//                ("sensors(rest)", "M", "members(cells)"). A LINE has no role: it is a 1-D mesh with a topology, a coordinate (cs, origin, spacing, unit) and, when made from another line, `made_from`.
+//                A VARIABLE's `unit` ("s": a line in seconds), `samples` (true: not tiled from another line) and `topology` constrain what it binds; a signature that sends `role` is refused.
 //
 // EXTERNAL NODES: a client (a renderer) declares nodes nxr-neuro does not implement, by their signatures, in the same terms as the registered nodes' (signature.h):
 //   {"nodes": [{"name": "render.surface", "kind": "array", "move": "pointwise", "description": "...",

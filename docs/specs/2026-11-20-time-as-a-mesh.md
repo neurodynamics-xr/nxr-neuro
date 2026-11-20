@@ -52,7 +52,7 @@ only the coordinate system is read, and `time` is inferred from it. A `lattice` 
   a cycle can be drawn wrapped. No role is needed.
 - **The Studio.** `LinePort.role` (`time`, `spectral`, `parameter`) goes the same way when its ports are generated from this language.
 
-## 6. Plan (one PR; scoped tests)
+## 6. Plan (one PR; scoped tests) - DONE 2026-11-20 (PR feat/time-as-a-mesh)
 
 1. `types.h` and `types.cpp`: drop `Role`; add `topology` (path, cycle, none) and `made_from` (relation, of) to a line; equality includes topology.
 2. `signatures.cpp` and `type_json.cpp`: time and frames variables become unit constraints; JSON in and out with `topology` and `unit`.

@@ -168,15 +168,17 @@ ng::ManifoldKind kind_of_manifold(const std::string& t) {
   return t == "line" ? ng::ManifoldKind::line : t == "surface" ? ng::ManifoldKind::surface : t == "curve" ? ng::ManifoldKind::curve
          : (t == "volume" || t == "image" || t == "tetrahedral") ? ng::ManifoldKind::volume : ng::ManifoldKind::points;
 }
-ng::Role role_of_line(const std::string& r) {
-  return r == "time" ? ng::Role::time : r == "frequency" ? ng::Role::frequency : r == "modes" ? ng::Role::modes : r == "levels" ? ng::Role::levels : ng::Role::none;
-}
 std::optional<ng::ManifoldRef> stored_manifold(const Value& v, const std::string& id) {
   if (id.empty() || !v.manifold_facts.contains(id)) return std::nullopt;
   const Json& f = v.manifold_facts[id];
   std::optional<ng::CoordinateSystem> cs;
   if (f.contains("cs")) cs = ng::CoordinateSystem{f["cs"].value("space", std::string()), f["cs"].value("name", std::string()), f["cs"].value("unit", std::string())};
-  return ng::manifold_id(f.value("name", std::string()), id, kind_of_manifold(f.value("type", std::string())), role_of_line(f.value("role", std::string())), cs, f.value("n", std::int64_t(0)));
+  // a line's topology comes from the stored topology's kind (io's facts): a rank-1 lattice is a regular path, a path is a path, a circle is a cycle
+  const std::string tk = f.value("topology", std::string());
+  const ng::Topology topology = f.value("type", std::string()) != "line" ? ng::Topology::none : tk == "circle" ? ng::Topology::cycle : (tk == "lattice" || tk == "path") ? ng::Topology::path : ng::Topology::none;
+  // io describes a time line by its role (the coordinate system `clock`, or a unit of seconds): its coordinate is in seconds
+  if (f.value("role", std::string()) == "time") { if (!cs) cs = ng::CoordinateSystem{"time", "clock", "s"}; if (cs->unit.empty()) cs->unit = "s"; }
+  return ng::manifold_id(f.value("name", std::string()), id, kind_of_manifold(f.value("type", std::string())), cs, f.value("n", std::int64_t(0)), topology);
 }
 }  // namespace
 void typed_from_rows(ng::PortType& t, const Value& v) {

@@ -64,7 +64,7 @@ steps:
 )";
 }
 const char* kSink = R"({"nodes": [{"name": "scope.trace", "kind": "chunk", "move": "pointwise",
-  "inputs": [{"port": "field", "class": "field", "on": ["M", {"form": "variable", "key": "T", "role": "frames"}], "streamed": true, "value": "real", "components": 1}],
+  "inputs": [{"port": "field", "class": "field", "on": ["M", {"form": "variable", "key": "T", "unit": "s"}], "streamed": true, "value": "real", "components": 1}],
   "parameters": [{"name": "colour", "default": "black", "meaning": "the trace's colour", "unit": "-"}]}]})";
 
 // a sink drawing a real field on the vertices of a surface S, given S itself (a renderer's signature: declared, never run here)
