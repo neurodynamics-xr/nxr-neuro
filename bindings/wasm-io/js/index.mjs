@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import createNxrIo from './nxr_io.mjs';
 import { wrap as wrapCompute } from './compute.mjs';   // bindings/wasm/js/wrap.mjs: the geometry compute's public surface
 import { COMMANDS } from './commands.mjs';              // generated from cli/command_table.cpp (tools/command_table.mjs)
-import { ARRAY_OPTIONS } from './arrays.mjs';
+import { ARRAY_OPTIONS, JSON_OPTIONS } from './arrays.mjs';
 
 /** An Error carrying the library's code (`invalid_argument`, `no_such_row`, `already_exists`, `writer_lock_held`, `not_writable`, `schema_version`, ...) */
 export class NxrError extends Error {
@@ -96,6 +96,8 @@ function makeApi(M) {
           if (typeof m === 'string') files.push(`${name}=${m}`); else arrays.push(m);
         }
         if (files.length) options[k] = files;
+      } else if (JSON_OPTIONS[path]?.includes(k) && typeof v === 'object') {
+        options[k] = JSON.stringify(v);   // a JSON option given as an object or a list: its text (a string is the text, or for `entries` the path of a JSON file)
       } else if (verb === 'compile' && !noun && (k === 'signatures' || k === 'inputs') && typeof v === 'string') {
         options[k] = JSON.parse(readFileSync(v, 'utf8'));   // a JSON file, read here (the library takes the object)
       } else if (verb === 'compile' && !noun && k === 'set' && !Array.isArray(v) && typeof v === 'object') {

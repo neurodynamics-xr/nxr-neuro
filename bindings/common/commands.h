@@ -324,6 +324,9 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.cell = o.maybe("cell");
     q.derived_from = o.maybe("derived_from");
     q.description = o.maybe("description");
+    q.by_operator = o.maybe("by_operator");
+    q.contribution = o.list("contribution");
+    q.producer = o.maybe("producer");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
     q.created_by = created_by;
@@ -340,6 +343,9 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.spans = o.array("spans");
     q.entries = o.commas("entries");
     q.description = o.maybe("description");
+    q.of_field = o.maybe("of_field");
+    q.weights = o.array("weights");
+    q.producer = o.maybe("producer");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
     q.created_by = created_by;
@@ -390,6 +396,10 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.indices = o.array("indices");
     q.indptr = o.array("indptr");
     q.description = o.maybe("description");
+    q.layout = o.maybe("layout");
+    q.method = o.maybe("method");
+    q.params = o.maybe("params");
+    q.from_selection = o.maybe("from_selection");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
     q.created_by = created_by;
@@ -411,17 +421,64 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.dataset = o.str("dataset");
     q.subject = o.str("subject");
     q.name = o.str("name");
-    if (!o.has("n")) throw task::Refused(o.prog() + ": the following arguments are required: n");
-    q.n = *o.integer("n");
-    if (!o.has("spacing")) throw task::Refused(o.prog() + ": the following arguments are required: spacing");
-    q.spacing = *o.number("spacing");
-    q.origin = o.number("origin").value_or(0.0);
+    q.n = o.integer("n");
+    q.spacing = o.number("spacing");
+    q.origin = o.number("origin");
     q.unit = o.str("unit");
     if (const auto v = o.maybe("dimension")) q.dimension = *v;
+    q.coordinates = o.array("coordinates");
+    q.kinds = o.array("kinds");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
     q.created_by = created_by;
     call([&] { return task::add_line(q, progress); });
+  } else if (c == "add product") {
+    task::AddProductRequest q;
+    q.dataset = o.str("dataset");
+    q.subject = o.str("subject");
+    q.name = o.str("name");
+    q.factors = o.commas("factors");
+    q.templates = o.list("templates");
+    q.created_by = created_by;
+    call([&] { return task::add_product(q, progress); });
+  } else if (c == "add dictionary") {
+    task::AddDictionaryRequest q;
+    q.dataset = o.str("dataset");
+    q.subject = o.maybe("subject");
+    q.name = o.str("name");
+    q.scope = o.str("scope");
+    q.entries = o.str("entries");
+    q.description = o.maybe("description");
+    q.templates = o.list("templates");
+    q.created_by = created_by;
+    call([&] { return task::add_dictionary(q, progress); });
+  } else if (c == "edit manifold") {
+    task::EditManifoldRequest q;
+    q.dataset = o.str("dataset");
+    q.subject = o.str("subject");
+    q.name = o.str("name");
+    q.primary = o.maybe("primary");
+    q.label = o.maybe("label");
+    q.description = o.maybe("description");
+    q.templates = o.list("templates");
+    q.created_by = created_by;
+    call([&] { return task::edit_manifold(q, progress); });
+  } else if (c == "edit dictionary") {
+    task::EditDictionaryRequest q;
+    q.dataset = o.str("dataset");
+    q.subject = o.maybe("subject");
+    q.name = o.str("name");
+    q.entry = o.integer("entry");
+    q.name_of = o.maybe("name_of");
+    q.label = o.maybe("label");
+    q.colour = o.maybe("colour");
+    q.description = o.maybe("description");
+    q.params = o.maybe("params");
+    q.entries = o.maybe("entries");
+    q.replace = o.flag("replace");
+    q.templates = o.list("templates");
+    q.created_by = created_by;
+    call([&] { return task::edit_dictionary(q, progress); });
 
     // ---- subject packages and the catalogue ----
   } else if (c == "create package") {

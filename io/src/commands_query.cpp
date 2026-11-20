@@ -109,7 +109,17 @@ Json axes_of(const Ctx& c, const Row& m) {
 Json describe_manifold(const Ctx& c, const Row& m) {
   Json factors = Json::array();
   for (const auto& a : axes_of(c, m)) if (!a["factor"].is_null()) factors.push_back(a["factor"]);
-  return Json{{"id", Jt(m, "id")}, {"name", Jt(m, "name")}, {"kind", Jt(m, "type")}, {"type", c.typed("manifold", m)}, {"label", Jt(m, "label")}, {"primary", flag(m, "is_primary")}, {"acquisition", acquisition_of(c, m)},
+  // the coordinate system its points are in (its name and unit), and whether each point of a line carries a code (`kinds`)
+  Json coordinates;
+  if (!is_null(m, "geometry_id")) {
+    const auto g = c.db.one("SELECT g.form AS form, cs.name AS cs, cs.unit AS unit FROM geometry g LEFT JOIN coordinate_system cs ON cs.id = g.coordinate_system_id WHERE g.id = ?", {V(text(m, "geometry_id"))});
+    if (g) {
+      const Json producer = Jj(m, "producer_json");
+      coordinates = Json{{"system", Jt(*g, "cs")}, {"unit", Jt(*g, "unit")}, {"kinds", producer.is_object() && producer.contains("kinds") && producer["kinds"].is_string()}};
+    }
+  }
+  return Json{{"id", Jt(m, "id")}, {"name", Jt(m, "name")}, {"kind", Jt(m, "type")}, {"type", c.typed("manifold", m)}, {"label", Jt(m, "label")}, {"description", Jt(m, "comment")}, {"primary", flag(m, "is_primary")}, {"acquisition", acquisition_of(c, m)},
+              {"coordinates", coordinates},
               {"size", Json{{"vertices", Jt(m, "n_vertices")}, {"edges", Jt(m, "n_edges")}, {"faces", Jt(m, "n_faces")}, {"volumes", Jt(m, "n_volumes")}}},
               {"factors", factors},
               {"component_of", c.ref("manifold", m, "component_of_id")}, {"component_ordinal", Jt(m, "component_ordinal")},
@@ -129,11 +139,24 @@ Json describe_field(const Ctx& c, const Row& f) {
 }
 
 // ---- selections ----
+// an entry's colour as #rrggbb (null: none); the label and the description it carries beyond the schema's columns
+Json colour_of(const Row& e) {
+  const Json c = Jj(e, "color_json");
+  if (!c.is_array() || c.size() != 3) return Json();
+  static const char* hex = "0123456789abcdef";
+  std::string t = "#";
+  for (const auto& x : c) { const int v = x.is_number() ? x.get<int>() : 0; t += hex[(v >> 4) & 15]; t += hex[v & 15]; }
+  return t;
+}
+Json attribute_of(const Row& e, const char* key) {
+  const Json a = Jj(e, "attributes_json");
+  return a.is_object() && a.contains(key) ? a[key] : Json();
+}
 Json entries_of(const Ctx& c, const Row& s, bool all_columns) {
   Json out = Json::array();
   if (is_null(s, "dictionary_id")) return out;
-  for (const Row& e : c.db.all("SELECT code, name, color_json, measurement, measurement_unit, function, params_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {V(text(s, "dictionary_id"))})) {
-    Json x = Json{{"code", Jt(e, "code")}, {"name", Jt(e, "name")}, {"colour", Jj(e, "color_json")}};
+  for (const Row& e : c.db.all("SELECT code, name, color_json, measurement, measurement_unit, function, params_json, attributes_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {V(text(s, "dictionary_id"))})) {
+    Json x = Json{{"code", Jt(e, "code")}, {"name", Jt(e, "name")}, {"colour", colour_of(e)}, {"label", attribute_of(e, "label")}, {"description", attribute_of(e, "description")}};
     if (all_columns) {
       x["measurement"] = Jt(e, "measurement");
       x["unit"] = Jt(e, "measurement_unit");
@@ -152,6 +175,7 @@ Json describe_selection(const Ctx& c, const Row& s) {
   }
   return Json{{"id", Jt(s, "id")}, {"name", Jt(s, "name")}, {"kind", Jt(s, "type")}, {"type", c.typed("selection", s)}, {"label", Jt(s, "label")}, {"acquisition", acquisition_of(c, s)},
               {"description", Jt(s, "description")}, {"elements", Jt(s, "n_elements")}, {"members", Jt(s, "n_members")}, {"of_field", c.ref("field", s, "of_field_id")},
+              {"weights", [&] { const Json p = Jj(s, "params_json"); return p.is_object() && p.contains("weights") && p["weights"].is_string(); }()},
               {"stored", !is_null(s, "array_path")}, {"dictionary", dictionary}, {"entries", entries_of(c, s, false)}, {"provenance", provenance(s)}};
 }
 
@@ -188,9 +212,9 @@ Json describe_statistic(const Ctx& c, const Row& s) {
 // ---- dictionaries, spaces, acquisitions, jobs ----
 Json describe_dictionary(const Ctx& c, const Row& d) {
   Json entries = Json::array();
-  for (const Row& e : c.db.all("SELECT code, name, color_json, measurement, measurement_unit, function, params_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {V(text(d, "id"))}))
-    entries.push_back(Json{{"code", Jt(e, "code")}, {"name", Jt(e, "name")}, {"colour", Jj(e, "color_json")}, {"measurement", Jt(e, "measurement")}, {"unit", Jt(e, "measurement_unit")},
-                           {"function", Jt(e, "function")}, {"params", Jj(e, "params_json")}});
+  for (const Row& e : c.db.all("SELECT code, name, color_json, measurement, measurement_unit, function, params_json, attributes_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {V(text(d, "id"))}))
+    entries.push_back(Json{{"code", Jt(e, "code")}, {"name", Jt(e, "name")}, {"colour", colour_of(e)}, {"label", attribute_of(e, "label")}, {"description", attribute_of(e, "description")},
+                           {"measurement", Jt(e, "measurement")}, {"unit", Jt(e, "measurement_unit")}, {"function", Jt(e, "function")}, {"params", Jj(e, "params_json")}});
   return Json{{"id", Jt(d, "id")}, {"name", Jt(d, "name")}, {"scope", Jt(d, "scope")}, {"description", Jt(d, "description")}, {"entries", entries},
               {"provenance", Json{{"created_utc", Jt(d, "created_utc")}, {"created_by", Jt(d, "created_by")}, {"modified_utc", Jt(d, "modified_utc")}, {"modified_by", Jt(d, "modified_by")}}}};
 }
@@ -239,7 +263,7 @@ const ClassDef kDefs[] = {
     {"selections", "selection", "x.name", "SELECT x.* FROM selection x", "x.subject_id = ? AND x.status = 'complete' AND x.member_of_id IS NULL", 1, "x.type", describe_selection},
     {"operators", "operator", "x.name", "SELECT x.* FROM operator x", "x.subject_id = ? AND x.status = 'complete'", 1, "x.kind", describe_operator},
     {"statistics", "statistic", "x.name", "SELECT x.* FROM statistic x", "x.subject_id = ? AND x.status = 'complete'", 1, "x.measure", describe_statistic},
-    {"dictionaries", "dictionary", "x.name", "SELECT x.* FROM dictionary x", "(x.subject_id = ? OR x.id IN (SELECT dictionary_id FROM selection WHERE subject_id = ? AND dictionary_id IS NOT NULL))", 2, "x.scope", describe_dictionary},
+    {"dictionaries", "dictionary", "x.name", "SELECT x.* FROM dictionary x", "(x.subject_id = ? OR x.id IN (SELECT dictionary_id FROM selection WHERE subject_id = ? AND dictionary_id IS NOT NULL) OR (x.scope = 'dataset' AND x.dataset_id IN (SELECT dataset_id FROM subject WHERE id = ?)))", 3, "x.scope", describe_dictionary},
     {"spaces", "space", "x.name", "SELECT x.* FROM space x", "x.subject_id = ?", 1, "x.geometry", describe_space},
     {"acquisitions", "acquisition", "x.label", "SELECT x.* FROM acquisition x", "x.subject_id = ?", 1, nullptr, describe_acquisition},
     {"jobs", "job", "x.created_utc", "SELECT x.*, s.name AS subject_name FROM job x LEFT JOIN subject s ON s.id = x.subject_id", "x.subject_id = ?", 1, "x.kind", describe_job},
@@ -496,9 +520,9 @@ CommandResult list_class(const ListClassRequest& rq, const Progress& progress) {
     // the columns of the class: from the first row, or, with no row, from an empty description of the class (a name no node can have)
     if (known.empty()) {
       static const std::map<std::string, std::vector<std::string>> by_class = {
-          {"manifolds", {"subject", "id", "name", "kind", "type", "label", "primary", "acquisition", "size", "factors", "component_of", "component_ordinal", "derived_from", "derived_by", "stored", "provenance"}},
+          {"manifolds", {"subject", "id", "name", "kind", "type", "label", "description", "primary", "acquisition", "coordinates", "size", "factors", "component_of", "component_ordinal", "derived_from", "derived_by", "stored", "provenance"}},
           {"fields", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "stored", "lineage", "provenance"}},
-          {"selections", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "elements", "members", "of_field", "stored", "dictionary", "entries", "provenance"}},
+          {"selections", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "elements", "members", "of_field", "weights", "stored", "dictionary", "entries", "provenance"}},
           {"operators", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "from", "to", "method", "parameters", "shape", "stored", "lineage", "provenance"}},
           {"statistics", {"subject", "id", "name", "measure", "method", "type", "label", "acquisition", "description", "of_field", "of_statistic", "partition", "members", "members_skipped", "dof", "axes", "stored", "provenance"}},
           {"dictionaries", {"subject", "id", "name", "scope", "description", "entries", "provenance"}},

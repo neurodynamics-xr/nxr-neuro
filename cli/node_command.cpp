@@ -11,6 +11,13 @@
 //   nxr-neuro add operator --dataset D --subject S --name N --from-manifold A --to-manifold B (--values FILE.npy | --data F --indices F --indptr F) [--kind K] [--description TEXT] [--replace]
 //   nxr-neuro add points --dataset D --subject S --name N --positions FILE.npy [--coordinate-system KEY] [--description TEXT] [--replace]
 //   nxr-neuro add line --dataset D --subject S --name N --n N --spacing X --unit U [--origin X] [--dimension time|frequency|...] [--replace]
+//   nxr-neuro add line --dataset D --subject S --name N --coordinates FILE.npy --dimension eigenvalue --unit U [--kinds FILE.npy] [--replace]
+//   nxr-neuro add product --dataset D --subject S --name N --factors A,B
+//   nxr-neuro add dictionary --dataset D [--subject S] --name N --scope dataset|subject --entries FILE.json [--description TEXT]
+//   nxr-neuro edit manifold --dataset D --subject S --name N [--primary yes|no] [--label TEXT] [--description TEXT]
+//   nxr-neuro edit dictionary --dataset D [--subject S] --name N (--entry CODE [--name-of TEXT] [--label TEXT] [--colour #rrggbb] [--description TEXT] [--params JSON] | --entries FILE.json --replace)
+//   (add field also takes --by-operator NAME, --contribution SUBJECT:FIELD[:WEIGHT] ..., --producer JSON; add selection --of-field NAME, --weights FILE.npy, --producer JSON;
+//    add operator --layout analytic --method NAME [--params JSON] [--from-selection NAME])
 //
 // Arrays go in and out as .npy files (C order, little-endian, the stored precision). The command parses, calls its library function once (nxr/pipelines/face.h for read,
 // nxr/io/task/commands.h for add) and prints the result.
@@ -154,7 +161,7 @@ int read_node_main(const std::vector<std::string>& argv) {
 
 // ── nxr-neuro add field|selection|statistic|measurements|operator|points|line ──
 int add_node_main(const std::vector<std::string>& argv) {
-  need_noun(argv, "add", "field, selection, statistic, measurements, operator, points, line");
+  need_noun(argv, "add", "field, selection, statistic, measurements, operator, points, line, product, dictionary");
   const std::string what = argv[0];
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const std::string prog = "nxr-neuro add " + what;
@@ -168,8 +175,8 @@ int add_node_main(const std::vector<std::string>& argv) {
   };
   task::CommandResult r;
   if (what == "field") {
-    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--manifold", "--values", "--time", "--value-type", "--kind", "--unit", "--cell", "--derived-from", "--description"},
-                         {"--replace"}, {"--dataset", "--subject", "--name", "--manifold", "--values"});
+    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--manifold", "--values", "--time", "--value-type", "--kind", "--unit", "--cell", "--derived-from", "--description", "--by-operator", "--producer", "--contribution"},
+                         {"--replace"}, {"--dataset", "--subject", "--name", "--manifold", "--values"}, 0, {"--contribution"});
     task::AddFieldRequest rq;
     common(a, rq);
     rq.name = a.get("--name");
@@ -182,9 +189,12 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.cell = a.maybe("--cell");
     rq.derived_from = a.maybe("--derived-from");
     rq.description = a.maybe("--description");
+    rq.by_operator = a.maybe("--by-operator");
+    rq.contribution = values_of(a, "--contribution");
+    rq.producer = a.maybe("--producer");
     r = call(prog, [&] { return task::add_field(rq, progress()); });
   } else if (what == "selection") {
-    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--manifold", "--type", "--members", "--indices", "--spans", "--entries", "--description"}, {"--replace"},
+    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--manifold", "--type", "--members", "--indices", "--spans", "--entries", "--description", "--of-field", "--weights", "--producer"}, {"--replace"},
                          {"--dataset", "--subject", "--name", "--manifold", "--type"});
     task::AddSelectionRequest rq;
     common(a, rq);
@@ -196,6 +206,9 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.spans = a.maybe("--spans");
     if (const auto v = a.maybe("--entries")) rq.entries = split_commas(*v);
     rq.description = a.maybe("--description");
+    rq.of_field = a.maybe("--of-field");
+    rq.weights = a.maybe("--weights");
+    rq.producer = a.maybe("--producer");
     r = call(prog, [&] { return task::add_selection(rq, progress()); });
   } else if (what == "statistic") {
     const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--measure", "--method", "--values", "--value-type", "--of-field", "--partition", "--unit", "--description"}, {"--replace"},
@@ -223,7 +236,7 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.measure = values_of(a, "--measure");
     r = call(prog, [&] { return task::add_measurements(rq, progress()); });
   } else if (what == "operator") {
-    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--kind", "--from-manifold", "--to-manifold", "--values", "--data", "--indices", "--indptr", "--description"}, {"--replace"},
+    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--kind", "--from-manifold", "--to-manifold", "--values", "--data", "--indices", "--indptr", "--description", "--layout", "--method", "--params", "--from-selection"}, {"--replace"},
                          {"--dataset", "--subject", "--name", "--from-manifold", "--to-manifold"});
     task::AddOperatorRequest rq;
     common(a, rq);
@@ -236,6 +249,10 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.indices = a.maybe("--indices");
     rq.indptr = a.maybe("--indptr");
     rq.description = a.maybe("--description");
+    rq.layout = a.maybe("--layout");
+    rq.method = a.maybe("--method");
+    rq.params = a.maybe("--params");
+    rq.from_selection = a.maybe("--from-selection");
     r = call(prog, [&] { return task::add_operator(rq, progress()); });
   } else if (what == "points") {
     const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--positions", "--coordinate-system", "--description"}, {"--replace"}, {"--dataset", "--subject", "--name", "--positions"});
@@ -247,19 +264,87 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.description = a.maybe("--description");
     r = call(prog, [&] { return task::add_points(rq, progress()); });
   } else if (what == "line") {
-    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--n", "--spacing", "--origin", "--unit", "--dimension"}, {"--replace"},
-                         {"--dataset", "--subject", "--name", "--n", "--spacing", "--unit"});
+    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--n", "--spacing", "--origin", "--unit", "--dimension", "--coordinates", "--kinds"}, {"--replace"},
+                         {"--dataset", "--subject", "--name", "--unit"});
     task::AddLineRequest rq;
     common(a, rq);
     rq.name = a.get("--name");
-    rq.n = integer_of(prog, "--n", a.get("--n"));
-    rq.spacing = number_of(prog, "--spacing", a.get("--spacing"));
+    if (const auto v = a.maybe("--n")) rq.n = integer_of(prog, "--n", *v);
+    if (const auto v = a.maybe("--spacing")) rq.spacing = number_of(prog, "--spacing", *v);
     if (const auto v = a.maybe("--origin")) rq.origin = number_of(prog, "--origin", *v);
     rq.unit = a.get("--unit");
     if (const auto v = a.maybe("--dimension")) rq.dimension = *v;
+    rq.coordinates = a.maybe("--coordinates");
+    rq.kinds = a.maybe("--kinds");
     r = call(prog, [&] { return task::add_line(rq, progress()); });
+  } else if (what == "product") {
+    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--factors"}, {}, {"--dataset", "--subject", "--name", "--factors"});
+    task::AddProductRequest rq;
+    rq.dataset = a.get("--dataset");
+    rq.subject = a.get("--subject");
+    rq.templates = values_of(a, "--templates");
+    rq.created_by = by;
+    rq.name = a.get("--name");
+    rq.factors = split_commas(a.get("--factors"));
+    r = call(prog, [&] { return task::add_product(rq, progress()); });
+  } else if (what == "dictionary") {
+    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--scope", "--entries", "--description"}, {}, {"--dataset", "--name", "--scope", "--entries"}, 0, {"--templates"});
+    task::AddDictionaryRequest rq;
+    rq.dataset = a.get("--dataset");
+    rq.subject = a.maybe("--subject");
+    rq.templates = values_of(a, "--templates");
+    rq.created_by = by;
+    rq.name = a.get("--name");
+    rq.scope = a.get("--scope");
+    rq.entries = a.get("--entries");
+    rq.description = a.maybe("--description");
+    r = call(prog, [&] { return task::add_dictionary(rq, progress()); });
   } else {
-    throw Usage("nxr-neuro add: error: argument what: invalid choice: '" + what + "' (choose from 'field', 'selection', 'statistic', 'measurements', 'operator', 'points', 'line', 'surface')");
+    throw Usage("nxr-neuro add: error: argument what: invalid choice: '" + what + "' (choose from 'field', 'selection', 'statistic', 'measurements', 'operator', 'points', 'line', 'product', 'dictionary', 'surface')");
+  }
+  emit_result(r.result);
+  return 0;
+}
+
+// ── nxr-neuro edit manifold|dictionary ──
+int edit_node_main(const std::vector<std::string>& argv) {
+  need_noun(argv, "edit", "manifold, dictionary");
+  const std::string what = argv[0];
+  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
+  const std::string prog = "nxr-neuro edit " + what;
+  const std::string by = stamp();
+  task::CommandResult r;
+  if (what == "manifold") {
+    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--primary", "--label", "--description"}, {}, {"--dataset", "--subject", "--name"});
+    task::EditManifoldRequest rq;
+    rq.dataset = a.get("--dataset");
+    rq.subject = a.get("--subject");
+    rq.name = a.get("--name");
+    rq.primary = a.maybe("--primary");
+    rq.label = a.maybe("--label");
+    rq.description = a.maybe("--description");
+    rq.templates = values_of(a, "--templates");
+    rq.created_by = by;
+    r = call(prog, [&] { return task::edit_manifold(rq, progress()); });
+  } else if (what == "dictionary") {
+    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--entry", "--name-of", "--label", "--colour", "--description", "--params", "--entries"}, {"--replace"}, {"--dataset", "--name"}, 0, {"--templates"});
+    task::EditDictionaryRequest rq;
+    rq.dataset = a.get("--dataset");
+    rq.subject = a.maybe("--subject");
+    rq.name = a.get("--name");
+    if (const auto v = a.maybe("--entry")) rq.entry = integer_of(prog, "--entry", *v);
+    rq.name_of = a.maybe("--name-of");
+    rq.label = a.maybe("--label");
+    rq.colour = a.maybe("--colour");
+    rq.description = a.maybe("--description");
+    rq.params = a.maybe("--params");
+    rq.entries = a.maybe("--entries");
+    rq.replace = a.flag.count("--replace") > 0;
+    rq.templates = values_of(a, "--templates");
+    rq.created_by = by;
+    r = call(prog, [&] { return task::edit_dictionary(rq, progress()); });
+  } else {
+    throw Usage("nxr-neuro edit: error: argument what: invalid choice: '" + what + "' (choose from 'manifold', 'dictionary')");
   }
   emit_result(r.result);
   return 0;

@@ -5,7 +5,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { ARRAY_OPTIONS } from '../js/arrays.mjs';
+import { ARRAY_OPTIONS, JSON_OPTIONS } from '../js/arrays.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const TABLE = join(here, '..', '..', '..', 'cli', 'command_table.cpp');
@@ -73,11 +73,12 @@ export function renderTypes(table) {
   const lines = [];
   for (const c of cmds) {
     const arrays = new Set(ARRAY_OPTIONS[`${c.verb} ${c.noun}`] ?? []);
+    const jsons = new Set(JSON_OPTIONS[`${c.verb} ${c.noun}`] ?? []);
     const name = `${safe(c.verb)}${safe(c.noun)}Options`;
     lines.push(`export interface ${name} {`);
     if (c.positional) lines.push(`  /** the positional argument (\`nxr-neuro ${c.verb} ${c.noun} ${c.positional.toUpperCase()}\`) */`, `  ${c.positional}${c.optionalPositional ? '?' : ''}: string;`);
     for (const o of [...c.options].sort((a, b) => a.name.localeCompare(b.name))) {
-      const type = o.flag ? 'boolean' : arrays.has(o.name) ? 'ArrayInput | string' : o.name === 'measure' && c.verb === 'add' ? 'Record<string, ArrayInput | string> | string[]' : o.multi ? 'string[] | string' : 'string | number';
+      const type = o.flag ? 'boolean' : arrays.has(o.name) ? 'ArrayInput | string' : jsons.has(o.name) ? 'Record<string, unknown> | unknown[] | string' : o.name === 'measure' && c.verb === 'add' ? 'Record<string, ArrayInput | string> | string[]' : o.multi ? 'string[] | string' : 'string | number';
       lines.push(`  ${o.name}${o.required ? '' : '?'}: ${type};`);
     }
     lines.push('  /** receives each progress line the command prints, as an object */', '  progress?: (line: Record<string, unknown>) => void;', '}');

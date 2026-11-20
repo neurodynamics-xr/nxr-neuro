@@ -85,13 +85,18 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("query", "measurements", "", "band dataset* factor field limit max_value measure* min_value order selection* spatial_scale subject* subjects tile templates+ where"),
     ("compile", "", "definition", "dataset inputs set+ signatures subject"),
     # add <class>
-    ("add", "field", "", "cell dataset* derived_from description kind manifold* name* replace! subject* time unit value_type values* templates+"),
-    ("add", "selection", "", "dataset* description entries indices manifold* members name* replace! spans subject* type* templates+"),
+    ("add", "field", "", "by_operator cell contribution+ dataset* derived_from description kind manifold* name* producer replace! subject* time unit value_type values* templates+"),
+    ("add", "selection", "", "dataset* description entries indices manifold* members name* of_field producer replace! spans subject* type* weights templates+"),
     ("add", "statistic", "", "axes*+ dataset* description measure* method* name* of_field partition replace! subject* unit value_type values* templates+"),
     ("add", "measurements", "", "dataset* field measure*+ replace! selection* subject* unit templates+"),
-    ("add", "operator", "", "data dataset* description from_manifold* indices indptr kind name* replace! subject* to_manifold* values templates+"),
+    ("add", "operator", "", "data dataset* description from_manifold* from_selection indices indptr kind layout method name* params replace! subject* to_manifold* values templates+"),
     ("add", "points", "", "coordinate_system dataset* description name* positions* replace! subject* templates+"),
-    ("add", "line", "", "dataset* dimension n* name* origin replace! spacing* subject* unit* templates+"),
+    ("add", "line", "", "coordinates dataset* dimension kinds n name* origin replace! spacing subject* unit* templates+"),
+    ("add", "product", "", "dataset* factors* name* subject* templates+"),
+    ("add", "dictionary", "", "dataset* description entries* name* scope* subject templates+"),
+    # edit
+    ("edit", "manifold", "", "dataset* description label name* primary subject* templates+"),
+    ("edit", "dictionary", "", "colour dataset* description entries entry label name* name_of params replace! subject templates+"),
     # import
     ("import", "list", "protocol", ""),
     ("import", "scan", "protocol", "out prefer summary!"),
@@ -125,13 +130,23 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("export", "bids-derivatives", "", "all! from measurements out* package* results* run session space stc! task to with_surface!"),
 ]
 
+# the options that are JSON (a dict or list given is written as JSON text; a string is the text, or for `entries` the path of a JSON file)
+JSON_OPTIONS = {
+    ("add", "field"): {"producer"},
+    ("add", "selection"): {"producer"},
+    ("add", "operator"): {"params"},
+    ("add", "dictionary"): {"entries"},
+    ("edit", "dictionary"): {"params", "entries"},
+}
+
 # the options that take an array: handed to the library in memory (or as a .npy path) (`add measurements --measure NAME=FILE.npy`: a dict of arrays)
 ARRAY_OPTIONS = {
     ("add", "field"): {"values"},
-    ("add", "selection"): {"members", "indices", "spans"},
+    ("add", "selection"): {"members", "indices", "spans", "weights"},
     ("add", "statistic"): {"values"},
     ("add", "operator"): {"values", "data", "indices", "indptr"},
     ("add", "points"): {"positions"},
+    ("add", "line"): {"coordinates", "kinds"},
     ("add", "surface"): {"vertices", "faces"},
 }
 
@@ -242,6 +257,8 @@ def call(verb: str, noun: str, options: dict[str, Any], progress: Callable[[dict
             v = paths or None
             if v is None:
                 continue
+        elif k in JSON_OPTIONS.get((verb, noun), ()) and isinstance(v, (dict, list, tuple)):
+            v = json.dumps(v, default=_plain)
         elif (verb, noun) == ("compile", "") and k in ("signatures", "inputs"):
             v = _json_value(v)
         elif (verb, noun, k) == ("compile", "", "set") and isinstance(v, dict):

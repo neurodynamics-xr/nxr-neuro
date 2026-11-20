@@ -18,6 +18,7 @@ verb compute	Compute a node or a graph on arrays or files (reserved: not availab
 verb compile	Compile a pipeline definition without running it: expand it, type-check every connection, print the compiled graph with every value's type
 verb list	List datasets, subjects, recordings, kernels, results or pipelines
 verb show	Show a dataset or a subject
+verb edit	Edit what a subject holds without touching its arrays: a manifold's label, description and primary flag, a dictionary's entries
 verb read	Read stored arrays and derived readings: a stored field, statistic, operator, selection or manifold by name, as .npy files or JSON
 verb query	Query stored measurements
 verb export	Export stored results: measurements as a table, cortical maps as GIFTI
@@ -27,7 +28,7 @@ verb delete	Delete a dataset or a subject
 verb compact	Compact a dataset
 verb recover	Recover a dataset after an interrupted write
 verb reduce	Reduce stored results across subjects
-verb add	Add to a subject what was computed elsewhere: a surface, a field, a selection, a statistic, measurements, an operator, points or a line, from .npy files
+verb add	Add to a subject what was computed elsewhere: a surface, a field, a selection, a statistic, measurements, an operator, points, a line, a product of manifolds or a dictionary, from .npy and JSON files
 verb register	Register subject packages in a dataset's catalogue
 verb split	Split a one-database dataset into subject packages with a catalogue
 verb join	Join subject packages back into a one-database dataset
@@ -1185,11 +1186,11 @@ R"TBL(--templates@add points	DIR	A folder of released templates to look in (repe
 )TBL",
 R"TBL(--templates@add line	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
 --name@add line	NAME	Name the line is stored under in the subject; a name already used is refused unless --replace.	required	-
---n@add line	N	The number of points of the line.	required	points
---spacing@add line	X	The step between points, in --unit (a time line: 1 / its sampling rate).	required	-
+--n@add line	N	The number of points of an evenly spaced line.	required (not with --coordinates)	points
+--spacing@add line	X	The step between points of an evenly spaced line, in --unit (a time line: 1 / its sampling rate).	required (not with --coordinates)	-
 --origin@add line	X	The coordinate of the first point, in --unit.	0	-
 --unit@add line	TEXT	The unit of the line's coordinates (s for a time line, Hz for a frequency line).	required	-
---dimension@add line	time|frequency|NAME	What the line runs along: time (a clock in seconds that fields can be time-resolved on), frequency, or another name.	time	-
+--dimension@add line	time|frequency|eigenvalue	What the line runs along: time (a clock in seconds that fields can be time-resolved on), frequency, or with --coordinates eigenvalue (an operator's spectrum, the unevenly spaced line the layout places).	time	-
 )TBL",
 R"TBL(--vertices@add surface	FILE.npy	The surface from arrays instead of a mesh FILE: the vertices [n x 3] (with --faces and --name).	none (the mesh FILE)	-
 --faces@add surface	FILE.npy	The surface from arrays: its triangles [m x 3], 0-based vertex indices (with --vertices).	none (the mesh FILE)	-
@@ -1228,13 +1229,13 @@ R"TBL(@ add field
 old: __add field
 summary: Store values computed elsewhere as a field on a manifold (optionally time-resolved on a time line), from a .npy file, as one unit.
 example: nxr-neuro add field --dataset /data/study --subject sub-01 --name thickness --manifold cortex --values thickness.npy --unit mm
-opts: --cell --dataset* --derived-from --description --kind --manifold* --name* --replace --subject* --time --unit --value-type --values* --templates+
+opts: --by-operator --cell --contribution+ --dataset* --derived-from --description --kind --manifold* --name* --producer --replace --subject* --time --unit --value-type --values* --templates+
 )TBL",
 R"TBL(@ add selection
 old: __add selection
 summary: Store a partition, set, pick of elements or spans on a line computed elsewhere, from a .npy file, as one unit.
 example: nxr-neuro add selection --dataset /data/study --subject sub-01 --name regions --manifold cortex --type partition --members regions.npy
-opts: --dataset* --description --entries --indices --manifold* --members --name* --replace --spans --subject* --type* --templates+
+opts: --dataset* --description --entries --indices --manifold* --members --name* --of-field --producer --replace --spans --subject* --type* --weights --templates+
 )TBL",
 R"TBL(@ add statistic
 old: __add statistic
@@ -1252,7 +1253,7 @@ R"TBL(@ add operator
 old: __add operator
 summary: Store a linear operator between two manifolds computed elsewhere, dense or sparse (CSR), from .npy files, as one unit.
 example: nxr-neuro add operator --dataset /data/study --subject sub-01 --name smoother --from-manifold cortex --to-manifold cortex --data d.npy --indices i.npy --indptr p.npy
-opts: --data --dataset* --description --from-manifold* --indices --indptr --kind --name* --replace --subject* --to-manifold* --values --templates+
+opts: --data --dataset* --description --from-manifold* --from-selection --indices --indptr --kind --layout --method --name* --params --replace --subject* --to-manifold* --values --templates+
 )TBL",
 R"TBL(@ add points
 old: __add points
@@ -1262,9 +1263,9 @@ opts: --coordinate-system --dataset* --description --name* --positions* --replac
 )TBL",
 R"TBL(@ add line
 old: __add line
-summary: Store a closed-form line (a time line in seconds, a frequency line, ...): n points a spacing apart from an origin.
+summary: Store a line: n points a spacing apart from an origin (a time line in seconds, a frequency line), or points at the coordinates given (an eigenvalue axis).
 example: nxr-neuro add line --dataset /data/study --subject sub-01 --name epoch_time --n 1000 --spacing 0.004 --unit s
-opts: --dataset* --dimension --n* --name* --origin --replace --spacing* --subject* --unit* --templates+
+opts: --coordinates --dataset* --dimension --kinds --n --name* --origin --replace --spacing --subject* --unit* --templates+
 )TBL",
 R"TBL(--subject@list manifolds	NAME	The subject whose the manifolds are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
 --name@list manifolds	TEXT	Only the the manifolds whose name contains TEXT (case-insensitive).	all names	-
@@ -1396,5 +1397,67 @@ summary: Read what a subject holds as one index: every node's description (manif
 example: nxr-neuro read subject --dataset /data/study --subject sub-01 --classes fields,manifolds
 opts: --classes --dataset* --related --subject* --templates+
 )TBL",
+R"TBL(--by-operator@add field	NAME	The stored operator that made the field (its lineage: a source estimate is an inverse kernel applied to a recording), by name or id.	none	-
+--contribution@add field	SUBJECT:FIELD[:WEIGHT]	A field this field is made from (a mapped field): the subject it lies in (by name), its name and an optional weight; repeat or give several.	none	-
+--producer@add field	JSON	What the maker says of how the field was made, a JSON object kept in the node's producer record (not under the keys the command records itself: command, program, inputs, output, cache).	none	-
+--of-field@add selection	NAME	The field (a recording) the selection belongs to (an indices selection of a recording's channels), by name or id.	none	-
+--weights@add selection	FILE.npy	One weight a member [members] (a set's members in label order, the picks, the spans); float32 or float64; stored beside the selection.	none	-
+--producer@add selection	JSON	What the maker says of how the selection was made, a JSON object kept in its producer record (not under the keys the command records itself: command, program, inputs, output, cache).	none	-
+--layout@add operator	dense|csr|analytic	How the operator is stored: dense or csr from the arrays given, or analytic: by its method, with no matrix.	from the arrays given	-
+--method@add operator	NAME	With --layout analytic: how the operator is evaluated (its method's name).	none	-
+--params@add operator	JSON	With --layout analytic: the method's parameters, a JSON object.	none	-
+--from-selection@add operator	NAME	The selection of the --from-manifold the operator reads, by name or id.	none	-
+--coordinates@add line	FILE.npy	A line whose points are not evenly spaced: one coordinate a point [n], strictly increasing, in --unit; float32 or float64, stored in float64. Not with --n, --spacing or --origin.	none (an evenly spaced line)	-
+--kinds@add line	FILE.npy	With --coordinates: one integer code a point [n] (what each point is, e.g. the kind of an eigenmode).	none	-
+--templates@add product	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@add product	NAME	Name the product is stored under in the subject; a name already used is refused.	required	-
+--factors@add product	A,B,...	The manifolds the product is of, by name or id, in axis order, two or more (a line over time, a surface over time); each must exist.	required	-
+--templates@add dictionary	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--subject@add dictionary	NAME	The subject the dictionary belongs to (scope subject), or through which the dataset's dictionary is written.	required for --scope subject and for a catalogue of packages	-
+--name@add dictionary	NAME	Name the dictionary is stored under; one of that name and scope is refused.	required	-
+--scope@add dictionary	dataset|subject	Whose the dictionary is: every subject of the dataset's, or the subject's own.	required	-
+--entries@add dictionary	FILE.json	The dictionary's entries: a JSON list (or the file holding it) of {code, name, label, colour, description, params}; codes unique, colour #rrggbb.	required	-
+--description@add dictionary	TEXT	A sentence on what the codes mean.	none	-
+--templates@edit manifold	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@edit manifold	NAME	The manifold to change, by name or id.	required	-
+--primary@edit manifold	yes|no	Make the surface the subject's primary one (the one the others use when no surface is named; the previous primary is cleared in the same unit), or clear the flag.	unchanged	-
+--label@edit manifold	TEXT	What the manifold is, for people (an empty text clears it).	unchanged	-
+--description@edit manifold	TEXT	A sentence on the manifold (an empty text clears it).	unchanged	-
+--templates@edit dictionary	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--subject@edit dictionary	NAME	The subject whose dictionary is edited (its own is looked for first, then the dataset's).	the dataset's dictionary; required for a catalogue of packages	-
+--name@edit dictionary	NAME	The dictionary to change, by name.	required	-
+--entry@edit dictionary	CODE	The entry to change, by its code.	none (give --entries --replace)	-
+--name-of@edit dictionary	TEXT	The new name of the entry.	unchanged	-
+--label@edit dictionary	TEXT	The new label of the entry (an empty text clears it).	unchanged	-
+--colour@edit dictionary	#rrggbb	The new colour of the entry.	unchanged	-
+--description@edit dictionary	TEXT	The new description of the entry (an empty text clears it).	unchanged	-
+--params@edit dictionary	JSON	The new parameters of the entry, JSON.	unchanged	-
+--entries@edit dictionary	FILE.json	Every entry, as in add dictionary (with --replace): the list replaces the entries; the codes a selection reads must stay.	none	-
+--replace@edit dictionary		With --entries: replace the whole list of entries.	off	-
+)TBL",
+R"TBL(@ add product
+old: __add product
+summary: Store the product manifold of stored factors (a line over time, a surface over time) under a name, as one unit.
+example: nxr-neuro add product --dataset /data/study --subject sub-01 --name spectrum_by_time --factors eigenvalues,epoch_time
+opts: --dataset* --factors* --name* --subject* --templates+
+)TBL",
+R"TBL(@ add dictionary
+old: __add dictionary
+summary: Store a dictionary (codes with names, labels, colours, descriptions and parameters) of the dataset or of a subject, from a JSON file, as one unit.
+example: nxr-neuro add dictionary --dataset /data/study --name quality --scope dataset --entries quality.json
+opts: --dataset* --description --entries* --name* --scope* --subject --templates+
+)TBL",
+R"TBL(@ edit manifold
+old: __edit manifold
+summary: Change a manifold's label, description or primary flag (making a surface primary clears the previous one in the same unit); its arrays are untouched.
+example: nxr-neuro edit manifold --dataset /data/study --subject sub-01 --name white --primary yes
+opts: --dataset* --description --label --name* --primary --subject* --templates+
+)TBL",
+R"TBL(@ edit dictionary
+old: __edit dictionary
+summary: Change one entry of a dictionary (name, label, colour, description, parameters), or replace its entries from a JSON file, as one unit.
+example: nxr-neuro edit dictionary --dataset /data/study --name quality --entry 2 --colour #ff8800
+opts: --colour --dataset* --description --entries --entry --label --name* --name-of --params --replace --subject --templates+
+)TBL"
   };
 }

@@ -7,6 +7,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <type_traits>
 
 #include "nxr/io/errors.h"
 #include "nxr/io/layout.h"
@@ -89,10 +90,27 @@ CommandResult in_unit(const std::string& dataset, const std::string& subject, co
   CommandResult r;
   {
     Unit u = ts.unit(By{created_by, producer});
-    r.result = body(ts, u);
+    if constexpr (std::is_invocable_v<F, const Subject&, Unit&, DatasetWriter&>) r.result = body(ts, u, ds);   // a body that looks in other subjects of the dataset
+    else r.result = body(ts, u);
     u.commit();
   }
   return r;
+}
+
+// a JSON option (`--producer`, `--params`): its text parsed, refused with the option's name when it is not JSON (or not an object)
+Json json_of(const std::string& text, const std::string& option, bool object = true) {
+  Json j = Json::parse(text, nullptr, false);
+  if (j.is_discarded()) throw Refused(option + ": not JSON (" + text.substr(0, 40) + ")");
+  if (object && !j.is_object()) throw Refused(option + ": a JSON object ({...})");
+  return j;
+}
+// what a maker says of how a node was made (`--producer`): keys of its own, never the ones the record keeps for the command itself
+Json maker_producer(const std::optional<std::string>& text) {
+  if (!text) return Json();
+  Json j = json_of(*text, "--producer");
+  for (const char* k : {"command", "program", "inputs", "output", "cache"})
+    if (j.contains(k)) throw Refused(std::string("--producer: the key '") + k + "' is the command's own record; name the maker's facts under other keys");
+  return j;
 }
 
 // the producer record of an added node: the command, the program, the input files' names, the user's description
@@ -113,6 +131,10 @@ std::string clear_name(const Subject& ts, Unit& u, Cls cls, const std::string& n
   const auto have = ts.by_id_or_name(cls, name);
   const std::string what = std::string(to_string(cls)) + " " + name;
   if (have && !replace) throw Error(code::already_exists, "the subject already holds a " + std::string(to_string(cls)) + " named '" + name + "': pass --replace to move it aside");
+  if (have && !have->path) {   // a node with no arrays (an operator stored by its method): nothing to move aside, its row goes
+    u.remove_unstored(cls, have->id);
+    return {};
+  }
   return u.replace(cls, have && have->path ? *have->path : fallback_path, replace, what);
 }
 
@@ -138,7 +160,8 @@ CommandResult add_field(const AddFieldRequest& rq, const Progress& progress) {
   const std::string cell = rq.cell.value_or("0");
   if (rq.time && cell != "0") throw Refused("a time-resolved field (--time) lies on the manifold's vertices (--cell 0)");
   Json inputs = Json{{"values", file_name(rq.values)}};
-  return in_unit(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_of("add field", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
+  const Json maker = maker_producer(rq.producer);
+  return in_unit(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_of("add field", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u, DatasetWriter& ds) {
     const Node m = require_manifold(ts, rq.manifold, "--manifold");
     const std::int64_t n = cell_count(m, cell);
     // the values' shape: [n (x samples) x element shape], n the manifold's cells
@@ -171,6 +194,36 @@ CommandResult add_field(const AddFieldRequest& rq, const Progress& progress) {
       if (!d) throw Error(code::no_such_row, "the subject holds no field named '" + *rq.derived_from + "' (--derived-from)");
       f.derived_from_id = d->id;
     }
+    if (rq.by_operator) {
+      const auto o = ts.by_id_or_name(Cls::operator_, *rq.by_operator);
+      if (!o) throw Error(code::no_such_row, "the subject holds no operator named '" + *rq.by_operator + "' (--by-operator)");
+      f.by_operator_id = o->id;
+    }
+    std::set<std::pair<std::string, std::string>> seen;
+    for (const std::string& c : rq.contribution) {   // SUBJECT:FIELD[:WEIGHT]
+      std::string rest = c, weight_text;
+      const auto first = rest.find(':'), last = rest.rfind(':');
+      if (first == std::string::npos || first == 0 || first + 1 == rest.size()) throw Refused("--contribution " + c + ": a contribution is SUBJECT:FIELD or SUBJECT:FIELD:WEIGHT");
+      double weight = 1;
+      if (last != first) {   // a trailing number is the weight
+        try {
+          std::size_t used = 0;
+          const std::string tail = rest.substr(last + 1);
+          const double w = std::stod(tail, &used);
+          if (used == tail.size()) { weight = w; rest = rest.substr(0, last); }
+        } catch (const std::exception&) {}
+      }
+      if (!std::isfinite(weight)) throw Refused("--contribution " + c + ": the weight is a finite number");
+      const std::string subject_key = rest.substr(0, first), field_key = rest.substr(first + 1);
+      const auto owner = ds.db().one("SELECT id FROM subject WHERE id = ? OR name = ? ORDER BY (id = ?) DESC", {V(subject_key), V(subject_key), V(subject_key)});
+      if (!owner) throw Error(code::no_such_row, "the dataset holds no subject named '" + subject_key + "' (--contribution " + c + ")");
+      const std::string owner_id = text(*owner, "id");
+      const auto source = Subject::of(ds, owner_id).by_id_or_name(Cls::field, field_key);
+      if (!source) throw Error(code::no_such_row, "the subject '" + subject_key + "' holds no field named '" + field_key + "' (--contribution " + c + ")");
+      if (!seen.insert({owner_id, source->id}).second) throw Refused("--contribution " + c + ": that field is named twice");
+      f.contributions.push_back(FieldOut::Contribution{owner_id, source->id, weight});
+    }
+    f.producer = maker;
     f.data = v;
     f.data.shape = shape;
     const std::string path = u.path_of(f);
@@ -182,6 +235,8 @@ CommandResult add_field(const AddFieldRequest& rq, const Progress& progress) {
     out["cell"] = cell;
     out["shape"] = shape;
     out["dtype"] = dtype_of(v);
+    if (rq.by_operator) out["by_operator"] = *rq.by_operator;
+    if (!f.contributions.empty()) out["contributions"] = f.contributions.size();
     return out;
   });
 }
@@ -196,6 +251,16 @@ CommandResult add_selection(const AddSelectionRequest& rq, const Progress& progr
   const ArrayInput path_in = *it->second;
   const Values v = values_of(path_in, option);
   Json inputs = Json{{option + 2, file_name(path_in)}};
+  std::optional<Values> weights;
+  if (rq.weights) {
+    weights = values_of(*rq.weights, "--weights");
+    need_real(*weights, "--weights", *rq.weights);
+    if (weights->shape.size() != 1) throw Refused("--weights " + file_name(*rq.weights) + " is " + shape_text(weights->shape) + ": one weight a member [members]");
+    for (const float x : weights->f32) if (!std::isfinite(x)) throw Refused("--weights " + file_name(*rq.weights) + ": a weight is not a finite number");
+    for (const double x : weights->f64) if (!std::isfinite(x)) throw Refused("--weights " + file_name(*rq.weights) + ": a weight is not a finite number");
+    inputs["weights"] = file_name(*rq.weights);
+  }
+  const Json maker = maker_producer(rq.producer);
   return in_unit(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_of("add selection", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
     const Node m = require_manifold(ts, rq.manifold, "--manifold");
     const std::int64_t n = m.n_vertices.value_or(-1);
@@ -206,6 +271,12 @@ CommandResult add_selection(const AddSelectionRequest& rq, const Progress& progr
     s.manifold_id = m.id;
     s.description = rq.description;
     s.entries = rq.entries;
+    s.producer = maker;
+    if (rq.of_field) {
+      const auto f = ts.by_id_or_name(Cls::field, *rq.of_field);
+      if (!f) throw Error(code::no_such_row, "the subject holds no field named '" + *rq.of_field + "' (--of-field)");
+      s.of_field_id = f->id;
+    }
     if (rq.type == "partition" || rq.type == "set") {
       if (!v.f32.empty() || !v.f64.empty()) throw Refused("--members " + file_name(path_in) + " holds " + dtype_of(v) + " values: a label per element is an integer (-1: none)");
       if (v.shape.size() != 1 || v.shape[0] != n)
@@ -242,6 +313,12 @@ CommandResult add_selection(const AddSelectionRequest& rq, const Progress& progr
         s.spans.push_back(sp);
       }
     }
+    if (weights) {   // one weight a member: a set's labelled members, the picks, the spans
+      const std::int64_t members = rq.type == "indices" ? static_cast<std::int64_t>(s.codes.size()) : rq.type == "spans" ? static_cast<std::int64_t>(s.spans.size()) : static_cast<std::int64_t>(s.member_codes.size());
+      if (weights->shape[0] != members)
+        throw Refused("--weights " + file_name(*rq.weights) + " has " + std::to_string(weights->shape[0]) + " values; '" + rq.name + "' has " + std::to_string(members) + " members (one weight a member)");
+      s.weights = *weights;
+    }
     const std::string path = u.path_of(s);
     const std::string moved = clear_name(ts, u, Cls::selection, rq.name, path, rq.replace);
     const std::string id = u.selection(s);
@@ -250,6 +327,8 @@ CommandResult add_selection(const AddSelectionRequest& rq, const Progress& progr
     out["type"] = rq.type;
     out["shape"] = v.shape;
     if (!s.member_codes.empty()) out["members"] = s.member_codes.size();
+    if (rq.of_field) out["of_field"] = *rq.of_field;
+    if (weights) out["weights"] = weights->shape[0];
     return out;
   });
 }
@@ -363,12 +442,28 @@ CommandResult add_measurements(const AddMeasurementsRequest& rq, const Progress&
 }
 
 CommandResult add_operator(const AddOperatorRequest& rq, const Progress& progress) {
-  const bool sparse = rq.data || rq.indices || rq.indptr;
-  if (sparse == rq.values.has_value()) throw Refused("give --values FILE.npy (dense) or --data, --indices and --indptr (sparse, CSR): one of the two");
-  if (sparse && !(rq.data && rq.indices && rq.indptr)) throw Refused("a sparse operator takes all three of --data, --indices and --indptr (scipy.sparse.csr_matrix's arrays)");
-  Json inputs = sparse ? Json{{"data", file_name(*rq.data)}, {"indices", file_name(*rq.indices)}, {"indptr", file_name(*rq.indptr)}} : Json{{"values", file_name(*rq.values)}};
-  const Values v = values_of(sparse ? *rq.data : *rq.values, sparse ? "--data" : "--values");
-  need_real(v, sparse ? "--data" : "--values", sparse ? *rq.data : *rq.values);
+  if (rq.layout && *rq.layout != "dense" && *rq.layout != "csr" && *rq.layout != "analytic") throw Refused("--layout " + *rq.layout + " (dense, csr or analytic)");
+  const bool analytic = rq.layout && *rq.layout == "analytic";
+  if (analytic) {
+    if (!rq.method || rq.method->empty()) throw Refused("--layout analytic takes --method NAME: how the operator is evaluated");
+    if (rq.values || rq.data || rq.indices || rq.indptr) throw Refused("an analytic operator is stored by its method and holds no matrix: leave out --values, --data, --indices and --indptr");
+  } else if (rq.method || rq.params) {
+    throw Refused("--method and --params belong to --layout analytic");
+  }
+  const bool sparse = !analytic && (rq.data || rq.indices || rq.indptr);
+  if (!analytic) {
+    if (sparse == rq.values.has_value()) throw Refused("give --values FILE.npy (dense) or --data, --indices and --indptr (sparse, CSR): one of the two (or --layout analytic with --method)");
+    if (sparse && !(rq.data && rq.indices && rq.indptr)) throw Refused("a sparse operator takes all three of --data, --indices and --indptr (scipy.sparse.csr_matrix's arrays)");
+    if (rq.layout && *rq.layout == "dense" && sparse) throw Refused("--layout dense takes --values");
+    if (rq.layout && *rq.layout == "csr" && !sparse) throw Refused("--layout csr takes --data, --indices and --indptr");
+  }
+  Json inputs = analytic ? Json::object() : sparse ? Json{{"data", file_name(*rq.data)}, {"indices", file_name(*rq.indices)}, {"indptr", file_name(*rq.indptr)}} : Json{{"values", file_name(*rq.values)}};
+  Values v;
+  if (!analytic) {
+    v = values_of(sparse ? *rq.data : *rq.values, sparse ? "--data" : "--values");
+    need_real(v, sparse ? "--data" : "--values", sparse ? *rq.data : *rq.values);
+  }
+  const Json parameters = rq.params ? json_of(*rq.params, "--params") : Json();
   return in_unit(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_of("add operator", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
     const Node from = require_manifold(ts, rq.from_manifold, "--from-manifold"), to = require_manifold(ts, rq.to_manifold, "--to-manifold");
     const std::int64_t rows = to.n_vertices.value_or(-1), cols = from.n_vertices.value_or(-1);
@@ -380,7 +475,16 @@ CommandResult add_operator(const AddOperatorRequest& rq, const Progress& progres
     o.to_manifold_id = to.id;
     o.description = rq.description;
     o.data = v;
-    if (sparse) {
+    o.params = parameters;
+    if (rq.from_selection) {
+      const auto sel = ts.by_id_or_name(Cls::selection, *rq.from_selection);
+      if (!sel) throw Error(code::no_such_row, "the subject holds no selection named '" + *rq.from_selection + "' (--from-selection)");
+      if (sel->manifold_id != std::optional<std::string>(from.id)) throw Refused("--from-selection " + *rq.from_selection + " does not lie on '" + from.name + "' (the --from-manifold)");
+      o.from_selection_id = sel->id;
+    }
+    if (analytic) {
+      o.analytic = OperatorOut::Analytic{*rq.method, rows, cols};
+    } else if (sparse) {
       if (v.shape.size() != 1) throw Refused("--data " + file_name(*rq.data) + " is " + shape_text(v.shape) + ": the nonzero values [nnz]");
       const Values ix = values_of(*rq.indices, "--indices"), ip = values_of(*rq.indptr, "--indptr");
       if (ix.i32.empty() && ix.u8.empty() && v.shape[0] > 0) throw Refused("--indices " + file_name(*rq.indices) + ": the column of each value, an integer");
@@ -404,10 +508,10 @@ CommandResult add_operator(const AddOperatorRequest& rq, const Progress& progres
     const std::string path = u.path_of(o);
     const std::string moved = clear_name(ts, u, Cls::operator_, rq.name, path, rq.replace);
     const std::string id = u.operator_(o);
-    Json out = stored("operator", rq.name, id, path, moved);
-    out["layout"] = sparse ? "csr" : "dense";
+    Json out = stored("operator", rq.name, id, analytic ? std::string() : path, moved);
+    out["layout"] = analytic ? "analytic" : sparse ? "csr" : "dense";
     out["shape"] = Json::array({rows, cols});
-    out["dtype"] = dtype_of(v);
+    if (analytic) out["method"] = *rq.method; else out["dtype"] = dtype_of(v);
     return out;
   });
 }
@@ -437,19 +541,43 @@ CommandResult add_points(const AddPointsRequest& rq, const Progress& progress) {
 }
 
 CommandResult add_line(const AddLineRequest& rq, const Progress& progress) {
-  if (rq.n < 1) throw Refused("--n: a line has at least one point");
-  if (!(rq.spacing > 0) || !std::isfinite(rq.spacing)) throw Refused("--spacing: a positive number (the line's step, in --unit)");
   if (rq.unit.empty()) throw Refused("--unit: the unit of the line's coordinates (s for a time line)");
-  if (rq.dimension == "time" && rq.unit != "s") throw Refused("a time line is in seconds (--unit s), the clock every recording is read on");
-  return in_unit(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_of("add line", rq.created_by, Json::object(), std::nullopt), progress, [&](const Subject& ts, Unit& u) {
+  Values coordinates, kinds;
+  Json inputs = Json::object();
+  if (rq.coordinates) {   // a line whose points are not evenly spaced: its coordinates, and a code a point
+    if (rq.n || rq.spacing || rq.origin) throw Refused("--coordinates gives every point: leave out --n, --spacing and --origin");
+    if (rq.dimension != "eigenvalue" && rq.dimension.rfind("eigenvalue:", 0) != 0)
+      throw Refused("--coordinates stores a line whose points are not evenly spaced under the dimension it runs along: --dimension eigenvalue (an operator's spectrum), the one the layout places (a time or frequency line is evenly spaced: --n and --spacing)");
+    coordinates = values_of(*rq.coordinates, "--coordinates");
+    need_real(coordinates, "--coordinates", *rq.coordinates);
+    if (coordinates.shape.size() != 1 || coordinates.shape[0] < 1) throw Refused("--coordinates " + file_name(*rq.coordinates) + " is " + shape_text(coordinates.shape) + ": one coordinate a point [n]");
+    coordinates = as_f64(coordinates);
+    inputs["coordinates"] = file_name(*rq.coordinates);
+    if (rq.kinds) {
+      kinds = values_of(*rq.kinds, "--kinds");
+      if (!kinds.f32.empty() || !kinds.f64.empty()) throw Refused("--kinds " + file_name(*rq.kinds) + " holds " + dtype_of(kinds) + " values: one integer code a point");
+      if (kinds.shape != coordinates.shape) throw Refused("--kinds " + file_name(*rq.kinds) + " is " + shape_text(kinds.shape) + "; one code a point is " + shape_text(coordinates.shape));
+      if (kinds.i32.empty()) kinds.i32.assign(kinds.u8.begin(), kinds.u8.end());
+      inputs["kinds"] = file_name(*rq.kinds);
+    }
+  } else {
+    if (rq.kinds) throw Refused("--kinds goes with --coordinates");
+    if (!rq.n) throw Refused("give --n and --spacing (an evenly spaced line), or --coordinates (points as given)");
+    if (!rq.spacing) throw Refused("--spacing: the line's step, in --unit");
+    if (*rq.n < 1) throw Refused("--n: a line has at least one point");
+    if (!(*rq.spacing > 0) || !std::isfinite(*rq.spacing)) throw Refused("--spacing: a positive number (the line's step, in --unit)");
+    if (rq.dimension == "time" && rq.unit != "s") throw Refused("a time line is in seconds (--unit s), the clock every recording is read on");
+  }
+  return in_unit(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_of("add line", rq.created_by, inputs, std::nullopt), progress, [&](const Subject& ts, Unit& u) {
     LineOut l;
     l.name = rq.name;
-    l.n = rq.n;
-    l.spacing = rq.spacing;
-    l.origin = rq.origin;
+    l.n = rq.n.value_or(0);
+    l.spacing = rq.spacing.value_or(1);
+    l.origin = rq.origin.value_or(0);
     l.unit = rq.unit;
     l.dimension = rq.dimension;
-    if (rq.dimension == "time") { l.folder = "time"; l.cs_key = "clock"; }
+    if (rq.coordinates) { l.coordinates = coordinates.f64; l.kinds = kinds.i32; l.n = static_cast<std::int64_t>(l.coordinates.size()); l.folder = "eigen"; l.cs_key = rq.dimension; }
+    else if (rq.dimension == "time") { l.folder = "time"; l.cs_key = "clock"; }
     else if (rq.dimension != "frequency") { l.folder = "line"; l.cs_key = rq.dimension; }
     std::string moved;
     if (const auto have = ts.by_id_or_name(Cls::manifold, rq.name)) {
@@ -459,8 +587,34 @@ CommandResult add_line(const AddLineRequest& rq, const Progress& progress) {
     const std::string id = u.line(l);
     Json out = stored("manifold", rq.name, id, ts.by_id(Cls::manifold, id) ? ts.by_id(Cls::manifold, id)->path.value_or("") : std::string(), moved);
     out["type"] = "line";
-    out["n"] = rq.n;
+    out["n"] = l.n;
     out["dimension"] = rq.dimension;
+    if (rq.coordinates) out["spacing"] = "uneven";
+    return out;
+  });
+}
+
+CommandResult add_product(const AddProductRequest& rq, const Progress& progress) {
+  if (rq.name.empty()) throw Refused("--name: the name the product is stored under");
+  if (rq.factors.size() < 2) throw Refused("--factors A,B: the manifolds the product is of, two or more, in axis order");
+  return in_unit(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_of("add product", rq.created_by, Json{{"factors", rq.factors}}, std::nullopt), progress, [&](const Subject& ts, Unit& u) {
+    if (ts.by_id_or_name(Cls::manifold, rq.name)) throw Error(code::already_exists, "the subject already holds a manifold named '" + rq.name + "'");
+    ProductOut p;
+    Json names = Json::array();
+    for (const std::string& f : rq.factors) {
+      const Node m = require_manifold(ts, f, "--factors");
+      if (m.type == std::optional<std::string>("product")) throw Refused("--factors " + f + " is a product: the factors of a product are not products themselves");
+      p.factors.push_back(m.id);
+      names.push_back(m.name);
+    }
+    p.name = rq.name;
+    const std::string id = u.product(p);
+    const auto made = ts.by_id(Cls::manifold, id);
+    if (made && made->name != rq.name) throw Error(code::already_exists, "the factors already make the product '" + made->name + "'");
+    Json out = stored("manifold", rq.name, id, std::string(), std::string());
+    out["type"] = "product";
+    out["factors"] = names;
+    out["n"] = made && made->n_vertices ? Json(*made->n_vertices) : Json();
     return out;
   });
 }

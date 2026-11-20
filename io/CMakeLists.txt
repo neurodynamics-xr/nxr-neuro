@@ -118,7 +118,7 @@ if(NXR_IO_WASM)
     src/bst_session.cpp src/bst_recording.cpp src/bst_events.cpp src/bst_resample.cpp src/bst_frequency.cpp src/bst_inverse.cpp src/bst_maps.cpp src/bst_timefreq.cpp
     src/bst_fibers.cpp src/fibers.cpp src/bst_templates.cpp src/chunk_loop.cpp src/constant_q.cpp src/store.cpp src/small_file_store.cpp
     src/subject_package.cpp src/subject_filter.cpp src/catalogue.cpp src/participants.cpp src/dataset_index.cpp src/migrate.cpp src/migrate_selection.cpp src/migrate_measurement.cpp src/templates.cpp
-    src/commands.cpp src/commands_add.cpp src/commands_query.cpp src/commands_import.cpp src/commands_export.cpp src/handle.cpp   # the commands (nxr/io/task/commands.h), which the JavaScript face calls
+    src/commands.cpp src/commands_add.cpp src/commands_edit.cpp src/commands_query.cpp src/commands_import.cpp src/commands_export.cpp src/handle.cpp   # the commands (nxr/io/task/commands.h), which the JavaScript face calls
     convert/trk.cpp convert/fibers_import.cpp convert/templates.cpp convert/recording.cpp convert/fif_objects.cpp convert/import_origin.cpp convert/nifti_import.cpp convert/world_frames.cpp
     convert/freesurfer_import.cpp convert/gifti_import.cpp convert/cifti_import.cpp convert/sensor_frames.cpp convert/recording_operators.cpp convert/bids.cpp convert/synthetic.cpp
     export/common.cpp export/gifti.cpp export/tsv.cpp export/cortex.cpp export/fif.cpp export/bids.cpp)
@@ -261,6 +261,7 @@ add_library(nxr_io
   src/task_dataset.cpp
   src/commands.cpp
   src/commands_add.cpp
+  src/commands_edit.cpp
   src/commands_query.cpp
   src/handle.cpp
   src/commands_import.cpp

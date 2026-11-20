@@ -694,13 +694,16 @@ export interface ReadManifoldOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddFieldOptions {
+  by_operator?: string | number;
   cell?: string | number;
+  contribution?: string[] | string;
   dataset: string | number;
   derived_from?: string | number;
   description?: string | number;
   kind?: string | number;
   manifold: string | number;
   name: string | number;
+  producer?: Record<string, unknown> | unknown[] | string;
   replace?: boolean;
   subject: string | number;
   templates?: string[] | string;
@@ -719,11 +722,14 @@ export interface AddSelectionOptions {
   manifold: string | number;
   members?: ArrayInput | string;
   name: string | number;
+  of_field?: string | number;
+  producer?: Record<string, unknown> | unknown[] | string;
   replace?: boolean;
   spans?: ArrayInput | string;
   subject: string | number;
   templates?: string[] | string;
   type: string | number;
+  weights?: ArrayInput | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -762,10 +768,14 @@ export interface AddOperatorOptions {
   dataset: string | number;
   description?: string | number;
   from_manifold: string | number;
+  from_selection?: string | number;
   indices?: ArrayInput | string;
   indptr?: ArrayInput | string;
   kind?: string | number;
+  layout?: string | number;
+  method?: string | number;
   name: string | number;
+  params?: Record<string, unknown> | unknown[] | string;
   replace?: boolean;
   subject: string | number;
   templates?: string[] | string;
@@ -787,13 +797,15 @@ export interface AddPointsOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddLineOptions {
+  coordinates?: ArrayInput | string;
   dataset: string | number;
   dimension?: string | number;
-  n: string | number;
+  kinds?: ArrayInput | string;
+  n?: string | number;
   name: string | number;
   origin?: string | number;
   replace?: boolean;
-  spacing: string | number;
+  spacing?: string | number;
   subject: string | number;
   templates?: string[] | string;
   unit: string | number;
@@ -920,6 +932,53 @@ export interface ReadSubjectOptions {
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
+export interface AddProductOptions {
+  dataset: string | number;
+  factors: string | number;
+  name: string | number;
+  subject: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
+export interface AddDictionaryOptions {
+  dataset: string | number;
+  description?: string | number;
+  entries: Record<string, unknown> | unknown[] | string;
+  name: string | number;
+  scope: string | number;
+  subject?: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
+export interface EditManifoldOptions {
+  dataset: string | number;
+  description?: string | number;
+  label?: string | number;
+  name: string | number;
+  primary?: string | number;
+  subject: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
+export interface EditDictionaryOptions {
+  colour?: string | number;
+  dataset: string | number;
+  description?: string | number;
+  entries?: Record<string, unknown> | unknown[] | string;
+  entry?: string | number;
+  label?: string | number;
+  name: string | number;
+  name_of?: string | number;
+  params?: Record<string, unknown> | unknown[] | string;
+  replace?: boolean;
+  subject?: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
 
 export interface Verbs {
   create: {
@@ -1026,6 +1085,8 @@ export interface Verbs {
     operator: (options: AddOperatorOptions) => Promise<Result>;
     points: (options: AddPointsOptions) => Promise<Result>;
     line: (options: AddLineOptions) => Promise<Result>;
+    product: (options: AddProductOptions) => Promise<Result>;
+    dictionary: (options: AddDictionaryOptions) => Promise<Result>;
   };
   read: {
     dataset: { (folder: string, options?: Omit<ReadDatasetOptions, 'folder'>): Promise<Result>; (options: ReadDatasetOptions): Promise<Result> };
@@ -1039,6 +1100,10 @@ export interface Verbs {
   };
   query: {
     measurements: (options: QueryMeasurementsOptions) => Promise<Result>;
+  };
+  edit: {
+    manifold: (options: EditManifoldOptions) => Promise<Result>;
+    dictionary: (options: EditDictionaryOptions) => Promise<Result>;
   };
   compile: { (definition: string, options?: Omit<CompileOptions, 'definition'>): Promise<Result>; (options: CompileOptions): Promise<Result> };
 }

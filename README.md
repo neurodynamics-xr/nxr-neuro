@@ -108,7 +108,8 @@ One command, verb first: `nxr-neuro <verb> <what> [options]`.
 | `show dataset\|subject`, `read`, `query`, `export` | one thing in detail (`show dataset` counts each class of node; `read subject` describes every node of a subject, no arrays), stored arrays, measurements, a table for statistics |
 | `import <what>` | from a Brainstorm protocol |
 | `migrate measurements` | bring a dataset made before schema 53 to one measurement table (in place, resumable, `--dry-run`; the old statistics are kept) |
-| `create`, `delete`, `compact`, `recover`, `add` | a dataset's and a subject's housekeeping (a group's reduce is `run roll_up`) |
+| `create`, `delete`, `compact`, `recover`, `add` | a dataset's and a subject's housekeeping (a group's reduce is `run roll_up`); `add` stores what was computed elsewhere (a field, selection, operator, line, product, dictionary, ...) |
+| `edit manifold\|dictionary` | change a manifold's label, description and primary flag, or a dictionary's entries, without touching any array |
 
 A dataset is a folder, named by its path with `--dataset <folder>`, and subjects `--subject <id>`. Results are written into the dataset with their provenance and a cache key, so a repeated
 run with the same options is a cache hit. **A computation over a recording states its time range**: `--from <s> --to <s>` (seconds or `m:ss`) or `--all`; without one it refuses.
