@@ -35,10 +35,11 @@ parameters:
   partition: {default: required, meaning: "the regions: a partition of the kernel's source surface (an atlas, e.g. Desikan-Killiany's 68 regions)", unit: "-"}
   name: {default: "{kernel}_{partition}_pca", meaning: "the region map's name; beside it <name>_channels", unit: "-"}
   sign_flip: {default: true, meaning: "flip each source's sign by its orientation before the component, as the reference's scouts do", unit: "-"}
+  normals: {default: brainstorm, meaning: "the sources' orientations: brainstorm (the reference's VertNormals: minus the sum of the incident faces' unit normals, normalised) | corner_angle (geometry-central's corner-angle weighted normals)", unit: "-", choices: [brainstorm, corner_angle]}
 
 steps:
   before:
-    - {node: meeg.region_pca_basis, in: {kernel: kernel, covariance: covariance, partition: partition, sources: sources}, with: {sign_flip: $sign_flip}, out: basis}
+    - {node: meeg.region_pca_basis, in: {kernel: kernel, covariance: covariance, partition: partition, sources: sources}, with: {sign_flip: $sign_flip, normals: $normals}, out: basis}
   chunks:
     over: recording
     do:

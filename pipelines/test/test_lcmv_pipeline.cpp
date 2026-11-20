@@ -85,7 +85,7 @@ int main() {
   const double sfreq = 250.0;
   std::vector<std::string> types;
   for (int i = 0; i < M; ++i) types.push_back(i < 8 ? "MEG MAG" : "MEG GRAD");
-  const nxr::geometry::Mat3 nrm = nxr::geometry::vertexNormals(V.data(), static_cast<int>(nv), F.data(), static_cast<int>(F.size() / 3));
+  const nxr::geometry::Mat3 nrm = nxr::geometry::vertexNormalsPatch(V.data(), static_cast<int>(nv), F.data(), static_cast<int>(F.size() / 3));
   MatrixXd normals(nv, 3);
   for (int i = 0; i < nv; ++i) normals.row(i) = Eigen::RowVector3d(nrm(i, 0), nrm(i, 1), nrm(i, 2)).normalized();
   MatrixXd gain(M, 3 * nv);
@@ -207,6 +207,18 @@ int main() {
     nxr::meeg::LcmvOptions o;
     o.covariance.regularisation = nxr::meeg::TruncatedRegularisation::None;
     CHECK(rel(stored_operator(sub, "LCMV_none"), nxr::meeg::lcmvKernel(gain, normals, cd.covariance, cn.covariance, types, o).K) < 1e-5);
+  }
+  {   // the corner-angle normals: a named option, recorded in the provenance (and the cache key: a new result)
+    Json other = lset;
+    other["normals"] = "corner_angle";
+    other["name"] = "LCMV_corner";
+    CHECK(!g::run(ds, sub, g::load("lcmv"), other, span_options(std::nullopt, std::nullopt, std::nullopt, false))[0].value("hit", true));
+    const nxr::geometry::Mat3 ca = nxr::geometry::vertexNormals(V.data(), static_cast<int>(nv), F.data(), static_cast<int>(F.size() / 3));
+    MatrixXd cn3(nv, 3);
+    for (int i = 0; i < nv; ++i) cn3.row(i) = Eigen::RowVector3d(ca(i, 0), ca(i, 1), ca(i, 2)).normalized();
+    CHECK(rel(stored_operator(sub, "LCMV_corner"), nxr::meeg::lcmvKernel(gain, cn3, cd.covariance, cn.covariance, types).K) < 1e-5);
+    CHECK_EQ(producer_of(sub, "operator", "LCMV_corner")["computed"]["normals"].get<std::string>(), std::string("corner_angle"));
+    CHECK_EQ(producer_of(sub, "operator", "LCMV")["computed"]["normals"].get<std::string>(), std::string("brainstorm"));
   }
   CHECK(!code_of([&] { g::run(ds, sub, g::load("lcmv"), Json{{"noise_cov", "emptyroom_noise_cov"}}, span_options(std::nullopt, std::nullopt, std::nullopt, false)); }).empty());   // no data covariance: refused
   {   // a noise covariance that does not cover the run's good channels: refused (both covariances are read on them)

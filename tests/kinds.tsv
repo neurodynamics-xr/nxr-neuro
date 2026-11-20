@@ -288,6 +288,7 @@ test_tracks	golden
 test_transport	unit
 test_value_types	unit
 test_vector_covariant_operators	unit
+test_vertex_normals_patch	golden
 test_visualization_primitives	unit
 test_vortex_cores_pipeline	integration
 test_wave	unit

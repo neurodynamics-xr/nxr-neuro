@@ -32,12 +32,13 @@ parameters:
   ridge_fraction: {default: 0.1, meaning: "the ridge's fraction of the largest eigenvalue (ridge only; the reference passes 0.1 with median, where it has no effect)", unit: "fraction"}
   detect_diagonal: {default: true, meaning: "a diagonal noise covariance whitens both covariances by their diagonal (the reference's rule)", unit: "-"}
   average_reference: {default: true, meaning: "apply the average reference of EEG, sEEG and ECoG to the gain and both covariances, per family", unit: "-"}
+  normals: {default: brainstorm, meaning: "the sources' orientations: brainstorm (the reference's VertNormals: minus the sum of the incident faces' unit normals, normalised) | corner_angle (geometry-central's corner-angle weighted normals)", unit: "-", choices: [brainstorm, corner_angle]}
 
 steps:
   before:
     - node: meeg.lcmv
       in: {forward: forward, data_covariance: data_covariance, noise_covariance: noise_covariance, sources: sources}
-      with: {regularisation: $regularisation, ridge_fraction: $ridge_fraction, detect_diagonal: $detect_diagonal, average_reference: $average_reference}
+      with: {regularisation: $regularisation, ridge_fraction: $ridge_fraction, detect_diagonal: $detect_diagonal, average_reference: $average_reference, normals: $normals}
       out: [kernel, channels, whitener, data_whitener]
 
 outputs:

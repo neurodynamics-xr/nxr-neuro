@@ -56,6 +56,10 @@ Canonical canonicalFrames(const double* positions, int nV, const int32_t* faces,
 Mat3 vertexNormals(geometry::IntrinsicSurface& surface);
 /** The same formula from arrays (a convenience of the pipelines, which take the normals of their IntrinsicSurface once they hold one; no manifold check, a vertex in no face has a zero normal). */
 Mat3 vertexNormals(const double* positions, int nV, const int32_t* faces, int nF);
+/** Brainstorm's vertex normals (its surfaces' `VertNormals`, tess_normals of the release of 2018-10-12: MATLAB's patch `VertexNormals`), from their documented behaviour: minus the sum of the
+ *  incident faces' UNIT normals (no area or angle weight; MATLAB's patch points them against the right-hand rule), normalised [V x 3]; a vertex in no face has a zero normal. They differ from
+ *  `vertexNormals` (corner-angle weighted) in direction as well as sign. Held to a golden made by that release (compute/test/golden/gen_vertex_normals_golden.m). */
+Mat3 vertexNormalsPatch(const double* positions, int nV, const int32_t* faces, int nF);
 
 /** The gauge angle of a direction per vertex: its angle in each vertex's gauge (atan2 against `IntrinsicSurface::tangentBasis`, i.e. `vertexTangentBasis`); NaN where the direction is NaN, zero, or
  *  normal to the surface. `direction` has one row per vertex of `surface`. The canonical frame's stored form is `gaugeAngle(surface, e1)`. */

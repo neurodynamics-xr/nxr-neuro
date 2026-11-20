@@ -949,8 +949,10 @@ code is only run by the generator, never copied). Every stored result carries th
   regions, 900 samples): the region signals, sign included, to 6e-10. **What it cannot resolve:** the component is the direction of most variance within a region over THIS span, so it changes
   between spans and people; it carries its share of the region's signal (`explained`) and leaves out the rest; its sign is a convention set by the span's extremes (an exact tie of the two
   excursions takes +1, where the reference takes the earlier sample); the reference skips the flip when every value of a region is positive, which a signed beamformer output never is.
-- **Deviations to know:** the sources' orientations are the vertex normals of the stored surface (`nxr::geometry::vertexNormals`, corner-angle weighted, right-hand rule); Brainstorm's are its
-  surface's `VertNormals` (MATLAB's patch normals), so a mesh whose faces Brainstorm orients the other way gives every kernel row and region signal the opposite sign (a spectrum is unchanged).
+- **The orientations** (`--normals`, both definitions): by default Brainstorm's (`brainstorm`: its surfaces' `VertNormals`, tess_normals of the release of 2018-10-12, MATLAB's patch normals:
+  minus the sum of the incident faces' unit normals, normalised; `nxr::geometry::vertexNormalsPatch`, held to that release by `test_vertex_normals_patch` to 7e-8, MATLAB's single precision),
+  computed from the stored surface; `corner_angle` (geometry-central's corner-angle weighted normals, `nxr::geometry::vertexNormals`) is a named option. The two differ in direction as well as
+  sign; the choice is in the provenance and the cache key. **Deviation to know:**
   The covariance a region map is made from must be of the recording the run reads: the span is checked, the recording is the caller's.
 
 ## Temporal filters (`compute/include/nxr/filter.h`, `lowpass|highpass|bandpass|bandstop|notch`)
