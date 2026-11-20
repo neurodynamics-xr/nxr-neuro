@@ -10,6 +10,8 @@
 #include <type_traits>
 
 #include "nxr/io/errors.h"
+#include "nxr/io/task/handle.h"
+#include "pieces.h"
 #include "nxr/io/layout.h"
 #include "nxr/io/npy.h"
 #include "nxr/io/task/commands.h"
@@ -152,9 +154,57 @@ std::int64_t cell_count(const Node& m, const std::string& cell) {
   return n.is_number_integer() ? n.get<std::int64_t>() : -1;
 }
 
+
+// what a field's values must be: the manifold's cells (and a time line's samples), then the value type's components
+struct FieldShape {
+  Node m;
+  std::int64_t n = 0, samples = -1;
+  std::optional<Node> line;
+  std::vector<std::int64_t> want;
+};
+FieldShape plan_field_shape(const Subject& ts, const AddFieldRequest& rq, const std::vector<std::int64_t>& elem, const std::string& cell) {
+  FieldShape p{require_manifold(ts, rq.manifold, "--manifold"), 0, -1, std::nullopt, {}};
+  p.n = cell_count(p.m, cell);
+  p.want = {p.n};
+  if (rq.time) {
+    p.line = require_manifold(ts, *rq.time, "--time");
+    if (p.line->type != std::optional<std::string>("line")) throw Refused("--time " + *rq.time + " is a " + p.line->type.value_or("manifold") + ", not a line");
+    p.samples = p.line->n_vertices.value_or(-1);
+    p.want.push_back(p.samples);
+  }
+  p.want.insert(p.want.end(), elem.begin(), elem.end());
+  return p;
+}
+std::string field_shape_message(const FieldShape& p, const AddFieldRequest& rq, const std::string& what, const std::vector<std::int64_t>& got, const std::string& cell) {
+  return what + " is " + shape_text(got) + "; a " + rq.value_type + " field on '" + p.m.name + "' (" + std::to_string(p.n) + " " + (cell == "0" ? "vertices" : cell == "1" ? "edges" : "faces") +
+         (rq.time ? ", " + std::to_string(p.samples) + " samples of " + *rq.time : std::string()) + ") is " + shape_text(p.want);
+}
+
+// a statistic's values: one axis a --axes entry, then the value type's components; each axis the size of the manifold it runs along
+void check_statistic_rank(const AddStatisticRequest& rq, const std::vector<std::int64_t>& shape, const std::string& what) {
+  if (rq.axes.empty()) throw Refused("name each axis of the values and the manifold it runs along: --axes NAME:MANIFOLD ...");
+  const std::vector<std::int64_t> elem = element_shape(rq.value_type);
+  if (shape.size() != rq.axes.size() + elem.size())
+    throw Refused(what + " is " + shape_text(shape) + ": " + std::to_string(rq.axes.size()) + " axes and a " + rq.value_type + " value make " + std::to_string(rq.axes.size() + elem.size()) + " dimensions");
+}
+void check_statistic_axis(const Node& m, const std::string& axis, std::int64_t size, const std::string& what) {
+  const std::string name = axis.substr(0, axis.find(':'));
+  if (m.n_vertices && *m.n_vertices != size)
+    throw Refused(what + " has " + std::to_string(size) + " along axis '" + name + "'; '" + m.name + "' has " + std::to_string(*m.n_vertices) + " elements");
+}
+
+// the options the one-shot form of add field | statistic requires (the write in pieces takes fewer: its begin names them once)
+void need_options(const std::vector<std::pair<const char*, const std::string&>>& given, const ArrayInput& values, const std::string& command) {
+  std::string missing;
+  for (const auto& [option, v] : given) if (v.empty()) missing += (missing.empty() ? "" : ", ") + std::string(option);
+  if (!values.in_memory && values.path.empty()) missing += (missing.empty() ? "" : ", ") + std::string("--values");
+  if (!missing.empty()) throw Refused("the following arguments are required: " + missing + (command.empty() ? "" : " (or --begin, to write in pieces)"));
+}
 }  // namespace
 
 CommandResult add_field(const AddFieldRequest& rq, const Progress& progress) {
+  if (rq.piece.active()) return pieces::field(rq, progress);
+  need_options({{"--subject", rq.subject}, {"--name", rq.name}, {"--manifold", rq.manifold}}, rq.values, "add field");
   const Values v = values_of(rq.values, "--values");
   const std::vector<std::int64_t> elem = element_shape(rq.value_type);
   const std::string cell = rq.cell.value_or("0");
@@ -162,24 +212,12 @@ CommandResult add_field(const AddFieldRequest& rq, const Progress& progress) {
   Json inputs = Json{{"values", file_name(rq.values)}};
   const Json maker = maker_producer(rq.producer);
   return in_unit(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_of("add field", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u, DatasetWriter& ds) {
-    const Node m = require_manifold(ts, rq.manifold, "--manifold");
-    const std::int64_t n = cell_count(m, cell);
-    // the values' shape: [n (x samples) x element shape], n the manifold's cells
-    std::vector<std::int64_t> want = {n};
-    std::int64_t samples = -1;
-    std::optional<Node> line;
-    if (rq.time) {
-      line = require_manifold(ts, *rq.time, "--time");
-      if (line->type != std::optional<std::string>("line")) throw Refused("--time " + *rq.time + " is a " + line->type.value_or("manifold") + ", not a line");
-      samples = line->n_vertices.value_or(-1);
-      want.push_back(samples);
-    }
-    want.insert(want.end(), elem.begin(), elem.end());
+    const FieldShape plan = plan_field_shape(ts, rq, elem, cell);
+    const Node& m = plan.m;
+    const std::optional<Node>& line = plan.line;
     std::vector<std::int64_t> shape = v.shape;
     if (!rq.time && elem.empty() && shape.size() == 2 && shape[1] == 1) shape.pop_back();   // [n x 1] is a scalar a cell
-    if (shape != want)
-      throw Refused("--values " + file_name(rq.values) + " is " + shape_text(v.shape) + "; a " + rq.value_type + " field on '" + m.name + "' (" + std::to_string(n) + " " +
-                    (cell == "0" ? "vertices" : cell == "1" ? "edges" : "faces") + (rq.time ? ", " + std::to_string(samples) + " samples of " + *rq.time : std::string()) + ") is " + shape_text(want));
+    if (shape != plan.want) throw Refused(field_shape_message(plan, rq, "--values " + file_name(rq.values), v.shape, cell));
     FieldOut f;
     f.name = rq.name;
     f.output = rq.name;
@@ -334,13 +372,13 @@ CommandResult add_selection(const AddSelectionRequest& rq, const Progress& progr
 }
 
 CommandResult add_statistic(const AddStatisticRequest& rq, const Progress& progress) {
+  if (rq.piece.active()) return pieces::statistic(rq, progress);
+  need_options({{"--subject", rq.subject}, {"--name", rq.name}, {"--measure", rq.measure}, {"--method", rq.method}}, rq.values, "add statistic");
+  if (rq.axes.empty()) throw Refused("the following arguments are required: --axes");
   const Values v = values_of(rq.values, "--values");
   need_real(v, "--values", rq.values);
   if (rq.axes.empty()) throw Refused("name each axis of the values and the manifold it runs along: --axes NAME:MANIFOLD ...");
-  const std::vector<std::int64_t> elem = element_shape(rq.value_type);
-  if (v.shape.size() != rq.axes.size() + elem.size())
-    throw Refused("--values " + file_name(rq.values) + " is " + shape_text(v.shape) + ": " + std::to_string(rq.axes.size()) + " axes and a " + rq.value_type + " value make " +
-                  std::to_string(rq.axes.size() + elem.size()) + " dimensions");
+  check_statistic_rank(rq, v.shape, "--values " + file_name(rq.values));
   Json inputs = Json{{"values", file_name(rq.values)}};
   return in_unit(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_of("add statistic", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
     StatisticOut st;
@@ -357,8 +395,7 @@ CommandResult add_statistic(const AddStatisticRequest& rq, const Progress& progr
       const auto colon = a.find(':');
       if (colon == std::string::npos || colon == 0 || colon + 1 == a.size()) throw Refused("--axes " + a + ": an axis is NAME:MANIFOLD");
       const Node m = require_manifold(ts, a.substr(colon + 1), "--axes " + a);
-      if (m.n_vertices && *m.n_vertices != v.shape[i])
-        throw Refused("--values " + file_name(rq.values) + " has " + std::to_string(v.shape[i]) + " along axis '" + a.substr(0, colon) + "'; '" + m.name + "' has " + std::to_string(*m.n_vertices) + " elements");
+      check_statistic_axis(m, a, v.shape[i], "--values " + file_name(rq.values));
       st.axes.push_back(Json{{"name", a.substr(0, colon)}, {"size", v.shape[i]}, {"manifold_id", m.id}});
     }
     if (rq.of_field) {
@@ -618,5 +655,44 @@ CommandResult add_product(const AddProductRequest& rq, const Progress& progress)
     return out;
   });
 }
+
+
+// ---- what `begin` of a write in pieces checks (pieces.h): the one-shot command's refusals that do not need the values ----
+namespace pieces {
+
+void plan_field(const AddFieldRequest& rq, const std::vector<std::int64_t>& shape, const Progress& progress) {
+  need_options({{"--subject", rq.subject}, {"--name", rq.name}, {"--manifold", rq.manifold}}, ArrayInput("-"), "");
+  const std::vector<std::int64_t> elem = element_shape(rq.value_type);
+  const std::string cell = rq.cell.value_or("0");
+  if (rq.time && cell != "0") throw Refused("a time-resolved field (--time) lies on the manifold's vertices (--cell 0)");
+  Lease lease = open_reader(rq.dataset, rq.subject, rq.templates, progress);
+  SubjectWriter sub = SubjectWriter::open(*lease, rq.subject);
+  const Subject ts = Subject::of(sub);
+  const FieldShape plan = plan_field_shape(ts, rq, elem, cell);
+  if (shape != plan.want) throw Refused(field_shape_message(plan, rq, "--shape", shape, cell));
+  if (ts.by_id_or_name(Cls::field, rq.name) && !rq.replace) throw Error(code::already_exists, "the subject already holds a field named '" + rq.name + "': pass --replace to move it aside");
+  if (rq.derived_from && !ts.by_id_or_name(Cls::field, *rq.derived_from)) throw Error(code::no_such_row, "the subject holds no field named '" + *rq.derived_from + "' (--derived-from)");
+  if (rq.by_operator && !ts.by_id_or_name(Cls::operator_, *rq.by_operator)) throw Error(code::no_such_row, "the subject holds no operator named '" + *rq.by_operator + "' (--by-operator)");
+  (void)maker_producer(rq.producer);
+}
+
+void plan_statistic(const AddStatisticRequest& rq, const std::vector<std::int64_t>& shape, const Progress& progress) {
+  need_options({{"--subject", rq.subject}, {"--name", rq.name}, {"--measure", rq.measure}, {"--method", rq.method}}, ArrayInput("-"), "");
+  check_statistic_rank(rq, shape, "--shape");
+  Lease lease = open_reader(rq.dataset, rq.subject, rq.templates, progress);
+  SubjectWriter sub = SubjectWriter::open(*lease, rq.subject);
+  const Subject ts = Subject::of(sub);
+  for (std::size_t i = 0; i < rq.axes.size(); ++i) {
+    const std::string& a = rq.axes[i];
+    const auto colon = a.find(':');
+    if (colon == std::string::npos || colon == 0 || colon + 1 == a.size()) throw Refused("--axes " + a + ": an axis is NAME:MANIFOLD");
+    check_statistic_axis(require_manifold(ts, a.substr(colon + 1), "--axes " + a), a, shape[i], "--shape " + shape_text(shape));
+  }
+  if (ts.by_id_or_name(Cls::statistic, rq.name) && !rq.replace) throw Error(code::already_exists, "the subject already holds a statistic named '" + rq.name + "': pass --replace to move it aside");
+  if (rq.of_field && !ts.by_id_or_name(Cls::field, *rq.of_field)) throw Error(code::no_such_row, "the subject holds no field named '" + *rq.of_field + "' (--of-field)");
+  if (rq.partition && !ts.by_id_or_name(Cls::selection, *rq.partition)) throw Error(code::no_such_row, "the subject holds no selection named '" + *rq.partition + "' (--partition)");
+}
+
+}  // namespace pieces
 
 }  // namespace nxr::io::task

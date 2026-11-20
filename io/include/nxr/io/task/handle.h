@@ -46,6 +46,7 @@ class Handle {
  private:
   friend class HandleScope;
   friend class Lease;
+  friend std::optional<std::string> current_handle_token(const std::string&);
   friend Lease open_reader(const std::string&, const std::optional<std::string>&, const std::vector<std::string>&, const Progress&);
   struct Impl;
   std::unique_ptr<Impl> impl_;
@@ -63,6 +64,9 @@ class HandleScope {
   struct State;
   std::unique_ptr<State> s_;
 };
+
+/** A token naming the handle the commands of this thread work through on `dataset` (none: no handle, or a handle of another dataset): what a write in pieces records as its owner (commands.h `PieceOptions`). */
+std::optional<std::string> current_handle_token(const std::string& dataset);
 
 /** An opened dataset a command works on: its own (closed with the lease), or a handle's (kept open). Use `*lease` as the DatasetWriter. */
 class Lease {

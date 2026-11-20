@@ -85,9 +85,9 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("query", "measurements", "", "band dataset* factor field limit max_value measure* min_value order selection* spatial_scale subject* subjects tile templates+ where"),
     ("compile", "", "definition", "dataset inputs set+ signatures subject"),
     # add <class>
-    ("add", "field", "", "by_operator cell contribution+ dataset* derived_from description kind manifold* name* producer replace! subject* time unit value_type values* templates+"),
+    ("add", "field", "", "append! begin! by_operator cell commit! contribution+ dataset* derived_from description dtype kind manifold name producer region replace! shape subject time unit value_type values write templates+"),
     ("add", "selection", "", "dataset* description entries indices manifold* members name* of_field producer replace! spans subject* type* weights templates+"),
-    ("add", "statistic", "", "axes*+ dataset* description measure* method* name* of_field partition replace! subject* unit value_type values* templates+"),
+    ("add", "statistic", "", "append! axes+ begin! commit! dataset* description dtype measure method name of_field partition region replace! shape subject unit value_type values write templates+"),
     ("add", "measurements", "", "dataset* field measure*+ replace! selection* subject* unit templates+"),
     ("add", "operator", "", "data dataset* description from_manifold* from_selection indices indptr kind layout method name* params replace! subject* to_manifold* values templates+"),
     ("add", "points", "", "coordinate_system dataset* description name* positions* replace! subject* templates+"),

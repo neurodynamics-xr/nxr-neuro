@@ -43,4 +43,8 @@ std::string npy_dtype_name(const std::string& descr);
  *  uint8 to uint64, bool), little-endian; an Error when the bytes are not the shape's values of that dtype */
 void write_npy(const std::filesystem::path& path, const std::string& dtype, const std::vector<std::int64_t>& shape, const std::vector<std::uint8_t>& bytes);
 
+/** a .npy file (version 1.0) of `shape` and `dtype` whose values are all zeros, made without holding them (a sparse file): the place the regions of a piecewise write are
+ *  written into. Returns the offset of the first value. */
+std::uint64_t create_npy(const std::filesystem::path& path, const std::string& dtype, const std::vector<std::int64_t>& shape);
+
 }  // namespace nxr::io

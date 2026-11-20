@@ -157,29 +157,57 @@ std::string npy_dtype_name(const std::string& descr) {
   throw Error(code::invalid_argument, "the .npy dtype '" + descr + "' is not one io reads (float32, float64, int8 to int64, uint8 to uint64, bool; little-endian)");
 }
 
-void write_npy(const fs::path& path, const std::string& dtype, const std::vector<std::int64_t>& shape, const std::vector<std::uint8_t>& bytes) {
+namespace {
+// the header of a version 1.0 .npy file (magic, length, dictionary padded to 64 bytes) of `shape` and the dtype's descr
+std::string npy_header(const std::string& dtype, const std::vector<std::int64_t>& shape, const fs::path& path, std::size_t* item_out, std::int64_t* count_out) {
   std::string descr;
   for (const auto& [name, de] : dtype_descrs()) if (name == dtype) descr = de;
   if (descr.empty()) throw Error(code::invalid_argument, path.string() + ": no .npy dtype for '" + dtype + "'");
   std::int64_t n = 1;
   for (const auto d : shape) n *= d;
-  const std::size_t item = static_cast<std::size_t>(std::stoul(descr.substr(2)));
-  if (bytes.size() != static_cast<std::size_t>(n) * item)
-    throw Error(code::invalid_argument, path.string() + ": " + std::to_string(bytes.size()) + " bytes are not " + std::to_string(n) + " values of " + dtype);
+  *item_out = static_cast<std::size_t>(std::stoul(descr.substr(2)));
+  *count_out = n;
   std::string sh;
   for (const auto d : shape) sh += std::to_string(d) + ", ";
   if (!sh.empty()) sh.erase(sh.size() - (shape.size() > 1 ? 2 : 1));   // (n,) for one axis, (a, b) for more, () for none
   std::string header = "{'descr': '" + descr + "', 'fortran_order': False, 'shape': (" + sh + "), }";
   while ((10 + header.size() + 1) % 64) header += ' ';
   header += '\n';
+  std::string out = "\x93NUMPY\x01";
+  out.push_back('\0');
+  out.push_back(static_cast<char>(header.size() & 0xff));
+  out.push_back(static_cast<char>(header.size() >> 8));
+  return out + header;
+}
+}  // namespace
+
+void write_npy(const fs::path& path, const std::string& dtype, const std::vector<std::int64_t>& shape, const std::vector<std::uint8_t>& bytes) {
+  std::size_t item = 0;
+  std::int64_t n = 0;
+  const std::string head = npy_header(dtype, shape, path, &item, &n);
+  if (bytes.size() != static_cast<std::size_t>(n) * item)
+    throw Error(code::invalid_argument, path.string() + ": " + std::to_string(bytes.size()) + " bytes are not " + std::to_string(n) + " values of " + dtype);
   std::ofstream o(path, std::ios::binary | std::ios::trunc);
   if (!o) throw Error(code::not_writable, path.string() + ": cannot be written");
-  o.write("\x93NUMPY\x01\x00", 8);
-  const unsigned char len[2] = {static_cast<unsigned char>(header.size() & 0xff), static_cast<unsigned char>(header.size() >> 8)};
-  o.write(reinterpret_cast<const char*>(len), 2);
-  o << header;
+  o.write(head.data(), static_cast<std::streamsize>(head.size()));
   o.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
   if (!o) throw Error(code::not_writable, path.string() + ": a short write");
+}
+
+std::uint64_t create_npy(const fs::path& path, const std::string& dtype, const std::vector<std::int64_t>& shape) {
+  std::size_t item = 0;
+  std::int64_t n = 0;
+  const std::string head = npy_header(dtype, shape, path, &item, &n);
+  {
+    std::ofstream o(path, std::ios::binary | std::ios::trunc);
+    if (!o) throw Error(code::not_writable, path.string() + ": cannot be written");
+    o.write(head.data(), static_cast<std::streamsize>(head.size()));
+    if (!o) throw Error(code::not_writable, path.string() + ": a short write");
+  }
+  std::error_code ec;
+  fs::resize_file(path, head.size() + static_cast<std::uint64_t>(n) * item, ec);   // the values: zeros (a sparse file)
+  if (ec) throw Error(code::not_writable, path.string() + ": cannot be sized (" + ec.message() + ")");
+  return head.size();
 }
 
 }  // namespace nxr::io

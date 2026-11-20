@@ -27,6 +27,7 @@
 #include "nxr/io/py_json.h"
 #include "nxr/io/subject_package.h"
 #include "nxr/io/task/commands.h"
+#include "nxr/io/task/jobs.h"
 
 namespace nxr::io::task {
 
@@ -60,6 +61,12 @@ struct OpenedPackage {
   DatasetWriter w;
   SubjectWriter sub;
 };
+
+
+// the program a job row names when the request carries none (the file importers': they take no producer stamp)
+const char* const kProgram = "nxr-neuro";
+template <class T>
+Json oj(const std::optional<T>& v) { return v ? Json(*v) : Json(); }
 
 // the recorded source of a file: relative to the root the caller names (default: the file's folder), never an absolute path
 std::string source_of(const std::string& file, const std::optional<std::string>& source_root, const fs::path& default_root) {
@@ -104,17 +111,32 @@ CommandResult import_scan(const ImportScanRequest& rq) {
   return result_of(std::move(r));
 }
 
+static CommandResult import_subject_work(const ImportSubjectRequest& rq, const Progress& progress);
 CommandResult import_subject(const ImportSubjectRequest& rq, const Progress& progress) {
+  return recorded("import:subject", JobTarget{rq.dataset, "", rq.subject}, Json{{"protocol", rq.protocol}, {"subject", rq.subject}, {"resample", oj(rq.resample)}}, rq.created_by, [&] { return import_subject_work(rq, progress); });
+}
+
+static CommandResult import_subject_work(const ImportSubjectRequest& rq, const Progress& progress) {
   DatasetWriter ds = open_one_database(rq.dataset, "import subject");
   return result_of(nxr::bst::convert_subject(ds, rq.protocol, rq.subject, said(progress), rq.created_by, rq.resample));
 }
 
+static CommandResult import_template_work(const ImportTemplateRequest& rq, const Progress& progress);
 CommandResult import_template(const ImportTemplateRequest& rq, const Progress& progress) {
+  return recorded("import:template", JobTarget{rq.dataset, "", std::nullopt}, Json{{"protocol", rq.protocol}, {"surface", oj(rq.surface)}}, rq.created_by, [&] { return import_template_work(rq, progress); });
+}
+
+static CommandResult import_template_work(const ImportTemplateRequest& rq, const Progress& progress) {
   DatasetWriter ds = open_one_database(rq.dataset, "import template");
   return result_of(nxr::bst::convert_template(ds, rq.protocol, rq.surface, said(progress), rq.created_by));
 }
 
+static CommandResult import_group_work(const ImportGroupRequest& rq, const Progress& progress);
 CommandResult import_group(const ImportGroupRequest& rq, const Progress& progress) {
+  return recorded("import:group", JobTarget{rq.dataset, "", std::nullopt}, Json{{"protocol", rq.protocol}}, rq.created_by, [&] { return import_group_work(rq, progress); });
+}
+
+static CommandResult import_group_work(const ImportGroupRequest& rq, const Progress& progress) {
   DatasetWriter ds = open_one_database(rq.dataset, "import group");
   return result_of(nxr::bst::convert_group(ds, rq.protocol, said(progress), rq.created_by));
 }
@@ -127,7 +149,12 @@ CommandResult import_templates(const ImportTemplatesRequest& rq) {
   return result_of(nxr::bst::build_templates(rq.source, rq.dataset, o, rq.created_by));
 }
 
+static CommandResult import_surface_work(const ImportSurfaceRequest& rq, const Progress& progress);
 CommandResult import_surface(const ImportSurfaceRequest& rq, const Progress& progress) {
+  return recorded("import:surface", JobTarget{rq.dataset, "", rq.subject}, Json{{"subject", rq.subject}, {"file", rq.file}, {"bst_root", oj(rq.bst_root)}}, rq.created_by, [&] { return import_surface_work(rq, progress); });
+}
+
+static CommandResult import_surface_work(const ImportSurfaceRequest& rq, const Progress& progress) {
   if (rq.file.empty()) throw Refused("give --file tess_*.mat ... (--fs-dir is not ported yet)");
   Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
   const std::string bst_root = rq.bst_root.value_or("");
@@ -147,7 +174,12 @@ CommandResult import_surface(const ImportSurfaceRequest& rq, const Progress& pro
   return result_of(Json{{"surfaces", wrote}});
 }
 
+static CommandResult import_mri_work(const ImportMriRequest& rq, const Progress& progress);
 CommandResult import_mri(const ImportMriRequest& rq, const Progress& progress) {
+  return recorded("import:mri", JobTarget{rq.dataset, "", rq.subject}, Json{{"subject", rq.subject}, {"anat", rq.anat}, {"only", oj(rq.only)}}, rq.created_by, [&] { return import_mri_work(rq, progress); });
+}
+
+static CommandResult import_mri_work(const ImportMriRequest& rq, const Progress& progress) {
   Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
   Json names = Json::array();
   o.sub.compose([&] {
@@ -156,7 +188,12 @@ CommandResult import_mri(const ImportMriRequest& rq, const Progress& progress) {
   return result_of(Json{{"volumes", names}});
 }
 
+static CommandResult import_condition_work(const ImportConditionRequest& rq, const Progress& progress);
 CommandResult import_condition(const ImportConditionRequest& rq, const Progress& progress) {
+  return recorded("import:condition", JobTarget{rq.dataset, "", rq.subject}, Json{{"protocol", rq.protocol}, {"subject", rq.subject}, {"condition", rq.condition}, {"resample", oj(rq.resample)}}, rq.created_by, [&] { return import_condition_work(rq, progress); });
+}
+
+static CommandResult import_condition_work(const ImportConditionRequest& rq, const Progress& progress) {
   const fs::path root = rq.protocol;
   DatasetWriter ds = open_dataset(rq.dataset, rq.subject, OpenOptions{}, rq.templates, progress);
   nxr::bst::ConditionPlanOptions po;
@@ -189,7 +226,12 @@ CommandResult import_condition(const ImportConditionRequest& rq, const Progress&
   return result_of(std::move(r));
 }
 
+static CommandResult import_inverse_work(const ImportInverseRequest& rq, const Progress& progress);
 CommandResult import_inverse(const ImportInverseRequest& rq, const Progress& progress) {
+  return recorded("import:inverse", JobTarget{rq.dataset, "", rq.subject}, Json{{"subject", rq.subject}, {"file", rq.file}, {"acquisition", rq.acquisition}, {"name", oj(rq.name)}}, rq.created_by, [&] { return import_inverse_work(rq, progress); });
+}
+
+static CommandResult import_inverse_work(const ImportInverseRequest& rq, const Progress& progress) {
   Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
   nxr::bst::AddInverseOptions ao;
   ao.acquisition = rq.acquisition;
@@ -204,7 +246,12 @@ CommandResult import_inverse(const ImportInverseRequest& rq, const Progress& pro
   return result_of(nxr::bst::inverse_json(info));
 }
 
+static CommandResult import_map_work(const ImportMapRequest& rq, const Progress& progress);
 CommandResult import_map(const ImportMapRequest& rq, const Progress& progress) {
+  return recorded("import:map", JobTarget{rq.dataset, "", rq.subject}, Json{{"subject", rq.subject}, {"file", rq.file}, {"acquisition", oj(rq.acquisition)}, {"replace", rq.replace}}, rq.created_by, [&] { return import_map_work(rq, progress); });
+}
+
+static CommandResult import_map_work(const ImportMapRequest& rq, const Progress& progress) {
   std::optional<Json> prov;
   if (rq.provenance) {
     std::ifstream in(*rq.provenance, std::ios::binary);
@@ -230,14 +277,24 @@ CommandResult import_map(const ImportMapRequest& rq, const Progress& progress) {
   return result_of(Json{{"maps", wrote}});
 }
 
+static CommandResult import_resample_work(const ImportResampleRequest& rq, const Progress& progress);
 CommandResult import_resample(const ImportResampleRequest& rq, const Progress& progress) {
+  return recorded("import:resample", JobTarget{rq.dataset, "", rq.subject}, Json{{"subject", rq.subject}, {"recording", rq.recording}, {"to", rq.to}, {"name", oj(rq.name)}}, rq.created_by, [&] { return import_resample_work(rq, progress); });
+}
+
+static CommandResult import_resample_work(const ImportResampleRequest& rq, const Progress& progress) {
   Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
   Json info;
   o.sub.compose([&] { info = nxr::bst::add_resampled(o.sub, rq.recording, rq.to, rq.name, said(progress)); });
   return result_of(std::move(info));
 }
 
+static CommandResult import_badsegments_work(const ImportBadsegmentsRequest& rq, const Progress& progress);
 CommandResult import_badsegments(const ImportBadsegmentsRequest& rq, const Progress& progress) {
+  return recorded("import:badsegments", JobTarget{rq.dataset, "", rq.subject}, Json{{"subject", rq.subject}, {"from", rq.from}, {"replace", rq.replace}}, rq.created_by, [&] { return import_badsegments_work(rq, progress); });
+}
+
+static CommandResult import_badsegments_work(const ImportBadsegmentsRequest& rq, const Progress& progress) {
   Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
   std::ifstream f(rq.from, std::ios::binary);
   if (!f) throw Error(code::not_found, "[Errno 2] No such file or directory: " + nxr::bst::str_repr(nxr::bst::py_path(rq.from)));
@@ -247,7 +304,12 @@ CommandResult import_badsegments(const ImportBadsegmentsRequest& rq, const Progr
   return result_of(std::move(info));
 }
 
+static CommandResult import_events_work(const ImportEventsRequest& rq, const Progress& progress);
 CommandResult import_events(const ImportEventsRequest& rq, const Progress& progress) {
+  return recorded("import:events", JobTarget{rq.dataset, "", rq.subject}, Json{{"subject", rq.subject}, {"from", rq.from}, {"replace", rq.replace}}, rq.created_by, [&] { return import_events_work(rq, progress); });
+}
+
+static CommandResult import_events_work(const ImportEventsRequest& rq, const Progress& progress) {
   Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
   Json info;
   o.sub.compose([&] { info = nxr::bst::import_events(o.sub, rq.from, rq.replace); });
@@ -256,7 +318,12 @@ CommandResult import_events(const ImportEventsRequest& rq, const Progress& progr
 
 // ---- files in the field's formats, into a subject package ----
 
+static CommandResult import_recording_work(const ImportRecordingRequest& rq, const Progress& progress);
 CommandResult import_recording(const ImportRecordingRequest& rq, const Progress& progress) {
+  return recorded("import:recording", JobTarget{"", rq.package, std::nullopt}, Json{{"from", rq.from}, {"name", oj(rq.name)}, {"acquisition", oj(rq.acquisition)}, {"format", oj(rq.format)}, {"in_place", rq.in_place}}, kProgram, [&] { return import_recording_work(rq, progress); });
+}
+
+static CommandResult import_recording_work(const ImportRecordingRequest& rq, const Progress& progress) {
   const std::string& file = rq.from;
   require_file(file);
   nxr::convert::RecordingImport opt;
@@ -287,7 +354,12 @@ CommandResult import_fif_object(const std::string& file, const std::string& pack
 }
 }  // namespace
 
+static CommandResult import_fif_work(const ImportFifRequest& rq, const Progress& progress);
 CommandResult import_fif(const ImportFifRequest& rq, const Progress& progress) {
+  return recorded("import:fif", JobTarget{"", rq.package, std::nullopt}, Json{{"from", rq.from}, {"kind", oj(rq.kind)}, {"name", oj(rq.name)}}, kProgram, [&] { return import_fif_work(rq, progress); });
+}
+
+static CommandResult import_fif_work(const ImportFifRequest& rq, const Progress& progress) {
   require_file(rq.from);
   nxr::convert::FifObjectImport opt;
   opt.kind = rq.kind.value_or("");
@@ -303,7 +375,12 @@ CommandResult import_fif(const ImportFifRequest& rq, const Progress& progress) {
   return import_fif_object(rq.from, rq.package, opt, root, progress);
 }
 
+static CommandResult import_transform_work(const ImportTransformRequest& rq, const Progress& progress);
 CommandResult import_transform(const ImportTransformRequest& rq, const Progress& progress) {
+  return recorded("import:transform", JobTarget{"", rq.package, std::nullopt}, Json{{"from", rq.from}, {"name", oj(rq.name)}}, kProgram, [&] { return import_transform_work(rq, progress); });
+}
+
+static CommandResult import_transform_work(const ImportTransformRequest& rq, const Progress& progress) {
   require_file(rq.from);
   nxr::convert::FifObjectImport opt;
   opt.kind = "trans";
@@ -312,7 +389,12 @@ CommandResult import_transform(const ImportTransformRequest& rq, const Progress&
   return import_fif_object(rq.from, rq.package, opt, fs::path(rq.from).parent_path(), progress);
 }
 
+static CommandResult import_nifti_work(const ImportNiftiRequest& rq, const Progress& progress);
 CommandResult import_nifti(const ImportNiftiRequest& rq, const Progress& progress) {
+  return recorded("import:nifti", JobTarget{"", rq.package, std::nullopt}, Json{{"from", rq.from}, {"name", oj(rq.name)}, {"kind", oj(rq.kind)}}, kProgram, [&] { return import_nifti_work(rq, progress); });
+}
+
+static CommandResult import_nifti_work(const ImportNiftiRequest& rq, const Progress& progress) {
   const std::string& file = rq.from;
   require_file(file);
   nxr::convert::NiftiImport opt;
@@ -332,7 +414,12 @@ CommandResult import_nifti(const ImportNiftiRequest& rq, const Progress& progres
   return result_of(nxr::convert::import_nifti(p.w, p.sub, file, opt));
 }
 
+static CommandResult import_freesurfer_work(const ImportFreesurferRequest& rq, const Progress& progress);
 CommandResult import_freesurfer(const ImportFreesurferRequest& rq, const Progress& progress) {
+  return recorded("import:freesurfer", JobTarget{"", rq.package, std::nullopt}, Json{{"from", rq.from}, {"name", oj(rq.name)}}, kProgram, [&] { return import_freesurfer_work(rq, progress); });
+}
+
+static CommandResult import_freesurfer_work(const ImportFreesurferRequest& rq, const Progress& progress) {
   const std::string& dir = rq.from;
   if (!fs::is_directory(dir)) throw Error(code::not_found, "no such folder: " + dir);
   nxr::convert::FreeSurferImport opt;
@@ -351,7 +438,12 @@ CommandResult import_freesurfer(const ImportFreesurferRequest& rq, const Progres
   return result_of(nxr::convert::import_freesurfer_subject(p.w, p.sub, dir, opt));
 }
 
+static CommandResult import_gifti_work(const ImportGiftiRequest& rq, const Progress& progress);
 CommandResult import_gifti(const ImportGiftiRequest& rq, const Progress& progress) {
+  return recorded("import:gifti", JobTarget{"", rq.package, std::nullopt}, Json{{"from", rq.from}, {"name", oj(rq.name)}, {"kind", oj(rq.kind)}}, kProgram, [&] { return import_gifti_work(rq, progress); });
+}
+
+static CommandResult import_gifti_work(const ImportGiftiRequest& rq, const Progress& progress) {
   const std::string& file = rq.from;
   require_file(file);
   nxr::convert::GiftiImport opt;
@@ -371,7 +463,12 @@ CommandResult import_gifti(const ImportGiftiRequest& rq, const Progress& progres
   return result_of(nxr::convert::import_gifti(p.w, p.sub, file, opt));
 }
 
+static CommandResult import_cifti_work(const ImportCiftiRequest& rq, const Progress& progress);
 CommandResult import_cifti(const ImportCiftiRequest& rq, const Progress& progress) {
+  return recorded("import:cifti", JobTarget{"", rq.package, std::nullopt}, Json{{"from", rq.from}, {"name", oj(rq.name)}}, kProgram, [&] { return import_cifti_work(rq, progress); });
+}
+
+static CommandResult import_cifti_work(const ImportCiftiRequest& rq, const Progress& progress) {
   const std::string& file = rq.from;
   require_file(file);
   nxr::convert::CiftiImport opt;

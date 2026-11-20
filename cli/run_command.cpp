@@ -79,6 +79,7 @@ int run_main(const std::vector<std::string>& rest) {
     return 0;
   }
   g::RunOptions o;
+  o.requested_by = cli::stamp();
   o.chunks = a.maybe("--chunks");
   if (const auto v = a.maybe("--start")) o.start = std::stod(*v);
   if (const auto v = a.maybe("--stop")) o.stop = std::stod(*v);

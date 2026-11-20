@@ -250,7 +250,7 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subject's small files into its small-files database.	off	-
 --no-small-files@compact dataset		Stop at the sharded layout; do not also move each subject's small keys into its small-files database.	off (small files are moved)	-
 --node	PATH	Delete only this stored node of the subject, by store path, instead of the whole subject.	none (whole subject)	-
---node@delete subject	NAME	Delete only this node (manifold, field, operator or selection) of the subject instead of the whole subject	none (the whole subject is deleted)	-
+--node@delete subject	CLASS:NAME	Delete only this node of the subject instead of the whole subject, named by its class (manifold, field, selection, operator, statistic or dictionary) and its name, since names repeat across classes. What the node owns goes with it (a manifold's geometry and topology, a field's arrays, a selection's weights array, the operator a deleted field was made by when nothing else uses it); a node other nodes depend on is refused, naming them. A bare name or a store path is accepted when it names one node only.	none (the whole subject is deleted)	-
 --noise-cov	NAME	Name of a stored noise covariance to use (alternative to --recording)	none	-
 --normalisation	none|relative	Normalisation of the band power maps: none, or relative (each map divided by the source's total power over all bins up to Nyquist).	none	-
 --of	NAME	The stored field, or band of a map statistic, that was measured	none (required)	-
@@ -723,7 +723,7 @@ opts: --datastore* --name*
 R"TBL(@ recover dataset
 old: dataset recover
 alias: refused
-summary: Finish or roll back an interrupted write in a dataset.
+summary: Finish or roll back an interrupted write in a dataset, and roll back the unfinished writes in pieces (add field | statistic --begin never committed).
 opts: --dataset*
 )TBL",
 R"TBL(@ compact dataset
@@ -859,7 +859,7 @@ opts: --dataset* --subject* --templates+
 R"TBL(@ delete subject
 old: subject delete
 alias: refused
-summary: Delete a subject, or one of its nodes, from a dataset.
+summary: Delete a subject, or one of its nodes (--node CLASS:NAME), from a dataset.
 opts: --dataset* --node --subject* --templates+
 )TBL",
 R"TBL(@ add surface
@@ -1131,7 +1131,7 @@ R"TBL(--templates@add field	DIR	A folder of released templates to look in (repea
 --name@add field	NAME	Name the field is stored under in the subject; a name already used is refused unless --replace.	required	-
 --description@add field	TEXT	A sentence on what the values are and how they were made, kept with the node and in its producer record.	none	-
 --manifold@add field	NAME	The manifold the field lies on, by name or id; the values' first axis is its vertices (or its edges or faces, by --cell).	required	-
---values@add field	FILE.npy	The values: [n] or [n x components] (a value type's components trail), or with --time [n x samples (x components)]; float32 stays float32.	required	-
+--values@add field	FILE.npy	The values: [n] or [n x components] (a value type's components trail), or with --time [n x samples (x components)]; float32 stays float32. With --append: the values of the region.	required (not with --begin or --commit)	-
 --time@add field	LINE	A time line (by name, e.g. made by add line): the field is time-resolved, [n x samples], and is read back with read field --from/--to or --all.	none (a field with no time line)	-
 --value-type@add field	TYPE	The value at each element: scalar, integer, complex (re, im), vector2, vector3, matrix3, quaternion or hermitian3; its components trail the values' axes.	scalar	-
 --kind@add field	TEXT	What the values are (stored as the field's kind).	added	-
@@ -1154,7 +1154,7 @@ R"TBL(--templates@add statistic	DIR	A folder of released templates to look in (r
 --description@add statistic	TEXT	A sentence on what the values are and how they were made, kept with the node and in its producer record.	none	-
 --measure@add statistic	NAME	What the values measure, from the statistics or measure registry (power_density, mean, ...).	required	-
 --method@add statistic	NAME	How they were computed, from the statistics registry (welch, ...).	required	-
---values@add statistic	FILE.npy	The values, one axis a --axes entry in order (and a value type's components after them); float32 or float64.	required	-
+--values@add statistic	FILE.npy	The values, one axis a --axes entry in order (and a value type's components after them); float32 or float64. With --append: the values of the region.	required (not with --begin or --commit)	-
 --axes@add statistic	NAME:MANIFOLD	Each axis of the values, in order: its name and the manifold it runs along (by name); repeat or give several.	required	-
 --value-type@add statistic	TYPE	The value at each entry: scalar, complex, vector2, vector3, matrix3, quaternion or hermitian3; its components trail the axes.	scalar	-
 --of-field@add statistic	NAME	The stored field the statistic is of, by name or id; without it the statistic is recorded as computed elsewhere (detached).	none (detached)	-
@@ -1227,9 +1227,9 @@ opts: --dataset* --family --name* --out --subject* --templates+
 )TBL",
 R"TBL(@ add field
 old: __add field
-summary: Store values computed elsewhere as a field on a manifold (optionally time-resolved on a time line), from a .npy file, as one unit.
+summary: Store values computed elsewhere as a field on a manifold (optionally time-resolved on a time line), from a .npy file, as one unit; or in pieces with --begin, --append and --commit.
 example: nxr-neuro add field --dataset /data/study --subject sub-01 --name thickness --manifold cortex --values thickness.npy --unit mm
-opts: --by-operator --cell --contribution+ --dataset* --derived-from --description --kind --manifold* --name* --producer --replace --subject* --time --unit --value-type --values* --templates+
+opts: --append --begin --by-operator --cell --commit --contribution+ --dataset* --derived-from --description --dtype --kind --manifold --name --producer --region --replace --shape --subject --time --unit --value-type --values --write --templates+
 )TBL",
 R"TBL(@ add selection
 old: __add selection
@@ -1239,9 +1239,9 @@ opts: --dataset* --description --entries --indices --manifold* --members --name*
 )TBL",
 R"TBL(@ add statistic
 old: __add statistic
-summary: Store a statistic computed elsewhere (values on named axes, each along a manifold), from a .npy file, as one unit.
+summary: Store a statistic computed elsewhere (values on named axes, each along a manifold), from a .npy file, as one unit; or in pieces with --begin, --append and --commit.
 example: nxr-neuro add statistic --dataset /data/study --subject sub-01 --name psd --measure power_density --method welch --values psd.npy --axes channel:sensors frequency:freq --of-field rest
-opts: --axes+* --dataset* --description --measure* --method* --name* --of-field --partition --replace --subject* --unit --value-type --values* --templates+
+opts: --append --axes+ --begin --commit --dataset* --description --dtype --measure --method --name --of-field --partition --region --replace --shape --subject --unit --value-type --values --write --templates+
 )TBL",
 R"TBL(@ add measurements
 old: __add measurements
@@ -1397,7 +1397,21 @@ summary: Read what a subject holds as one index: every node's description (manif
 example: nxr-neuro read subject --dataset /data/study --subject sub-01 --classes fields,manifolds
 opts: --classes --dataset* --related --subject* --templates+
 )TBL",
-R"TBL(--by-operator@add field	NAME	The stored operator that made the field (its lineage: a source estimate is an inverse kernel applied to a recording), by name or id.	none	-
+R"TBL(--begin@add field		Write the field in pieces, step 1: take its shape (--shape) and stored dtype (--dtype) and the command's usual options, check them, and print a write id. Nothing is in the subject until --commit; an unfinished write is rolled back by `recover dataset`.	off	-
+--append@add field		Write in pieces, step 2: write the --values of one --region of the write named by --write. A region outside the shape, one written already or one that overlaps a written region is refused.	off	-
+--commit@add field		Write in pieces, step 3: store the field of the write named by --write, as one unit, once every value of its shape was written (the regions missing are named).	off	-
+--write@add field	ID	The write id --begin printed (--append, --commit); through a handle, left out when the handle holds one unfinished write.	none	-
+--shape@add field	N,N,...	--begin: the full shape of the values (the manifold's elements first, then the time line's samples and a value type's components as add field takes its --values).	required with --begin	-
+--dtype@add field	DTYPE	--begin: the dtype the values are stored in, one of float32, float64, int32, int64, uint8, bool; each appended array is of this dtype.	required with --begin	-
+--region@add field	START:STOP,...	--append: the part of the shape the --values fill, START:STOP for each axis (STOP not included), comma separated, e.g. 0:5000,0:3.	required with --append	-
+--begin@add statistic		Write the statistic in pieces, step 1: take its shape (--shape) and stored dtype (--dtype) and the command's usual options, check them, and print a write id. Nothing is in the subject until --commit; an unfinished write is rolled back by `recover dataset`.	off	-
+--append@add statistic		Write in pieces, step 2: write the --values of one --region of the write named by --write. A region outside the shape, one written already or one that overlaps a written region is refused.	off	-
+--commit@add statistic		Write in pieces, step 3: store the statistic of the write named by --write, as one unit, once every value of its shape was written (the regions missing are named).	off	-
+--write@add statistic	ID	The write id --begin printed (--append, --commit); through a handle, left out when the handle holds one unfinished write.	none	-
+--shape@add statistic	N,N,...	--begin: the full shape of the values (the manifold's elements first, then the time line's samples and a value type's components as add statistic takes its --values).	required with --begin	-
+--dtype@add statistic	DTYPE	--begin: the dtype the values are stored in, one of float32, float64, int32, int64, uint8, bool; each appended array is of this dtype.	required with --begin	-
+--region@add statistic	START:STOP,...	--append: the part of the shape the --values fill, START:STOP for each axis (STOP not included), comma separated, e.g. 0:5000,0:3.	required with --append	-
+--by-operator@add field	NAME	The stored operator that made the field (its lineage: a source estimate is an inverse kernel applied to a recording), by name or id.	none	-
 --contribution@add field	SUBJECT:FIELD[:WEIGHT]	A field this field is made from (a mapped field): the subject it lies in (by name), its name and an optional weight; repeat or give several.	none	-
 --producer@add field	JSON	What the maker says of how the field was made, a JSON object kept in the node's producer record (not under the keys the command records itself: command, program, inputs, output, cache).	none	-
 --of-field@add selection	NAME	The field (a recording) the selection belongs to (an indices selection of a recording's channels), by name or id.	none	-
