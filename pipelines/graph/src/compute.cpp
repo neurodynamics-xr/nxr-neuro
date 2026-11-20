@@ -46,7 +46,7 @@ void require_integer_members(const Array& a, const std::string& name) {
 
 }  // namespace
 
-ManifoldRef ArrayTyper::factor(const std::string& name, const std::string& label, std::int64_t n, ManifoldKind kind, Role role, std::optional<double> spacing,
+ManifoldRef ArrayTyper::factor(const std::string& name, const std::string& label, std::int64_t n, ManifoldKind kind, bool time_axis, std::optional<double> spacing,
                                const ArrayMeta& m) {
   const auto cs = m.coordinate_systems.find(label);
   if (!label.empty()) {
@@ -61,11 +61,11 @@ ManifoldRef ArrayTyper::factor(const std::string& name, const std::string& label
       return it->second;
     }
   }
-  Manifold x = *anonymous(next_++, kind, role);
-  x.label = label.empty() ? (role == Role::time ? "time" : "array") : label;
+  Manifold x = *anonymous(next_++, kind);
+  x.label = label.empty() ? (time_axis ? "time" : "array") : label;
   x.n = n;
   x.spacing = spacing;
-  if (role == Role::time) x.cs = CoordinateSystem{"time", "clock", "s"};
+  if (time_axis) { x.cs = CoordinateSystem{"time", "clock", "s"}; x.topology = Topology::path; }   // the samples of an array's time axis: a regular path in seconds
   if (cs != m.coordinate_systems.end()) x.cs = cs->second;
   ManifoldRef r = std::make_shared<const Manifold>(std::move(x));
   if (!label.empty()) labelled_[label] = r;
@@ -101,8 +101,8 @@ PortType ArrayTyper::type_of(const std::string& name, const Array& a, const Arra
     t.cls = PortClass::operator_;
     const std::int64_t n_to = v == ValueType::vector3 ? a.rows / 3 : a.rows;
     if (v == ValueType::vector3 && a.rows % 3 != 0) refuse("operator '" + name + "' is vector3 and has " + std::to_string(a.rows) + " rows, not a multiple of 3");
-    t.domain.factors = {factor(name, m.from, a.cols, ManifoldKind::points, Role::none, std::nullopt, m)};
-    t.target.factors = {factor(name, m.to, n_to, ManifoldKind::points, Role::none, std::nullopt, m)};
+    t.domain.factors = {factor(name, m.from, a.cols, ManifoldKind::points, false, std::nullopt, m)};
+    t.target.factors = {factor(name, m.to, n_to, ManifoldKind::points, false, std::nullopt, m)};
     t.quantity = m.quantity;
     t.on = m.from; t.to = m.to;
     return t;
@@ -112,7 +112,7 @@ PortType ArrayTyper::type_of(const std::string& name, const Array& a, const Arra
     require_integer_members(a, name);
     t.cls = PortClass::selection;
     t.value = ValueType::integer;
-    t.domain.factors = {factor(name, m.on.empty() ? "" : m.on[0], static_cast<std::int64_t>(a.size()), ManifoldKind::points, Role::none, std::nullopt, m)};
+    t.domain.factors = {factor(name, m.on.empty() ? "" : m.on[0], static_cast<std::int64_t>(a.size()), ManifoldKind::points, false, std::nullopt, m)};
     t.sel = SelectionShape{"set", true, name, ""};
     t.quantity = "set";
     return t;
@@ -123,13 +123,13 @@ PortType ArrayTyper::type_of(const std::string& name, const Array& a, const Arra
   if (streamed && *m.sfreq <= 0) refuse("array '" + name + "': the sample rate must be positive");
   if (m.on.size() > 2) refuse("array '" + name + "' has two axes (elements, samples): `on` names at most two labels");
   const std::string l0 = m.on.size() > 0 ? m.on[0] : "", l1 = m.on.size() > 1 ? m.on[1] : "";
-  t.domain.factors = {factor(name, l0, a.rows, ManifoldKind::points, Role::none, std::nullopt, m)};
+  t.domain.factors = {factor(name, l0, a.rows, ManifoldKind::points, false, std::nullopt, m)};
   if (streamed) {
-    t.domain.factors.push_back(factor(name, l1.empty() ? "time" : l1, a.cols, ManifoldKind::line, Role::time, 1.0 / *m.sfreq, m));
+    t.domain.factors.push_back(factor(name, l1.empty() ? "time" : l1, a.cols, ManifoldKind::line, true, 1.0 / *m.sfreq, m));
     t.axis = Axis::samples;
     t.sfreq = *m.sfreq;
   } else if (a.cols > 1 || !l1.empty()) {
-    t.domain.factors.push_back(factor(name, l1, a.cols, ManifoldKind::points, Role::none, std::nullopt, m));
+    t.domain.factors.push_back(factor(name, l1, a.cols, ManifoldKind::points, false, std::nullopt, m));
   }
   t.quantity = !m.quantity.empty() ? m.quantity : (streamed ? "recording" : "");
   if (!t.quantity.empty() && !is_quantity(t.quantity)) refuse("array '" + name + "': the quantity '" + t.quantity + "' is not in the closed vocabulary (docs/reference.md)");
@@ -226,8 +226,11 @@ PortType type_from_sidecar(const Json& sidecar, const std::string& name) {
     t.rows = a.value("rows", static_cast<std::int64_t>(0));
     if (t.streamed() && !t.domain.factors.empty()) {      // the printed `#n` does not say that the last factor is the stream's line
       Manifold x = *t.domain.factors.back();
-      x.role = t.axis == Axis::frames ? Role::frames : Role::time;
       x.kind = ManifoldKind::line;
+      if (x.cs && x.cs->unit.empty()) x.cs->unit = "s";
+      if (!x.cs) x.cs = CoordinateSystem{"time", "clock", "s"};
+      if (x.topology == Topology::none) x.topology = Topology::path;
+      if (t.axis == Axis::frames && !x.made_from) x.made_from = MadeFrom{"tiled", nullptr};
       t.domain.factors.back() = std::make_shared<const Manifold>(std::move(x));
     }
   }

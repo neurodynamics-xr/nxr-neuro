@@ -46,10 +46,11 @@ const char* to_string(Axis a);
 // ───────────────────────────────────────────── the type system: manifolds as terms ─────────────────────────────────────────────
 
 enum class ManifoldKind { points, line, surface, volume, curve, graph, members };
-/** what a line or member set is FOR, as far as the checker cares: the factor a stream walks, and what a measurement's member set came from */
-enum class Role { none, time, frames, time_tiles, frequency, modes, levels };
+/** a line's topology (spec time-as-a-mesh section 1): a PATH is open (a recording's samples, a one-sided spectrum), a CYCLE is periodic (a phase, a circular window).
+ *  none: not a line, or not recorded (an unrecorded topology is not told apart by it, as an unrecorded coordinate system is not). A rank-1 stored `lattice` is a regular path. */
+enum class Topology { none, path, cycle };
 const char* to_string(ManifoldKind k);
-const char* to_string(Role r);
+const char* to_string(Topology t);
 
 /** a chart on a space, with a unit (the schema's coordinate_system): {"head", "scs", "m"} · {"time", "clock", "s"} · {"frequency", "hz", "Hz"}.
  *  Two manifolds are comparable in position only when their systems are of one space. */
@@ -60,6 +61,13 @@ struct CoordinateSystem {
 
 struct Manifold;
 using ManifoldRef = std::shared_ptr<const Manifold>;
+
+/** how a line was made from another line (a relation, as `derived` relates the glued surface to the cortex): "tiled" (a frame line is tiled from a time line) or
+ *  "transform" (a frequency line is made from a time line by a transform). `of` may be empty where the printed form did not say which line. */
+struct MadeFrom {
+  std::string relation;
+  ManifoldRef of;
+};
 
 /** A MANIFOLD AS A TERM: which manifold, known or not yet known. Equality is structural (`same`): two ids are equal when their labels and ids are; a member set
  *  when its partitions are; a restriction when the manifold and the selection are. Printed `label(key)` (a made one `label(~key)`, a variable by
@@ -78,7 +86,9 @@ struct Manifold {
   std::string key;                                    // the id · the anonymous number · the variable's name · "<use>.<output>" · the relation's name
   std::string label;                                  // what kind of thing it is, for a person: "cortex", "sensors", "time", "frames"
   ManifoldKind kind = ManifoldKind::points;
-  Role role = Role::none;                             // a variable: the role it accepts (time: a time line only; frames: a time line or a frame line)
+  Topology topology = Topology::none;                 // a line: path or cycle. A variable: the topology it accepts (none: any)
+  std::optional<MadeFrom> made_from;                  // a line made from another line (a frame line, a frequency line); a member set of a frame tiling
+  bool samples = false;                               // variable: binds only a line that is not tiled from another line (a node that needs raw samples)
   std::optional<CoordinateSystem> cs;                 // the system its positions are in; none for a manifold without geometry (members, an index line)
   std::int64_t n = 0;                                 // its vertices (0: not known before data, as a stream's time line)
   std::optional<double> spacing;                      // a closed-form line's spacing
@@ -86,7 +96,7 @@ struct Manifold {
   // the block (the count a block was transformed from rides on the block), so its spacing is `rate / samples`.
   std::optional<double> origin;                       // made line: the coordinate of vertex 0 (0 Hz for a one-sided spectrum)
   std::optional<double> rate;                         // made line: the sampling rate (Hz) of the line it was made from; spacing = rate / (the block's samples)
-  std::string unit;                                   // made line: the unit of its coordinate ("Hz")
+  std::string unit;                                   // made line: the unit of its coordinate ("Hz"). A variable: the unit its line's coordinate must be in ("s"); empty: any
   ManifoldRef of;                                     // restricted, derived: the manifold it is of
   std::string by;                                     // restricted, members: the selection's identity (a stored id, or "<use>.<output>"; a signature's "$port")
   bool irregular = false;                             // members of an IRREGULAR selection (events, scouts, an atlas: no levels): a statistic across them is a summary, never a level roll-up
@@ -96,24 +106,34 @@ struct Manifold {
 };
 
 // the builders. A stored manifold, by label and id; an anonymous one; the variables of a signature; one a node makes; a restriction; a member set; a derived one.
-ManifoldRef manifold_id(const std::string& label, const std::string& key, ManifoldKind kind = ManifoldKind::points, Role role = Role::none,
-                        std::optional<CoordinateSystem> cs = std::nullopt, std::int64_t n = 0);
-ManifoldRef time_line(const std::string& key, double sfreq = 0);                       // a `time/clock` line: role time
-ManifoldRef frame_line(const std::string& key);                                        // a `time/clock` line of frames: role frames
-ManifoldRef anonymous(int number, ManifoldKind kind = ManifoldKind::points, Role role = Role::none);
+ManifoldRef manifold_id(const std::string& label, const std::string& key, ManifoldKind kind = ManifoldKind::points, std::optional<CoordinateSystem> cs = std::nullopt,
+                        std::int64_t n = 0, Topology topology = Topology::none);
+ManifoldRef time_line(const std::string& key, double sfreq = 0, Topology topology = Topology::path);   // a `time/clock` line in seconds: a recording's samples
+ManifoldRef frame_line(const std::string& key);                                        // a `time/clock` line in seconds, tiled from a time line (made_from "tiled")
+ManifoldRef anonymous(int number, ManifoldKind kind = ManifoldKind::points);
 ManifoldRef var(const std::string& name);
-ManifoldRef time_var(const std::string& name);       // binds only a factor whose role is time
-ManifoldRef frames_var(const std::string& name);     // binds a factor whose role is time or frames
+ManifoldRef line_var(const std::string& name, const std::string& unit, bool samples = false, Topology topology = Topology::none);   // binds only a line whose coordinate is in `unit`
+ManifoldRef time_var(const std::string& name);       // a line in seconds that is not tiled from another line (raw samples), a path
+ManifoldRef frames_var(const std::string& name);     // a line in seconds: a time line or a frame line
 ManifoldRef var_rest(const std::string& name);       // the other factors, carried through unchanged
 ManifoldRef from_or_restriction_of(const ManifoldRef& v);   // an operator's source: a variable that also accepts a restriction of the manifold it is bound to
-ManifoldRef made(const std::string& label, const std::string& key, ManifoldKind kind = ManifoldKind::points, Role role = Role::none, std::optional<CoordinateSystem> cs = std::nullopt);
+ManifoldRef made(const std::string& label, const std::string& key, ManifoldKind kind = ManifoldKind::points, std::optional<CoordinateSystem> cs = std::nullopt);
 /** the line a node's operator makes, keyed "<use>.<output>" (spec type-system 3.1): one factor of the output's product domain, with its origin, unit and the rate it derives its spacing from */
-ManifoldRef made_line(const std::string& label, const std::string& key, Role role, const std::string& unit, double origin, std::optional<double> rate);
+ManifoldRef made_line(const std::string& label, const std::string& key, const std::string& unit, double origin, std::optional<double> rate, const ManifoldRef& from = nullptr,
+                      const std::string& relation = "transform", Topology topology = Topology::path);
 ManifoldRef restricted(const ManifoldRef& of, const std::string& by);
 ManifoldRef members(const std::string& partition);
-/** the member set of `partition`, with the line it partitions (`of`: a time tile's line; the time line of a joint partition), the role it has (frames for a frame tiling,
- *  time_tiles for a time ladder's level) and a label (`joint` for the cells of a joint partition of space x time). Equality ignores all three: it is the partition's. */
-ManifoldRef members(const std::string& partition, const ManifoldRef& of, Role role = Role::time_tiles, const std::string& label = "", bool irregular = false);
+/** the member set of `partition`, with the manifold it partitions (`of`: a time tile's line; the time line of a joint partition), a label (`joint` for the cells of a joint
+ *  partition of space x time) and whether the selection is irregular. Equality ignores all of them: it is the partition's. */
+ManifoldRef members(const std::string& partition, const ManifoldRef& of, const std::string& label = "", bool irregular = false);
+/** the member set of a frame tiling of the line `of`: a line in seconds made from `of` by tiling (made_from "tiled") */
+ManifoldRef frame_members(const std::string& partition, const ManifoldRef& of);
+/** the coordinate unit of a line: its coordinate system's, else its own `unit` ("" when it has none); a restriction has its manifold's */
+std::string coordinate_unit(const Manifold& m);
+/** a line, or the member set of a frame tiling, whose coordinate is in seconds: what a stream walks, and what `time_var` / `frames_var` bind */
+bool in_seconds(const Manifold& m);
+/** tiled from another line: a frame line, or the member set of a frame tiling */
+bool is_tiled(const Manifold& m);
 ManifoldRef members_of_port(const std::string& port);      // in a signature: the member set of the selection read at `port` (instantiated to members(<its identity>))
 ManifoldRef derived(const std::string& relation, const ManifoldRef& of);
 bool same(const ManifoldRef& a, const ManifoldRef& b);                 // structural equality; the coordinate system is part of it when both manifolds record one (T5)
@@ -126,7 +146,7 @@ ManifoldRef parse_manifold(const std::string& text);
 struct Domain {
   std::vector<ManifoldRef> factors;
   std::string cells = "0";
-  /** the factor a stream walks: the last, when its role is time or frames; none for an array */
+  /** the factor a stream would walk: the last, when it is a line in seconds; none otherwise. A stream's port (`streamed()`) is checked to have one. */
   const Manifold* streamed() const;
   bool empty() const { return factors.empty(); }
 };
@@ -213,7 +233,7 @@ struct Bindings {
   std::map<std::string, std::vector<ManifoldRef>> rests;
 };
 /** `pattern` against `actual`, extending `b`; false with `why` (naming both terms) when they do not unify. The rules, and no others:
- *  a variable binds any term its role allows (time: a time line; frames: time or frames) and a second meeting must be the same term; ids and anonymous
+ *  a variable binds any term its constraints allow (a unit, raw samples, a topology) and a second meeting must be the same term; ids and anonymous
  *  manifolds unify when equal; members(P) with members(Q) when P = Q; restricted(M, S) with restricted(N, U) when M = N and S = U; derived(rel, M) with
  *  derived(rel, N) when M = N; and, at an operator's source only, the one subsumption: a source restricted to S accepts the whole manifold (the kernel
  *  reads its channels of the recording), and a restriction to the same S; a restriction to another U is refused. */

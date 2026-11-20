@@ -29,7 +29,7 @@ ng::PortType recording() {
   ng::PortType t;
   t.typed = true;
   t.cls = ng::PortClass::field;
-  t.domain = dom({ng::manifold_id("sensors", "rest", ng::ManifoldKind::points, ng::Role::none, ng::CoordinateSystem{"head", "scs", "m"}, 3), ng::time_line("rest", 100.0)});
+  t.domain = dom({ng::manifold_id("sensors", "rest", ng::ManifoldKind::points, ng::CoordinateSystem{"head", "scs", "m"}, 3), ng::time_line("rest", 100.0)});
   t.quantity = "recording";
   t.axis = ng::Axis::samples;
   t.sfreq = 100.0;
@@ -41,7 +41,7 @@ ng::PortType recording() {
 // the external nodes of the tests: a real, one-component trace sink inside the loop; a surface renderer (a field on a surface's vertices, and that surface)
 const char* kSignatures = R"({"nodes": [
   {"name": "scope.trace", "kind": "chunk", "move": "pointwise",
-   "inputs": [{"port": "field", "class": "field", "on": ["M", {"form": "variable", "key": "T", "role": "frames"}], "streamed": true, "value": "real", "components": 1}],
+   "inputs": [{"port": "field", "class": "field", "on": ["M", {"form": "variable", "key": "T", "unit": "s"}], "streamed": true, "value": "real", "components": 1}],
    "parameters": [{"name": "colour", "default": "black", "meaning": "the trace's colour", "unit": "-"}]},
   {"name": "render.surface", "kind": "array", "move": "pointwise",
    "inputs": [{"port": "field", "class": "field", "on": [{"form": "variable", "key": "S", "kind": "surface"}], "value": ["real"], "components": 1},
@@ -74,7 +74,7 @@ int main() {
     const Json j = ng::to_json(t);
     CHECK(j["domain"]["factors"][0]["coordinate_system"]["name"] == "scs");
     CHECK(j["domain"]["factors"][0]["n"] == 3);
-    CHECK(j["domain"]["factors"][1]["role"] == "time" && j["domain"]["factors"][1]["kind"] == "line");
+    CHECK(j["domain"]["factors"][1]["topology"] == "path" && j["domain"]["factors"][1]["unit"] == "s" && j["domain"]["factors"][1]["kind"] == "line");
     CHECK(j["streamed"] == true && j["axis"] == "samples" && j["sfreq"] == 100.0 && j["rows"] == 3 && j["unit"] == "T");
     const ng::PortType back = ng::port_type_from_json(j);
     CHECK(ng::to_json(back) == j);
@@ -84,6 +84,20 @@ int main() {
   // a malformed member is refused naming it
   CHECK(has(refusal([] { ng::port_type_from_json(Json{{"class", "field"}, {"value", "octonion"}}); }), "is not one of real, complex"));
   CHECK(has(refusal([] { ng::port_type_from_json(Json{{"class", "field"}, {"resolution", {{"band", Json::array({8.0})}}}}); }), "resolution.band: [low, high]"));
+
+  // a line has no role (spec time-as-a-mesh): a manifold or a signature that still sends `role` is refused, and the refusal names the new form (no alias)
+  {
+    const std::string why = refusal([] { ng::manifold_from_json(Json{{"form", "id"}, {"key", "rest"}, {"label", "time"}, {"kind", "line"}, {"role", "time"}}); });
+    CHECK(has(why, "has no role") && has(why, "`topology`") && has(why, "`unit`") && has(why, "`made_from`"));
+    const std::string why2 = refusal([] { ng::manifold_from_json(Json{{"form", "variable"}, {"key", "T"}, {"role", "frames"}}); });
+    CHECK(has(why2, "has no role"));
+    // the new form: a variable that binds a line in seconds, a path; a made line carries what it was made from
+    const ng::ManifoldRef v = ng::manifold_from_json(Json{{"form", "variable"}, {"key", "T"}, {"unit", "s"}, {"samples", true}, {"topology", "path"}});
+    CHECK(v->unit == "s" && v->samples && v->topology == ng::Topology::path && ng::to_json(v)["topology"] == "path" && ng::to_json(v)["samples"] == true);
+    const ng::ManifoldRef f = ng::manifold_from_json(Json{{"form", "id"}, {"key", "tiling"}, {"label", "frames"}, {"kind", "line"}, {"topology", "path"},
+                                                         {"coordinate_system", {{"space", "time"}, {"name", "clock"}, {"unit", "s"}}}, {"made_from", {{"relation", "tiled"}, {"of", "time(rest)"}}}});
+    CHECK(ng::is_tiled(*f) && ng::in_seconds(*f) && ng::to_json(f)["made_from"]["relation"] == "tiled" && ng::to_json(f)["made_from"]["of"]["key"] == "rest");
+  }
 
   // 2. EXTERNAL SIGNATURES, checked with the built-in nodes
   const auto ext = ng::external_nodes(Json::parse(kSignatures));
@@ -102,6 +116,11 @@ int main() {
   {
     const std::string why = refusal([&] { ng::type_check(chain(false), {{"rec", recording()}}, Json::object(), lookup); });
     CHECK(has(why, "chunks[1] scope.trace") && has(why, "port `field`") && has(why, "is complex; this node reads real"));
+    // a node that reads a path (the analytic signal's zero-phase band) refuses a recording whose time is a cycle
+    ng::PortType periodic = recording();
+    periodic.domain.factors[1] = ng::time_line("rest", 100.0, ng::Topology::cycle);
+    const std::string why_cycle = refusal([&] { ng::type_check(chain(true), {{"rec", periodic}}, Json::object(), lookup); });
+    CHECK(has(why_cycle, "signal.analytic") && has(why_cycle, "a path was expected") && has(why_cycle, "a cycle"));
     const ng::TypedGraph ok = ng::type_check(chain(true), {{"rec", recording()}}, Json::object(), lookup);
     CHECK(ok.values.at("a").value == ng::ValueType::real && ok.values.at("a").quantity == "amplitude");
     const Json c = ng::compiled_json(chain(true), ok, Json::object(), lookup);
@@ -115,7 +134,7 @@ int main() {
       return ng::graph_from_json(Json{{"name", "map"}, {"inputs", Json::array({"map", "cortex"})}, {"outputs", Json::array()},
                                       {"after", Json::array({Json{{"node", "render.surface"}, {"in", {{"field", "map"}, {"surface", "cortex"}}}, {"out", Json::array()}}})}});
     };
-    const ng::ManifoldRef cortex = ng::manifold_id("cortex", "white", ng::ManifoldKind::surface, ng::Role::none, ng::CoordinateSystem{"head", "scs", "m"}, 642);
+    const ng::ManifoldRef cortex = ng::manifold_id("cortex", "white", ng::ManifoldKind::surface, ng::CoordinateSystem{"head", "scs", "m"}, 642);
     ng::PortType map = ng::parse_type("field<cortex(white); real; power>");
     map.domain = dom({cortex});
     ng::PortType surf;

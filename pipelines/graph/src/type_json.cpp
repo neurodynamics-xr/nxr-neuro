@@ -26,7 +26,7 @@ constexpr ValueType kValues[] = {ValueType::real, ValueType::complex, ValueType:
 constexpr PortClass kClasses[] = {PortClass::field, PortClass::operator_, PortClass::selection, PortClass::partition, PortClass::constant, PortClass::measurement, PortClass::statistic, PortClass::manifold};
 constexpr Axis kAxes[] = {Axis::none, Axis::samples, Axis::frames, Axis::members};
 constexpr ManifoldKind kKinds[] = {ManifoldKind::points, ManifoldKind::line, ManifoldKind::surface, ManifoldKind::volume, ManifoldKind::curve, ManifoldKind::graph, ManifoldKind::members};
-constexpr Role kRoles[] = {Role::none, Role::time, Role::frames, Role::time_tiles, Role::frequency, Role::modes, Role::levels};
+constexpr Topology kTopologies[] = {Topology::none, Topology::path, Topology::cycle};
 constexpr Move kMoves[] = {Move::pointwise, Move::apply, Move::compose, Move::restrict, Move::measure, Move::summarize, Move::detect, Move::make};
 constexpr Kind kNodeKinds[] = {Kind::array, Kind::chunk, Kind::accumulate};
 constexpr TimeBehaviour kTimes[] = {TimeBehaviour::pointwise, TimeBehaviour::windowed, TimeBehaviour::stateful};
@@ -83,13 +83,19 @@ Json to_json(const ManifoldRef& m) {
   if (!m->key.empty()) j["key"] = m->key;
   if (!m->label.empty()) j["label"] = m->label;
   if (m->form != Manifold::Form::variable || m->kinded) j["kind"] = to_string(m->kind);   // a variable names a kind only when it is restricted to one
-  j["role"] = to_string(m->role);
+  if (m->topology != Topology::none) j["topology"] = to_string(m->topology);
   if (m->cs) j["coordinate_system"] = cs_json(*m->cs);
   if (m->n > 0) j["n"] = m->n;
   if (m->spacing) j["spacing"] = *m->spacing;
   if (m->origin) j["origin"] = *m->origin;
   if (m->rate) j["rate"] = *m->rate;
-  if (!m->unit.empty()) j["unit"] = m->unit;
+  if (const std::string u = m->form == Manifold::Form::variable ? m->unit : coordinate_unit(*m); !u.empty() && (m->kind == ManifoldKind::line || m->form == Manifold::Form::variable)) j["unit"] = u;
+  if (m->samples) j["samples"] = true;
+  if (m->made_from) {
+    Json f{{"relation", m->made_from->relation}};
+    if (m->made_from->of) f["of"] = to_json(m->made_from->of);
+    j["made_from"] = f;
+  }
   if (m->of) j["of"] = to_json(m->of);
   if (!m->by.empty()) j["by"] = m->by;
   if (m->irregular) j["irregular"] = true;
@@ -109,7 +115,16 @@ ManifoldRef manifold_from_json(const Json& j) {
   m.label = text_of(j, "label", w);
   if (j.contains("kind")) { m.kind = enum_of(j["kind"], kKinds, static_cast<const char* (*)(ManifoldKind)>(to_string), w + ".kind"); m.kinded = m.form == Manifold::Form::variable; }
   else if (m.form == Manifold::Form::members) m.kind = ManifoldKind::members;
-  if (j.contains("role")) m.role = enum_of(j["role"], kRoles, static_cast<const char* (*)(Role)>(to_string), w + ".role");
+  if (j.contains("role"))
+    refuse(w + ".role: a line has no role (spec time-as-a-mesh). Say what the manifold is: `topology` (path | cycle), `unit` (a variable's: the unit its line's coordinate must be in, \"s\" for time), "
+                "`samples` (true: raw samples, not tiled from another line) and `made_from` ({\"relation\": \"tiled\" | \"transform\", \"of\": <line>})");
+  if (j.contains("topology")) m.topology = enum_of(j["topology"], kTopologies, static_cast<const char* (*)(Topology)>(to_string), w + ".topology");
+  m.samples = flag_of(j, "samples", w);
+  if (j.contains("made_from") && !j["made_from"].is_null()) {
+    const Json& f = j["made_from"];
+    if (!f.is_object() || !f.contains("relation") || !f["relation"].is_string()) refuse(w + ".made_from: {\"relation\": \"tiled\" | \"transform\", \"of\": <line>}");
+    m.made_from = MadeFrom{f["relation"].get<std::string>(), f.contains("of") && !f["of"].is_null() ? manifold_from_json(f["of"]) : ManifoldRef()};
+  }
   if (j.contains("coordinate_system") && !j["coordinate_system"].is_null()) m.cs = cs_of(j["coordinate_system"], w + ".coordinate_system");
   if (j.contains("n")) m.n = j["n"].get<std::int64_t>();
   if (j.contains("spacing") && !j["spacing"].is_null()) m.spacing = j["spacing"].get<double>();
