@@ -1,5 +1,7 @@
 # The pipeline type system: the data model's classes as port types, checked before any data flows (spec, 2026-11-17)
 
+**Amended 2026-11-20** by [2026-11-20-time-as-a-mesh.md](2026-11-20-time-as-a-mesh.md): a line has no role. It is a 1-D mesh (a path or a cycle) with a coordinate, and the tile levels belong to the selection system (sections 3.1, 4 and 8 below).
+
 Status: **design, for the maintainers' review before code.** It completes `ARCHITECTURE.md` part 2 ("type-check everything before any data flows")
 and `2026-11-17-compute-and-run.md` §3.1 and §3.3 (`PortType`, `check`). It builds on `2026-11-17-definition-outputs.md` (the six output kinds),
 `docs/audits/2026-11-17-format-mapping-and-coordinates.md` (covariance a statistic, the whitener an operator, transforms as transition operators, the
