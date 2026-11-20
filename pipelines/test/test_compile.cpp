@@ -5,7 +5,10 @@
 //   3. an external sink declared by its signature is checked with the rest: a complex field into a real-only sink is refused, the same field through the magnitude form is
 //      accepted; a node neither registered nor declared is refused;
 //   4. without a dataset the inputs' types are the caller's (the structured JSON form) and the graph is checked by the signatures alone;
-//   5. the command `nxr-neuro compile` prints the same compiled graph.
+//   5. the command `nxr-neuro compile` prints the same compiled graph;
+//   6. stored inputs typed from their records (issues 157, 158): a per-vertex field stored under a kind outside the quantity vocabulary keeps its manifold, value type,
+//      components and unit (only its quantity is unset), so an external sink wanting a real field on a surface S and the manifold S accepts it; the stored surface reaches the
+//      sink's manifold port as `manifold<...>` with its id, kind and size; a field on another surface is refused; a field of a known kind keeps its quantity.
 #include <unistd.h>
 
 #include <cstdlib>
@@ -16,7 +19,10 @@
 
 #include "check.h"
 #include "nxr/graph/type_json.h"
+#include "nxr/io/array_writer.h"
 #include "nxr/io/errors.h"
+#include "nxr/io/surface.h"
+#include "nxr/io/task/task.h"
 #include "nxr/io/writer.h"
 #include "nxr/pipelines/face.h"
 #include "nxr/pipelines/input.h"
@@ -60,6 +66,33 @@ steps:
 const char* kSink = R"({"nodes": [{"name": "scope.trace", "kind": "chunk", "move": "pointwise",
   "inputs": [{"port": "field", "class": "field", "on": ["M", {"form": "variable", "key": "T", "role": "frames"}], "streamed": true, "value": "real", "components": 1}],
   "parameters": [{"name": "colour", "default": "black", "meaning": "the trace's colour", "unit": "-"}]}]})";
+
+// a sink drawing a real field on the vertices of a surface S, given S itself (a renderer's signature: declared, never run here)
+const char* kSurfaceSink = R"({"nodes": [{"name": "scope.surface", "kind": "array", "move": "pointwise",
+  "inputs": [{"port": "field", "class": "field", "on": [{"form": "variable", "key": "S", "kind": "surface"}], "value": ["real"], "components": 1},
+             {"port": "surface", "class": "manifold", "on": ["S"]}],
+  "outputs": [{"port": "shown", "like": "field"}], "parameters": []}]})";
+const char* kSurfaceDefinition = R"(pipeline: surface_check
+version: 1
+description: a stored field drawn on a stored surface by an external sink
+scope: subject
+inputs:
+  map: {field: any, where: {name: $map}}
+  surface: {manifold: surface, where: {name: $surface}}
+parameters:
+  map: {default: none, meaning: "the stored field's name", unit: "-"}
+  surface: {default: none, meaning: "the surface's name", unit: "-"}
+steps:
+  before:
+    - {node: scope.surface, in: {field: map, surface: surface}, out: shown}
+outputs:
+  shown: {kind: field, kind_name: map, name: shown, on: map.manifold.0}
+)";
+// an octahedron, scaled
+void octahedron(double r, std::vector<double>& V, std::vector<std::int32_t>& F) {
+  V = {r, 0, 0, -r, 0, 0, 0, r, 0, 0, -r, 0, 0, 0, r, 0, 0, -r};
+  F = {0, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4, 2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5};
+}
 }  // namespace
 
 int main() {
@@ -198,6 +231,66 @@ outputs:
     CHECK(std::system(refused.c_str()) != 0);
   }
 #endif
+  // 6. stored inputs typed from their records: a field of a kind outside the vocabulary, a stored surface (issues 157, 158)
+  {
+    std::string cortex_id, other_id;
+    {
+      nxr::io::DatasetWriter ds = nxr::io::open_writer(folder);
+      nxr::io::SubjectWriter sub = nxr::io::SubjectWriter::open(ds, "S1");
+      std::vector<double> V, W;
+      std::vector<std::int32_t> F, G;
+      octahedron(0.08, V, F);
+      octahedron(0.05, W, G);
+      sub.compose([&] {
+        cortex_id = nxr::io::add_surface(sub, {.name = "cortex"}, V, F).id;
+        nxr::io::SurfaceOptions o;
+        o.name = "inner"; o.primary = false;
+        other_id = nxr::io::add_surface(sub, o, W, G).id;
+        const auto subject = nxr::io::task::Subject::of(sub);
+        auto field_on = [&](const std::string& name, const std::string& kind, const std::string& mid, const std::vector<float>& x, const char* unit) {
+          nxr::io::FieldSpec f;
+          f.name = name; f.path = subject.node_path(mid, name); f.kind = kind; f.manifold_id = mid;
+          f.data = nxr::io::view(x, {static_cast<std::int64_t>(x.size())}); f.array.compress = false; f.cols.set("unit", unit);
+          sub.field(std::move(f));
+        };
+        const std::vector<float> x6 = {1.0f, 1.2f, 0.9f, 1.4f, 1.1f, 1.3f};
+        field_on("pet_suvr", "PET example_suvr", cortex_id, x6, "SUVR");      // a kind outside the vocabulary (an imported PET map)
+        field_on("inner_suvr", "PET example_suvr", other_id, x6, "SUVR");     // the same, on another surface
+        field_on("cortex_power", "power", cortex_id, x6, "W");                // a kind in the vocabulary
+      });
+    }
+    face::CompileRequest sq = rq;
+    write(root / "surface_check.yaml", kSurfaceDefinition);
+    sq.definition = (root / "surface_check.yaml").string();
+    sq.signatures = Json::parse(kSurfaceSink);
+    sq.parameters = {{"map", "pet_suvr"}, {"surface", "cortex"}};
+    Json ok;
+    if (const std::string w = refusal([&] { ok = face::compile(sq).result; }); !w.empty()) { std::printf("  refused: %s\n", w.c_str()); CHECK(false); }
+    if (!ok.is_null()) {
+      const Json& v = ok["plans"][0]["graph"]["values"];
+      const Json& m = v["map"];
+      CHECK(m["class"] == "field" && m["value"] == "real" && m["components"] == 1 && m["unit"] == "SUVR" && m["typed"] == true);
+      CHECK(!m.contains("quantity") || m["quantity"].is_null() || m["quantity"] == "");   // only the quantity is unset
+      const Json& f = m["domain"]["factors"][0];
+      CHECK(f["key"] == cortex_id && f["label"] == "cortex" && f["kind"] == "surface" && f["n"] == 6);
+      const Json& s = v["surface"];
+      CHECK(s["class"] == "manifold" && s["domain"]["factors"][0]["key"] == cortex_id && s["domain"]["factors"][0]["kind"] == "surface" && s["domain"]["factors"][0]["n"] == 6);
+      CHECK(v["shown"]["domain"]["factors"][0]["key"] == cortex_id && v["shown"]["unit"] == "SUVR");
+      if (m["unit"] != "SUVR" || s["class"] != "manifold") std::printf("  map: %s\n  surface: %s\n", m.dump().c_str(), s.dump().c_str());
+    }
+    // a field on another surface than the one given: the variable S meets two manifolds
+    face::CompileRequest other = sq;
+    other.parameters = {{"map", "inner_suvr"}, {"surface", "cortex"}};
+    const std::string w2 = refusal([&] { face::compile(other); });
+    if (!(has(w2, "scope.surface") && has(w2, "port `surface`"))) { std::printf("  refusal: %s\n", w2.c_str()); CHECK(false); }
+    // a field of a known kind keeps its quantity
+    face::CompileRequest known = sq;
+    known.parameters = {{"map", "cortex_power"}, {"surface", "cortex"}};
+    Json kr;
+    if (const std::string w = refusal([&] { kr = face::compile(known).result; }); !w.empty()) { std::printf("  refused: %s\n", w.c_str()); CHECK(false); }
+    if (!kr.is_null()) CHECK(kr["plans"][0]["graph"]["values"]["map"]["quantity"] == "power" && kr["plans"][0]["graph"]["values"]["map"]["unit"] == "W");
+  }
+
   fs::remove_all(root);
   return nxrtest::finish("test_compile");
 }

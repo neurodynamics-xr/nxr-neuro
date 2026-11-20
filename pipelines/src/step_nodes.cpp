@@ -51,6 +51,7 @@ ng::PortClass class_of(const std::string& c) {
   if (c == "field") return ng::PortClass::field;
   if (c == "operator") return ng::PortClass::operator_;
   if (c == "selection") return ng::PortClass::selection;
+  if (c == "manifold") return ng::PortClass::manifold;   // a stored manifold is itself (type system section 8): `manifold<name(id)>`, never a constant
   return ng::PortClass::constant;     // a statistic, a measurement, a span set, a labelling: stored constants and results
 }
 
@@ -219,7 +220,11 @@ void typed_from_rows(ng::PortType& t, const Value& v) {
     const auto d = domain(v.manifolds);
     if (!d) return;
     t.domain = *d;
-    if (v.cls == "field") t.quantity = nxr::io::opt_text(r, "kind").value_or("");
+    if (v.cls == "field") {
+      t.quantity = nxr::io::opt_text(r, "kind").value_or("");
+      t.domain.cells = nxr::io::opt_text(r, "cell").value_or("0");           // which cells of its manifold the values lie on (D92)
+      if (!nxr::io::is_null(r, "n_components")) t.components = static_cast<int>(nxr::io::integer(r, "n_components"));   // a vertex's components, as stored (a stack of levels included)
+    }
     if (v.cls == "selection" || v.cls == "spans" || v.cls == "labelling") {
       std::string ty = nxr::io::opt_text(r, "type").value_or("");
       if (ty == "spans") {                                                  // a stored closed-form tiling of a line (a frame grid, a band's tiles) is read back as spans: its record (params.grid of kind time with a width) says it is one
@@ -233,7 +238,9 @@ void typed_from_rows(ng::PortType& t, const Value& v) {
       t.sel = sh;
     }
   }
-  if (!t.quantity.empty() && !ng::is_quantity(t.quantity)) { t.quantity.clear(); return; }   // a kind outside the closed vocabulary: left to the node's plan
+  // a kind outside the closed vocabulary (an imported map's `PET <tracer>_suvr`): only the QUANTITY is left unset; the value keeps the type its record gives (its manifolds, cell,
+  // value type, components, unit, time line), so a node that reads any quantity takes it and one that reads a named quantity refuses it as "of no declared quantity"
+  if (!t.quantity.empty() && !ng::is_quantity(t.quantity)) t.quantity.clear();
   t.typed = true;
 }
 
@@ -241,6 +248,7 @@ ng::PortType port_of(const Value& v) {
   ng::PortType t;
   t.cls = class_of(v.cls);
   t.value = value_type_of(v);
+  t.components = t.value == ng::ValueType::vector3 ? 3 : t.value == ng::ValueType::quaternion ? 4 : t.value == ng::ValueType::hermitian3 ? 6 : 1;   // a vertex's components, as the signatures count them
   if (v.chunked) {
     t.axis = v.facts.value("axis", std::string()) == "frames" ? ng::Axis::frames : ng::Axis::samples;
     if (v.rate > 0) t.sfreq = v.rate;
@@ -268,7 +276,8 @@ Value value_of(const ng::PortType& t) {
   if (!t.facts.contains("value")) {                                       // what a native node (grouped names) made: described by its port type alone; `facts.cls` names a statistic, a manifold, ...
     Value v;
     v.cls = t.facts.contains("cls") && t.facts["cls"].is_string() ? t.facts["cls"].get<std::string>()
-            : t.cls == ng::PortClass::field ? "field" : t.cls == ng::PortClass::operator_ ? "operator" : t.cls == ng::PortClass::constant ? "statistic" : "selection";
+            : t.cls == ng::PortClass::field ? "field" : t.cls == ng::PortClass::operator_ ? "operator" : t.cls == ng::PortClass::constant ? "statistic"
+            : t.cls == ng::PortClass::manifold ? "manifold" : "selection";
     v.complex = t.value == ng::ValueType::complex;
     v.value_type = t.value == ng::ValueType::vector3 ? "vector3" : t.value == ng::ValueType::quaternion ? "quaternion" : t.value == ng::ValueType::hermitian3 ? "hermitian3" : "scalar";
     v.chunked = t.streamed();
