@@ -1288,14 +1288,16 @@ cycles, amplitude A = 2|W| / (π^(1/4) √σ) and phase, in physical units, and 
   width's |W| on the block's frames (atoms of the width × channels × the block's frames × 4). Before any data flows the node computes this for the largest chunk (2^15 samples and the halo) and refuses a
   block over `budget` (1 GB by default), saying the size and the remedy (fewer channels, a narrower band, a smaller σ_max, a shorter chunk). Worked: 270 channels at 1200 Hz, the default grid
   (8–35 Hz, 1218 atoms a channel): 0.50 GB a block (13–30 Hz, 804 atoms: 0.49 GB); every width at the recording's rate it would be about 108 GB. The run also holds each width's |W| over the span:
-  about 31 MB per second of recording at 270 channels (atoms × the width's rate summed over the widths, float32), and `collect` holds the span's samples twice: on a long recording run a span of
-  minutes, or fewer channels (a level computed without holding the series is not built, #189).
+  Σ over widths of atoms × channels × (rate / decimation) × 4 bytes a second: 30.7 MB per second of recording at 270 channels and 1200 Hz on the default grid (21.7 MB on 13–30 Hz), so a 5-minute span
+  holds about 9.2 GB; `collect` holds the span's samples twice besides. That rate times the span asked, plus the block, is checked against `budget` on the first block, before anything is held, and
+  refused with both figures, the longest span that fits and the remedies (a shorter span, fewer channels, a narrower band, a smaller σ_max, a larger `budget`). A level computed without holding the
+  series is not built (#189).
 - **Tested** (`test_gabor`, `test_gabor_golden`, `test_gabor_bursts`, synthetic): the decimated transform equals the full rate at every D-th sample (1e-12); against the reference detector (`golden/gabor_golden.txt`, its generator `gen_gabor_golden.py`; the reference's folder in
   `NXR_GABOR_REFERENCE`): the grid (6e-14), the fit of each of its candidates (f, σ, amplitude, phase, |W| to 5e-13), its burst test, its merge (the same atoms, in order) and its tangent edges (1e-9 s); the grid; unit energy; |W| = (A/2) π^(1/4) √σ for a matched burst (A recovered to 1e-6) and the inner product equal to the bank's
   transform; a planted burst's f, σ, A and φ recovered from the nearest grid atom; two bursts at one frequency told apart by σ; the width test; R²; the local maxima, the suppression, the tangent edges
   of a Gaussian (t0 ∓ 2σ), the groups by overlap. In the pipeline: five planted bursts on three channels recovered once each within their resolution; every burst passes the gates; a burst narrower than
   the ladder is a candidate and no burst; a stricter R² keeps fewer; half-maximum edges t0 ∓ 1.1775 σ; the same bursts to the last bit with chunks of 3000 samples; each width at its own rate gives the bursts every width at the
-  recording's rate gives, within their resolution; a block over the budget refused at the plan with its size; the windows by time-frequency overlap and by time.
+  recording's rate gives, within their resolution; a block over the budget refused at the plan with its size, a run whose series over the span is over it refused with the longest span that fits; the windows by time-frequency overlap and by time.
 - **What it cannot resolve:** an atom's time and frequency are known to its own resolution (σ and 1/(2πσ)): two bursts closer than that are one atom, and a burst's time is its frame's instant, within σ/6 (the
   fit refines frequency and width, not time). A burst that is not Gaussian in its envelope is matched by the nearest width; R² says how much of the band's signal one atom explains there. A burst
   outside the widths (narrower than σ_min, wider than σ_max) fails the width test. The levels are each atom's own over the run's span, so a recording full of bursts raises them. Per channel only:

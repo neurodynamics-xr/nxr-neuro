@@ -147,6 +147,25 @@ void size_check(const GaborState& st, std::int64_t channels, std::int64_t own, c
   need(b <= st.budget, who + ": one block would hold " + gigabytes(b) + " (" + std::to_string(channels) + " channels, a block of " + std::to_string(own) + " samples and a halo of " + std::to_string(st.halo) +
                            " each side), over the budget of " + gigabytes(st.budget) + ": run fewer channels, a narrower band (fewer atoms a width), a smaller sigma_max (a shorter halo), or a shorter chunk; or raise `budget`");
 }
+// THE SERIES THE RUN HOLDS, bytes a second of span: Σ over widths of atoms x channels x (the rate / the width's decimation) x 4 (float32): each width's |W| over the span, kept for its level
+double series_bytes_per_second(const GaborState& st, std::int64_t channels) {
+  double b = 0;
+  for (const auto& w : st.widths) b += static_cast<double>(w.atoms) * static_cast<double>(channels) * st.fs / static_cast<double>(w.D) * 4;
+  return b;
+}
+// THE RUN'S SIZE CHECK, on the span the caller asked (known before the first block is folded, nothing accumulated yet): the block (the largest chunk's) and the series over the span, against the budget
+void span_check(const GaborState& st, std::int64_t channels, std::int64_t span_samples, const std::string& who) {
+  const double block = block_bytes(st, channels, (std::int64_t(1) << 15) + 2 * st.halo, std::int64_t(1) << 15), per_s = series_bytes_per_second(st, channels);
+  const double span_s = static_cast<double>(span_samples) / st.fs, total = block + per_s * span_s;
+  if (total <= st.budget) return;
+  char t[64];
+  std::snprintf(t, sizeof t, "%.1f s", std::max(0.0, (st.budget - block) / per_s));
+  char u[64];
+  std::snprintf(u, sizeof u, "%.1f s", span_s);
+  refuse(who + ": the run would hold " + gigabytes(total) + ": one block " + gigabytes(block) + " and each width's |W| over the span, " + gigabytes(per_s) + " a second (" + std::to_string(channels) +
+         " channels) x " + u + "; over the budget of " + gigabytes(st.budget) + ". The longest span that fits is " + t +
+         ": run a shorter span (--from/--to), fewer channels, a narrower band (fewer atoms a width), a smaller sigma_max, or raise `budget`");
+}
 struct GaborAcc {
   std::vector<std::vector<std::vector<float>>> rows;   // per width, per row (atom x channels + channel): |W| at the width's frames, in order
   std::vector<std::int64_t> first;                     // per width: the global index of its first frame
@@ -231,7 +250,9 @@ void add_gabor_steps(std::vector<StepSpec>& r) {
                     "(a line tiled from the recording's samples). Rows atom-major (row = atom x channels + channel), one group of rows a width over its own frames. A frame belongs to the chunk holding its sample; the block "
                     "carries the halo the widest atom needs (its response down to `tolerance` of its L1 norm), so the series does not depend on the chunk size. Frames on a bad sample are NaN. The magnitude is taken here, as the "
                     "series leaves the loop (holding it complex would double it; nothing after reads its phase: the fit reads the samples). MEMORY of one block, checked against `budget` (bytes) before any data flows and "
-                    "refused with the remedy: channels x (the padded block x 8 + its spectrum x 16) + the largest width's atoms x channels x the block's frames x 4; of the run: Σ over widths of atoms x channels x frames x 4.";
+                    "refused with the remedy: channels x (the padded block x 8 + its spectrum x 16) + the largest width's atoms x channels x the block's frames x 4. THE RUN holds each width's |W| over the span: "
+                    "Σ over widths of atoms x channels x (rate / decimation) x 4 bytes a second; that times the span asked, plus the block, is checked against `budget` on the first block (before anything is held) and refused "
+                    "with both figures, the longest span that fits and the remedies.";
     s.traits = node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the block is transformed in double; |W| is kept in float32 (follows the float32 blocks)",
                            "the widest atom's reach: timefilterbank::haloOf of the Gabor member of sigma_max down to `tolerance`, samples on each side");
     s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
@@ -279,6 +300,7 @@ void add_gabor_steps(std::vector<StepSpec>& r) {
       const std::int64_t C = b.rows;
       need(b.width >= 2, "signal.gabor: a block holds at least 2 samples");
       size_check(st, C, at.n, "signal.gabor");
+      if (acc.channels < 0 && at.end != std::numeric_limits<std::int64_t>::max()) span_check(st, C, at.end - at.origin, "signal.gabor");   // the first block: nothing held yet
       if (acc.channels < 0) { acc.channels = C; for (std::size_t k = 0; k < st.widths.size(); ++k) acc.rows[k].assign(static_cast<std::size_t>(st.widths[k].atoms * C), {}); }
       // the block on the line: column 0 is sample s0; padded on the left to a0 (a multiple of every width's decimation), so a width's frames fall on its decimated grid
       const std::int64_t s0 = at.first - b.left, a0 = (s0 >= 0 ? s0 / st.Dmax : (s0 - st.Dmax + 1) / st.Dmax) * st.Dmax, pad = s0 - a0;

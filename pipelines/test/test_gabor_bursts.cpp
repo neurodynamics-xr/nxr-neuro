@@ -222,6 +222,20 @@ int main() {
     std::printf("  refused: %s\n", why.substr(0, 200).c_str());
     CHECK(why.find("over the budget") != std::string::npos && why.find("GB") != std::string::npos && why.find("fewer channels") != std::string::npos && why.find("a block of 32768 samples") != std::string::npos);   // at the plan: the largest chunk
   }
+  // 7. THE RUN'S SIZE: the block fits the budget, the series over 40 s does not: refused with both figures and the longest span that fits; a span that fits runs
+  {
+    std::string why;
+    try { run(Json{{"recording", "rest"}, {"budget", 8.0e6}}, true); } catch (const Error& e) { why = e.what(); }
+    std::printf("  refused: %s\n", why.substr(0, 400).c_str());
+    CHECK(why.find("one block") != std::string::npos && why.find("a second") != std::string::npos && why.find("longest span that fits is") != std::string::npos && why.find("shorter span") != std::string::npos);
+    g::RunOptions o;
+    o.start = 0; o.stop = 8; o.replace = true;
+    Json set = Json{{"recording", "rest"}, {"budget", 8.0e6}};
+    for (auto& [k, v] : small.items()) set[k] = v;
+    bool ran = true;
+    try { g::run(ds, sub, d, set, o); } catch (const Error& e) { ran = false; std::printf("  8 s refused: %s\n", e.what()); }
+    CHECK(ran);
+  }
   // refusals: an unknown edges rule, a band past Nyquist
   bool refused = false;
   try { run(Json{{"recording", "rest"}, {"edges", "steepest"}}, true); } catch (const Error&) { refused = true; }
