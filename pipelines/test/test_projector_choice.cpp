@@ -292,6 +292,28 @@ int main() {
   CHECK(has(thrown([&] { edit("nothing", "0", ""); }), "no_such_row"));
   CHECK(has(thrown([&] { edit(C, "2", ""); }), "0 inactive or 1 active"));
 
+  // ── the faces' run (Python, JavaScript): `projectors` among the parameters, a list or comma text; a run over a time range, its rerun (a hit) and a dry run of the whole recording
+  {
+    face::RunRequest rq;
+    rq.pipeline = "psd";
+    rq.parameters = Json{{"recording", "rest"}, {"segment_seconds", 2.0}, {"projectors", Json::array({A, B})}};
+    rq.from = 0.0; rq.to = 20.0;
+    const Json r = face::run(D, "S1", rq);
+    CHECK_EQ(r["cache"].get<std::string>(), std::string("computed"));
+    CHECK_EQ(face::run(D, "S1", rq)["cache"].get<std::string>(), std::string("hit"));
+    rq.parameters["projectors"] = A + "," + B + "," + C;                 // comma text: another choice, another result (refused under the same name unless replaced)
+    CHECK(has(thrown([&] { face::run(D, "S1", rq); }), "already_exists"));
+    rq.parameters["projectors"] = 3;
+    CHECK(has(thrown([&] { face::run(D, "S1", rq); }), "projectors is active, none"));
+    face::RunRequest dry;
+    dry.pipeline = "psd";
+    dry.parameters = Json{{"recording", "rest"}};
+    dry.all = true;
+    dry.dry_run = true;
+    const Json d = face::run(D, "S1", dry);
+    CHECK(!d["runs"].empty() && d["runs"][0]["cache"] == "planned");
+  }
+
   fs::remove_all(root);
   return nxrtest::finish("test_projector_choice");
 }

@@ -97,11 +97,11 @@ std::string Plan::text(const nxr::io::Database& db) const {
   }
   for (const auto& [o, spec] : d.outputs.items()) {
     const Value& v = values.at(o);
-    if (v.cls == "measurement") L << "  output " << o << "  measurement '" << v.facts.value("measure", std::string()) << "' over " << v.facts["over"].value("selection", std::string()) << " (rows: selection_measurement, array-backed)\n";
+    if (v.cls == "measurement") L << "  output " << o << "  measurement '" << v.facts.value("measure", std::string()) << "' over " << v.facts.value("over", Json::object()).value("selection", std::string()) << " (rows: selection_measurement, array-backed)\n";
     else if (v.cls == "spans") L << "  output " << o << "  a spans Selection on " << on(db, v) << " (event types " << spec.value("types", Json::array({"event"})).dump() << ")\n";
     else if (v.cls == "labelling") L << "  output " << o << "  a labelling of the joint cells (a `set` Selection on " << on(db, v) << ", array-backed)\n";
-    else if (v.cls == "statistic") L << "  output " << o << "  a statistic of the measurement, summaries " << v.facts["summaries"].dump() << " (" << v.facts.value("combine", std::string()) << ")\n";
-    else L << "  output " << o << "  field on " << on(db, v) << " (" << type_of(v) << ") — kind '" << spec["kind"].get<std::string>() << "'\n";
+    else if (v.cls == "statistic") L << "  output " << o << "  a statistic of the measurement, summaries " << v.facts.value("summaries", Json()).dump() << " (" << v.facts.value("combine", std::string()) << ")\n";
+    else L << "  output " << o << "  field on " << on(db, v) << " (" << type_of(v) << ") — kind '" << spec.value("kind", std::string()) << "'\n";
   }
   return L.str();
 }
