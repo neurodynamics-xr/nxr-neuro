@@ -133,6 +133,7 @@ test_graph_eigen	unit
 test_graph_frames	unit
 test_graph_moves	unit
 test_graph_types	unit
+test_graph_type_json	unit
 test_group_tree	golden
 test_groups	unit
 test_hat	golden
