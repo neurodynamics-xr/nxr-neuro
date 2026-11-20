@@ -373,26 +373,49 @@ Signature s_select_product() {
         if (c.domain.cells.empty()) c.domain.cells = "0";
       });
 }
-// select.events.spans: the three rules (detect, keep_where, stages) of one node; each rule's own signature is applied to its own ports
+// select.events.spans: the five rules (detect, keep_where, stages, edges, union) of one node; each rule's own signature is applied to its own ports
 Signature s_select_events_spans() {
   Signature s = sig(Move::detect);
   s.in("x", measurement_any().optional().because("Events are detected on a measurement over a time partition's members: reduce the field over the constant-Q level first (reduce with `over`).")).in("baseline", statistic_any().optional()).in("events", selection_any().optional()).in("fit_r2", measurement_any().optional())
-   .in("t_on", measurement_any().optional()).in("t_off", measurement_any().optional()).in("tau_rise", measurement_any().optional()).in("tau_fall", measurement_any().optional()).in("kept", selection_any().optional());
-  s.out("spans", make_of(PortClass::selection)).out("onset", make_of(PortClass::selection)).out("within", make_of(PortClass::selection)).out("offset", make_of(PortClass::selection));
-  return s.refine([](Unified& u, const Json& p) {
+   .in("t_on", measurement_any().optional()).in("t_off", measurement_any().optional()).in("tau_rise", measurement_any().optional()).in("tau_fall", measurement_any().optional()).in("kept", selection_any().optional())
+   .in("series", any_port().optional());
+  s.out("spans", make_of(PortClass::selection)).out("onset", make_of(PortClass::selection)).out("within", make_of(PortClass::selection)).out("offset", make_of(PortClass::selection))
+   .out("values", make_of(PortClass::measurement));
+  // the events a rule keeps or re-edges: a spans selection like `events`, of its own identity
+  auto events_like = [](Unified& u) {
+    PortType kept = u.in.at("events");
+    kept.facts = Json::object();
+    kept.typed = true;
+    u.out["spans"] = kept;
+    if (u.out.at("spans").sel) u.out.at("spans").sel->identity = u.out_names.at("spans");
+  };
+  return s.refine([events_like](Unified& u, const Json& p) {
     const std::string rule = p.value("rule", std::string());
     if (rule == "detect") s_detect_spans().refine_fn(u, p);
     else if (rule == "keep_where") {
-      if (!u.has("events") || !u.has("fit_r2")) u.fail("events", "rule keep_where reads `events` and `fit_r2` (risefall's fit)");
-      PortType kept = u.in.at("events");
-      kept.facts = Json::object();
-      kept.typed = true;
-      u.out["spans"] = kept;
-      s_fit_gate().refine_fn(u, p);
+      if (!u.has("events") || (!u.has("fit_r2") && !u.has("x"))) u.fail("events", "rule keep_where reads `events` and either `fit_r2` (risefall's fit) or `x` (a measurement over the events, with `where`)");
+      if (u.has("fit_r2")) {
+        PortType kept = u.in.at("events");
+        kept.facts = Json::object();
+        kept.typed = true;
+        u.out["spans"] = kept;
+        s_fit_gate().refine_fn(u, p);
+      } else {
+        if (u.type("x").cls != PortClass::measurement) u.fail("x", "must be a measurement over the events");
+        events_like(u);
+      }
     } else if (rule == "stages") {
       for (const char* k : {"events", "t_on", "t_off", "tau_rise", "tau_fall"}) if (!u.has(k)) u.fail("events", std::string("rule stages reads `events` and risefall's t_on, t_off, tau_rise and tau_fall: ") + k + " is not wired");
       s_burst_stages().refine_fn(u, p);
-    } else u.fail("x", "rule is detect, keep_where or stages (no default)");
+    } else if (rule == "edges" || rule == "union") {
+      if (!u.has("events")) u.fail("events", "rule " + rule + " reads `events`");
+      if (u.has("x") && u.type("x").cls != PortClass::measurement) u.fail("x", "must be a measurement over the events");
+      events_like(u);
+      if (rule == "edges") {
+        const PortType& ev = u.in.at("events");
+        u.out.at("values").domain = dom_of({members(u.out_names.at("spans"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), "", true)});
+      }
+    } else u.fail("x", "rule is detect, keep_where, stages, edges or union (no default)");
   });
 }
 
