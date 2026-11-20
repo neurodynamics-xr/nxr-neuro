@@ -87,9 +87,16 @@ struct Ctx {
   }
 };
 
+// the node's producer record (how it was made: the command or pipeline, the program, its inputs, and what the maker said with `--producer`), as `read <class>` gives it: a selection
+// keeps it in its parameters (it has no producer column), every other class in its own record. Null: none.
+Json producer_record(const Row& r) {
+  if (r.find("producer_json") != r.end()) return Jj(r, "producer_json");
+  const Json p = Jj(r, "params_json");
+  return p.is_object() && p.contains("producer") ? p["producer"] : Json();
+}
 Json provenance(const Row& r) {
   return Json{{"source", Jt(r, "source")}, {"comment", Jt(r, "comment")}, {"created_utc", Jt(r, "created_utc")}, {"created_by", Jt(r, "created_by")},
-              {"modified_utc", Jt(r, "modified_utc")}, {"modified_by", Jt(r, "modified_by")}};
+              {"modified_utc", Jt(r, "modified_utc")}, {"modified_by", Jt(r, "modified_by")}, {"producer", producer_record(r)}};
 }
 Json acquisition_of(const Ctx& c, const Row& r) {
   if (is_null(r, "acquisition_id")) return Json();
@@ -206,7 +213,8 @@ Json describe_statistic(const Ctx& c, const Row& s) {
               {"description", Jt(s, "description")},
               {"of_field", c.ref("field", s, "of_field_id")}, {"of_statistic", c.ref("statistic", s, "of_statistic_id")}, {"partition", c.ref("selection", s, "partition_selection_id")},
               {"members", Jt(s, "n_members")}, {"members_skipped", Jt(s, "members_skipped")}, {"dof", Jt(s, "dof")}, {"axes", axes}, {"stored", !is_null(s, "path")},
-              {"provenance", Json{{"created_utc", Jt(s, "created_utc")}, {"created_by", Jt(s, "created_by")}, {"modified_utc", Jt(s, "modified_utc")}, {"modified_by", Jt(s, "modified_by")}}}};
+              {"provenance", Json{{"created_utc", Jt(s, "created_utc")}, {"created_by", Jt(s, "created_by")}, {"modified_utc", Jt(s, "modified_utc")}, {"modified_by", Jt(s, "modified_by")},
+                                  {"producer", producer_record(s)}}}};
 }
 
 // ---- dictionaries, spaces, acquisitions, jobs ----

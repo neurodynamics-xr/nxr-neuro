@@ -586,7 +586,7 @@ their own) are not keys: `type` says them. `kind` is the stored kind (a field's,
 | space | `name`, `geometry`, `rank`, `parameters`, `description`, `coordinate_systems` [{name, unit, reference, transition, description}]; no `type` |
 | acquisition | `name` (its label), `session`, `task`, `run`, `acq`, `processing`, `split`; no `type` |
 
-`provenance` is {source, comment, created_utc, created_by, modified_utc, modified_by}. `type` is built by the pipelines' face (`face::read_subject`, `face::list_class`); io reads and pages
+`provenance` is {source, comment, created_utc, created_by, modified_utc, modified_by, producer}: `producer` is the node's producer record as `read <class>` gives it (the command or pipeline that made it, the program, its inputs, and what the maker gave with `--producer`; null when none; a selection's is kept in its parameters, a statistic's provenance has no source or comment). `type` is built by the pipelines' face (`face::read_subject`, `face::list_class`); io reads and pages
 the rows (a build without the pipelines gives `"type": null`; a node the type system refuses to type, such as a tangent field with no gauge record, gives `"type": {"refused": "<why>"}`).
 
 `--related` adds `"related": [{subject, kind, relation, description}]`: the subjects this one refers to, with `relation` `template` (the template its anatomy is taken from), `source` and
