@@ -122,7 +122,12 @@ Json describe_manifold(const Ctx& c, const Row& m) {
     const auto g = c.db.one("SELECT g.form AS form, cs.name AS cs, cs.unit AS unit FROM geometry g LEFT JOIN coordinate_system cs ON cs.id = g.coordinate_system_id WHERE g.id = ?", {V(text(m, "geometry_id"))});
     if (g) {
       const Json producer = Jj(m, "producer_json");
-      coordinates = Json{{"system", Jt(*g, "cs")}, {"unit", Jt(*g, "unit")}, {"kinds", producer.is_object() && producer.contains("kinds") && producer["kinds"].is_string()}};
+      // a closed-form geometry's coordinate along each of its axes (a line's: one): the first point's coordinate, the step between points and its unit
+      Json closed = Json::array();
+      for (const auto& a : axes_of(c, m))
+        if (a["factor"].is_null() && !a["spacing"].is_null()) closed.push_back(Json{{"name", a["name"]}, {"size", a["size"]}, {"origin", a["origin"]}, {"spacing", a["spacing"]}, {"unit", a["unit"]}});
+      coordinates = Json{{"system", Jt(*g, "cs")}, {"unit", Jt(*g, "unit")}, {"kinds", producer.is_object() && producer.contains("kinds") && producer["kinds"].is_string()},
+                         {"axes", closed}};
     }
   }
   return Json{{"id", Jt(m, "id")}, {"name", Jt(m, "name")}, {"kind", Jt(m, "type")}, {"type", c.typed("manifold", m)}, {"label", Jt(m, "label")}, {"description", Jt(m, "comment")}, {"primary", flag(m, "is_primary")}, {"acquisition", acquisition_of(c, m)},
