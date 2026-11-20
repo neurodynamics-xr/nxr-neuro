@@ -1,0 +1,61 @@
+# EACH REGION'S SIGNAL AS THE FIRST PRINCIPAL COMPONENT OF ITS SOURCES over a span (Brainstorm's scout function PCA with the sign flip, applied before the spectrum, as the MEG fingerprinting
+# paper does: da Silva Castanheira J, Orozco Perez HD, Misic B, Baillet S (2021) Nat Commun 12:5713, doi:10.1038/s41467-021-25895-8; megFingerprinting v1.0.0, 06fdba8; written from the
+# documented behaviour of bst_scout_value of Brainstorm's release of 2018-10-12). Every stored result carries these references (producer_json.references).
+#
+# THE GRAPH (a span-wide component is a statistic made first, then applied pointwise):
+#   the channels' covariance over the span: a statistic made first by `run noisecov` over THE SAME span, one block, its mean removed (no block_seconds)
+#   before:  meeg.region_pca_basis   kernel (fixed orientation) + covariance + partition + the sources' normals  ->  per region the leading eigenvector of D K_R C K_R^T D (D the sign flip
+#                                    by orientation) as channel weights, and the flipped kernel row of the source it loads most (the peak)
+#   chunks:  meeg.region_pca         the recording over the span, through those 2R weights (pointwise, a linear map), measured over the span (max, min, mean: one member of a time rule)
+#                                    ->  each component's sign from the extremes, as the reference's; the region map (regions x channels) and each region's offset
+# Stored: the region map `<name>` (an operator from the recording's channels to the partition's regions: a region's signal is map x + its offset) and its channels `<name>_channels`; per region in
+# the map's provenance (producer.regions): its sources, those flipped, the peak source, the share explained, the sign and the offset (the peak source's mean, less the signed component's).
+# A spectrum of the regions reads the map as it reads a kernel (`--kernel <name>`); the offsets matter only to the signal's mean.
+# It cannot resolve: the component is the direction of most variance within a region over THIS span (it changes between spans and between people); it carries its share (`explained`, per
+# region in the provenance) of the region's signal and leaves out the rest; its sign is a convention set by the span's extremes; the regions share signal through the kernel's spread.
+#
+#   nxr-neuro run noisecov --dataset <folder> --subject sub-01 --recording rest --from 5 --to 150 --name rest_A_cov
+#   nxr-neuro run region_pca --dataset <folder> --subject sub-01 --recording rest --from 5 --to 150 --kernel headmodel_lcmv --covariance rest_A_cov --partition desikan_killiany --name fp_A_regions
+pipeline: region_pca
+version: 1
+description: each region's signal as the first principal component of its sources over a span (a linear map of the channels), signed as the reference signs it
+scope: subject
+
+inputs:
+  recording:  {field: recording, each: true, where: {name: $recording}}
+  kernel:     {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel}}
+  covariance: {statistic: any, where: {measure: covariance, name: $covariance}}
+  sources:    {manifold: surface, is: kernel.to}
+  partition:  {selection: set, manifold: sources.manifold.0, where: {name: $partition}}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  kernel: {default: required, meaning: "the fixed-orientation inverse kernel the sources are read through (`nxr-neuro run lcmv`)", unit: "-"}
+  covariance: {default: required, meaning: "the channels' covariance over the SAME span as this run, one block with its mean removed (`nxr-neuro run noisecov` over that span)", unit: "-"}
+  partition: {default: required, meaning: "the regions: a partition of the kernel's source surface (an atlas, e.g. Desikan-Killiany's 68 regions)", unit: "-"}
+  name: {default: "{kernel}_{partition}_pca", meaning: "the region map's name; beside it <name>_channels", unit: "-"}
+  sign_flip: {default: true, meaning: "flip each source's sign by its orientation before the component, as the reference's scouts do", unit: "-"}
+
+steps:
+  before:
+    - {node: meeg.region_pca_basis, in: {kernel: kernel, covariance: covariance, partition: partition, sources: sources}, with: {sign_flip: $sign_flip}, out: basis}
+  chunks:
+    over: recording
+    do:
+      - {node: meeg.region_pca, in: {x: recording, basis: basis}, out: [map, channels]}
+
+outputs:
+  channels:
+    kind: selection
+    type: indices
+    name: "$name_channels"
+    on: recording.manifold.0
+  map:
+    kind: operator
+    operator_kind: region map
+    name: $name
+    from: recording.manifold.0
+    to: kernel.to
+    from_selection: channels
+    to_selection: partition
+    derived_from: kernel

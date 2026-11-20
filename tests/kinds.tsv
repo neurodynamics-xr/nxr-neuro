@@ -166,6 +166,7 @@ test_isoline_methods	unit
 test_jointbank	golden
 test_ladder	golden
 test_lag	unit
+test_lcmv_pipeline	integration
 test_magnetic	golden
 test_mass_variants	unit
 test_measure_pipeline	integration
