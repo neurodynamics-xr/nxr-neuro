@@ -181,7 +181,10 @@ Json describe_selection(const Ctx& c, const Row& s) {
     if (!n.empty()) dictionary = n;
   }
   return Json{{"id", Jt(s, "id")}, {"name", Jt(s, "name")}, {"kind", Jt(s, "type")}, {"type", c.typed("selection", s)}, {"label", Jt(s, "label")}, {"acquisition", acquisition_of(c, s)},
-              {"description", Jt(s, "description")}, {"elements", Jt(s, "n_elements")}, {"members", Jt(s, "n_members")}, {"of_field", c.ref("field", s, "of_field_id")},
+              {"description", Jt(s, "description")}, {"elements", Jt(s, "n_elements")}, {"members", Jt(s, "n_members")},
+              // a member of a set is a selection of its own (an atlas of the set of a surface's parcellations, a level of a grid): the set it belongs to, its place there and its code
+              {"member_of", c.ref("selection", s, "member_of_id")}, {"member_ordinal", Jt(s, "member_ordinal")}, {"code", Jt(s, "code")},
+              {"of_field", c.ref("field", s, "of_field_id")},
               {"weights", [&] { const Json p = Jj(s, "params_json"); return p.is_object() && p.contains("weights") && p["weights"].is_string(); }()},
               {"stored", !is_null(s, "array_path")}, {"dictionary", dictionary}, {"entries", entries_of(c, s, false)}, {"provenance", provenance(s)}};
 }
@@ -268,7 +271,7 @@ const char* const kManifoldSelect =
 const ClassDef kDefs[] = {
     {"manifolds", "manifold", "x.name", kManifoldSelect, "x.subject_id = ? AND x.status = 'complete'", 1, "x.type", describe_manifold},
     {"fields", "field", "x.name", "SELECT x.* FROM field x", "x.subject_id = ? AND x.status = 'complete'", 1, "x.kind", describe_field},
-    {"selections", "selection", "x.name", "SELECT x.* FROM selection x", "x.subject_id = ? AND x.status = 'complete' AND x.member_of_id IS NULL", 1, "x.type", describe_selection},
+    {"selections", "selection", "x.name", "SELECT x.* FROM selection x", "x.subject_id = ? AND x.status = 'complete'", 1, "x.type", describe_selection},
     {"operators", "operator", "x.name", "SELECT x.* FROM operator x", "x.subject_id = ? AND x.status = 'complete'", 1, "x.kind", describe_operator},
     {"statistics", "statistic", "x.name", "SELECT x.* FROM statistic x", "x.subject_id = ? AND x.status = 'complete'", 1, "x.measure", describe_statistic},
     {"dictionaries", "dictionary", "x.name", "SELECT x.* FROM dictionary x", "(x.subject_id = ? OR x.id IN (SELECT dictionary_id FROM selection WHERE subject_id = ? AND dictionary_id IS NOT NULL) OR (x.scope = 'dataset' AND x.dataset_id IN (SELECT dataset_id FROM subject WHERE id = ?)))", 3, "x.scope", describe_dictionary},
