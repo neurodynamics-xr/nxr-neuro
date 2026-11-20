@@ -441,7 +441,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 |---|---|---|
 | `nxr-neuro run noisecov` | The noise covariance of a recording's good channels. | `noisecov compute` |
 | `nxr-neuro run inverse` | The depth-weighted minimum-norm inverse kernel, from a noise covariance and a head model. | `inverse compute` |
-| `nxr-neuro run lcmv` | The fixed-orientation LCMV beamformer (Brainstorm's 2016 pseudo neural activity index), from a head model, a data covariance and a noise covariance. | (the definition) |
+| `nxr-neuro run lcmv` | The LCMV beamformer from a head model, a data covariance and a noise covariance: Brainstorm's 2016 pseudo neural activity index (fixed orientation, the default), or MNE-Python's `make_lcmv` (`--conventions mne`: free, normal or max-power orientation; none, unit-noise-gain, unit-noise-gain-invariant or nai weight normalisation). | (the definition) |
 | `nxr-neuro run region_pca` | Each region's signal as the first principal component of its sources over a span (Brainstorm's scout PCA with the sign flip): a region map of the channels and its offsets. | (the definition) |
 | `nxr-neuro run headmodel` | The sphere head model (gain matrix) for a subject's cortex, MEG and EEG. | `headmodel compute` |
 | `nxr-neuro run pointspread` | The instrument's blur: unit currents at sample vertices through the head model and inverse kernel. | `pointspread compute` |
@@ -931,7 +931,9 @@ code is only run by the generator, never copied). Every stored result carries th
 
 - **The data covariance (step 11)** is the same statistic as the noise covariance (`measure: covariance`), made by `run noisecov` on the recording itself: nothing new is computed. The reference
   (`process_noisecov` on the band-passed run, raw continuous file) reads blocks of 10 000 samples, removes each block's mean and divides the sum by N - 1: `--all --block-seconds <10000 / sfreq>
-  --divisor samples_minus_one`. The projectors are those the recording is read with (the chunk service applies its active projectors).
+  --divisor samples_minus_one`. The projectors are those the recording is read with (the chunk service applies its active projectors). **A band-limited data covariance** (e.g. alpha, 7-13 Hz)
+  is a composition, nothing new: `run bandpass --recording rest --all --lower 7 --upper 13 --name rest_alpha` (a new recording, carrying the source's channel flags and projectors), then
+  `run noisecov --recording rest_alpha --all --name rest_alpha_cov`, then `run lcmv --data-cov rest_alpha_cov ...` (tested end to end in `test_lcmv_pipeline`). A FIR band-pass that removes the record's mean reads the channel means first (`run measure --set channel_span_mean --all`), or `--remove-mean false`.
 - **The LCMV beamformer (step 14, `run lcmv`, the node `meeg.lcmv`, `nxr::meeg::lcmvKernel`)**: a definition of its own beside `run inverse` (a different method is a different graph, not a switch
   of the minimum-norm node), reusing its preparation (`minimum_norm_inputs` under Brainstorm's conventions: the projectors of status 1 and 2 on the gain and both sides of each covariance, the
   average reference per family; the channels are the data covariance's pick, the run's good channels, and the noise covariance is read on them in their order: an empty room on another channel set is
@@ -945,6 +947,35 @@ code is only run by the generator, never copied). Every stored result carries th
   200 sources on a sphere, 26 MEG channels of two types, a planted source; the rules median, ridge, none and a diagonal noise covariance): whiteners to 2e-12, kernels to 8e-9 of their largest entry.
   **What it cannot resolve:** correlated sources partly cancel (the beamformer's blind spot); the output is an index normalised to the data covariance's own span (unit variance on it when nothing
   is regularised), not a current, so kernels made from different spans are not on one scale; the regularisation trades resolution for stability.
+- **The LCMV beamformer under MNE-Python's conventions (`run lcmv --conventions mne`, `nxr::meeg::rankWhitener`, `nxr::meeg::mneLcmvKernel`).** **Why:** a comparison of minimum-norm and
+  beamformer estimates made with MNE-Python uses the beamformer MNE-Python users get from `mne.beamformer.make_lcmv` / `apply_lcmv`; this reproduces it on nxr-neuro's tested inputs. The
+  reference is MNE-Python 1.13.2 (BSD; read, the maths written here) with its defaults: `reg` 0.05, `rank` 'info', no depth weighting (`depth` None), `inversion` 'matrix', `reduce_rank`
+  False. **The preparation** (`minimum_norm_inputs` under MNE-Python's conventions, as `run inverse --conventions mne`): the projectors are those of the data's recording handed with the
+  data covariance (the run's `--projectors` choice) with the average reference of EEG, sEEG and ECoG as a projector (`--average-reference`), every one of them active or not, each vector cut
+  to the pick and renormalised; the noise covariance is projected by them and by those its own recording was read with. **The whitener** (MNE-Python's `prepare_noise_cov` /
+  `compute_whitener`, pca False): one symmetric block per modality (MEG magnetometers and gradiometers together; EEG; ...), in each block only its rank's largest eigenvalues kept, no
+  regularisation (the noise covariance is used as given). The rank of a modality is `--rank info` (its channels less the projectors on them; MNE-Python reads a Maxwell-filtered recording's
+  lower rank from the FIF's processing history, which a dataset does not carry: give it with `--rank N` for one modality). **The noise covariance is optional** (`--noise-cov` left out): MNE-Python
+  then whitens by an identity covariance of the same projectors (the whitener is the projector), which it allows for one sensor type only (magnetometers, gradiometers or EEG); with two it
+  is refused. **The filter** (Van Veen et al. 1997; Sekihara & Nagarajan 2008): with L = W G and C = W C_d W^T, C^-1 is the pseudo-inverse of C + mu I on its `rank` largest singular values,
+  mu = `reg` x the mean singular value of C (diagonal loading); per source the unit-gain filter (L_k^T C^-1 L_k)^-1 L_k^T C^-1, then:
+  - `--pick-ori free` (MNE-Python's None, the default): three rows a source, x y z in the head model's frame (MNE-Python with a forward in head coordinates); stored as a `vector3` kernel;
+  - `--pick-ori normal`: the gain along the source surface's vertex normals (`--normals`), one row a source (MNE-Python's surface-oriented forward);
+  - `--pick-ori max-power`: each source's orientation of most power, the eigenvector of the largest eigenvalue of (L_k^T C^-2 L_k)^-1 (L_k^T C^-1 L_k) ((L_k^T C^-1 L_k)^-1 with no weight
+    normalisation), its sign along the normal; one row a source;
+  - `--weight-norm none`: the unit-gain filter (A.m); `unit-noise-gain`: each row divided by its norm (Sekihara's; not rotation invariant for a free orientation); `unit-noise-gain-invariant`
+    (the default): (B B^T)^(-1/2) B with B = L_k^T C^-1 (rotation invariant); `nai`: unit-noise-gain divided by the square root of the noise level, max(the rank-th largest eigenvalue of
+    C, mu) (the neural activity index).
+  A source whose gain is singular (s_1 > 1e6 s_3: a spherical MEG model's radial direction) is refused, as MNE-Python does without `reduce_rank` (not ported). **Stored:** the kernel `<name>` (an
+  `inverse kernel` operator from the channels as recorded: MNE-Python's `filters['weights'] @ filters['whitener']`, what `apply_lcmv` applies; `params.inverse`: measure LCMV, solver lcmv,
+  `estimate` statistic), its channels and `<name>_whitener` (of the noise covariance, the one the kernel ends with; none without a noise covariance); no data whitener. The options, the rank per
+  modality, the loading mu, the noise level (`nai`), both covariances' names, the projectors applied and the references are in `producer_json.computed`; every option is a parameter of
+  the definition, so a different option is a different cached result. Brainstorm's `--regularisation`, `--ridge-fraction` and `--detect-diagonal` are refused under `mne`, and `--reg`,
+  `--pick-ori`, `--weight-norm` and `--rank` under `brainstorm`. Golden: `meeg/test/golden/gen_lcmv_mne_golden.py` (`make_lcmv` itself in a throwaway environment: 30 EEG electrodes on
+  MNE-Python's four-shell sphere, 200 sources with random orientations, the average-reference projector; every orientation x weight normalisation with the noise covariance, and four
+  combinations without it): the kernels to 3e-13 of their largest entry, the whiteners to 2e-14, the max-power orientations to 1e-13. **What it cannot resolve:** as the Brainstorm form
+  (correlated sources partly cancel; the loading trades resolution for stability); a weight-normalised output is an index in units of the projected noise, not a current, and its scale
+  depends on the data covariance's span; `unit-noise-gain` with a free orientation depends on the frame of the x y z rows; without a noise covariance the channels' units must be comparable.
 - **The region signal (step 15, `run region_pca`, the nodes `meeg.region_pca_basis` and `meeg.region_pca`, `nxr::meeg::scoutSignFlip`, `regionComponent`, `regionComponentSign`).** The reference
   (bst_scout_value `pca` with the sign flip, applied before the spectrum over the span the spectrum reads): each source's series multiplied by the sign of its orientation's projection on the
   region's dominant orientation (the fewest flipped); the series' means removed; the first left singular vector u1; the output u1^T F signed by the data (the sign of the peak source's largest

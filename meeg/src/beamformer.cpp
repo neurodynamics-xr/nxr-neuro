@@ -146,4 +146,132 @@ LcmvKernel lcmvKernel(const Eigen::MatrixXd& G, const Eigen::MatrixXd& orientati
   return out;
 }
 
+// ── MNE-Python's conventions (beamformer.h, mne.beamformer.make_lcmv) ──────────────────────────────────────────────────────────────────────────────────────────────
+
+std::string modalityOf(const std::string& type) { return type.rfind("MEG", 0) == 0 ? std::string("MEG") : type; }
+
+std::vector<std::vector<Eigen::Index>> modalityBlocks(const std::vector<std::string>& types) {
+  std::vector<std::string> m;
+  m.reserve(types.size());
+  for (const auto& t : types) m.push_back(modalityOf(t));
+  return typeBlocks(m);
+}
+
+RankWhitening rankWhitener(const Eigen::MatrixXd& C, const std::vector<std::string>& types, const std::vector<int>& ranks) {
+  checkSquare(C, types, "the noise covariance");
+  const auto blocks = modalityBlocks(types);
+  if (ranks.size() != blocks.size()) bad(std::to_string(ranks.size()) + " ranks for " + std::to_string(blocks.size()) + " modalities");
+  const Eigen::Index M = C.rows();
+  RankWhitening out;
+  out.W = Eigen::MatrixXd::Zero(M, M);
+  out.ranks = ranks;
+  for (std::size_t b = 0; b < blocks.size(); ++b) {
+    const auto& idx = blocks[b];
+    const Eigen::Index n = static_cast<Eigen::Index>(idx.size());
+    const int r = ranks[b];
+    out.modalities.push_back(modalityOf(types[static_cast<std::size_t>(idx.front())]));
+    if (r < 1 || r > n) bad("the rank " + std::to_string(r) + " of the " + out.modalities.back() + " channels is outside [1, " + std::to_string(n) + "]");
+    Eigen::MatrixXd B(n, n);
+    for (Eigen::Index i = 0; i < n; ++i) for (Eigen::Index j = 0; j < n; ++j) B(i, j) = C(idx[static_cast<std::size_t>(i)], idx[static_cast<std::size_t>(j)]);
+    const Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(0.5 * (B + B.transpose()));   // ascending
+    Eigen::VectorXd f = Eigen::VectorXd::Zero(n);
+    for (Eigen::Index k = n - r; k < n; ++k) if (es.eigenvalues()(k) > 0) f(k) = 1.0 / std::sqrt(es.eigenvalues()(k));
+    const Eigen::MatrixXd Wb = es.eigenvectors() * f.asDiagonal() * es.eigenvectors().transpose();
+    for (Eigen::Index i = 0; i < n; ++i) for (Eigen::Index j = 0; j < n; ++j) out.W(idx[static_cast<std::size_t>(i)], idx[static_cast<std::size_t>(j)]) = Wb(i, j);
+  }
+  return out;
+}
+
+namespace {
+
+// A^p of a symmetric positive semi-definite matrix, p in {-1, -1/2}: the eigenvalues at or below 1e-7 x the largest are dropped (MNE-Python's _sym_mat_pow)
+Eigen::MatrixXd symPow(const Eigen::MatrixXd& A, double p) {
+  const Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(A);
+  const Eigen::VectorXd& s = es.eigenvalues();
+  const double limit = s(s.size() - 1) * 1e-7;
+  if ((s.array() < -limit).any()) bad("a matrix of the filter is not positive semi-definite");
+  Eigen::VectorXd f(s.size());
+  for (Eigen::Index i = 0; i < s.size(); ++i) f(i) = s(i) <= limit ? 0.0 : p == -1 ? 1.0 / s(i) : 1.0 / std::sqrt(s(i));
+  return es.eigenvectors() * f.asDiagonal() * es.eigenvectors().transpose();
+}
+// the pseudo-inverse of a k x k denominator: 1 / x for one orientation (a non-finite one taken as 1, as the reference), symPow(-1) for three
+Eigen::MatrixXd denominatorInverse(const Eigen::MatrixXd& D) {
+  if (D.rows() == 1) { const double v = 1.0 / D(0, 0); return Eigen::MatrixXd::Constant(1, 1, std::isfinite(v) ? v : 1.0); }
+  return symPow(D, -1);
+}
+
+}  // namespace
+
+MneLcmvKernel mneLcmvKernel(const Eigen::MatrixXd& G, const Eigen::MatrixXd& normals, const Eigen::MatrixXd& dataCovariance, const Eigen::MatrixXd& whitener, int rank,
+                            const MneLcmvOptions& opt) {
+  const Eigen::Index M = G.rows();
+  if (G.cols() % 3 != 0) bad("the gain is not channels x 3N");
+  const Eigen::Index N = G.cols() / 3;
+  if (normals.rows() != N || normals.cols() != 3) bad("the normals are not " + std::to_string(N) + " x 3");
+  if (dataCovariance.rows() != M || dataCovariance.cols() != M || whitener.rows() != M || whitener.cols() != M) bad("the data covariance and the whitener are not on the gain's " + std::to_string(M) + " channels");
+  if (!G.allFinite() || !normals.allFinite() || !dataCovariance.allFinite() || !whitener.allFinite()) bad("an input holds a NaN or an infinity");
+  if (rank < 1 || rank > M) bad("the rank " + std::to_string(rank) + " is outside [1, " + std::to_string(M) + "]");
+  if (!(opt.reg >= 0)) bad("reg is negative");
+  MneLcmvKernel out;
+  out.rank = rank;
+  const Eigen::MatrixXd L = whitener * G;
+  Eigen::MatrixXd C = whitener * dataCovariance * whitener.transpose();
+  C = 0.5 * (C + C.transpose());
+  // the regularised pseudo-inverse: loading mu on every singular value, then the `rank` largest of C + mu I inverted
+  const Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> e0(C);
+  out.loading = opt.reg * e0.eigenvalues().cwiseAbs().mean();
+  const Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> e1(C + out.loading * Eigen::MatrixXd::Identity(M, M));
+  std::vector<Eigen::Index> order(static_cast<std::size_t>(M));
+  for (Eigen::Index i = 0; i < M; ++i) order[static_cast<std::size_t>(i)] = i;
+  std::stable_sort(order.begin(), order.end(), [&](Eigen::Index a, Eigen::Index b) { return std::abs(e1.eigenvalues()(a)) > std::abs(e1.eigenvalues()(b)); });
+  Eigen::MatrixXd Ci = Eigen::MatrixXd::Zero(M, M);
+  for (int i = 0; i < rank; ++i) {
+    const Eigen::Index k = order[static_cast<std::size_t>(i)];
+    const double ev = e1.eigenvalues()(k);
+    if (ev != 0) Ci += e1.eigenvectors().col(k) * e1.eigenvectors().col(k).transpose() / ev;
+  }
+  const Eigen::MatrixXd Ci2 = Ci * Ci;
+  if (opt.weightNorm == LcmvWeightNorm::Nai) out.noise = std::max(e0.eigenvalues()(M - rank), out.loading);   // the rank-th largest eigenvalue of C (ascending order)
+  const bool free = opt.orientation == LcmvOrientation::Free;
+  const Eigen::Index rows = free ? 3 : 1;
+  out.K = Eigen::MatrixXd::Zero(N * rows, M);
+  if (opt.orientation == LcmvOrientation::MaxPower) out.orientations = Eigen::MatrixXd::Zero(N, 3);
+  Eigen::MatrixXd F(N * rows, M);
+  for (Eigen::Index k = 0; k < N; ++k) {
+    Eigen::MatrixXd Lk = L.middleCols(3 * k, 3);
+    const Eigen::Vector3d nk = normals.row(k).transpose();
+    if (!(nk.norm() > 0)) bad("source " + std::to_string(k) + " has a zero normal");
+    const Eigen::JacobiSVD<Eigen::MatrixXd> sv(Lk);
+    if (sv.singularValues()(0) > 1e6 * sv.singularValues()(2))
+      bad("source " + std::to_string(k) + ": its gain is singular (a spherical MEG model's radial direction); the reference's reduce_rank is not ported");
+    if (opt.orientation == LcmvOrientation::Normal) {
+      Lk = Lk * nk;
+    } else if (opt.orientation == LcmvOrientation::MaxPower) {
+      const Eigen::Matrix3d den = Lk.transpose() * Ci * Lk;
+      const Eigen::Matrix3d pick = opt.weightNorm == LcmvWeightNorm::None ? Eigen::Matrix3d(symPow(den, -1)) : Eigen::Matrix3d(symPow(Lk.transpose() * Ci2 * Lk, -1) * den);
+      const Eigen::EigenSolver<Eigen::Matrix3d> es(pick);
+      Eigen::Index best = 0;
+      for (Eigen::Index i = 1; i < 3; ++i) if (std::abs(es.eigenvalues()(i)) >= std::abs(es.eigenvalues()(best))) best = i;
+      Eigen::Vector3d o = es.eigenvectors().col(best).real();
+      o.normalize();
+      if (o.dot(nk) < 0) o = -o;
+      out.orientations.row(k) = o.transpose();
+      Lk = Lk * o;
+    }
+    const Eigen::MatrixXd B = Lk.transpose() * Ci;                     // the numerator L_k^T C^-1
+    Eigen::MatrixXd Fk;
+    if (opt.weightNorm == LcmvWeightNorm::UnitNoiseGainInvariant) {
+      Fk = B.rows() == 1 ? Eigen::MatrixXd(B / B.norm()) : Eigen::MatrixXd(symPow(B * B.transpose(), -0.5) * B);
+    } else {
+      Fk = denominatorInverse(B * Lk) * B;
+      if (opt.weightNorm != LcmvWeightNorm::None)
+        for (Eigen::Index i = 0; i < Fk.rows(); ++i) { const double nr = Fk.row(i).norm(); if (nr > 0) Fk.row(i) /= nr; }
+      if (opt.weightNorm == LcmvWeightNorm::Nai) Fk /= std::sqrt(out.noise);
+    }
+    F.middleRows(k * rows, rows) = Fk;
+  }
+  out.K = F * whitener;
+  return out;
+}
+
 }  // namespace nxr::meeg

@@ -67,4 +67,60 @@ struct LcmvKernel {
 LcmvKernel lcmvKernel(const Eigen::MatrixXd& G, const Eigen::MatrixXd& orientations, const Eigen::MatrixXd& dataCovariance, const Eigen::MatrixXd& noiseCovariance,
                       const std::vector<std::string>& types, const LcmvOptions& opt = {});
 
+// ── THE LCMV BEAMFORMER UNDER MNE-PYTHON'S CONVENTIONS (mne.beamformer.make_lcmv, MNE-Python 1.13; BSD: read, the maths written here) ─────────────────────────────────────────
+// Written from Van Veen et al. 1997, Sekihara & Nagarajan 2008 (the weight normalisations) and MNE-Python's documented make_lcmv. Two steps, each a function of matrices:
+//
+// 1. THE WHITENER of a noise covariance C (already projected, P C P^T, by the caller): one symmetric block per MODALITY (MEG: magnetometers and gradiometers together; EEG; sEEG; ...),
+//    the covariance across modalities set to zero; in each block the eigenvalues below the block's RANK set to zero, W_b = U diag(1 / sqrt(e)) U^T on the eigenvalues kept (e > 0).
+//    The rank of a block is the caller's (MNE-Python's rank 'info': its channels less the projectors on them). No regularisation (MNE-Python uses the noise covariance as given).
+//    With no noise covariance MNE-Python whitens by an identity covariance of the same projectors: the caller hands P P^T and the whitener is P.
+//
+// 2. THE FILTER, from the gain G [M x 3N] (x y z per source), the unit normals [N x 3], the data covariance C_d [M x M] (as estimated: the whitener carries the projectors) and the
+//    whitener W [M x M]: with L = W G and C = W C_d W^T (made exactly symmetric),
+//      C^-1 := the pseudo-inverse of C + mu I on its `rank` largest singular values, mu = reg x the mean of C's singular values (all M of them: diagonal loading, Gross & Ioannides 1999);
+//      per source k, L_k = the source's M x 3 block (a source whose singular values s_1 > 1e6 s_3 is refused: MNE-Python's reduce_rank, not ported);
+//      orientation: free (L_k as it is, 3 rows: x y z) | normal (L_k n_k) | max-power (L_k o_k, o_k the eigenvector of the largest |eigenvalue| of (L_k^T C^-2 L_k)^+ (L_k^T C^-1 L_k)
+//      (of (L_k^T C^-1 L_k)^+ when weight_norm is none), its sign that of o_k . n_k);
+//      the unit-gain filter F_k = (L_k^T C^-1 L_k)^+ L_k^T C^-1 (3 x 3 pseudo-inverse with rcond 1e-7; 1 / x for one orientation);
+//      weight_norm: none (F_k) | unit-noise-gain (each row of F_k divided by its norm) | unit-noise-gain-invariant ((B B^T)^(-1/2) B, B = L_k^T C^-1: rotation invariant; for one orientation
+//      B / ||B||) | nai (unit-noise-gain divided by sqrt(max(the rank-th largest eigenvalue of C, mu)): the neural activity index).
+//    The operator from the channels as recorded is K = F W (one row a source, or 3: x y z interleaved for free orientation).
+//
+// What it cannot resolve: correlated sources partly cancel; the regularisation trades resolution for stability; with a weight normalisation the output is an index (noise-normalised),
+// not a current, and its scale depends on the data covariance's span; free orientation's unit-noise-gain (not invariant) depends on the frame of x y z.
+enum class LcmvOrientation { Free, Normal, MaxPower };
+enum class LcmvWeightNorm { None, UnitNoiseGain, UnitNoiseGainInvariant, Nai };
+
+/** The modality of a channel type: "MEG" for every MEG type (magnetometers, gradiometers, axial), else the type itself. */
+std::string modalityOf(const std::string& type);
+/** The channels of each modality, in order of the modalities' first appearance. */
+std::vector<std::vector<Eigen::Index>> modalityBlocks(const std::vector<std::string>& types);
+
+struct RankWhitening {
+  Eigen::MatrixXd W;                    // [M x M] symmetric, block-diagonal by modality
+  std::vector<std::string> modalities;  // in order of first appearance
+  std::vector<int> ranks;               // the rank kept in each, as given
+};
+/** The rank-limited whitener of C [M x M] (step 1 above), `ranks` one per modality in order of first appearance. std::invalid_argument for a C that is not square or not finite, types
+ *  without M entries, or a rank outside [1, the modality's channels]. */
+RankWhitening rankWhitener(const Eigen::MatrixXd& C, const std::vector<std::string>& types, const std::vector<int>& ranks);
+
+struct MneLcmvOptions {
+  double reg = 0.05;                                                    // MNE-Python's reg: the diagonal loading, a fraction of the mean singular value of the whitened data covariance
+  LcmvOrientation orientation = LcmvOrientation::Free;                  // MNE-Python's pick_ori: None (free) | 'normal' | 'max-power'
+  LcmvWeightNorm weightNorm = LcmvWeightNorm::UnitNoiseGainInvariant;   // MNE-Python's weight_norm, its default 'unit-noise-gain-invariant'
+};
+struct MneLcmvKernel {
+  Eigen::MatrixXd K;                    // [N x M] or [3N x M] (free: x y z interleaved per source), on the channels as recorded
+  Eigen::MatrixXd orientations;         // [N x 3] the max-power orientations (unit, sign along the normal); empty otherwise
+  double loading = 0;                   // mu, the diagonal loading
+  double noise = 0;                     // nai only: the noise level the filter is divided by (its square root)
+  int rank = 0;
+  std::vector<std::string> notes;
+};
+/** The LCMV filter of step 2 above. std::invalid_argument on a shape mismatch, a non-finite input, a zero normal, a rank outside [1, M], a negative reg, or a source whose gain is
+ *  singular. */
+MneLcmvKernel mneLcmvKernel(const Eigen::MatrixXd& G, const Eigen::MatrixXd& normals, const Eigen::MatrixXd& dataCovariance, const Eigen::MatrixXd& whitener, int rank,
+                            const MneLcmvOptions& opt = {});
+
 }  // namespace nxr::meeg

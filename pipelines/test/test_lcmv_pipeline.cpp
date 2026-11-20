@@ -228,6 +228,61 @@ int main() {
     CHECK(!sub.by_name("operator", "LCMV_mag").has_value());
   }
 
+  // ── conventions mne (MNE-Python's make_lcmv, held to MNE-Python by meeg_test_beamformer_mne_parity): the stored kernel is the meeg functions' on the same inputs ──
+  {
+    namespace m = nxr::meeg;
+    const m::RankWhitening wn = m::rankWhitener(cn.covariance, types, {static_cast<int>(M)});   // one modality (MEG), no projectors: rank 'info' is every channel
+    const Json mset{{"data_cov", "rest_data_cov"}, {"noise_cov", "emptyroom_noise_cov"}, {"name", "LCMV_mne"}, {"conventions", "mne"}};
+    CHECK(!g::run(ds, sub, g::load("lcmv"), mset, span_options(std::nullopt, std::nullopt, std::nullopt, false))[0].value("hit", true));
+    const MatrixXd Kf = stored_operator(sub, "LCMV_mne");
+    const m::MneLcmvKernel free = m::mneLcmvKernel(gain, normals, cd.covariance, wn.W, static_cast<int>(M));   // free orientation, unit-noise-gain-invariant, reg 0.05
+    CHECK(Kf.rows() == 3 * nv && Kf.cols() == M);
+    CHECK(rel(Kf, free.K) < 1e-5);                              // stored as float32
+    CHECK_EQ(text(*sub.by_name("operator", "LCMV_mne"), "to_value_type"), std::string("vector3"));
+    CHECK(rel(stored_operator(sub, "LCMV_mne_whitener"), wn.W) < 1e-12);
+    CHECK(!sub.by_name("operator", "LCMV_mne_data_whitener").has_value());   // MNE-Python does not whiten by the data covariance
+    const Json pj = producer_of(sub, "operator", "LCMV_mne");
+    CHECK_EQ(pj["computed"]["options"]["weight_norm"].get<std::string>(), std::string("unit-noise-gain-invariant"));
+    CHECK_EQ(pj["computed"]["options"]["pick_ori"].get<std::string>(), std::string("free"));
+    CHECK_EQ(pj["computed"]["rank"].get<int>(), static_cast<int>(M));
+    CHECK(pj["references"].dump().find("make_lcmv") != std::string::npos);
+    // max-power with the neural activity index: a new result (the options are in the cache key), the meeg function's
+    Json mp = mset;
+    mp["name"] = "LCMV_mne_mp"; mp["pick_ori"] = "max-power"; mp["weight_norm"] = "nai"; mp["reg"] = 0.1;
+    CHECK(!g::run(ds, sub, g::load("lcmv"), mp, span_options(std::nullopt, std::nullopt, std::nullopt, false))[0].value("hit", true));
+    m::MneLcmvOptions o;
+    o.orientation = m::LcmvOrientation::MaxPower; o.weightNorm = m::LcmvWeightNorm::Nai; o.reg = 0.1;
+    CHECK(rel(stored_operator(sub, "LCMV_mne_mp"), m::mneLcmvKernel(gain, normals, cd.covariance, wn.W, static_cast<int>(M), o).K) < 1e-5);
+    CHECK_EQ(text(*sub.by_name("operator", "LCMV_mne_mp"), "to_value_type"), std::string("scalar"));
+    // refused: no noise covariance with two sensor types (as MNE-Python); an option of the other conventions; brainstorm without a noise covariance
+    CHECK(!code_of([&] { g::run(ds, sub, g::load("lcmv"), Json{{"data_cov", "rest_data_cov"}, {"conventions", "mne"}, {"name", "LCMV_adhoc"}}, span_options(std::nullopt, std::nullopt, std::nullopt, false)); }).empty());
+    CHECK(!code_of([&] { Json b = lset; b["name"] = "LCMV_bad"; b["pick_ori"] = "normal"; g::run(ds, sub, g::load("lcmv"), b, span_options(std::nullopt, std::nullopt, std::nullopt, false)); }).empty());
+    CHECK(!code_of([&] { Json b = mset; b["name"] = "LCMV_bad"; b["regularisation"] = "ridge"; g::run(ds, sub, g::load("lcmv"), b, span_options(std::nullopt, std::nullopt, std::nullopt, false)); }).empty());
+    CHECK(!code_of([&] { g::run(ds, sub, g::load("lcmv"), Json{{"data_cov", "rest_data_cov"}, {"name", "LCMV_bad"}}, span_options(std::nullopt, std::nullopt, std::nullopt, false)); }).empty());
+    CHECK(!sub.by_name("operator", "LCMV_bad").has_value() && !sub.by_name("operator", "LCMV_adhoc").has_value());
+
+    // ── a BAND-LIMITED data covariance by composition: bandpass (8-12 Hz) -> noisecov on its output -> lcmv (mne, normal orientation) ──
+    g::RunOptions all;
+    all.chunks = "all";
+    g::run(ds, sub, g::load("bandpass"), Json{{"recording", "rest"}, {"lower", 8.0}, {"upper", 12.0}, {"remove_mean", false}, {"name", "rest_alpha"}}, all);
+    g::run(ds, sub, g::load("noisecov"), Json{{"recording", "rest_alpha"}, {"name", "rest_alpha_cov"}}, all);
+    const MatrixXd Ca = stored_statistic(sub, "rest_alpha_cov");
+    CHECK(Ca.rows() == M && Ca.trace() < 0.5 * cd.covariance.trace());   // the band keeps a fraction of the broadband channel noise
+    Json band = mset;
+    band["data_cov"] = "rest_alpha_cov"; band["name"] = "LCMV_alpha"; band["pick_ori"] = "normal";
+    g::run(ds, sub, g::load("lcmv"), band, span_options(std::nullopt, std::nullopt, std::nullopt, false));
+    m::MneLcmvOptions on;
+    on.orientation = m::LcmvOrientation::Normal;
+    const MatrixXd Kb = stored_operator(sub, "LCMV_alpha");
+    CHECK(rel(Kb, m::mneLcmvKernel(gain, normals, Ca, wn.W, static_cast<int>(M), on).K) < 1e-5);
+    // one sensor type and no noise covariance: MNE-Python's identity covariance; no whitener is stored
+    g::run(ds, sub, g::load("noisecov"), Json{{"recording", "rest_alpha"}, {"name", "rest_alpha_mag_cov"}, {"channel_types", Json::array({"MEG MAG"})}}, all);
+    g::run(ds, sub, g::load("lcmv"), Json{{"data_cov", "rest_alpha_mag_cov"}, {"conventions", "mne"}, {"name", "LCMV_alpha_mag"}}, span_options(std::nullopt, std::nullopt, std::nullopt, false));
+    const MatrixXd Cm = stored_statistic(sub, "rest_alpha_mag_cov");
+    CHECK(rel(stored_operator(sub, "LCMV_alpha_mag"), m::mneLcmvKernel(gain.topRows(8), normals, Cm, MatrixXd::Identity(8, 8), 8).K) < 1e-5);
+    CHECK(!sub.by_name("operator", "LCMV_alpha_mag_whitener").has_value());
+  }
+
   // ── step 15: the region map over a span ──
   const double t0 = 2.0, t1 = 12.0;
   const std::int64_t s0 = 500, s1 = 3000;
