@@ -62,6 +62,16 @@ R"TBL(--atlas-finest	QUANTITY	The finest tile of the default subject's group tre
 --berg-dipoles	J	Number of equivalent dipoles in the Berg-Scherg approximation of the three-shell EEG sphere.	3	-
 --berg-starts	N	Number of simplex starts when fitting the three-dipole Berg-Scherg approximation of the EEG sphere model; the best fit is kept	12	-
 --berg-terms	N	Number of series terms fitted when approximating the multi-shell EEG model by the Berg-Scherg parameters.	200	terms
+--by@add surface	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add field	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add selection	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add statistic	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add measurements	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add operator	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add points	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add line	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add product	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add dictionary	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
 --block-frames	N	How many frames the steps after a frame tiling process at once; limits memory only, the result does not change (0 = the whole chunk's frames).	256	frames
 --block-frames@run	N	How many frames the steps after a frame tiling process at once; limits memory only, the result does not change (0 = the whole chunk's frames).	256	frames
 --block-samples	N	Samples processed at a time, which sets memory use only and does not change the result (run: width for the steps after the last filter, 0 = whole chunk)	run: 1024	samples
@@ -868,7 +878,7 @@ alias: refused
 summary: Add a surface to a subject: a mesh file (OBJ, PLY or STL), or its vertices and faces as .npy files.
 pos: FILE?
 example: nxr-neuro add surface bunny.obj --dataset /data/study --subject sub-01
-opts: --dataset* --faces --name --no-primary --primary --scale --subject* --vertices --templates+
+opts: --by --dataset* --faces --name --no-primary --primary --scale --subject* --vertices --templates+
 )TBL",
 R"TBL(@ list recordings
 old: __list recordings
@@ -1229,43 +1239,43 @@ R"TBL(@ add field
 old: __add field
 summary: Store values computed elsewhere as a field on a manifold (optionally time-resolved on a time line), from a .npy file, as one unit; or in pieces with --begin, --append and --commit.
 example: nxr-neuro add field --dataset /data/study --subject sub-01 --name thickness --manifold cortex --values thickness.npy --unit mm
-opts: --append --begin --by-operator --cell --commit --contribution+ --dataset* --derived-from --description --dtype --kind --manifold --name --producer --region --replace --shape --subject --time --unit --value-type --values --write --templates+
+opts: --append --begin --by --by-operator --cell --commit --contribution+ --dataset* --derived-from --description --dtype --kind --manifold --name --producer --region --replace --shape --subject --time --unit --value-type --values --write --templates+
 )TBL",
 R"TBL(@ add selection
 old: __add selection
 summary: Store a partition, set, pick of elements or spans on a line computed elsewhere, from a .npy file, as one unit.
 example: nxr-neuro add selection --dataset /data/study --subject sub-01 --name regions --manifold cortex --type partition --members regions.npy
-opts: --dataset* --description --entries --indices --manifold* --members --name* --of-field --producer --replace --spans --subject* --type* --weights --templates+
+opts: --by --dataset* --description --entries --indices --manifold* --members --name* --of-field --producer --replace --spans --subject* --type* --weights --templates+
 )TBL",
 R"TBL(@ add statistic
 old: __add statistic
 summary: Store a statistic computed elsewhere (values on named axes, each along a manifold), from a .npy file, as one unit; or in pieces with --begin, --append and --commit.
 example: nxr-neuro add statistic --dataset /data/study --subject sub-01 --name psd --measure power_density --method welch --values psd.npy --axes channel:sensors frequency:freq --of-field rest
-opts: --append --axes+ --begin --commit --dataset* --description --dtype --measure --method --name --of-field --partition --region --replace --shape --subject --unit --value-type --values --write --templates+
+opts: --append --axes+ --begin --by --commit --dataset* --description --dtype --measure --method --name --of-field --partition --region --replace --shape --subject --unit --value-type --values --write --templates+
 )TBL",
 R"TBL(@ add measurements
 old: __add measurements
 summary: Store measurements computed elsewhere over a selection's members (one array a measure), from .npy files, as one unit.
 example: nxr-neuro add measurements --dataset /data/study --subject sub-01 --selection regions --field thickness --measure mean=mean.npy
-opts: --dataset* --field --measure+* --replace --selection* --subject* --unit --templates+
+opts: --by --dataset* --field --measure+* --replace --selection* --subject* --unit --templates+
 )TBL",
 R"TBL(@ add operator
 old: __add operator
 summary: Store a linear operator between two manifolds computed elsewhere, dense or sparse (CSR), from .npy files, as one unit.
 example: nxr-neuro add operator --dataset /data/study --subject sub-01 --name smoother --from-manifold cortex --to-manifold cortex --data d.npy --indices i.npy --indptr p.npy
-opts: --data --dataset* --description --from-manifold* --from-selection --indices --indptr --kind --layout --method --name* --params --replace --subject* --to-manifold* --values --templates+
+opts: --by --data --dataset* --description --from-manifold* --from-selection --indices --indptr --kind --layout --method --name* --params --replace --subject* --to-manifold* --values --templates+
 )TBL",
 R"TBL(@ add points
 old: __add points
 summary: Store a manifold of points (positions or one coordinate each) from a .npy file, as one unit.
 example: nxr-neuro add points --dataset /data/study --subject sub-01 --name electrodes --positions electrodes.npy
-opts: --coordinate-system --dataset* --description --name* --positions* --replace --subject* --templates+
+opts: --by --coordinate-system --dataset* --description --name* --positions* --replace --subject* --templates+
 )TBL",
 R"TBL(@ add line
 old: __add line
 summary: Store a line: n points a spacing apart from an origin (a time line in seconds, a frequency line), or points at the coordinates given (an eigenvalue axis).
 example: nxr-neuro add line --dataset /data/study --subject sub-01 --name epoch_time --n 1000 --spacing 0.004 --unit s
-opts: --coordinates --dataset* --dimension --kinds --n --name* --origin --replace --spacing --subject* --unit* --templates+
+opts: --by --coordinates --dataset* --dimension --kinds --n --name* --origin --replace --spacing --subject* --unit* --templates+
 )TBL",
 R"TBL(--subject@list manifolds	NAME	The subject whose the manifolds are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
 --name@list manifolds	TEXT	Only the the manifolds whose name contains TEXT (case-insensitive).	all names	-
@@ -1453,13 +1463,13 @@ R"TBL(@ add product
 old: __add product
 summary: Store the product manifold of stored factors (a line over time, a surface over time) under a name, as one unit.
 example: nxr-neuro add product --dataset /data/study --subject sub-01 --name spectrum_by_time --factors eigenvalues,epoch_time
-opts: --dataset* --factors* --name* --subject* --templates+
+opts: --by --dataset* --factors* --name* --subject* --templates+
 )TBL",
 R"TBL(@ add dictionary
 old: __add dictionary
 summary: Store a dictionary (codes with names, labels, colours, descriptions and parameters) of the dataset or of a subject, from a JSON file, as one unit.
 example: nxr-neuro add dictionary --dataset /data/study --name quality --scope dataset --entries quality.json
-opts: --dataset* --description --entries* --name* --scope* --subject --templates+
+opts: --by --dataset* --description --entries* --name* --scope* --subject --templates+
 )TBL",
 R"TBL(@ edit manifold
 old: __edit manifold

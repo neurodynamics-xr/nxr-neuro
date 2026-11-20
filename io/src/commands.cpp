@@ -307,7 +307,7 @@ CommandResult add_surface(const AddSurfaceRequest& rq, const Progress& progress)
   const std::string name = sanitize_node_name(rq.name.value_or(mesh_name(rq.file)));
   DatasetWriter ds = open_dataset(rq.dataset, rq.subject, OpenOptions{}, rq.templates, progress);
   OpenSubjectOptions oo;
-  oo.created_by = rq.created_by;
+  oo.created_by = rq.by && !rq.by->empty() ? *rq.by : rq.created_by;   // the author (`--by`), else the program
   SubjectWriter sub = SubjectWriter::open(ds, rq.subject, oo);
   for (auto& x : mesh.vertices) x *= rq.scale;
   SurfaceOptions so;

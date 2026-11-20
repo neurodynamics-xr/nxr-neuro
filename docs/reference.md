@@ -754,6 +754,9 @@ refusals store nothing). Each option is stored in a column the schema already ha
   `coordinates` {system, unit, kinds}.
 - **`add product --name N --factors A,B`** makes the product manifold of stored factors in axis order; a factor that does not exist is refused (`no_such_row`), as is a name in use or factors that
   already make a product under another name. A field added on a factor with `--time` makes the same product.
+- **`--by TEXT`** (every `add`: surface, field, selection, statistic, measurements, operator, points, line, product, dictionary; `by` in Python and JavaScript) is the author recorded as the node's
+  `created_by` (and `modified_by`): the person or the application that computed the values. Without it the author is the program (nxr-neuro and its version); the producer record names the program
+  either way (`program`). A write in pieces keeps it from `--begin` (or takes it at `--commit`).
 - **`add field --by-operator NAME`** records the operator that made the field (its lineage `by_operator`); **`--contribution SUBJECT:FIELD[:WEIGHT]`** (repeatable) names the fields a mapped field is
   made from (the subject by name, in the dataset; the weight a trailing number, default 1) as its `contributions`; **`--producer JSON`** adds the maker's facts to the producer record (not under the
   keys the command records itself: `command`, `program`, `inputs`, `output`, `cache`).

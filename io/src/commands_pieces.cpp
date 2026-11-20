@@ -134,14 +134,14 @@ Json json_of(const AddFieldRequest& r) {
   Json j = Json{{"dataset", r.dataset}, {"subject", r.subject}, {"name", r.name}, {"manifold", r.manifold}, {"value_type", r.value_type}, {"kind", r.kind}, {"replace", r.replace},
                 {"contribution", r.contribution}, {"templates", r.templates}, {"created_by", r.created_by}};
   for (const auto& [k, v] : std::vector<std::pair<const char*, const std::optional<std::string>*>>{{"time", &r.time}, {"unit", &r.unit}, {"cell", &r.cell}, {"derived_from", &r.derived_from},
-                                                                                               {"description", &r.description}, {"by_operator", &r.by_operator}, {"producer", &r.producer}})
+                                                                                               {"description", &r.description}, {"by_operator", &r.by_operator}, {"producer", &r.producer}, {"by", &r.by}})
     if (*v) j[k] = **v;
   return j;
 }
 Json json_of(const AddStatisticRequest& r) {
   Json j = Json{{"dataset", r.dataset}, {"subject", r.subject}, {"name", r.name}, {"measure", r.measure}, {"method", r.method}, {"value_type", r.value_type}, {"axes", r.axes}, {"replace", r.replace},
                 {"templates", r.templates}, {"created_by", r.created_by}};
-  for (const auto& [k, v] : std::vector<std::pair<const char*, const std::optional<std::string>*>>{{"of_field", &r.of_field}, {"partition", &r.partition}, {"unit", &r.unit}, {"description", &r.description}})
+  for (const auto& [k, v] : std::vector<std::pair<const char*, const std::optional<std::string>*>>{{"of_field", &r.of_field}, {"partition", &r.partition}, {"unit", &r.unit}, {"description", &r.description}, {"by", &r.by}})
     if (*v) j[k] = **v;
   return j;
 }
@@ -154,6 +154,7 @@ AddFieldRequest field_of(const Json& j) {
   r.contribution = list(j, "contribution"); r.templates = list(j, "templates"); r.created_by = j["created_by"];
   r.time = opt(j, "time"); r.unit = opt(j, "unit"); r.cell = opt(j, "cell"); r.derived_from = opt(j, "derived_from"); r.description = opt(j, "description"); r.by_operator = opt(j, "by_operator");
   r.producer = opt(j, "producer");
+  r.by = opt(j, "by");
   return r;
 }
 AddStatisticRequest statistic_of(const Json& j) {
@@ -161,6 +162,7 @@ AddStatisticRequest statistic_of(const Json& j) {
   r.dataset = j["dataset"]; r.subject = j["subject"]; r.name = j["name"]; r.measure = j["measure"]; r.method = j["method"]; r.value_type = j["value_type"]; r.replace = j["replace"];
   r.axes = list(j, "axes"); r.templates = list(j, "templates"); r.created_by = j["created_by"];
   r.of_field = opt(j, "of_field"); r.partition = opt(j, "partition"); r.unit = opt(j, "unit"); r.description = opt(j, "description");
+  r.by = opt(j, "by");
   return r;
 }
 
@@ -386,12 +388,14 @@ CommandResult run(const Req& rq, const std::string& cls, const Progress& progres
     q.dataset = dataset;
     q.values = ArrayInput((w.dir / "values.npy").string());
     if (!rq.created_by.empty()) q.created_by = rq.created_by;
+    if (rq.by) q.by = rq.by;
     r = add_field(q, progress);
   } else {
     AddStatisticRequest q = statistic_of(req);
     q.dataset = dataset;
     q.values = ArrayInput((w.dir / "values.npy").string());
     if (!rq.created_by.empty()) q.created_by = rq.created_by;
+    if (rq.by) q.by = rq.by;
     r = add_statistic(q, progress);
   }
   r.result["write"] = w.id;

@@ -190,6 +190,7 @@ struct AddSurfaceRequest {
   double scale = 1.0;
   bool primary = false, no_primary = false;
   std::vector<std::string> templates;
+  std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
 CommandResult add_surface(const AddSurfaceRequest& request, const Progress& progress = {});
@@ -230,6 +231,7 @@ struct AddFieldRequest {
   bool replace = false;
   PieceOptions piece;                      // a write in pieces (`values` then is the region's, and absent at begin and commit)
   std::vector<std::string> templates;
+  std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
 CommandResult add_field(const AddFieldRequest& request, const Progress& progress = {});
@@ -246,6 +248,7 @@ struct AddSelectionRequest {
   std::optional<std::string> producer;     // JSON text, added to the producer record
   bool replace = false;
   std::vector<std::string> templates;
+  std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
 CommandResult add_selection(const AddSelectionRequest& request, const Progress& progress = {});
@@ -260,6 +263,7 @@ struct AddStatisticRequest {
   bool replace = false;
   PieceOptions piece;                      // a write in pieces, as add field's
   std::vector<std::string> templates;
+  std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
 CommandResult add_statistic(const AddStatisticRequest& request, const Progress& progress = {});
@@ -272,6 +276,7 @@ struct AddMeasurementsRequest {
   std::vector<std::pair<std::string, ArrayInput>> measure_arrays;   // MEASURE and its values given as arrays (in memory, or a file): after `measure`
   bool replace = false;
   std::vector<std::string> templates;
+  std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
 CommandResult add_measurements(const AddMeasurementsRequest& request, const Progress& progress = {});
@@ -287,6 +292,7 @@ struct AddOperatorRequest {
   std::optional<std::string> layout, method, params, from_selection;
   bool replace = false;
   std::vector<std::string> templates;
+  std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
 CommandResult add_operator(const AddOperatorRequest& request, const Progress& progress = {});
@@ -298,6 +304,7 @@ struct AddPointsRequest {
   std::optional<std::string> coordinate_system, description;
   bool replace = false;
   std::vector<std::string> templates;
+  std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
 CommandResult add_points(const AddPointsRequest& request, const Progress& progress = {});
@@ -312,6 +319,7 @@ struct AddLineRequest {
   std::optional<ArrayInput> kinds;         // with `coordinates`: one integer code a point [n]
   bool replace = false;
   std::vector<std::string> templates;
+  std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
 CommandResult add_line(const AddLineRequest& request, const Progress& progress = {});
@@ -321,6 +329,7 @@ struct AddProductRequest {
   std::string dataset, subject, name;
   std::vector<std::string> factors;        // the manifolds, by name or id, two or more (A,B on the command line)
   std::vector<std::string> templates;
+  std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
 CommandResult add_product(const AddProductRequest& request, const Progress& progress = {});
@@ -331,6 +340,7 @@ struct AddDictionaryRequest {
   std::string dataset, name, scope, entries;
   std::optional<std::string> subject, description;
   std::vector<std::string> templates;
+  std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
 CommandResult add_dictionary(const AddDictionaryRequest& request, const Progress& progress = {});
