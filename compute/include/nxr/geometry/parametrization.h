@@ -1,5 +1,5 @@
 #pragma once
-// BFF parametrization and stripe patterns (toolbox refactor P1: moved from compute.h, declarations unchanged).
+// BFF parametrization (toolbox refactor P1: moved from compute.h, declarations unchanged).
 #include <complex>
 #include <limits>
 #include <Eigen/Core>
@@ -32,41 +32,4 @@ namespace nxr::geometry::parametrization {
 Eigen::MatrixXd bff(const SurfaceArrays& surface);
 } // namespace nxr::geometry::parametrization
 
-namespace nxr::geometry::parametrization::stripes {
-
-// ── Stripe Patterns (Knöppel-Crane SIGGRAPH 2015) ────────────
-//
-// Procedural sinusoidal stripes aligned to a 2-RoSy direction
-// field. Output is a list of 3D polyline segments (the zero
-// level set of the per-corner phase function), suitable for
-// drawing as three.js LineSegments.
-//
-// Frequencies control stripe spacing in oscillations per unit
-// edge length. A constant uniformFrequency is the common case;
-// pass per-vertex frequencies if you want curvature-modulated
-// striping.
-
-struct StripePatternResult {
-    Eigen::MatrixXd positions;   // [2 * segmentCount, 3] endpoint pairs
-    int segmentCount;
-};
-
-/** Stripe pattern with a uniform target frequency. The vertex
- *  field must be 2-RoSy (use `smoothVertex(m, 2)`
- *  or pass an existing line field). */
-StripePatternResult compute(
-    const SurfaceArrays& surface,
-    const Eigen::VectorXd& vertexFieldRaw,  // [nV * 2] in vertex tangent basis
-    double uniformFrequency,
-    bool connectOnSingularities = true
-);
-
-/** Stripe pattern with per-vertex target frequencies. */
-StripePatternResult computeFreq(
-    const SurfaceArrays& surface,
-    const Eigen::VectorXd& vertexFieldRaw,  // [nV * 2]
-    const Eigen::VectorXd& frequencies,     // [nV]
-    bool connectOnSingularities = true
-);
-} // namespace nxr::geometry::parametrization::stripes
 

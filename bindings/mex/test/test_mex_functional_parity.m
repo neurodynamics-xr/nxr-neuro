@@ -89,9 +89,7 @@ assert(isequal(size(sf), [nF 3]), 'interpolate.smoothFace → F×3');
 sv = nxr.manifold.interpolate.smoothVertex(mctx, 2);
 assert(isequal(size(sv.vertexVectors), [nV 3]) && numel(sv.vertexFieldRaw) == 2 * nV, ...
     'interpolate.smoothVertex shapes');
-stp = nxr.manifold.uv.stripe(mctx, sv.vertexFieldRaw, 8.0);
-assert(stp.segmentCount >= 0, 'uv.stripe segmentCount >= 0');
-fprintf('  signedDistance + smoothFace/smoothVertex + stripe (logical flags) ✓\n');
+fprintf('  signedDistance + smoothFace/smoothVertex (logical flags) ✓\n');
 
 % ── uv.bff (closed mesh → structured throw, mirrors WASM) ─────
 bffThrew = false;

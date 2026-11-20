@@ -249,12 +249,6 @@ function makeManifoldContext(rawCtx) {
     logMap(sourceVertex, strategy = 1) {
       return addon['geometry.logMap'](rawCtx, sourceVertex, strategy)
     },
-    stripe(vertexFieldRaw, uniformFrequency, connectOnSingularities = true) {
-      return addon['geometry.compute'](rawCtx, asF64(vertexFieldRaw), uniformFrequency, connectOnSingularities)
-    },
-    stripeFreq(vertexFieldRaw, frequencies, connectOnSingularities = true) {
-      return addon['geometry.computeFreq'](rawCtx, asF64(vertexFieldRaw), asF64(frequencies), connectOnSingularities)
-    },
   }
 
   // ── interpolate ───────────────────────────────────────────────
@@ -363,8 +357,6 @@ function makeFunctionalNamespace() {
     uv: {
       bff:        fwd('uv', 'bff'),
       logMap:     fwd('uv', 'logMap'),
-      stripe:     fwd('uv', 'stripe'),
-      stripeFreq: fwd('uv', 'stripeFreq'),
     },
     interpolate: {
       transport:         fwd('interpolate', 'transport'),

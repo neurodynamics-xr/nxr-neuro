@@ -120,8 +120,7 @@ hf  = nxr_compute('synthesis.heatDiffusion', ops.mass, eig, u0, 0:0.1:1, 1.0);
 
 Commands (indices 1-based):
 
-- `geometry.`: `surfaceArrays`, `fixDelaunay`, `parallel`, `extendScalar`, `logMap`, `findCenter`, `signedHeat`, `heat`, `smoothFace`, `smoothVertex`, `compute`
-  and `computeFreq` (stripe patterns), `frames`, `vertexFrames`, `normals`, `curvatures`, `bff`, `tracePath`.
+- `geometry.`: `surfaceArrays`, `fixDelaunay`, `parallel`, `extendScalar`, `logMap`, `findCenter`, `signedHeat`, `heat`, `smoothFace`, `smoothVertex`, `frames`, `vertexFrames`, `normals`, `curvatures`, `bff`, `tracePath`.
 - `operators.`: `assembleManifoldOperators`, `assembleDECOperators`, `assembleConnectionLaplacian`, `assembleTrivialConnectionLaplacian`, `eigen`, `normalize`, `removeDC`,
   `poisson` (K, M, vertices, values), `trivial`, `gradient`, `frameTransport`, `liftToWorld`, `liftToFrame`, `operatorById`, `fieldById`.
 - `signal.`: `hodge`, `isoline`, `streamline`, `whitney`.
@@ -165,7 +164,6 @@ lm = nxr.manifold.uv.logMap(mctx, 1);
 % interpolate
 faceField = nxr.manifold.interpolate.smoothFace(mctx, 4);
 vertField = nxr.manifold.interpolate.smoothVertex(mctx, 2);
-stripes   = nxr.manifold.uv.stripe(mctx, vertField.vertexFieldRaw, 3.0);
 
 % query
 center = nxr.manifold.query.center(mctx, [1 2 3]);

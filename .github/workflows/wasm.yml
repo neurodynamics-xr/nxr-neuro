@@ -1,13 +1,14 @@
 name: wasm
 
 # Build the WebAssembly module, run its smoke test against the native command, and the Node tests of the JavaScript face (the command table's coverage and the dataset round
-# trips on synthetic data). ONLY when the binding itself changes (bindings/wasm-io/**, bindings/common/**, this workflow), on version tags and on demand: C++ changes never run it.
+# trips on synthetic data). ONLY when the binding itself changes (bindings/wasm-io/**, bindings/wasm/** (the geometry compute compiled into the same module), bindings/common/**, this workflow), on version tags and on demand: C++ changes never run it.
 on:
   push:
     tags: ["v*"]
   pull_request:
     paths:
       - "bindings/wasm-io/**"
+      - "bindings/wasm/**"
       - "bindings/common/**"
       - ".github/workflows/wasm.yml"
   workflow_dispatch:
