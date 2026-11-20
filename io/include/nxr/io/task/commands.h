@@ -204,6 +204,9 @@ struct AddFieldRequest {
   std::string value_type = "scalar";       // scalar · integer · complex · vector2 · vector3 · matrix3 · quaternion · hermitian3 (its components trail the element axes)
   std::string kind = "added";              // what its values are
   std::optional<std::string> unit, cell, derived_from, description;   // cell: "0" vertices (default), "1" edges, "2" faces
+  std::optional<std::string> by_operator;  // the stored operator that made it (its lineage: a source estimate's inverse kernel), by name or id
+  std::vector<std::string> contribution;   // SUBJECT:FIELD[:WEIGHT], repeatable: the fields a mapped field is made from (the subject each lies in, by name; the weight a number, default 1)
+  std::optional<std::string> producer;     // JSON text: what the maker says of how it was made, added to the producer record
   bool replace = false;
   std::vector<std::string> templates;
   std::string created_by;
@@ -217,6 +220,9 @@ struct AddSelectionRequest {
   std::optional<ArrayInput> members, indices, spans;   // the array of its type: a .npy file, or in memory
   std::vector<std::string> entries;
   std::optional<std::string> description;
+  std::optional<std::string> of_field;     // the field (a recording) an indices selection belongs to, by name or id
+  std::optional<ArrayInput> weights;       // one weight a member [members], float32 or float64
+  std::optional<std::string> producer;     // JSON text, added to the producer record
   bool replace = false;
   std::vector<std::string> templates;
   std::string created_by;
@@ -255,6 +261,8 @@ struct AddOperatorRequest {
   std::string kind = "added";              // what the operator is
   std::optional<ArrayInput> values, data, indices, indptr;
   std::optional<std::string> description;
+  // `layout analytic`: an operator stored by its method (`method`, its `params` as JSON text) and no matrix; `from_selection`: the selection of the from manifold it reads, by name or id
+  std::optional<std::string> layout, method, params, from_selection;
   bool replace = false;
   std::vector<std::string> templates;
   std::string created_by;
@@ -275,14 +283,57 @@ CommandResult add_points(const AddPointsRequest& request, const Progress& progre
 /** `add line`: a closed-form line, `n` points `spacing` apart from `origin`, in `unit`; `dimension` time (a clock in s: a time line fields can be time-resolved on), frequency, ... */
 struct AddLineRequest {
   std::string dataset, subject, name;
-  std::int64_t n = 0;
-  double spacing = 1, origin = 0;
-  std::string unit, dimension = "time";
+  std::optional<std::int64_t> n;           // the points of an evenly spaced line (not with `coordinates`)
+  std::optional<double> spacing, origin;   // its step (required with `n`) and first coordinate (default 0)
+  std::string unit, dimension = "time";    // with `coordinates` the dimension is named: `eigenvalue` (a spectrum, the one unevenly spaced line the layout places)
+  std::optional<ArrayInput> coordinates;   // a line whose points are NOT evenly spaced: [n] float32 or float64, strictly increasing, in `unit`
+  std::optional<ArrayInput> kinds;         // with `coordinates`: one integer code a point [n]
   bool replace = false;
   std::vector<std::string> templates;
   std::string created_by;
 };
 CommandResult add_line(const AddLineRequest& request, const Progress& progress = {});
+
+/** `add product`: the product manifold of stored factors in axis order (a line over time, a surface over time) under `name`; refused when a factor does not exist, or the name is used */
+struct AddProductRequest {
+  std::string dataset, subject, name;
+  std::vector<std::string> factors;        // the manifolds, by name or id, two or more (A,B on the command line)
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult add_product(const AddProductRequest& request, const Progress& progress = {});
+
+/** `add dictionary`: a dictionary of codes (scope dataset or subject) from `entries`, JSON text or the path of a JSON file: a list of {code, name, label, colour "#rrggbb", description, params};
+ *  codes unique, every colour #rrggbb. `subject` opens the unit (required for a subject scope, and for a catalogue); one that exists is refused. */
+struct AddDictionaryRequest {
+  std::string dataset, name, scope, entries;
+  std::optional<std::string> subject, description;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult add_dictionary(const AddDictionaryRequest& request, const Progress& progress = {});
+
+/** `edit dictionary`: one entry (`entry` its code: its name, label, colour, description, params), or every entry (`entries`, as in add dictionary, with `replace`: the codes a selection reads stay).
+ *  A dictionary of the subject is found first, else the dataset's; the app's are not edited. */
+struct EditDictionaryRequest {
+  std::string dataset, name;
+  std::optional<std::string> subject;
+  std::optional<std::int64_t> entry;
+  std::optional<std::string> name_of, label, colour, description, params, entries;
+  bool replace = false;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult edit_dictionary(const EditDictionaryRequest& request, const Progress& progress = {});
+
+/** `edit manifold`: its label, description and primary flag (`primary` "yes" | "no"); making a surface primary clears the previous one of the subject in the same unit */
+struct EditManifoldRequest {
+  std::string dataset, subject, name;
+  std::optional<std::string> primary, label, description;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult edit_manifold(const EditManifoldRequest& request, const Progress& progress = {});
 
 // ---- subject packages and the catalogue ----
 

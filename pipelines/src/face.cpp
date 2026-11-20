@@ -505,6 +505,7 @@ Stored read_manifold(SubjectWriter& sub, const task::Subject& ts, const task::No
   }
   const task::Geometry g = ts.geometry(m.id);
   if (g.positions_path) collect_arrays(sub.store(), *g.positions_path, "positions", out.arrays);
+  if (m.producer.is_object() && m.producer.contains("kinds") && m.producer["kinds"].is_string()) collect_arrays(sub.store(), m.producer["kinds"].get<std::string>(), "kinds", out.arrays);   // a stored line's code a point
   for (const auto& [rank, path] : g.cells) collect_arrays(sub.store(), path, "cells_" + std::to_string(rank), out.arrays);
   Json axes = Json::array();
   for (const auto& a : g.axes)
@@ -623,11 +624,14 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
       const auto line = n->manifold_id ? ts.by_id(task::Cls::manifold, *n->manifold_id) : std::nullopt;
       out.meta = Json{{"class", "selection"}, {"name", n->name}, {"id", n->id}, {"type", "spans"}, {"unit", "s"}, {"line", line ? Json(line->name) : Json()},
                       {"dictionary", n->dictionary_id ? dictionary_json(ts.dictionary_entries(*n->dictionary_id)) : Json::array()}, {"producer", n->producer}, {"params", n->params}};
+      if (n->params.is_object() && n->params.contains("weights") && n->params["weights"].is_string()) collect_arrays(sub.store(), n->params["weights"].get<std::string>(), "weights", out.arrays);
       return out;
     }
     if (!where) throw Error(code::unsupported, "'" + name + "' has no stored array (it is virtual: an analytic operator, a product, a tiling, or a set with nothing stored per element)");
     collect_arrays(sub.store(), *where, "", out.arrays);
     for (auto& a : out.arrays) if (a.name.empty()) a.name = "values";
+    if (c == task::Cls::selection && n->params.is_object() && n->params.contains("weights") && n->params["weights"].is_string())   // one weight a member, stored beside it
+      collect_arrays(sub.store(), n->params["weights"].get<std::string>(), "weights", out.arrays);
     out.meta = Json{{"class", task::to_string(c)}, {"name", n->name}, {"id", n->id}, {"kind", n->kind ? Json(*n->kind) : Json()}, {"unit", n->unit ? Json(*n->unit) : Json()},
                     {"value_type", n->value_type ? Json(*n->value_type) : Json()}, {"producer", n->producer}, {"params", n->params}};
     auto manifold_name = [&](const std::optional<std::string>& id) -> Json {

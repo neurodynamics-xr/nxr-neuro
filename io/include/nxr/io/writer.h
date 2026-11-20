@@ -363,6 +363,7 @@ class SubjectWriter {
     std::string space, name;                 // the space (made when new) and the system on it
     std::optional<std::string> unit, description;
     std::string space_description;
+    std::string space_geometry = "volume";   // a new space's geometry: line, circle, plane, sphere, torus or volume
   };
   std::string frame(const FrameSpec& f);
   // An array at a store-relative path, laid out (canonical zarr.json) and populated; the groups above it plain groups. With `table`/`id` the

@@ -128,6 +128,9 @@ struct FieldOut {
   std::optional<std::string> of_operator_id;       // a field of an operator (a head model's source positions)
   std::optional<std::string> by_operator_id;       // a field made BY an operator (a source estimate: the inverse kernel applied to a recording; derived_from_id is the recording)
   Json producer;                                   // added to the unit's producer record (null: nothing added)
+  // the fields a mapped field is made from (the schema's field_contribution): the subject each lies in (its id), the field when it is the subject's own, and its weight
+  struct Contribution { std::string subject_id; std::optional<std::string> source_field_id; double weight = 1; };
+  std::vector<Contribution> contributions;
   Values data;                                     // [n_vertices] or [n_vertices x components]; empty: a field with no array (what measurements are of)
 };
 // a Statistic: what it is (measure, method), of what, from which partition, along which axes
@@ -165,6 +168,9 @@ struct OperatorOut {
     std::vector<std::int32_t> indices;             // [nnz]: the column of each value in a csr row, the row in a csc column
   };
   std::optional<Sparse> sparse;
+  // an ANALYTIC operator (layout analytic): no array, only the method that evaluates it and its parameters (`params`); rows x cols is its shape
+  struct Analytic { std::string method; std::int64_t n_rows = 0, n_cols = 0; };
+  std::optional<Analytic> analytic;
   Values data;                                     // dense [rows x cols], or the sparse operator's nnz values
 };
 // MEASUREMENTS OF A FIELD (or of a statistic's slice) OVER A SELECTION'S MEMBERS, array-backed: one value per member for each measure (the pyramid's leaves: additive ingredients, ratios derived at read).
@@ -245,6 +251,7 @@ struct SelectionOut {
   std::optional<std::string> of_field_id, description, label, acquisition;
   Json params;                                     // the selection's parameters (null: none)
   Json producer;
+  Values weights;                                  // one weight a member, float32 or float64 (empty: none): stored beside the selection and named in its parameters (`weights`)
 };
 // a closed-form line (a frequency axis, a bin axis): n points of `spacing` from `origin`, in `unit`; found by name and reused when it fits
 struct LineOut {
@@ -253,6 +260,10 @@ struct LineOut {
   double spacing = 1, origin = 0;
   std::string unit = "Hz", dimension = "frequency", folder = "spectral", cs_key = "hz";
   std::optional<std::string> acquisition_id, derived_from_id;
+  // a line whose points are NOT evenly spaced (an eigenvalue axis): its `coordinates` [n], strictly increasing, in `unit` along `dimension`, stored (topology path); `kinds`, one integer code a point (optional).
+  // n, spacing and origin are not used then.
+  std::vector<double> coordinates;
+  std::vector<std::int32_t> kinds;
 };
 
 // a surface: vertices [n x 3] (in its coordinate system) and triangles [m x 3] from a node's arrays; found by name and reused when its arrays are the same
@@ -290,6 +301,20 @@ struct ComplexOut {
 struct ProductOut {
   std::vector<std::string> factors;
   std::optional<std::string> acquisition_id;
+  std::optional<std::string> name;                 // default: the factors' names joined by " × "
+};
+// a DICTIONARY of its own (scope dataset or subject): codes with their names and what goes with them; one that exists is refused
+struct DictionaryOut {
+  struct Entry {
+    std::int64_t code = 0;
+    std::string name;
+    std::optional<std::string> label, description;
+    std::optional<std::array<int, 3>> colour;      // [r, g, b], 0 to 255
+    Json params;                                   // null: none
+  };
+  std::string name, scope = "subject";             // subject | dataset
+  std::optional<std::string> description;
+  std::vector<Entry> entries;
 };
 // where a stored node came from and under what terms it may go on (the package's `origin` record); what an export carries with every file
 struct Origin {
@@ -450,6 +475,15 @@ class Unit {
   std::string product(const ProductOut&);
   std::string points(const PointsOut&);            // found by path and kept when it holds the same coordinates; another one's is replaced by `replace` first
   std::string cell_complex(const ComplexOut&);     // found by path and kept when it holds the same cells; another one's is replaced by `replace` first
+  std::string dictionary(const DictionaryOut&);    // refused (already_exists) when a dictionary of that name and scope exists
+  // EDITS of what is stored (each inside the unit, a node's description only, never its arrays): a manifold's label, description and primary flag (making a surface primary clears the one before it,
+  // in the same unit); a dictionary's entry or its whole entry list
+  void edit_manifold(const std::string& manifold_id, const std::optional<bool>& primary, const std::optional<std::string>& label, const std::optional<std::string>& description);
+  struct EntryEdit { std::optional<std::string> name, label, description; std::optional<std::array<int, 3>> colour; Json params; };
+  void edit_dictionary_entry(const std::string& dictionary_id, std::int64_t code, const EntryEdit& edit);
+  void replace_dictionary_entries(const std::string& dictionary_id, const std::vector<DictionaryOut::Entry>& entries);
+  // a node with no arrays (an analytic operator) removed so that a new one of its name takes its place
+  void remove_unstored(Cls cls, const std::string& id);
   // the place a result would take (what `replace` and the cache look at)
   std::string path_of(const FieldOut&) const;
   std::string path_of(const StatisticOut&) const;
