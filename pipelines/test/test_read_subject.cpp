@@ -146,13 +146,13 @@ int main() {
   }
 
   const auto before = tree(folder);
-  auto read = [&](const std::string& subject) { task::ReadSubjectRequest q; q.dataset = D; q.subject = subject; return task::read_subject(q).result; };
+  auto read = [&](const std::string& subject) { task::ReadSubjectRequest q; q.dataset = D; q.subject = subject; return face::read_subject(q).result; };
   auto list = [&](const std::string& cls, const std::function<void(task::ListClassRequest&)>& set = {}) {
     task::ListClassRequest q;
     q.cls = cls;
     q.dataset = D;
     if (set) set(q);
-    return task::list_class(q).result;
+    return face::list_class(q).result;
   };
 
   // ---- read subject
@@ -168,38 +168,53 @@ int main() {
     if (sensors) {
       CHECK_EQ((*sensors)["kind"].get<std::string>(), std::string("points"));
       CHECK_EQ((*sensors)["size"]["vertices"].get<std::int64_t>(), std::int64_t(3));
-      CHECK_EQ((*sensors)["coordinate_system"]["space"].get<std::string>(), std::string("head"));
-      CHECK_EQ((*sensors)["coordinate_system"]["name"].get<std::string>(), std::string("scs"));
+      CHECK_EQ((*sensors)["type"]["kind"].get<std::string>(), std::string("points"));          // a manifold's type is its term in the type system
+      CHECK_EQ((*sensors)["type"]["coordinate_system"]["space"].get<std::string>(), std::string("head"));
+      CHECK_EQ((*sensors)["type"]["coordinate_system"]["name"].get<std::string>(), std::string("scs"));
+      CHECK_EQ((*sensors)["type"]["n"].get<std::int64_t>(), std::int64_t(3));
     }
     const Json* rest_time = named(sub["manifolds"], "rest_time");
     CHECK(rest_time != nullptr);
-    if (rest_time) CHECK_EQ((*rest_time)["axes"][0]["unit"].get<std::string>(), std::string("s"));
+    if (rest_time) CHECK_EQ((*rest_time)["type"]["kind"].get<std::string>(), std::string("line"));
+    // the storage words are gone: a node is described by its type
+    for (const char* k : {"value_type", "cells", "data_type", "layout", "domain", "components", "unit", "time", "axes", "coordinate_system", "topology"}) {
+      for (const auto& f : sub["fields"]) CHECK(!f.contains(k));
+      for (const auto& m : sub["manifolds"]) CHECK(!m.contains(k));
+    }
+    for (const auto& o : sub["operators"]) CHECK(!o.contains("layout") && !o.contains("data_type") && !o["from"].contains("value_type") && !o["from"].contains("cells"));
+    for (const auto& st : sub["statistics"]) CHECK(!st.contains("value_type") && !st.contains("components") && !st.contains("unit"));
     const Json* w = named(sub["fields"], "w");
     CHECK(w != nullptr);
     if (w) {
-      CHECK_EQ((*w)["domain"]["manifold"].get<std::string>(), std::string("sensors"));
-      CHECK_EQ((*w)["domain"]["cells"].get<std::string>(), std::string("0"));
-      CHECK_EQ((*w)["unit"].get<std::string>(), std::string("mm"));
-      CHECK_EQ((*w)["value_type"].get<std::string>(), std::string("scalar"));
-      CHECK_EQ((*w)["components"].get<std::int64_t>(), std::int64_t(1));
-      CHECK((*w)["time"].is_null() && (*w)["stored"].get<bool>());
+      CHECK_EQ((*w)["type"]["class"].get<std::string>(), std::string("field"));
+      CHECK_EQ((*w)["type"]["domain"]["factors"][0]["label"].get<std::string>(), std::string("sensors"));
+      CHECK_EQ((*w)["type"]["unit"].get<std::string>(), std::string("mm"));
+      CHECK_EQ((*w)["type"]["value"].get<std::string>(), std::string("real"));
+      CHECK((*w)["stored"].get<bool>());
       CHECK_EQ((*w)["description"].get<std::string>(), std::string("a test map"));
     }
     const Json* series = named(sub["fields"], "series");
     CHECK(series != nullptr);
-    if (series) {
-      CHECK_EQ((*series)["time"]["line"].get<std::string>(), std::string("epoch_time"));
-      CHECK_EQ((*series)["domain"]["factors"].size(), std::size_t(2));
-    }
+    if (series) CHECK_EQ((*series)["type"]["domain"]["factors"].size(), std::size_t(2));
     const Json* rest = named(sub["fields"], "rest");
     CHECK(rest != nullptr);
-    if (rest) CHECK_EQ((*rest)["time"]["line"].get<std::string>(), std::string("rest_time"));
-    if (rest) CHECK_EQ((*rest)["time"]["rate"].get<double>(), 100.0);
+    if (rest) {
+      CHECK_EQ((*rest)["type"]["sfreq"].get<double>(), 100.0);
+      // the same type `compile` gives the same stored field (the recording input of psd)
+      face::CompileRequest cq;
+      cq.definition = "psd";
+      cq.dataset = D;
+      cq.subject = "S1";
+      cq.parameters = {{"recording", "rest"}};
+      const Json compiled = face::compile(cq).result;
+      CHECK((*rest)["type"] == compiled["plans"][0]["graph"]["values"]["recording"]);
+    }
     const Json* parts = named(sub["selections"], "parts");
     CHECK(parts != nullptr);
     if (parts) {
-      CHECK_EQ((*parts)["type"].get<std::string>(), std::string("set"));   // a partition is stored as a set: a member per element
-      CHECK_EQ((*parts)["domain"]["manifold"].get<std::string>(), std::string("sensors"));
+      CHECK_EQ((*parts)["kind"].get<std::string>(), std::string("set"));   // a partition is stored as a set: a member per element
+      CHECK_EQ((*parts)["type"]["class"].get<std::string>(), std::string("selection"));
+      CHECK(!parts->contains("domain"));
       CHECK_EQ((*parts)["members"].get<std::int64_t>(), std::int64_t(2));
       CHECK_EQ((*parts)["entries"].size(), std::size_t(2));
       CHECK_EQ((*parts)["entries"][1]["name"].get<std::string>(), std::string("right"));
@@ -208,6 +223,7 @@ int main() {
     const Json* mix = named(sub["operators"], "mix");
     CHECK(mix != nullptr);
     if (mix) {
+      CHECK_EQ((*mix)["type"]["class"].get<std::string>(), std::string("operator"));
       CHECK_EQ((*mix)["from"]["manifold"].get<std::string>(), std::string("sensors"));
       CHECK_EQ((*mix)["to"]["manifold"].get<std::string>(), std::string("sensors"));
       CHECK_EQ((*mix)["shape"]["rows"].get<std::int64_t>(), std::int64_t(3));
@@ -229,18 +245,18 @@ int main() {
     q.dataset = D;
     q.subject = "S1";
     q.classes = std::vector<std::string>{"fields", "manifolds"};
-    const Json some = task::read_subject(q).result;
+    const Json some = face::read_subject(q).result;
     CHECK(some.contains("fields") && some.contains("manifolds") && !some.contains("operators") && !some.contains("statistics"));
     CHECK_EQ(some["fields"].size(), sub["fields"].size());
     q.classes = std::vector<std::string>{"fields", "rows"};
-    CHECK(has(thrown([&] { task::read_subject(q); }), "refused: --classes: 'rows' is not a class"));
+    CHECK(has(thrown([&] { face::read_subject(q); }), "refused: --classes: 'rows' is not a class"));
     q.classes.reset();
     q.related = true;
-    const Json rel = task::read_subject(q).result;
+    const Json rel = face::read_subject(q).result;
     CHECK(rel["related"].is_array());
     CHECK(clean(rel));
     q.subject = "nobody";
-    CHECK(has(thrown([&] { task::read_subject(q); }), "no_such_row"));
+    CHECK(has(thrown([&] { face::read_subject(q); }), "no_such_row"));
   }
 
   // ---- list <class>: the same descriptions, a row each, the subject first
@@ -323,12 +339,12 @@ int main() {
 
   // ---- --columns: only these, in this order; a name that is not a column is refused with the valid ones; the same columns whether or not a row exists
   {
-    const Json c = list("fields", [](task::ListClassRequest& q) { q.subject = "S1"; q.columns = std::vector<std::string>{"unit", "name"}; });
+    const Json c = list("fields", [](task::ListClassRequest& q) { q.subject = "S1"; q.columns = std::vector<std::string>{"kind", "name"}; });
     CHECK(!c["rows"].empty());
     for (const auto& r : c["rows"]) {
       CHECK_EQ(r.size(), std::size_t(2));
-      CHECK(r.contains("unit") && r.contains("name"));
-      CHECK_EQ(r.begin().key(), std::string("unit"));
+      CHECK(r.contains("kind") && r.contains("name"));
+      CHECK_EQ(r.begin().key(), std::string("kind"));
     }
     CHECK(has(thrown([&] { list("fields", [](task::ListClassRequest& q) { q.columns = std::vector<std::string>{"geometry_id"}; }); }), "refused: --columns: 'geometry_id' is not a column of fields"));
     for (const char* cls : {"manifolds", "fields", "selections", "operators", "statistics", "dictionaries", "spaces", "acquisitions"}) {

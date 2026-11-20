@@ -153,6 +153,11 @@ CommandResult read_operator(const ReadNodeRequest& request);
 CommandResult read_selection(const ReadNodeRequest& request);
 CommandResult read_manifold(const ReadNodeRequest& request);
 
+/** `read subject` and `list <class>` (nxr/io/task/commands.h) with each node's TYPE (`type`: the JSON `compile` gives a value, a manifold's its term): io reads and pages the rows, the type
+ *  system types them. The command line, Python and JavaScript call these. */
+CommandResult read_subject(const nxr::io::task::ReadSubjectRequest& request, const Progress& progress = {});
+CommandResult list_class(const nxr::io::task::ListClassRequest& request, const Progress& progress = {});
+
 // ---- THE COMMANDS THAT NEED COMPUTE (docs/specs/2026-11-19-io-service.md, section 5): one function a command, the command line calling it as the faces will; the io-only
 // commands are nxr/io/task/commands.h. Each takes the command's options as a request and returns its result object (without "stage") and its arrays.
 using nxr::io::task::CommandResult;

@@ -56,7 +56,7 @@ test('read subject and list each class', { skip }, async () => {
     const sub = await nxr.read.subject({ dataset: D, subject: 'S1' });
     assert.equal(sub.schema, 'nxr-neuro-subject@1');
     const rest = sub.fields.find((f) => f.name === 'rest');
-    assert.equal(rest.time.rate, SFREQ);
+    assert.equal(rest.type.sfreq, SFREQ);
     const keys = (x) => (Array.isArray(x) ? x.flatMap(keys) : x && typeof x === 'object' ? Object.entries(x).flatMap(([k, v]) => [k, ...keys(v)]) : []);
     assert.deepEqual(keys(sub).filter((k) => k.endsWith('_id') || k.endsWith('_json')), []);
     assert.equal('manifolds' in (await nxr.read.subject({ dataset: D, subject: 'S1', classes: ['fields'] })), false);

@@ -569,21 +569,25 @@ in a face), so the command line, Python (`nn.read.subject`, `nn.list.fields`, ..
 `{"schema": "nxr-neuro-subject@1", "subject": {id, name, kind, template}, "manifolds": [...], "fields": [...], "selections": [...], "operators": [...], "statistics": [...],
 "dictionaries": [...], "spaces": [...], "acquisitions": [...]}`, each array the descriptions of that class in name order (`--classes` keeps only the classes named). A description is named, nested
 and typed: a node is named, never numbered; what it refers to is named by its name (`"manifold": "sensors"`; a node of another subject is `SUBJECT:NAME`); no key is a column of the schema
-(`*_id`, `*_json`). Only complete nodes are described. `id` is the node's identity (stable across calls); every other key is the model's:
+(`*_id`, `*_json`). Only complete nodes are described. `id` is the node's identity (stable across calls). **Every typed node carries `type`: the JSON `compile` gives a value** (the type
+system's: `class`, `domain` with its factor manifolds (`kind`, `topology`, `coordinate_system` {space, name, unit}, `n`, `origin`, `spacing`, `unit`), `value` (real, complex, ...), `components`, `unit`,
+`quantity`, `sfreq` for a stream); a manifold's `type` is its manifold term. It is built the way the runner types a stored input, so a client reads a stored node and a compiled graph's value in one
+vocabulary, and the same stored field has the same `type` in `read subject` and in `compile`. The storage words (`value_type`, `cells`, `data_type`, `layout`, and a domain, unit or components of
+their own) are not keys: `type` says them. `kind` is the stored kind (a field's, an operator's, a selection's type, a manifold's type); `type.quantity` is the typed quantity. The other keys:
 
-| class | description |
+| class | description (besides `id`, `name`, `kind`, `type`) |
 |---|---|
-| manifold | `name`, `kind` (points, line, surface, product, ...), `label`, `primary`, `acquisition`, `size` {vertices, edges, faces, volumes}, `topology` {kind, rank, components, closed, orientable}, `coordinate_system` {name, unit, space}, `axes` [{name, size, spacing, origin, unit, factor}], `factors` (a product's, by name), `component_of`, `component_ordinal`, `derived_from`, `derived_by`, `stored`, `provenance` |
-| field | `name`, `kind` (what the values are: the quantity), `label`, `acquisition`, `description`, `domain` {manifold, factors, cells}, `value_type`, `components`, `unit`, `data_type`, `layout`, `stored`, `time` {line, rate, origin} (a time-resolved field), `lineage` {derived_from, of_field, of_operator, by_operator, function, contributions [{field, weight}]}, `provenance` |
-| selection | `name`, `type` (partition, set, indices, spans, ...), `label`, `acquisition`, `description`, `domain` {manifold, factors, cells}, `elements`, `members` (their count), `of_field`, `unit`, `stored`, `dictionary` (its name), `entries` [{code, name, colour}], `provenance` |
-| operator | `name`, `kind`, `label`, `acquisition`, `description`, `from` and `to` {manifold, cells, selection, value_type}, `layout`, `method`, `parameters`, `shape` {rows, columns, nonzeros}, `data_type`, `stored`, `lineage` {derived_from, of_statistic, inverts, inverse_kind}, `provenance` |
-| statistic | `name`, `measure`, `method`, `label`, `acquisition`, `description`, `value_type`, `components`, `component_names`, `unit`, `of_field`, `of_statistic`, `partition`, `members`, `members_skipped`, `dof`, `axes` [{name, manifold, selection, size, unit}], `stored`, `provenance` |
-| dictionary | `name`, `scope`, `description`, `entries` [{code, name, colour, measurement, unit, function, params}], `provenance` (the subject's own and the dataset-wide ones its selections use) |
-| space | `name`, `geometry`, `rank`, `parameters`, `description`, `coordinate_systems` [{name, unit, reference, transition, description}] |
-| acquisition | `name` (its label), `session`, `task`, `run`, `acq`, `processing`, `split` |
+| manifold | `label`, `primary`, `acquisition`, `size` {vertices, edges, faces, volumes}, `factors` (a product's, by name), `component_of`, `component_ordinal`, `derived_from`, `derived_by`, `stored`, `provenance` |
+| field | `label`, `acquisition`, `description`, `stored`, `lineage` {derived_from, of_field, of_operator, by_operator, function, contributions [{field, weight}]}, `provenance` |
+| selection | `label`, `acquisition`, `description`, `elements`, `members` (their count), `of_field`, `stored`, `dictionary` (its name), `entries` [{code, name, colour}], `provenance` |
+| operator | `label`, `acquisition`, `description`, `from` and `to` {manifold, selection}, `method`, `parameters`, `shape` {rows, columns, nonzeros}, `stored`, `lineage` {derived_from, of_statistic, inverts, inverse_kind}, `provenance` |
+| statistic | `measure`, `method`, `label`, `acquisition`, `description`, `of_field`, `of_statistic`, `partition`, `members`, `members_skipped`, `dof`, `axes` [{name, manifold, selection, size, unit}], `stored`, `provenance` (its `type` is untyped past its class, value and unit: its domain is typed by the node that made it) |
+| dictionary | `name`, `scope`, `description`, `entries` [{code, name, colour, measurement, unit, function, params}], `provenance` (the subject's own and the dataset-wide ones its selections use); no `type` |
+| space | `name`, `geometry`, `rank`, `parameters`, `description`, `coordinate_systems` [{name, unit, reference, transition, description}]; no `type` |
+| acquisition | `name` (its label), `session`, `task`, `run`, `acq`, `processing`, `split`; no `type` |
 
-`provenance` is {source, comment, created_utc, created_by, modified_utc, modified_by}. The structured pieces follow the type JSON `compile` prints (`domain` with its `factors` and `cells`,
-the coordinate system as {space, name, unit}, `value`/`components`, `unit`), so a client reads a stored node and a compiled graph's value in one vocabulary.
+`provenance` is {source, comment, created_utc, created_by, modified_utc, modified_by}. `type` is built by the pipelines' face (`face::read_subject`, `face::list_class`); io reads and pages
+the rows (a build without the pipelines gives `"type": null`).
 
 `--related` adds `"related": [{subject, kind, relation, description}]`: the subjects this one refers to, with `relation` `template` (the template its anatomy is taken from), `source` and
 `target` (the owners of the manifolds its operators map from and to: a registration's two templates) and `domain` (of the manifolds its fields lie on), each with its description as far as

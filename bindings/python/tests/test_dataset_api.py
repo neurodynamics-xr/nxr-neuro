@@ -55,8 +55,8 @@ def test_read_subject_and_list_each_class(demo):
     sub = nn.read.subject(dataset=demo, subject="S1")
     assert sub["schema"] == "nxr-neuro-subject@1" and sub["subject"]["name"] == "S1"
     rest = next(f for f in sub["fields"] if f["name"] == "rest")
-    assert rest["domain"]["manifold"] == "sensors" or "sensors" in rest["domain"]["factors"]
-    assert rest["time"]["rate"] == SFREQ and sub.arrays == {}
+    assert rest["type"]["class"] == "field" and rest["type"]["sfreq"] == SFREQ and sub.arrays == {}
+    assert "value_type" not in rest and "cells" not in rest
     assert set(nn.read.subject(dataset=demo, subject="S1", classes=["fields"])) >= {"schema", "subject", "fields"}
     assert "manifolds" not in nn.read.subject(dataset=demo, subject="S1", classes="fields")
     def keys(x):
@@ -76,7 +76,7 @@ def test_read_subject_and_list_each_class(demo):
     assert len(first["rows"]) == 1 and first["next"]
     rest_of = nn.list.manifolds(dataset=demo, subject="S1", after=first["next"])
     assert [r["name"] for r in first["rows"] + rest_of["rows"]] == [m["name"] for m in sub["manifolds"]]
-    assert nn.list.fields(dataset=demo, subject="S1", name="res", columns="name,unit")["rows"] == [{"name": "rest", "unit": rest["unit"]}]
+    assert nn.list.fields(dataset=demo, subject="S1", name="res", columns="name,kind")["rows"] == [{"name": "rest", "kind": rest["kind"]}]
     assert nn.show.dataset(dataset=demo)["nodes"]["fields"] == len(sub["fields"])
     with pytest.raises(nn.InvalidArgumentError, match="is not a column of fields"):
         nn.list.fields(dataset=demo, columns=["geometry_id"])

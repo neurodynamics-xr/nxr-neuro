@@ -47,10 +47,6 @@ Json Jt(const Row& r, const char* c) {
   return it == r.end() ? Json() : J(it->second);
 }
 bool flag(const Row& r, const char* c) { return integer(r, c) != 0; }
-Json Jbool(const Row& r, const char* c) {
-  const auto it = r.find(c);
-  return it == r.end() || is_null(it->second) ? Json() : Json(integer(r, c) != 0);
-}
 // a `*_json` column parsed (null when absent or unreadable)
 Json Jj(const Row& r, const char* c) {
   const auto it = r.find(c);
@@ -64,7 +60,13 @@ struct Ctx {
   const Database& db;
   std::string subject_id, subject_name;
   mutable std::map<std::string, std::string> cache;
-  Ctx(const Database& d, std::string id, std::string name) : db(d), subject_id(std::move(id)), subject_name(std::move(name)) {}
+  const NodeTyper* typer = nullptr;
+  Ctx(const Database& d, std::string id, std::string name, const NodeTyper* t = nullptr) : db(d), subject_id(std::move(id)), subject_name(std::move(name)), typer(t) {}
+  // the node's TYPE in the type system's JSON, from io's description of the row (null: no typer, or the node cannot be typed)
+  Json typed(const char* cls, const Row& r) const {
+    if (!typer || !*typer) return Json();
+    try { return (*typer)(cls, finder::value_of(db, cls, r)); } catch (const std::exception&) { return Json(); }
+  }
 
   // the name a row of `table` goes by, as a reference: NAME, or SUBJECT:NAME when it belongs to another subject
   std::string name_of(const char* table, const std::string& id) const {
@@ -103,44 +105,23 @@ Json axes_of(const Ctx& c, const Row& m) {
     axes.push_back(Json{{"name", Jt(d, "name")}, {"size", Jt(d, "n")}, {"spacing", Jt(d, "spacing")}, {"origin", Jt(d, "origin")}, {"unit", Jt(d, "unit")}, {"factor", c.ref("manifold", d, "factor")}});
   return axes;
 }
-Json coordinate_system_of(const Row& m) {
-  if (is_null(m, "cs_name")) return Json();
-  return Json{{"name", Jt(m, "cs_name")}, {"unit", Jt(m, "cs_unit")}, {"space", Jt(m, "space_name")}};
-}
 Json describe_manifold(const Ctx& c, const Row& m) {
   Json factors = Json::array();
-  const Json axes = axes_of(c, m);
-  for (const auto& a : axes) if (!a["factor"].is_null()) factors.push_back(a["factor"]);
-  return Json{{"id", Jt(m, "id")}, {"name", Jt(m, "name")}, {"kind", Jt(m, "type")}, {"label", Jt(m, "label")}, {"primary", flag(m, "is_primary")}, {"acquisition", acquisition_of(c, m)},
+  for (const auto& a : axes_of(c, m)) if (!a["factor"].is_null()) factors.push_back(a["factor"]);
+  return Json{{"id", Jt(m, "id")}, {"name", Jt(m, "name")}, {"kind", Jt(m, "type")}, {"type", c.typed("manifold", m)}, {"label", Jt(m, "label")}, {"primary", flag(m, "is_primary")}, {"acquisition", acquisition_of(c, m)},
               {"size", Json{{"vertices", Jt(m, "n_vertices")}, {"edges", Jt(m, "n_edges")}, {"faces", Jt(m, "n_faces")}, {"volumes", Jt(m, "n_volumes")}}},
-              {"topology", Json{{"kind", Jt(m, "topology_kind")}, {"rank", Jt(m, "topology_rank")}, {"components", Jt(m, "topology_components")}, {"closed", Jbool(m, "topology_closed")}, {"orientable", Jbool(m, "topology_orientable")}}},
-              {"coordinate_system", coordinate_system_of(m)}, {"axes", axes}, {"factors", factors},
+              {"factors", factors},
               {"component_of", c.ref("manifold", m, "component_of_id")}, {"component_ordinal", Jt(m, "component_ordinal")},
               {"derived_from", c.ref("manifold", m, "derived_from_id")}, {"derived_by", Jt(m, "operator")}, {"stored", !is_null(m, "path")}, {"provenance", provenance(m)}};
 }
 
 // ---- fields ----
-Json domain_of(const Ctx& c, const Row& r, const char* manifold_column, const char* cell_column) {
-  Json factors = Json::array();
-  std::string manifold;
-  if (!is_null(r, manifold_column)) {
-    manifold = text(r, manifold_column);
-    for (const std::string& f : finder::factors(c.db, manifold)) factors.push_back(c.name_of("manifold", f));
-  }
-  return Json{{"manifold", manifold.empty() ? Json() : Json(c.name_of("manifold", manifold))}, {"factors", factors}, {"cells", Jt(r, cell_column)}};
-}
 Json describe_field(const Ctx& c, const Row& f) {
-  Json time;
-  try {
-    const finder::Value v = finder::value_of(c.db, "field", f);
-    if (v.time) time = Json{{"line", c.name_of("manifold", *v.time)}, {"rate", v.rate}, {"origin", v.origin}};
-  } catch (const std::exception&) {}
   Json contributions = Json::array();
   for (const Row& k : c.db.all("SELECT fc.source_field_id AS source, fc.weight AS weight FROM field_contribution fc WHERE fc.field_id = ? ORDER BY fc.ordinal", {V(text(f, "id"))}))
     contributions.push_back(Json{{"field", c.ref("field", k, "source")}, {"weight", Jt(k, "weight")}});
-  return Json{{"id", Jt(f, "id")}, {"name", Jt(f, "name")}, {"kind", Jt(f, "kind")}, {"label", Jt(f, "label")}, {"acquisition", acquisition_of(c, f)}, {"description", Jt(f, "description")},
-              {"domain", domain_of(c, f, "manifold_id", "cell")}, {"value_type", Jt(f, "value_type")}, {"components", Jt(f, "n_components")}, {"unit", Jt(f, "unit")},
-              {"data_type", Jt(f, "data_type")}, {"layout", Jt(f, "layout")}, {"stored", !is_null(f, "path")}, {"time", time},
+  return Json{{"id", Jt(f, "id")}, {"name", Jt(f, "name")}, {"kind", Jt(f, "kind")}, {"type", c.typed("field", f)}, {"label", Jt(f, "label")}, {"acquisition", acquisition_of(c, f)},
+              {"description", Jt(f, "description")}, {"stored", !is_null(f, "path")},
               {"lineage", Json{{"derived_from", c.ref("field", f, "derived_from_id")}, {"of_field", c.ref("field", f, "of_field_id")}, {"of_operator", c.ref("operator", f, "of_operator_id")},
                                {"by_operator", c.ref("operator", f, "by_operator_id")}, {"function", Jt(f, "function")}, {"contributions", contributions}}},
               {"provenance", provenance(f)}};
@@ -168,20 +149,18 @@ Json describe_selection(const Ctx& c, const Row& s) {
     const std::string n = c.name_of("dictionary", text(s, "dictionary_id"));
     if (!n.empty()) dictionary = n;
   }
-  return Json{{"id", Jt(s, "id")}, {"name", Jt(s, "name")}, {"type", Jt(s, "type")}, {"label", Jt(s, "label")}, {"acquisition", acquisition_of(c, s)}, {"description", Jt(s, "description")},
-              {"domain", domain_of(c, s, "manifold_id", "cell")}, {"elements", Jt(s, "n_elements")}, {"members", Jt(s, "n_members")}, {"of_field", c.ref("field", s, "of_field_id")},
-              {"unit", Jt(s, "unit")}, {"stored", !is_null(s, "array_path")}, {"dictionary", dictionary}, {"entries", entries_of(c, s, false)}, {"provenance", provenance(s)}};
+  return Json{{"id", Jt(s, "id")}, {"name", Jt(s, "name")}, {"kind", Jt(s, "type")}, {"type", c.typed("selection", s)}, {"label", Jt(s, "label")}, {"acquisition", acquisition_of(c, s)},
+              {"description", Jt(s, "description")}, {"elements", Jt(s, "n_elements")}, {"members", Jt(s, "n_members")}, {"of_field", c.ref("field", s, "of_field_id")},
+              {"stored", !is_null(s, "array_path")}, {"dictionary", dictionary}, {"entries", entries_of(c, s, false)}, {"provenance", provenance(s)}};
 }
 
 // ---- operators ----
 Json describe_operator(const Ctx& c, const Row& o) {
-  auto end = [&](const char* manifold, const char* cell, const char* selection, const char* value_type) {
-    return Json{{"manifold", c.ref("manifold", o, manifold)}, {"cells", Jt(o, cell)}, {"selection", c.ref("selection", o, selection)}, {"value_type", Jt(o, value_type)}};
-  };
-  return Json{{"id", Jt(o, "id")}, {"name", Jt(o, "name")}, {"kind", Jt(o, "kind")}, {"label", Jt(o, "label")}, {"acquisition", acquisition_of(c, o)}, {"description", Jt(o, "description")},
-              {"from", end("from_manifold_id", "from_cell", "from_selection_id", "from_value_type")}, {"to", end("to_manifold_id", "to_cell", "to_selection_id", "to_value_type")},
-              {"layout", Jt(o, "layout")}, {"method", Jt(o, "method")}, {"parameters", Jj(o, "params_json")}, {"shape", Json{{"rows", Jt(o, "n_rows")}, {"columns", Jt(o, "n_cols")}, {"nonzeros", Jt(o, "nnz")}}},
-              {"data_type", Jt(o, "data_type")}, {"stored", !is_null(o, "path")},
+  auto end = [&](const char* manifold, const char* selection) { return Json{{"manifold", c.ref("manifold", o, manifold)}, {"selection", c.ref("selection", o, selection)}}; };
+  return Json{{"id", Jt(o, "id")}, {"name", Jt(o, "name")}, {"kind", Jt(o, "kind")}, {"type", c.typed("operator", o)}, {"label", Jt(o, "label")}, {"acquisition", acquisition_of(c, o)},
+              {"description", Jt(o, "description")}, {"from", end("from_manifold_id", "from_selection_id")}, {"to", end("to_manifold_id", "to_selection_id")},
+              {"method", Jt(o, "method")}, {"parameters", Jj(o, "params_json")}, {"shape", Json{{"rows", Jt(o, "n_rows")}, {"columns", Jt(o, "n_cols")}, {"nonzeros", Jt(o, "nnz")}}},
+              {"stored", !is_null(o, "path")},
               {"lineage", Json{{"derived_from", c.ref("operator", o, "derived_from_id")}, {"of_statistic", c.ref("statistic", o, "of_statistic_id")}, {"inverts", c.ref("operator", o, "inverts_id")},
                                {"inverse_kind", Jt(o, "inverse_kind")}}},
               {"provenance", provenance(o)}};
@@ -198,8 +177,8 @@ Json describe_statistic(const Ctx& c, const Row& s) {
       if (a.contains("selection_id") && a["selection_id"].is_string()) x["selection"] = c.name_of("selection", a["selection_id"].get<std::string>());
       axes.push_back(std::move(x));
     }
-  return Json{{"id", Jt(s, "id")}, {"name", Jt(s, "name")}, {"measure", Jt(s, "measure")}, {"method", Jt(s, "method")}, {"label", Jt(s, "label")}, {"acquisition", acquisition_of(c, s)},
-              {"description", Jt(s, "description")}, {"value_type", Jt(s, "value_type")}, {"components", Jt(s, "n_components")}, {"component_names", Jj(s, "components_json")}, {"unit", Jt(s, "unit")},
+  return Json{{"id", Jt(s, "id")}, {"name", Jt(s, "name")}, {"measure", Jt(s, "measure")}, {"method", Jt(s, "method")}, {"type", c.typed("statistic", s)}, {"label", Jt(s, "label")}, {"acquisition", acquisition_of(c, s)},
+              {"description", Jt(s, "description")},
               {"of_field", c.ref("field", s, "of_field_id")}, {"of_statistic", c.ref("statistic", s, "of_statistic_id")}, {"partition", c.ref("selection", s, "partition_selection_id")},
               {"members", Jt(s, "n_members")}, {"members_skipped", Jt(s, "members_skipped")}, {"dof", Jt(s, "dof")}, {"axes", axes}, {"stored", !is_null(s, "path")},
               {"provenance", Json{{"created_utc", Jt(s, "created_utc")}, {"created_by", Jt(s, "created_by")}, {"modified_utc", Jt(s, "modified_utc")}, {"modified_by", Jt(s, "modified_by")}}}};
@@ -393,7 +372,7 @@ CommandResult read_subject(const ReadSubjectRequest& rq, const Progress& progres
   if (!subject) throw Error(code::no_such_row, "dataset " + rq.dataset + " holds no subject named '" + rq.subject + "'");
 
   auto describe = [&](const SubjectRef& s) {
-    const Ctx c(db, s.id, s.name);
+    const Ctx c(db, s.id, s.name, &rq.typer);
     Json out = Json{{"schema", kSubjectSchema}, {"subject", Json{{"id", s.id}, {"name", s.name}, {"kind", s.kind}, {"template", Json()}}}};
     if (s.template_id) {
       if (const auto t = db.one("SELECT name FROM subject WHERE id = ?", {V(*s.template_id)})) out["subject"]["template"] = text(*t, "name");
@@ -476,7 +455,7 @@ CommandResult list_class(const ListClassRequest& rq, const Progress& progress) {
   const std::int64_t want = rq.limit.value_or(0);
   bool more = false;
   auto take = [&](const SubjectRef* s, bool scoped) {
-    const Ctx c(db, s ? s->id : "", s ? s->name : "");
+    const Ctx c(db, s ? s->id : "", s ? s->name : "", &rq.typer);
     Filter f = base;
     if (rq.on) {
       const auto m = db.one("SELECT id FROM manifold WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(c.subject_id), V(*rq.on)});
@@ -516,11 +495,11 @@ CommandResult list_class(const ListClassRequest& rq, const Progress& progress) {
     // the columns of the class: from the first row, or, with no row, from an empty description of the class (a name no node can have)
     if (known.empty()) {
       static const std::map<std::string, std::vector<std::string>> by_class = {
-          {"manifolds", {"subject", "id", "name", "kind", "label", "primary", "acquisition", "size", "topology", "coordinate_system", "axes", "factors", "component_of", "component_ordinal", "derived_from", "derived_by", "stored", "provenance"}},
-          {"fields", {"subject", "id", "name", "kind", "label", "acquisition", "description", "domain", "value_type", "components", "unit", "data_type", "layout", "stored", "time", "lineage", "provenance"}},
-          {"selections", {"subject", "id", "name", "type", "label", "acquisition", "description", "domain", "elements", "members", "of_field", "unit", "stored", "dictionary", "entries", "provenance"}},
-          {"operators", {"subject", "id", "name", "kind", "label", "acquisition", "description", "from", "to", "layout", "method", "parameters", "shape", "data_type", "stored", "lineage", "provenance"}},
-          {"statistics", {"subject", "id", "name", "measure", "method", "label", "acquisition", "description", "value_type", "components", "component_names", "unit", "of_field", "of_statistic", "partition", "members", "members_skipped", "dof", "axes", "stored", "provenance"}},
+          {"manifolds", {"subject", "id", "name", "kind", "type", "label", "primary", "acquisition", "size", "factors", "component_of", "component_ordinal", "derived_from", "derived_by", "stored", "provenance"}},
+          {"fields", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "stored", "lineage", "provenance"}},
+          {"selections", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "elements", "members", "of_field", "stored", "dictionary", "entries", "provenance"}},
+          {"operators", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "from", "to", "method", "parameters", "shape", "stored", "lineage", "provenance"}},
+          {"statistics", {"subject", "id", "name", "measure", "method", "type", "label", "acquisition", "description", "of_field", "of_statistic", "partition", "members", "members_skipped", "dof", "axes", "stored", "provenance"}},
           {"dictionaries", {"subject", "id", "name", "scope", "description", "entries", "provenance"}},
           {"spaces", {"subject", "id", "name", "geometry", "rank", "parameters", "description", "coordinate_systems"}},
           {"acquisitions", {"subject", "id", "name", "session", "task", "run", "acq", "processing", "split"}},

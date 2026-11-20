@@ -52,6 +52,21 @@ void need_noun(const std::vector<std::string>& argv, const std::string& verb, co
 
 }  // namespace
 
+static task::CommandResult read_subject_call(const task::ReadSubjectRequest& rq) {
+#ifdef NXR_NEURO_WITH_PIPELINES
+  return nxr::pipelines::face::read_subject(rq, progress());   // with the nodes' types
+#else
+  return task::read_subject(rq, progress());
+#endif
+}
+static task::CommandResult list_class_call(const task::ListClassRequest& rq) {
+#ifdef NXR_NEURO_WITH_PIPELINES
+  return nxr::pipelines::face::list_class(rq, progress());
+#else
+  return task::list_class(rq, progress());
+#endif
+}
+
 // ── nxr-neuro read subject: what a subject holds, every node's description ──
 static int read_subject_main(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro read subject";
@@ -62,7 +77,7 @@ static int read_subject_main(const std::vector<std::string>& rest) {
   if (const auto v = a.maybe("--classes")) rq.classes = split_commas(*v);
   rq.related = a.flag.count("--related") > 0;
   rq.templates = values_of(a, "--templates");
-  emit_result(call(prog, [&] { return task::read_subject(rq, progress()); }).result);
+  emit_result(call(prog, [&] { return read_subject_call(rq); }).result);
   return 0;
 }
 
@@ -85,7 +100,7 @@ int list_class_main(const std::string& what, const std::vector<std::string>& res
   if (const auto v = a.maybe("--limit")) rq.limit = integer_of(prog, "--limit", *v);
   if (const auto v = a.maybe("--columns")) rq.columns = split_commas(*v);
   rq.templates = values_of(a, "--templates");
-  emit_result(call(prog, [&] { return task::list_class(rq, progress()); }).result);
+  emit_result(call(prog, [&] { return list_class_call(rq); }).result);
   return 0;
 }
 

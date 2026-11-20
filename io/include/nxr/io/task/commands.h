@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "nxr/io/finder.h"
 #include "nxr/io/json_text.h"
 #include "nxr/io/writer.h"
 
@@ -149,11 +150,15 @@ CommandResult delete_subject(const DeleteSubjectRequest& request);
  *  manifolds, fields, selections, operators, statistics, dictionaries, spaces, acquisitions: [description...]} (only the `classes` asked for), each node named and nested, never a table row (docs/reference.md,
  *  "Queries over a dataset"); with `related`, `related`: [{subject, kind, relation, description}] for the subjects this one refers to (its template, the owners of the manifolds its operators map between
  *  and its fields lie on: a registration's source and target) */
+/** What types a node: given a class (manifold | field | selection | operator | statistic) and io's description of the stored node, its TYPE as nxr-neuro's type system writes it (the JSON `compile`
+ *  gives a value). io cannot depend on the type system, so the pipelines' face supplies it (nxr/pipelines/face.h `read_subject`, `list_class`); without one a description has `"type": null`. */
+using NodeTyper = std::function<Json(const std::string& cls, const finder::Value& value)>;
 struct ReadSubjectRequest {
   std::string dataset, subject;
   std::optional<std::vector<std::string>> classes;   // manifolds | fields | selections | operators | statistics | dictionaries | spaces | acquisitions; default: all
   bool related = false;
   std::vector<std::string> templates;
+  NodeTyper typer;
 };
 CommandResult read_subject(const ReadSubjectRequest& request, const Progress& progress = {});
 
@@ -168,6 +173,7 @@ struct ListClassRequest {
   std::optional<std::int64_t> limit;
   std::optional<std::vector<std::string>> columns;
   std::vector<std::string> templates;
+  NodeTyper typer;
 };
 CommandResult list_class(const ListClassRequest& request, const Progress& progress = {});
 
