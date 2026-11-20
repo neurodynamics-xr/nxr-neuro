@@ -122,6 +122,7 @@ test_forms	golden
 test_frame_tiling	unit
 test_frames	golden
 test_frames_pipeline	integration
+test_gabor	unit
 test_gauge_workflow	unit
 test_geometry_bundle	unit
 test_geometry_central_extras	unit

@@ -5,9 +5,11 @@ target_sources(nxr_compute PRIVATE
   src/select/cores.cpp
   src/select/crossings.cpp
   src/select/distance_pairs.cpp
+  src/select/edges.cpp
   src/select/extent.cpp
   src/select/intervals.cpp
   src/select/ladder.cpp
+  src/select/peaks.cpp
   src/select/regions.cpp
   src/select/risefall.cpp
   src/select/scale.cpp

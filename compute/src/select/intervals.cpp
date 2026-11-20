@@ -10,6 +10,31 @@
 
 namespace nxr::select {
 
+std::vector<std::int64_t> overlapGroups(const std::vector<double>& start, const std::vector<double>& stop, const std::vector<double>& fLow, const std::vector<double>& fHigh) {
+  const std::size_t n = start.size();
+  if (stop.size() != n) throw std::invalid_argument("overlapGroups: one stop an event");
+  const bool freq = !fLow.empty() || !fHigh.empty();
+  if (freq && (fLow.size() != n || fHigh.size() != n)) throw std::invalid_argument("overlapGroups: one frequency box an event, or none");
+  std::vector<std::size_t> parent(n);
+  for (std::size_t i = 0; i < n; ++i) parent[i] = i;
+  auto root = [&](std::size_t i) { while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  for (std::size_t i = 0; i < n; ++i)
+    for (std::size_t j = i + 1; j < n; ++j) {
+      if (!(start[i] < stop[j] && start[j] < stop[i])) continue;
+      if (freq && !(fLow[i] <= fHigh[j] && fLow[j] <= fHigh[i])) continue;
+      const std::size_t a = root(i), b = root(j);
+      if (a != b) parent[std::max(a, b)] = std::min(a, b);
+    }
+  std::vector<std::int64_t> group(n, -1), of_root(n, -1);
+  std::int64_t next = 0;
+  for (std::size_t i = 0; i < n; ++i) {
+    const std::size_t r = root(i);
+    if (of_root[r] < 0) of_root[r] = next++;
+    group[i] = of_root[r];
+  }
+  return group;
+}
+
 std::vector<Span> crossings(const Eigen::Ref<const Eigen::VectorXd>& x, double entry, double exit) {
   if (!(exit <= entry)) throw std::invalid_argument("crossings: the exit level is at most the entry level");
   std::vector<Span> out;
