@@ -133,6 +133,16 @@ void test_unify() {
   CHECK(g::unify(g::manifold_id("cortex", "kernel"), cortex, c, why));
   CHECK(!g::unify(g::manifold_id("cortex", "x"), cortex, c, why));
 
+  // one manifold, one size: the same id with two known vertex counts is refused (a variable bound to it, or the id itself); an unknown count (0) still unifies
+  const auto m10 = g::manifold_id("cortex", "m", g::ManifoldKind::surface, g::Role::none, std::nullopt, 10), m12 = g::manifold_id("cortex", "m", g::ManifoldKind::surface, g::Role::none, std::nullopt, 12);
+  g::Bindings sz;
+  CHECK(g::unify(dom({g::var("M")}), dom({m10}), sz, why));
+  CHECK(!g::unify(dom({g::var("M")}), dom({m12}), sz, why));
+  CHECK(why.find("12 vertices where cortex(m) has 10") != std::string::npos);
+  g::Bindings sz2;
+  CHECK(!g::unify(m10, m12, sz2, why));
+  CHECK(g::unify(g::manifold_id("cortex", "m"), m12, sz2, why));
+
   // rest variables carry the other factors through unchanged
   g::Bindings r;
   CHECK(g::unify(dom({g::var("A"), g::var_rest("R")}), dom({sensors, time}), r, why));

@@ -573,6 +573,14 @@ PortType parse_type(const std::string& text) {
 
 namespace {
 
+// one manifold has one size: two references to the same stored (or anonymous) manifold whose vertex counts are both known and differ are refused, never unified
+bool sizes_conflict(const ManifoldRef& a, const ManifoldRef& b, std::string& why) {
+  if (!a || !b || a->n <= 0 || b->n <= 0 || a->n == b->n) return false;
+  if (a->form != Manifold::Form::id && a->form != Manifold::Form::anonymous) return false;
+  why = print(b) + " has " + std::to_string(b->n) + " vertices where " + print(a) + " has " + std::to_string(a->n) + ": one manifold cannot have two sizes";
+  return true;
+}
+
 bool role_allows(Role want, const Manifold& m) {
   if (want == Role::none) return true;
   if (want == Role::time) return m.role == Role::time;
@@ -592,7 +600,7 @@ bool unify(const ManifoldRef& pattern, const ManifoldRef& actual, Bindings& b, s
     auto it = b.vars.find(pattern->key);
     if (it == b.vars.end()) { b.vars[pattern->key] = actual; return true; }
     const ManifoldRef& bound = it->second;
-    if (same(bound, actual)) return true;
+    if (same(bound, actual)) return !sizes_conflict(bound, actual, why);
     if (bound->key == actual->key && bound->label == actual->label && !same_cs(bound->cs, actual->cs)) {
       why = print(actual) + " is the manifold " + print(bound) + " in another coordinate system (" + print_cs(actual->cs) + ", not " + print_cs(bound->cs) +
             "); no transition is applied by the checker: add the node `meeg.positions_transition` with the transition operator " + print_cs(actual->cs) + " to " + print_cs(bound->cs);
@@ -629,7 +637,7 @@ bool unify(const ManifoldRef& pattern, const ManifoldRef& actual, Bindings& b, s
           why += " (the same manifold in another coordinate system: " + print_cs(actual->cs) + ", not " + print_cs(pattern->cs) + "; no transition is applied by the checker: add the node `meeg.positions_transition` with the transition operator)";
         return false;
       }
-      return true;
+      return !sizes_conflict(pattern, actual, why);
   }
 }
 

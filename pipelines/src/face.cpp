@@ -648,7 +648,7 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
     for (const task::Cls c : {task::Cls::statistic, task::Cls::field, task::Cls::operator_, task::Cls::selection, task::Cls::manifold})
       if (ts.by_id_or_name(c, name)) {
         const std::string other = task::to_string(c);
-        throw Error(code::no_such_row, "subject " + subject + " holds no " + rq.cls + " named '" + name + "': it is a " + other + " (read " + other + ")");
+        throw Error(code::no_such_row, "subject " + subject + " holds no " + rq.cls + " named '" + name + "': it is " + (std::string("aeiou").find(other.front()) != std::string::npos ? "an " : "a ") + other + " (read " + other + ")");
       }
   throw Error(code::no_such_row, "subject " + subject + " holds no " + (rq.cls.empty() ? std::string("statistic, field, operator, selection or manifold") : rq.cls) + " named '" + name + "'");
 }

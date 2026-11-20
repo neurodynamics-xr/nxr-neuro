@@ -187,14 +187,18 @@ double value(const Ingredients& g, std::int64_t row, std::int64_t member, const 
   if (row < 0 || row >= g.rows || member < 0 || member >= g.members) throw std::invalid_argument("measurement: value of (row " + std::to_string(row) + ", member " + std::to_string(member) + ") is outside the ingredients");
   if (component < 0 || component >= g.components) throw std::invalid_argument("measurement: component " + std::to_string(component) + " of " + std::to_string(g.components));
   const std::size_t k = g.at(row, member);
-  const double w = g.weight[k];
   const std::string& in = s.ingredient;
+  // each measure reads only its own ingredient (a stored max needs no weight); one the ingredients do not hold is refused, never read past its end
+  auto take = [&](const auto& v, const char* name, std::size_t at) -> double {
+    if (at >= v.size()) throw std::invalid_argument("measurement: '" + measure + "' needs the ingredient '" + name + "', which these ingredients do not hold");
+    return static_cast<double>(v[at]);
+  };
   double v;
-  if (in == "count") v = static_cast<double>(g.count[k]);
-  else if (in == "weight") v = w;
-  else if (in == "max") v = g.max[k];
-  else if (in == "min") v = g.min[k];
-  else if (in == "abs_max") v = g.abs_max[k];
+  if (in == "count") v = take(g.count, "count", k);
+  else if (in == "weight") v = take(g.weight, "weight", k);
+  else if (in == "max") v = take(g.max, "max", k);
+  else if (in == "min") v = take(g.min, "min", k);
+  else if (in == "abs_max") v = take(g.abs_max, "abs_max", k);
   else if (in == "held") {
     if (g.held.empty()) throw std::invalid_argument("measurement: a median needs the values held (Ingredients(..., hold = true), Request::measures names it)");
     std::vector<double> h = g.held[k];                                     // numpy median of the finite values: the middle one, the mean of the two middle ones when even
@@ -207,14 +211,15 @@ double value(const Ingredients& g, std::int64_t row, std::int64_t member, const 
   }
   else {
     double total;
-    if (in == "sum") total = g.sum[g.at(row, member, component)];
-    else if (in == "sum_sq") total = g.sum_sq[k];
-    else if (in == "sum_cube") total = g.sum_cube[k];
-    else if (in == "sum_fourth") total = g.sum_fourth[k];
-    else if (in == "sum_abs") total = g.sum_abs[k];
-    else if (in == "sum_sqrt_abs") total = g.sum_sqrt_abs[k];
+    if (in == "sum") total = take(g.sum, "sum", g.at(row, member, component));
+    else if (in == "sum_sq") total = take(g.sum_sq, "sum_sq", k);
+    else if (in == "sum_cube") total = take(g.sum_cube, "sum_cube", k);
+    else if (in == "sum_fourth") total = take(g.sum_fourth, "sum_fourth", k);
+    else if (in == "sum_abs") total = take(g.sum_abs, "sum_abs", k);
+    else if (in == "sum_sqrt_abs") total = take(g.sum_sqrt_abs, "sum_sqrt_abs", k);
     else throw std::invalid_argument("measurement: '" + measure + "' is a member's own measure (" + in + "): it is computed from the member, not accumulated");
-    v = s.merge == Merge::mean ? (w > 0 ? total / w : 0.0) : total;       // a mean of a member of zero weight is the reference's 0
+    if (s.merge == Merge::mean) { const double w = take(g.weight, "weight", k); v = w > 0 ? total / w : 0.0; }
+    else v = total;       // a mean of a member of zero weight is the reference's 0
   }
   return finite_or_nan(v);
 }
