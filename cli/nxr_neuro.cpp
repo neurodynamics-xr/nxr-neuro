@@ -222,7 +222,10 @@ void chunk_loop_defaults(const std::vector<std::string>& args) {
 
 // the old command words dispatched to their mains (the hidden aliases of the old spellings, and what every new command rewrites itself to)
 // ── nxr-neuro list recordings|kernels|results (the old words: `__list`, which has no old spelling) ──
+int list_class_main(const std::string& what, const std::vector<std::string>& rest);   // cli/node_command.cpp
 int list_nodes_main(const std::vector<std::string>& argv) {
+  for (const char* cls : {"manifolds", "fields", "selections", "operators", "statistics", "dictionaries", "spaces", "acquisitions", "jobs"})
+    if (!argv.empty() && argv[0] == cls) return list_class_main(argv[0], std::vector<std::string>(argv.begin() + 1, argv.end()));
 #ifdef NXR_NEURO_WITH_PIPELINES
   if (argv.empty()) throw Usage("nxr-neuro list: error: the following arguments are required: what (recordings, kernels, results)");
   const std::string what = argv[0];

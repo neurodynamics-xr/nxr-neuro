@@ -52,10 +52,48 @@ void need_noun(const std::vector<std::string>& argv, const std::string& verb, co
 
 }  // namespace
 
+// ── nxr-neuro read subject: what a subject holds, every node's description ──
+static int read_subject_main(const std::vector<std::string>& rest) {
+  const std::string prog = "nxr-neuro read subject";
+  const Args a = parse(prog, rest, {"--dataset", "--subject", "--classes"}, {"--related"}, {"--dataset", "--subject"});
+  task::ReadSubjectRequest rq;
+  rq.dataset = a.get("--dataset");
+  rq.subject = a.get("--subject");
+  if (const auto v = a.maybe("--classes")) rq.classes = split_commas(*v);
+  rq.related = a.flag.count("--related") > 0;
+  rq.templates = values_of(a, "--templates");
+  emit_result(call(prog, [&] { return task::read_subject(rq, progress()); }).result);
+  return 0;
+}
+
+// ── nxr-neuro list fields|manifolds|selections|operators|statistics|dictionaries|spaces|acquisitions|jobs ──
+int list_class_main(const std::string& what, const std::vector<std::string>& rest) {
+  const std::string prog = "nxr-neuro list " + what;
+  std::set<std::string> valued = {"--dataset", "--subject", "--limit", "--after", "--columns"};
+  if (what != "jobs") valued.insert("--name");
+  if (what != "acquisitions") valued.insert("--kind");
+  if (what == "manifolds" || what == "fields" || what == "selections" || what == "operators" || what == "statistics") valued.insert("--on");
+  const Args a = parse(prog, rest, valued, {}, {"--dataset"}, 0, {"--templates"});
+  task::ListClassRequest rq;
+  rq.cls = what;
+  rq.dataset = a.get("--dataset");
+  rq.subject = a.maybe("--subject");
+  rq.name = a.maybe("--name");
+  rq.kind = a.maybe("--kind");
+  rq.on = a.maybe("--on");
+  rq.after = a.maybe("--after");
+  if (const auto v = a.maybe("--limit")) rq.limit = integer_of(prog, "--limit", *v);
+  if (const auto v = a.maybe("--columns")) rq.columns = split_commas(*v);
+  rq.templates = values_of(a, "--templates");
+  emit_result(call(prog, [&] { return task::list_class(rq, progress()); }).result);
+  return 0;
+}
+
 // ── nxr-neuro read field|statistic|operator|selection|manifold ──
 int read_node_main(const std::vector<std::string>& argv) {
+  if (!argv.empty() && argv[0] == "subject") return read_subject_main(std::vector<std::string>(argv.begin() + 1, argv.end()));
 #ifdef NXR_NEURO_WITH_PIPELINES
-  need_noun(argv, "read", "field, statistic, operator, selection, manifold");
+  need_noun(argv, "read", "subject, field, statistic, operator, selection, manifold");
   const std::string what = argv[0];
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const std::string prog = "nxr-neuro read " + what;
