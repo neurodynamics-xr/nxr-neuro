@@ -1,0 +1,77 @@
+# MEG BRAIN FINGERPRINTING, ONE BAND OF A PERSON OVER A SPAN (spec docs/specs/2026-11-16-meg-fingerprinting.md, section 11.3, steps 17 and 19, its amendment of 2026-11-19 and section 12: the published
+# method is the default, the release's quirks reproduced, the paper's reading a named option). The method: da Silva Castanheira J, Orozco Perez HD, Misic B, Baillet S (2021) Brief segments of
+# neurophysiological activity enable individual differentiation. Nat Commun 12:5713, doi:10.1038/s41467-021-25895-8; its authors' release megFingerprinting v1.0.0 (06fdba8), 2_prerprocessing_PSD.m and
+# 2_preprocessing_AEC_ortho.m, with Brainstorm's release of 2018-10-12. Every stored result carries this citation (producer_json.references).
+#
+# THE GRAPH (one run a band and a half: the recording is the band's band-passed run, the map the band's region map over the same half, the span the half):
+#   chunks:  signal.linear_map   the recording through the region map (a linear map, pointwise: one real series a region; the map's offsets are constants, removed below)  ->  regions
+#            signal.psd          step 17: Welch over the span, Brainstorm 2018's bst_psd: 2 s segments (round(2 fs), even) from the span's start, 50 % overlap, a symmetric Hamming window,
+#                                each segment's mean removed, |2 X / n|^2 at every bin (the release's power, no window correction), bad segments left out  ->  spectrum [regions x bins, 0.5 Hz]
+#            signal.filter       step 19: the region signals band-passed AGAIN (the release's quirk: process_aec1n's process_bandpass 'Compute' of 2018-10-12, its default filter), the SPAN being the
+#                                record: its ends padded with zeros, nothing outside it read; not with --single-bandpass (the paper's reading)  ->  banded
+#            signal.hilbert      the analytic signal (a FIR Hilbert transformer whose length follows the band's lower edge), transform envelope: its modulus |z|  ->  envelope
+#            stats.cov           the envelopes' covariance over the span (a statistic over the span's time partition, one block, its mean removed)  ->  covariance
+#   after:   stats.correlation   Pearson's correlation of every pair of regions (no orthogonalisation: the paper and the code agree)  ->  aec [regions x regions]
+# Stored: `<name>_spectrum` (power by welch, OF the recording; axes region x frequency, the frequency line `<recording>_freq`; its segments `<name>_spectrum_segments`) and `<name>_aec`
+# (measure amplitude_envelope_correlation by pearson, OF the recording; axes region x region). `run fingerprint_features` assembles the bands' into a person's two features.
+#
+# It cannot resolve: what the region map cannot (a region's first principal component over THIS span, signed by a convention; neighbouring regions share signal through the beamformer's spread);
+# the spectrum is power per 0.5 Hz bin in the release's units (not a density); the envelope correlation of neighbouring regions is raised by that shared signal (no orthogonalisation, as the release);
+# the release computes the second band-pass and the Hilbert transform on the half held whole in memory (an FFT over it): here they stream, so the envelopes equal the release's away from the half's
+# ends and differ within about one filter length of them (the span's mean of the region signals, near zero for a band-passed signal, is not removed before the second band-pass).
+#
+#   nxr-neuro run fingerprint_band --dataset <folder> --subject sub-01 --recording rest_alpha --map fp_A_alpha --lower 8 --upper 13 --from 5 --to 150
+pipeline: fingerprint_band
+version: 1
+description: one band's features of a person over a span (MEG fingerprinting, steps 17 and 19), the region spectrum and the amplitude envelope correlation of its region signals
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  map:       {operator: region map, from: recording.manifold.0, where: {name: $map}}
+  bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: {default: none, meaning: "the band's band-passed run, by name (`nxr-neuro run bandpass` of the run), or none: every recording of the subject, one run each", unit: "-"}
+  map: {default: required, meaning: "the band's region map over the SAME span (`nxr-neuro run region_pca` of the band's kernel over this half)", unit: "-"}
+  lower: {default: required, meaning: "the band's lower edge: the second band-pass of the connectome, and the Hilbert transformer's length", unit: Hz}
+  upper: {default: required, meaning: "the band's upper edge (the second band-pass)", unit: Hz}
+  name: {default: "{map}", meaning: "the stem of the stored statistics: <name>_spectrum and <name>_aec", unit: "-"}
+  single_bandpass: {default: false, meaning: "false = the region signals are band-passed again before the Hilbert transform (the release's quirk: 2_preprocessing_AEC_ortho.m's process_aec1n) | true = the Hilbert transform of the band-passed run's region signals as they are (the paper's reading)", unit: "-"}
+  design: {default: brainstorm_2018, meaning: "the second band-pass's filter: brainstorm_2018 (Brainstorm's release of 2018-10-12, the paper's: its transition bands, the ends padded with zeros) | brainstorm (the current release's rule)", unit: "-", choices: [brainstorm_2018, brainstorm]}
+  beta: {default: 8.0, meaning: "the Hilbert transformer's Kaiser shape (8: a ripple of about 1e-4)", unit: "-"}
+  segment_seconds: {default: 2.0, meaning: "the Welch segment's length (the release's win_length)", unit: "s"}
+  segment_samples: {default: null, meaning: "the segment's length in samples (wins over segment_seconds); null: from segment_seconds", unit: "samples"}
+  segment_rule: {default: round, meaning: "how the segment's length becomes samples: round = round(seconds x fs) from the span's start (Brainstorm) | even | tile", unit: "-", choices: [round, even, tile]}
+  overlap: {default: 0.5, meaning: "the fraction of a segment shared with the next (the release's win_overlap, 50 %)", unit: "fraction"}
+  window: {default: hamming, meaning: "the taper of each segment (Brainstorm's bst_psd: Hamming)", unit: "-", choices: [hann, hamming, blackman, rectangular]}
+  periodic: {default: false, meaning: "the DFT-even form of the window rather than the symmetric one (MATLAB's hamming(n), Brainstorm)", unit: "-"}
+  detrend: {default: constant, meaning: "what is removed from each segment before windowing (Brainstorm: its mean)", unit: "-", choices: [none, constant, linear]}
+  scaling: {default: brainstorm_2018, meaning: "brainstorm_2018 = |2 X / n|^2 at every bin (bst_psd of 2018-10-12, measure power: the release's units) | density | spectrum", unit: "-", choices: [brainstorm_2018, density, spectrum]}
+  bad_segments: {default: exclude, meaning: "exclude = a segment touching one of the recording's bad segments is left out (Brainstorm) | ignore", unit: "-", choices: [exclude, ignore]}
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {node: signal.linear_map, in: {x: recording, operator: map}, out: regions}
+      - {node: signal.psd, in: {x: regions, exclude: bad}, with: {segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: spectrum}
+      - {node: signal.filter, in: {x: regions}, with: {kind: bandpass, lower: $lower, upper: $upper, design: $design, ends: span, remove_mean: false}, out: banded, when: "!$single_bandpass"}
+      - {node: signal.hilbert, in: {x: banded}, with: {lowest: $lower, beta: $beta, transform: envelope}, out: envelope, when: "!$single_bandpass"}
+      - {node: signal.hilbert, in: {x: regions}, with: {lowest: $lower, beta: $beta, transform: envelope}, out: envelope, when: $single_bandpass}
+      - {node: stats.cov, in: {x: envelope}, with: {axis: region}, out: covariance}
+  after:
+    - {node: stats.correlation, in: {covariance: covariance}, with: {measure: amplitude_envelope_correlation}, out: aec}
+
+outputs:
+  spectrum:
+    kind: statistic
+    name: "$name_spectrum"
+    of: recording
+    axes: [{name: region}, {name: frequency, line: "{recording}_freq"}]
+    partition: {tiling: "$name_spectrum_segments", on: recording.time}
+  aec:
+    kind: statistic
+    name: "$name_aec"
+    of: recording
+    axes: [{name: region}, {name: region}]
