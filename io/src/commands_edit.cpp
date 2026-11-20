@@ -118,7 +118,7 @@ CommandResult add_dictionary(const AddDictionaryRequest& rq, const Progress& pro
   d.scope = rq.scope;
   d.description = rq.description;
   d.entries = entries_of(entries_json(rq.entries, "--entries"), "--entries");
-  return in_unit_of(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_for("add dictionary", rq.created_by), progress, [&](const Subject&, Unit& u, SubjectWriter&) {
+  return in_unit_of(rq.dataset, rq.subject, rq.templates, rq.by && !rq.by->empty() ? *rq.by : rq.created_by, producer_for("add dictionary", rq.created_by), progress, [&](const Subject&, Unit& u, SubjectWriter&) {
     const std::string id = u.dictionary(d);
     Json entries = Json::array();
     for (const auto& e : d.entries) entries.push_back(Json{{"code", e.code}, {"name", e.name}});

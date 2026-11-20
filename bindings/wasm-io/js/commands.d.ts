@@ -223,6 +223,7 @@ export interface DeleteSubjectOptions {
 export interface AddSurfaceOptions {
   /** the positional argument (`nxr-neuro add surface FILE`) */
   file?: string;
+  by?: string | number;
   dataset: string | number;
   faces?: ArrayInput | string;
   name?: string | number;
@@ -641,11 +642,13 @@ export interface CompileOptions {
 }
 export interface ReadFieldOptions {
   all?: boolean;
+  budget?: string | number;
   dataset: string | number;
   from?: string | number;
   name: string | number;
   out?: string | number;
   projectors?: string | number;
+  region?: string | number;
   rows?: string | number;
   shape_only?: boolean;
   subject: string | number;
@@ -655,39 +658,47 @@ export interface ReadFieldOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface ReadStatisticOptions {
+  budget?: string | number;
   dataset: string | number;
   name: string | number;
   out?: string | number;
+  region?: string | number;
   subject: string | number;
   templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface ReadOperatorOptions {
+  budget?: string | number;
   dataset: string | number;
   name: string | number;
   out?: string | number;
+  region?: string | number;
   subject: string | number;
   templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface ReadSelectionOptions {
+  budget?: string | number;
   dataset: string | number;
   field?: string | number;
   measure?: string | number;
   name: string | number;
   out?: string | number;
+  region?: string | number;
   subject: string | number;
   templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface ReadManifoldOptions {
+  budget?: string | number;
   dataset: string | number;
   family?: string | number;
   name: string | number;
   out?: string | number;
+  region?: string | number;
   subject: string | number;
   templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
@@ -696,6 +707,7 @@ export interface ReadManifoldOptions {
 export interface AddFieldOptions {
   append?: boolean;
   begin?: boolean;
+  by?: string | number;
   by_operator?: string | number;
   cell?: string | number;
   commit?: boolean;
@@ -722,6 +734,7 @@ export interface AddFieldOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddSelectionOptions {
+  by?: string | number;
   dataset: string | number;
   description?: string | number;
   entries?: string | number;
@@ -744,6 +757,7 @@ export interface AddStatisticOptions {
   append?: boolean;
   axes?: string[] | string;
   begin?: boolean;
+  by?: string | number;
   commit?: boolean;
   dataset: string | number;
   description?: string | number;
@@ -766,6 +780,7 @@ export interface AddStatisticOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddMeasurementsOptions {
+  by?: string | number;
   dataset: string | number;
   field?: string | number;
   measure: Record<string, ArrayInput | string> | string[];
@@ -778,6 +793,7 @@ export interface AddMeasurementsOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddOperatorOptions {
+  by?: string | number;
   data?: ArrayInput | string;
   dataset: string | number;
   description?: string | number;
@@ -790,6 +806,7 @@ export interface AddOperatorOptions {
   method?: string | number;
   name: string | number;
   params?: Record<string, unknown> | unknown[] | string;
+  producer?: Record<string, unknown> | unknown[] | string;
   replace?: boolean;
   subject: string | number;
   templates?: string[] | string;
@@ -799,6 +816,7 @@ export interface AddOperatorOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddPointsOptions {
+  by?: string | number;
   coordinate_system?: string | number;
   dataset: string | number;
   description?: string | number;
@@ -811,6 +829,7 @@ export interface AddPointsOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddLineOptions {
+  by?: string | number;
   coordinates?: ArrayInput | string;
   dataset: string | number;
   dimension?: string | number;
@@ -947,6 +966,7 @@ export interface ReadSubjectOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddProductOptions {
+  by?: string | number;
   dataset: string | number;
   factors: string | number;
   name: string | number;
@@ -956,6 +976,7 @@ export interface AddProductOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddDictionaryOptions {
+  by?: string | number;
   dataset: string | number;
   description?: string | number;
   entries: Record<string, unknown> | unknown[] | string;

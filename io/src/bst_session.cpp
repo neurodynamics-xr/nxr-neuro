@@ -15,6 +15,7 @@
 #include "nxr/bst/sensors.h"
 #include "nxr/bst/projectors.h"
 #include "nxr/bst/session.h"
+#include "nxr/bst/subject.h"
 #include "nxr/io/layout.h"
 
 namespace nxr::bst {
@@ -96,9 +97,14 @@ Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::
     if (present(sf)) continue;
     if (!is_file(sf))
       value_error("subject has no anatomy (" + sf.filename().string() + " not found under anat/) \xe2\x80\x94 a sensor-only subject cannot import yet: the store is manifold-centric.");
-    const auto info = export_surface(sub, sf, bst_root.string(), surface_node_name(sf) == primary_surf);
-    names.push_back(info.name);
-    emit(Json{{"stage", "surface"}, {"name", info.name}, {"folder", info.folder}, {"n_vertices", info.n_vertices}, {"hemispheres", info.hemispheres}});
+    const bool primary = surface_node_name(sf) == primary_surf;
+    const auto one = [&] {
+      const auto info = export_surface(sub, sf, bst_root.string(), primary);
+      names.push_back(info.name);
+      emit(Json{{"stage", "surface"}, {"name", info.name}, {"folder", info.folder}, {"n_vertices", info.n_vertices}, {"hemispheres", info.hemispheres}});
+    };
+    if (primary) one();   // the surface the kernels index: the condition cannot go on without it
+    else or_skip_unreadable_v73(sub, emit, one);
   }
   const auto surface = sub.find("manifold", nxr::io::folder_for("surface", primary_surf) + "/" + primary_surf);
   if (!surface) value_error("primary surface " + primary_surf + " not among exported " + names.dump());
@@ -153,11 +159,12 @@ Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::
   }
 
   // ---- the recording(s) ----
-  for (const auto& df : plan.data_files) {
-    const Json ti = export_timeseries(sub, recording_node_name(df), df, acquisition, channels_id, ch_names, opt.resample,
-                                      [&] { Projection p = projection; p.record = recording_record(entries, chan, chan_name, std::nullopt); return p; }());
-    emit(Json{{"stage", "timeseries"}, {"name", ti["name"]}, {"n_samples", ti["n_samples"]}, {"sfreq", ti["sfreq"]}, {"events", ti["events"]}});
-  }
+  for (const auto& df : plan.data_files)
+    or_skip_unreadable_v73(sub, emit, [&] {   // a recording in MATLAB v7.3 this build cannot read: skipped, named
+      const Json ti = export_timeseries(sub, recording_node_name(df), df, acquisition, channels_id, ch_names, opt.resample,
+                                        [&] { Projection p = projection; p.record = recording_record(entries, chan, chan_name, std::nullopt); return p; }());
+      emit(Json{{"stage", "timeseries"}, {"name", ti["name"]}, {"n_samples", ti["n_samples"]}, {"sfreq", ti["sfreq"]}, {"events", ti["events"]}});
+    });
   if (plan.raw_data_file) {
     if (!raw_mat) raw_mat = read_all_variables(*plan.raw_data_file);
     const auto itF = raw_mat->find("F");

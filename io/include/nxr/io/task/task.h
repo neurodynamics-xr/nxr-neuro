@@ -374,6 +374,7 @@ class Subject {
   std::optional<Origin> origin(const Node& n) const;
   // the recorded digests of the keys under `prefix` (a package records them; a database that does not gives none), by key
   std::vector<KeyDigest> key_digests(const std::string& prefix) const;
+  // the spans of a spans selection, in member order: its stored rows, or a tiling's members by its rule (start, stop, code = the member number; a writer's subject)
   std::vector<Span> spans(const Node& selection) const;
   // a stored set per element as it is read: each element's member number, each member's label and the lookup (a writer's subject only; Error otherwise)
   selection::ElementMembers element_members(const std::string& selection_id) const;

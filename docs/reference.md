@@ -261,7 +261,8 @@ the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subcl
   takes `subjects=[...]` and `into=`. Returns {pipeline, subject, cache, stored, runs, seconds}; read what was stored with `nn.read.<class>`.
 - **`nn.open(dataset, mode="read")`**: a handle whose methods are the same functions with the dataset bound (`d.read.field(subject=..., name=..., all=True)`,
   `d.run("psd", "S1", all=True)`, `d.compile(...)`). `mode="write"` takes the dataset folder's writer lock now and holds it until `close()` (a context manager; released at
-  exit): the handle's commands borrow it (io's handshake `NXR_WRITER_LOCK_HELD`, lent by the library's `task::Handle`), another process's write is refused (`WriterLockHeld`).
+  exit): the handle's commands borrow it (io's handshake `NXR_WRITER_LOCK_HELD`, lent by the library's `task::Handle`), another process's write is refused (`WriterLockHeld`),
+  and so is another write in the same process that does not go through the handle (in JavaScript also from another instance of the WebAssembly module: the locks a process holds are recorded on `globalThis`, shared by every instance).
   The library keeps the subject's database open between the handle's reading calls (`task::Handle`, `open_reader`: read-only, no lock, no migration); a write command opens
   its own database for the length of its unit, since a package's record and content hash are finished when its writer closes.
 - **Refused, naming the new form** (the first wheel's calls; no aliases): `nn.read(dataset, subject, name, ...)` (now `nn.read.<class>`, a recording's range as `from_`/`to`
@@ -386,7 +387,7 @@ both ways (WASM writes, the CLI reads; the CLI writes, WASM reads).
 
 The command line as functions, in Node: `nxr-neuro <verb> <noun> --option VALUE` is `nxr.<verb>.<noun>({ option: VALUE })`, a Promise, for every command of the command table
 (`cli/command_table.cpp`), `nxr.run` and `nxr.open`; and the geometry compute on meshes in memory (`nxr.compute`), in the same module instance. The module is the C++ library
-under Emscripten (SQLite 3.51 from its amalgamation, zlib, the zstd c-blosc carries, WebAssembly exceptions; no HDF5, so a v7.3 `.mat` is refused by name); in Node it reads and
+under Emscripten (SQLite 3.51 from its amalgamation, zlib, the zstd c-blosc carries, WebAssembly exceptions; no HDF5, so a v7.3 `.mat` is refused by name, and a Brainstorm import skips it and names it: see *MATLAB v7.3 files in the WebAssembly build*); in Node it reads and
 writes the real disk (NODERAWFS). The browser's file connection (a folder the user grants) comes later. The old `Datastore` class (28 functions, its own SQL) and `wasmClient` are
 removed, with no aliases; the parity tests against the Studio's service went with them.
 
@@ -519,7 +520,7 @@ A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<val
 
 | command | what it does | old spelling |
 |---|---|---|
-| `nxr-neuro list datasets` | List the dataset folders in a folder (`--datastore`). | `dataset list` |
+| `nxr-neuro list datasets` | List the dataset folders in a folder (`--datastore`): every dataset of either form (`form`: `one-database`, or `catalogue` as `create dataset --dataset` makes it), with its id, name, path, database and subject count; an empty folder is an empty list, a folder that does not exist is `not_found`. | `dataset list` |
 | `nxr-neuro list subjects` | List the subjects of a dataset. | `subject list` |
 | `nxr-neuro list recordings` | List the recordings of a subject. |  |
 | `nxr-neuro list kernels` | List the inverse kernels of a subject. |  |
@@ -554,10 +555,18 @@ the stored precision: a float32 node is read as float32) and the result says whe
 `<stem>.data.npy`, `<stem>.indices.npy`, `<stem>.indptr.npy`, scipy.sparse.csr_matrix's arrays; a manifold: `positions` and `cells_<rank>`; spans: `start`, `stop`, `code`).
 A sparse operator is written as three .npy files rather than one .npz: the command line has one array format (.npy, read and written by io itself; a .npz is a zip archive
 io has no reader for), and the three arrays are exactly what `add operator --data --indices --indptr` takes back.
+- **A part, and the read's budget.** `--region START:STOP,...` reads [START, STOP) along each leading axis of each array the read gives (a manifold's `positions` and `cells_<rank>`, a
+  selection's spans, a statistic's values; a STOP past an array's extent is cut to it, and the result's `regions` {array: [[start, stop], ...]} say what each array read); the form is
+  `add field --append`'s. A time-resolved field is read by `--rows` and `--from/--to` instead, and a sparse operator or field whole. `--budget BYTES` (default 1e9, 1 GB) is the most a
+  read may hold: before any array is read (or made), the bytes of every array the read would give are added up and a read above the budget is refused, naming its size, each array's
+  shape and dtype, and the `--region` (or, for a time-resolved field, the time range) that fits. A large curve of fibres, read whole, is refused this way at once instead of failing
+  to allocate.
 - `read field`: a **time-resolved field** (a recording, a source series) needs its time range, `--from S --to S` (seconds or m:ss) or `--all`, and is read through the chunk
   service one chunk at a time; `--rows I,J` picks rows in order, `--projectors active|none` (a recording's active projectors applied, or the samples as stored), `--shape-only` the
   description alone. A field with no time line is read whole. The result names the field's `manifold` (and `manifold_id`) and `cell` ("0" vertices, "1" edges, "2" faces).
 - `read manifold`: `positions` [n x 3] and `cells_<rank>`, its `axes`, element `names`, and `coordinate_system` {name, unit, space} (the chart its positions are in).
+- `read selection` of spans gives `start`, `stop` (in the line's unit) and `code`, one a member; a **tiling** (a closed-form spans selection: an origin, a width, a hop and a count, no span stored) gives
+  the same arrays, its members made from its rule (the last cut at the line's end; `code` the member number), and its rule stays in `params`.
 
 ### Queries over a dataset: `read subject`, `list <class>`, the counts of `show dataset` (`io/src/commands_query.cpp`; spec `docs/specs/2026-11-20-data-layer-queries.md`, 3.1 and 3.2)
 
@@ -577,16 +586,16 @@ their own) are not keys: `type` says them. `kind` is the stored kind (a field's,
 
 | class | description (besides `id`, `name`, `kind`, `type`) |
 |---|---|
-| manifold | `label`, `description`, `primary`, `acquisition`, `coordinates` {system, unit, kinds} (the coordinate system its points are in; `kinds` when each point of a line carries a code), `size` {vertices, edges, faces, volumes}, `factors` (a product's, by name), `component_of`, `component_ordinal`, `derived_from`, `derived_by`, `stored`, `provenance` |
+| manifold | `label`, `description`, `primary`, `acquisition`, `coordinates` {system, unit, kinds, axes} (the coordinate system its points are in; `kinds` when each point of a line carries a code; `axes` [{name, size, origin, spacing, unit}], the coordinate of a closed-form geometry along each axis, a line's one: its first point, the step between points and the unit), `size` {vertices, edges, faces, volumes}, `factors` (a product's, by name), `component_of`, `component_ordinal`, `from_index` (a component's first vertex in the whole's vertex order), `derived_from`, `derived_by`, `stored`, `provenance` |
 | field | `label`, `acquisition`, `description`, `stored`, `lineage` {derived_from, of_field, of_operator, by_operator, function, contributions [{field, weight}]}, `provenance` |
-| selection | `label`, `acquisition`, `description`, `elements`, `members` (their count), `of_field`, `weights` (one weight a member is stored), `stored`, `dictionary` (its name), `entries` [{code, name, colour, label, description}], `provenance` |
+| selection | `label`, `acquisition`, `description`, `elements`, `members` (their count), `member_of`, `member_ordinal`, `code` (a member of a set, such as each atlas of the set of a surface's parcellations or each level of a grid, is a selection of its own, described like any other: the set it belongs to by name, its place in it and its code; null for a selection that is no member), `of_field`, `weights` (one weight a member is stored), `stored`, `dictionary` (its name), `entries` [{code, name, colour, label, description}], `provenance` |
 | operator | `label`, `acquisition`, `description`, `from` and `to` {manifold, selection}, `method`, `parameters`, `shape` {rows, columns, nonzeros}, `stored`, `lineage` {derived_from, of_statistic, inverts, inverse_kind}, `provenance` |
 | statistic | `measure`, `method`, `label`, `acquisition`, `description`, `of_field`, `of_statistic`, `partition`, `members`, `members_skipped`, `dof`, `axes` [{name, manifold, selection, size, unit}], `stored`, `provenance` (its `type` is untyped past its class, value and unit: its domain is typed by the node that made it) |
-| dictionary | `name`, `scope`, `description`, `entries` [{code, name, colour (#rrggbb), label, description, measurement, unit, function, params}], `provenance` (the subject's own, the dataset's, and the app's its selections use); no `type` |
+| dictionary | `name`, `scope`, `description`, `entries` [{code, name, colour (#rrggbb), label, description, measurement, unit, function, params}], `provenance` (every dictionary the subject sees, each with its `scope`: the subject's own, the dataset's, and every app-scope one, whether or not a selection of the subject reads it); no `type` |
 | space | `name`, `geometry`, `rank`, `parameters`, `description`, `coordinate_systems` [{name, unit, reference, transition, description}]; no `type` |
 | acquisition | `name` (its label), `session`, `task`, `run`, `acq`, `processing`, `split`; no `type` |
 
-`provenance` is {source, comment, created_utc, created_by, modified_utc, modified_by}. `type` is built by the pipelines' face (`face::read_subject`, `face::list_class`); io reads and pages
+`provenance` is {source, comment, created_utc, created_by, modified_utc, modified_by, producer}: `producer` is the node's producer record as `read <class>` gives it (the command or pipeline that made it, the program, its inputs, and what the maker gave with `--producer`; null when none; a selection's is kept in its parameters, a statistic's provenance has no source or comment). `type` is built by the pipelines' face (`face::read_subject`, `face::list_class`); io reads and pages
 the rows (a build without the pipelines gives `"type": null`; a node the type system refuses to type, such as a tangent field with no gauge record, gives `"type": {"refused": "<why>"}`).
 
 `--related` adds `"related": [{subject, kind, relation, description}]`: the subjects this one refers to, with `relation` `template` (the template its anatomy is taken from), `source` and
@@ -648,6 +657,14 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
 | `nxr-neuro import badsegments` | Import a recording's bad segments from a file. | `convert badsegments` |
 | `nxr-neuro import events` | Import a recording's events from a file. | `convert events` |
 
+**MATLAB v7.3 files in the WebAssembly build.** A `.mat` saved with `-v7.3` is an HDF5 file. The native builds read it (matio over HDF5), as before. The WebAssembly build has no HDF5
+(and is 32-bit, with 4 GB at most), so there `import subject`, `import condition`, `import template` and `import group` **skip each v7.3 file and import the rest**, instead of
+rolling the whole subject back: a fibres file, a non-primary surface, a subject image, a recording, a time-frequency file, a kernel (or its head model) or a map. Each skipped file is
+named with the reason "MATLAB v7.3 (HDF5): not readable in this build; import it with a native build" in the command's result (`skipped` [{what, reason}] and a `message` naming
+them), as a `skipped` progress line, and in the import's job row (its `result`, which `list jobs` reads). The remedy is the native command line or Python package (or re-saving the
+file as v7). Nothing else is skipped silently: a file that cannot be read for another reason is refused as before, and so is a v7.3 file the import cannot go on without (the
+condition's channel file, the surface its kernels index, a template's only cortex), named with the same reason.
+
 ### `create`: Create a dataset or a subject
 
 | command | what it does | old spelling |
@@ -687,7 +704,7 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
 | `nxr-neuro add selection` | A partition or set (`--members`), a pick (`--indices`) or spans on a line (`--spans`), `--type` naming which; `--of-field`, `--weights V.npy`, `--producer JSON`. | |
 | `nxr-neuro add statistic` | Values on named axes (`--axes NAME:MANIFOLD ...`), with `--measure` and `--method` from the registries, of a field (`--of-field`) or detached. | |
 | `nxr-neuro add measurements` | One value a member of a selection for each measure (`--measure NAME=V.npy ...`), of a field (`--field`) or the members' own. | |
-| `nxr-neuro add operator` | A map between two manifolds, dense (`--values` [to x from]), sparse CSR (`--data --indices --indptr`) or analytic (`--layout analytic --method NAME --params JSON`, no matrix); `--from-selection`. | |
+| `nxr-neuro add operator` | A map between two manifolds, dense (`--values` [to x from]), sparse CSR (`--data --indices --indptr`) or analytic (`--layout analytic --method NAME --params JSON`, no matrix); `--from-selection`, `--producer JSON`. | |
 | `nxr-neuro add points` | A manifold of points: positions [n x 3] or one coordinate each [n]. | |
 | `nxr-neuro add line` | A closed-form line: `--n`, `--spacing`, `--origin`, `--unit`; `--dimension time` (seconds) makes a time line fields can be time-resolved on. With `--coordinates C.npy --dimension eigenvalue [--kinds K.npy]`, a line whose points are not evenly spaced. | |
 | `nxr-neuro add product` | The product manifold of stored factors (`--name N --factors A,B`: a line over time, a surface over time). | |
@@ -754,13 +771,16 @@ refusals store nothing). Each option is stored in a column the schema already ha
   `coordinates` {system, unit, kinds}.
 - **`add product --name N --factors A,B`** makes the product manifold of stored factors in axis order; a factor that does not exist is refused (`no_such_row`), as is a name in use or factors that
   already make a product under another name. A field added on a factor with `--time` makes the same product.
+- **`--by TEXT`** (every `add`: surface, field, selection, statistic, measurements, operator, points, line, product, dictionary; `by` in Python and JavaScript) is the author recorded as the node's
+  `created_by` (and `modified_by`): the person or the application that computed the values. Without it the author is the program (nxr-neuro and its version); the producer record names the program
+  either way (`program`). A write in pieces keeps it from `--begin` (or takes it at `--commit`).
 - **`add field --by-operator NAME`** records the operator that made the field (its lineage `by_operator`); **`--contribution SUBJECT:FIELD[:WEIGHT]`** (repeatable) names the fields a mapped field is
   made from (the subject by name, in the dataset; the weight a trailing number, default 1) as its `contributions`; **`--producer JSON`** adds the maker's facts to the producer record (not under the
   keys the command records itself: `command`, `program`, `inputs`, `output`, `cache`).
 - **`add selection --of-field NAME`** names the field (a recording) the selection belongs to; **`--weights W.npy`** is one weight a member (a set's labelled members, the picks, the spans), stored beside
   the selection and named in its parameters (`weights`; `read selection` gives the array `weights`, `read subject` the flag `weights`); **`--producer JSON`** as above.
 - **`add operator --layout analytic --method NAME [--params JSON] [--from-selection NAME]`** stores an operator by its method, with no matrix (`stored` false, no array to read); `--from-selection` names the
-  selection of the from manifold it reads, for any layout.
+  selection of the from manifold it reads, for any layout; **`--producer JSON`** as for `add field`.
 - **`add dictionary --name N --scope dataset|subject [--subject S] --entries E.json`**: the entries are a JSON list (the file, or the text itself; in Python and JavaScript a list of objects) of
   `{code, name, label, colour, description, params}`; codes are unique and a colour is `#rrggbb`, else refused; a dictionary of that name and scope that exists is refused. `--subject` opens the unit
   (required for a subject scope and for a catalogue of packages; a one-database dataset's dataset-scope dictionary needs none). The label and the description are kept with the entry's attributes; `read

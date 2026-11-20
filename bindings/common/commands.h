@@ -142,27 +142,30 @@ class CommandOptions {
       p.shape = shape;
     }
     used_.insert("shape");
-    if (has("region")) {
-      std::vector<std::array<std::int64_t, 2>> region;
-      const Json& j = j_["region"];
-      auto pair_of = [&](const std::string& t) {
-        const auto colon = t.find(':');
-        if (colon == std::string::npos) throw task::Refused(prog_ + ": region is START:STOP for each axis (got '" + t + "')");
-        return std::array<std::int64_t, 2>{whole("region", t.substr(0, colon)), whole("region", t.substr(colon + 1))};
-      };
-      if (j.is_array()) {
-        for (const auto& v : j) {
-          if (v.is_array() && v.size() == 2) region.push_back({whole("region", v[0]), whole("region", v[1])});
-          else if (v.is_string()) region.push_back(pair_of(v.get<std::string>()));
-          else throw task::Refused(prog_ + ": region is a list of [start, stop] for each axis");
-        }
-      } else {
-        for (const auto& t : commas("region")) region.push_back(pair_of(t));
-      }
-      p.region = region;
-    }
-    used_.insert("region");
+    p.region = region();
     return p;
+  }
+  /** `region`: START:STOP for each axis, as a list of [start, stop] pairs, a list of "START:STOP" texts, or the comma-separated text (none: not given) */
+  std::optional<std::vector<std::array<std::int64_t, 2>>> region() {
+    used_.insert("region");
+    if (!has("region")) return std::nullopt;
+    std::vector<std::array<std::int64_t, 2>> region;
+    const Json& j = j_["region"];
+    auto pair_of = [&](const std::string& t) {
+      const auto colon = t.find(':');
+      if (colon == std::string::npos) throw task::Refused(prog_ + ": region is START:STOP for each axis (got '" + t + "')");
+      return std::array<std::int64_t, 2>{whole("region", t.substr(0, colon)), whole("region", t.substr(colon + 1))};
+    };
+    if (j.is_array()) {
+      for (const auto& v : j) {
+        if (v.is_array() && v.size() == 2) region.push_back({whole("region", v[0]), whole("region", v[1])});
+        else if (v.is_string()) region.push_back(pair_of(v.get<std::string>()));
+        else throw task::Refused(prog_ + ": region is a list of [start, stop] for each axis");
+      }
+    } else {
+      for (const auto& t : commas("region")) region.push_back(pair_of(t));
+    }
+    return region;
   }
   /** every option given was read: one left is an option the command does not take (an option given as null is an option not given) */
   void done() const {
@@ -250,6 +253,8 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.name = o.str("name");
     q.out = o.maybe("out");
     q.templates = o.list("templates");
+    if (const auto r = o.region()) q.region = *r;
+    if (const auto b = o.number("budget")) q.budget = *b;
     return q;
   };
 
@@ -359,6 +364,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.primary = o.flag("primary");
     q.no_primary = o.flag("no_primary");
     q.templates = o.list("templates");
+    q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_surface(q, progress); });
 
@@ -383,6 +389,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.producer = o.maybe("producer");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
+    q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_field(q, progress); });
   } else if (c == "add selection") {
@@ -402,6 +409,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.producer = o.maybe("producer");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
+    q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_selection(q, progress); });
   } else if (c == "add statistic") {
@@ -421,6 +429,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.description = o.maybe("description");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
+    q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_statistic(q, progress); });
   } else if (c == "add measurements") {
@@ -435,6 +444,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.measure = o.list("measure");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
+    q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_measurements(q, progress); });
   } else if (c == "add operator") {
@@ -454,8 +464,10 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.method = o.maybe("method");
     q.params = o.maybe("params");
     q.from_selection = o.maybe("from_selection");
+    q.producer = o.maybe("producer");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
+    q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_operator(q, progress); });
   } else if (c == "add points") {
@@ -468,6 +480,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.description = o.maybe("description");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
+    q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_points(q, progress); });
   } else if (c == "add line") {
@@ -484,6 +497,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.kinds = o.array("kinds");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
+    q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_line(q, progress); });
   } else if (c == "add product") {
@@ -493,6 +507,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.name = o.str("name");
     q.factors = o.commas("factors");
     q.templates = o.list("templates");
+    q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_product(q, progress); });
   } else if (c == "add dictionary") {
@@ -504,6 +519,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.entries = o.str("entries");
     q.description = o.maybe("description");
     q.templates = o.list("templates");
+    q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_dictionary(q, progress); });
   } else if (c == "edit manifold") {

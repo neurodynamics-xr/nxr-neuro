@@ -112,4 +112,35 @@ std::map<std::string, Value> read_all_variables(const std::filesystem::path& fil
 // Whether a file begins as a MATLAB v7.3 (HDF5) file: the 128-byte header says "MATLAB 7.3", or the HDF5 signature is at its start or after a user block.
 bool is_v73(const std::filesystem::path& file);
 
+// ---- A MATLAB v7.3 FILE THIS BUILD CANNOT READ ----
+// v7.3 is HDF5. The native builds read it (matio over HDF5); the WebAssembly build has no HDF5 (and is 32-bit), so there `MatFile::open` refuses a v7.3 file with
+// UnreadableV73 (an Error `unsupported`, naming the file), and the Brainstorm importers (`import subject | condition | template | group`) SKIP that one file, import the rest,
+// and name it with kUnreadableV73 in the import's result and job row (`skipped`). Any other unreadable file is refused as before.
+constexpr const char* kUnreadableV73 = "MATLAB v7.3 (HDF5): not readable in this build; import it with a native build";
+struct UnreadableV73 : nxr::io::Error {
+  explicit UnreadableV73(std::filesystem::path f);
+  std::filesystem::path file;
+};
+// Whether this build reads v7.3 files: true natively, false in WebAssembly. `set_v73_readable(false)` makes a native build behave as the WebAssembly one (its tests do; the
+// default comes back with `set_v73_readable(true)`).
+bool v73_readable();
+void set_v73_readable(bool readable);
+
+// The files an import skipped, gathered while one is alive (the innermost scope of the thread); `note_skipped` adds one to it (nothing when none is open).
+struct SkippedFile { std::string file, reason; };
+class SkippedFiles {
+ public:
+  SkippedFiles();
+  ~SkippedFiles();
+  SkippedFiles(const SkippedFiles&) = delete;
+  SkippedFiles& operator=(const SkippedFiles&) = delete;
+  const std::vector<SkippedFile>& files() const { return files_; }
+
+ private:
+  friend void note_skipped(const std::string& file, const std::string& reason);
+  std::vector<SkippedFile> files_;
+  SkippedFiles* outer_ = nullptr;
+};
+void note_skipped(const std::string& file, const std::string& reason);
+
 }  // namespace nxr::bst

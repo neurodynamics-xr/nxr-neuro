@@ -54,7 +54,33 @@ EM_JS(int, nxr_js_alive, (double pid), {
   if (typeof process === 'undefined' || !process.kill) return 1;
   try { process.kill(pid, 0); return 1; } catch (e) { return e && e.code === 'EPERM' ? 1 : 0; }
 });
+// THE LOCKS THIS PROCESS HOLDS. A lock file naming this process's pid is live only while the process holds it, and `held()` says which it holds. In WebAssembly each module
+// instance has its own memory, so its `held()` sees only its own locks: two instances in one Node process would each take a lock file naming the shared pid as stale. The
+// process-wide record is therefore kept in the host, on `globalThis` (one Set of lock files for every instance of the module in the process).
+EM_JS(int, nxr_js_lock_held, (const char* file), { const s = globalThis.__nxrWriterLocksHeld; return s && s.has(UTF8ToString(file)) ? 1 : 0; });
+EM_JS(void, nxr_js_lock_add, (const char* file), { (globalThis.__nxrWriterLocksHeld = globalThis.__nxrWriterLocksHeld || new Set()).add(UTF8ToString(file)); });
+EM_JS(void, nxr_js_lock_remove, (const char* file), { if (globalThis.__nxrWriterLocksHeld) globalThis.__nxrWriterLocksHeld.delete(UTF8ToString(file)); });
 #endif
+
+// does this process hold the lock file (any module instance of it, in WebAssembly)? Called under g_mu.
+bool process_holds(const fs::path& file) {
+#ifdef __EMSCRIPTEN__
+  if (nxr_js_lock_held(file.c_str())) return true;
+#endif
+  return held().count(file) != 0;
+}
+void process_took(const fs::path& file) {
+  held().insert(file);
+#ifdef __EMSCRIPTEN__
+  nxr_js_lock_add(file.c_str());
+#endif
+}
+void process_released(const fs::path& file) {
+  held().erase(file);
+#ifdef __EMSCRIPTEN__
+  nxr_js_lock_remove(file.c_str());
+#endif
+}
 
 long long this_pid() {
 #ifdef __EMSCRIPTEN__
@@ -173,7 +199,7 @@ bool stale(const fs::path& file, const std::optional<Json>& h) {
   const long long pid = (*h)["pid"].get<long long>();
   if (pid == this_pid()) {
     std::lock_guard<std::mutex> l(g_mu);
-    return held().count(file) == 0;
+    return !process_holds(file);
   }
   if (!pid_alive(pid)) return true;
   const auto boot = boot_time();
@@ -232,6 +258,9 @@ void release_all() {
   for (const auto& f : held()) {
     const auto h = read_writer_lock(f.parent_path());
     if (h && (*h)["pid"].get<long long>() == this_pid()) ::unlink(f.c_str());
+#ifdef __EMSCRIPTEN__
+    nxr_js_lock_remove(f.c_str());
+#endif
   }
   held().clear();
 }
@@ -273,7 +302,7 @@ void WriterLock::release() {
   if (!s_) return;
   if (s_->released || s_->borrowed) { s_->released = true; return; }
   s_->released = true;
-  { std::lock_guard<std::mutex> l(g_mu); held().erase(s_->file); }
+  { std::lock_guard<std::mutex> l(g_mu); process_released(s_->file); }
   const auto h = read_writer_lock(s_->file.parent_path());
   if (h && (*h)["pid"].get<long long>() == this_pid()) ::unlink(s_->file.c_str());
 }
@@ -319,7 +348,7 @@ WriterLock acquire_writer_lock(const fs::path& dataset_dir, const std::string& p
     ::unlink(file.c_str());
     throw Error(code::io, file.string() + ": cannot write the lock");
   }
-  { std::lock_guard<std::mutex> l(g_mu); held().insert(file); }
+  { std::lock_guard<std::mutex> l(g_mu); process_took(file); }
   lock.s_ = std::make_shared<WriterLock::State>();
   lock.s_->file = file;
   return lock;

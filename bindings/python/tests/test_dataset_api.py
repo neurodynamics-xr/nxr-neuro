@@ -154,6 +154,25 @@ def test_read_each_class(demo):
     assert list(arr.shape) == one["shape"] and arr.dtype == np.dtype(one["dtype"]) and got["checksum"] == one["checksum"]
 
 
+def test_studio_gaps_through_the_face(demo, tmp_path):
+    """The options the Studio asked for, through Python: the author (`by`), the producer record in `read subject`, a region and a budget of `read <class>`, `list datasets`
+    of either form and of an empty folder (synthetic data only)."""
+    nn.add.field(dataset=demo, subject="S1", name="w", manifold="sensors", values=np.arange(CHANNELS, dtype=np.float64), producer={"studio": {"layer": "L"}}, by="a person")
+    w = next(f for f in nn.read.subject(dataset=demo, subject="S1", classes="fields")["fields"] if f["name"] == "w")
+    assert w["provenance"]["created_by"] == "a person" and w["provenance"]["producer"]["studio"] == {"layer": "L"}
+    nn.add.operator(dataset=demo, subject="S1", name="mix", from_manifold="sensors", to_manifold="sensors", values=np.eye(CHANNELS), producer={"studio": {"k": 1}})
+    assert nn.read.operator(dataset=demo, subject="S1", name="mix")["producer"]["studio"] == {"k": 1}
+    part = nn.read.manifold(dataset=demo, subject="S1", name="sensors", region=["1:3"])
+    assert part.arrays["positions"].shape == (2, 3) and part["regions"]["positions"] == [[1, 3], [0, 3]]
+    with pytest.raises(nn.InvalidArgumentError, match="budget"):
+        nn.read.field(dataset=demo, subject="S1", name="rest", all=True, budget=100)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert nn.list.datasets(datastore=empty)["datasets"] == []
+    nn.create.dataset(dataset=empty / "cat")
+    assert [(d["name"], d["form"]) for d in nn.list.datasets(datastore=empty)["datasets"]] == [("cat", "catalogue")]
+
+
 def test_add_each_class_and_read_it_back(demo, tmp_path):
     def read(cls, name, **kw):
         return getattr(nn.read, cls)(dataset=demo, subject="S1", name=name, **kw)

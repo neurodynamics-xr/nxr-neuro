@@ -1,6 +1,7 @@
 // nxr::bst — Brainstorm `.mat` files over matio (zlib; HDF5 for v7.3): see nxr/bst/mat.h.
 #include "nxr/bst/mat.h"
 
+#include <atomic>
 #include <cstring>
 #include <fstream>
 #include <mutex>
@@ -337,6 +338,26 @@ bool Value::has_field(const std::string& name) const {
   return false;
 }
 
+// ── a v7.3 file this build cannot read, and the files an import skipped ──
+namespace {
+#ifdef __EMSCRIPTEN__
+std::atomic<bool> g_v73_readable{false};   // no HDF5 in the WebAssembly build
+#else
+std::atomic<bool> g_v73_readable{true};
+#endif
+thread_local SkippedFiles* g_skipped = nullptr;
+}  // namespace
+
+UnreadableV73::UnreadableV73(std::filesystem::path f)
+    : Error(nxr::io::code::unsupported, f.string() + ": " + kUnreadableV73 + " (or re-save it as v7: MATLAB save -v7)"), file(std::move(f)) {}
+bool v73_readable() { return g_v73_readable.load(); }
+void set_v73_readable(bool readable) { g_v73_readable.store(readable); }
+SkippedFiles::SkippedFiles() : outer_(g_skipped) { g_skipped = this; }
+SkippedFiles::~SkippedFiles() { g_skipped = outer_; }
+void note_skipped(const std::string& file, const std::string& reason) {
+  if (g_skipped) g_skipped->files_.push_back(SkippedFile{file, reason});
+}
+
 // ── MatFile ──
 bool is_v73(const std::filesystem::path& file) {
   std::ifstream in(file, std::ios::binary);
@@ -362,12 +383,8 @@ MatFile MatFile::open(const std::filesystem::path& file) {
   std::error_code ec;
   if (!std::filesystem::is_regular_file(file, ec)) throw Error(nxr::io::code::not_found, "not a file: " + file.string());
   g_last_message.clear();
-#ifdef __EMSCRIPTEN__
-  // the WebAssembly build's matio has no HDF5: a v7.3 file is refused by name, not with matio's generic failure
-  if (is_v73(file))
-    throw Error(nxr::io::code::unsupported, file.string() + ": a MATLAB v7.3 (HDF5) file, which nxr-neuro's WebAssembly build does not read (it has no HDF5); "
-                                            "re-save it as v7 (MATLAB: save -v7), or convert it with the native nxr-neuro");
-#endif
+  // a build that cannot read v7.3 (the WebAssembly one: no HDF5) refuses the file by name, as UnreadableV73, which an importer skips (mat.h)
+  if (!v73_readable() && is_v73(file)) throw UnreadableV73(file);
   mat_t* m = Mat_Open(file.string().c_str(), MAT_ACC_RDONLY);
   if (!m) throw Error(nxr::io::code::invalid_argument, file.string() + ": not a MATLAB MAT-file matio can read" + (g_last_message.empty() ? "" : " (" + g_last_message + ")"));
   MatFile f;

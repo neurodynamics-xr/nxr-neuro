@@ -170,6 +170,18 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_add_options PRIVATE nxr_pipelines)
   target_include_directories(test_add_options PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
   add_test(NAME test_add_options COMMAND test_add_options)
+  add_executable(test_subject_descriptions test/test_subject_descriptions.cpp)   # read subject / list <class>: producer records, --by, a set's members, a line's coordinate, a component's from_index, app dictionaries
+  target_link_libraries(test_subject_descriptions PRIVATE nxr_pipelines)
+  target_include_directories(test_subject_descriptions PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_subject_descriptions COMMAND test_subject_descriptions)
+  add_executable(test_read_region test/test_read_region.cpp)   # read <class> --region and --budget; a tiling's spans
+  target_link_libraries(test_read_region PRIVATE nxr_pipelines)
+  target_include_directories(test_read_region PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_read_region COMMAND test_read_region)
+  add_executable(test_list_datasets test/test_list_datasets.cpp)   # list datasets: both forms, an empty folder; the writer lock within one process and its handshake
+  target_link_libraries(test_list_datasets PRIVATE nxr_pipelines)
+  target_include_directories(test_list_datasets PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_list_datasets COMMAND test_list_datasets)
   add_executable(test_pieces_deletes_jobs test/test_pieces_deletes_jobs.cpp)   # writes in pieces, deletes by class and jobs (data-layer queries spec, step 3): round trips, rollback, the refusals, job rows
   target_link_libraries(test_pieces_deletes_jobs PRIVATE nxr_pipelines)
   target_include_directories(test_pieces_deletes_jobs PRIVATE ${CMAKE_SOURCE_DIR}/io/test)

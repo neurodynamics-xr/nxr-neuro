@@ -87,9 +87,16 @@ struct Ctx {
   }
 };
 
+// the node's producer record (how it was made: the command or pipeline, the program, its inputs, and what the maker said with `--producer`), as `read <class>` gives it: a selection
+// keeps it in its parameters (it has no producer column), every other class in its own record. Null: none.
+Json producer_record(const Row& r) {
+  if (r.find("producer_json") != r.end()) return Jj(r, "producer_json");
+  const Json p = Jj(r, "params_json");
+  return p.is_object() && p.contains("producer") ? p["producer"] : Json();
+}
 Json provenance(const Row& r) {
   return Json{{"source", Jt(r, "source")}, {"comment", Jt(r, "comment")}, {"created_utc", Jt(r, "created_utc")}, {"created_by", Jt(r, "created_by")},
-              {"modified_utc", Jt(r, "modified_utc")}, {"modified_by", Jt(r, "modified_by")}};
+              {"modified_utc", Jt(r, "modified_utc")}, {"modified_by", Jt(r, "modified_by")}, {"producer", producer_record(r)}};
 }
 Json acquisition_of(const Ctx& c, const Row& r) {
   if (is_null(r, "acquisition_id")) return Json();
@@ -115,14 +122,19 @@ Json describe_manifold(const Ctx& c, const Row& m) {
     const auto g = c.db.one("SELECT g.form AS form, cs.name AS cs, cs.unit AS unit FROM geometry g LEFT JOIN coordinate_system cs ON cs.id = g.coordinate_system_id WHERE g.id = ?", {V(text(m, "geometry_id"))});
     if (g) {
       const Json producer = Jj(m, "producer_json");
-      coordinates = Json{{"system", Jt(*g, "cs")}, {"unit", Jt(*g, "unit")}, {"kinds", producer.is_object() && producer.contains("kinds") && producer["kinds"].is_string()}};
+      // a closed-form geometry's coordinate along each of its axes (a line's: one): the first point's coordinate, the step between points and its unit
+      Json closed = Json::array();
+      for (const auto& a : axes_of(c, m))
+        if (a["factor"].is_null() && !a["spacing"].is_null()) closed.push_back(Json{{"name", a["name"]}, {"size", a["size"]}, {"origin", a["origin"]}, {"spacing", a["spacing"]}, {"unit", a["unit"]}});
+      coordinates = Json{{"system", Jt(*g, "cs")}, {"unit", Jt(*g, "unit")}, {"kinds", producer.is_object() && producer.contains("kinds") && producer["kinds"].is_string()},
+                         {"axes", closed}};
     }
   }
   return Json{{"id", Jt(m, "id")}, {"name", Jt(m, "name")}, {"kind", Jt(m, "type")}, {"type", c.typed("manifold", m)}, {"label", Jt(m, "label")}, {"description", Jt(m, "comment")}, {"primary", flag(m, "is_primary")}, {"acquisition", acquisition_of(c, m)},
               {"coordinates", coordinates},
               {"size", Json{{"vertices", Jt(m, "n_vertices")}, {"edges", Jt(m, "n_edges")}, {"faces", Jt(m, "n_faces")}, {"volumes", Jt(m, "n_volumes")}}},
               {"factors", factors},
-              {"component_of", c.ref("manifold", m, "component_of_id")}, {"component_ordinal", Jt(m, "component_ordinal")},
+              {"component_of", c.ref("manifold", m, "component_of_id")}, {"component_ordinal", Jt(m, "component_ordinal")}, {"from_index", Jt(m, "from_index")},
               {"derived_from", c.ref("manifold", m, "derived_from_id")}, {"derived_by", Jt(m, "operator")}, {"stored", !is_null(m, "path")}, {"provenance", provenance(m)}};
 }
 
@@ -174,7 +186,10 @@ Json describe_selection(const Ctx& c, const Row& s) {
     if (!n.empty()) dictionary = n;
   }
   return Json{{"id", Jt(s, "id")}, {"name", Jt(s, "name")}, {"kind", Jt(s, "type")}, {"type", c.typed("selection", s)}, {"label", Jt(s, "label")}, {"acquisition", acquisition_of(c, s)},
-              {"description", Jt(s, "description")}, {"elements", Jt(s, "n_elements")}, {"members", Jt(s, "n_members")}, {"of_field", c.ref("field", s, "of_field_id")},
+              {"description", Jt(s, "description")}, {"elements", Jt(s, "n_elements")}, {"members", Jt(s, "n_members")},
+              // a member of a set is a selection of its own (an atlas of the set of a surface's parcellations, a level of a grid): the set it belongs to, its place there and its code
+              {"member_of", c.ref("selection", s, "member_of_id")}, {"member_ordinal", Jt(s, "member_ordinal")}, {"code", Jt(s, "code")},
+              {"of_field", c.ref("field", s, "of_field_id")},
               {"weights", [&] { const Json p = Jj(s, "params_json"); return p.is_object() && p.contains("weights") && p["weights"].is_string(); }()},
               {"stored", !is_null(s, "array_path")}, {"dictionary", dictionary}, {"entries", entries_of(c, s, false)}, {"provenance", provenance(s)}};
 }
@@ -206,10 +221,12 @@ Json describe_statistic(const Ctx& c, const Row& s) {
               {"description", Jt(s, "description")},
               {"of_field", c.ref("field", s, "of_field_id")}, {"of_statistic", c.ref("statistic", s, "of_statistic_id")}, {"partition", c.ref("selection", s, "partition_selection_id")},
               {"members", Jt(s, "n_members")}, {"members_skipped", Jt(s, "members_skipped")}, {"dof", Jt(s, "dof")}, {"axes", axes}, {"stored", !is_null(s, "path")},
-              {"provenance", Json{{"created_utc", Jt(s, "created_utc")}, {"created_by", Jt(s, "created_by")}, {"modified_utc", Jt(s, "modified_utc")}, {"modified_by", Jt(s, "modified_by")}}}};
+              {"provenance", Json{{"created_utc", Jt(s, "created_utc")}, {"created_by", Jt(s, "created_by")}, {"modified_utc", Jt(s, "modified_utc")}, {"modified_by", Jt(s, "modified_by")},
+                                  {"producer", producer_record(s)}}}};
 }
 
 // ---- dictionaries, spaces, acquisitions, jobs ----
+// a subject sees its own dictionaries, the ones its selections read, its dataset's, and every app-scope one (the program's: the atlases' codes, the frequency bands), each with its `scope`
 Json describe_dictionary(const Ctx& c, const Row& d) {
   Json entries = Json::array();
   for (const Row& e : c.db.all("SELECT code, name, color_json, measurement, measurement_unit, function, params_json, attributes_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {V(text(d, "id"))}))
@@ -260,10 +277,10 @@ const char* const kManifoldSelect =
 const ClassDef kDefs[] = {
     {"manifolds", "manifold", "x.name", kManifoldSelect, "x.subject_id = ? AND x.status = 'complete'", 1, "x.type", describe_manifold},
     {"fields", "field", "x.name", "SELECT x.* FROM field x", "x.subject_id = ? AND x.status = 'complete'", 1, "x.kind", describe_field},
-    {"selections", "selection", "x.name", "SELECT x.* FROM selection x", "x.subject_id = ? AND x.status = 'complete' AND x.member_of_id IS NULL", 1, "x.type", describe_selection},
+    {"selections", "selection", "x.name", "SELECT x.* FROM selection x", "x.subject_id = ? AND x.status = 'complete'", 1, "x.type", describe_selection},
     {"operators", "operator", "x.name", "SELECT x.* FROM operator x", "x.subject_id = ? AND x.status = 'complete'", 1, "x.kind", describe_operator},
     {"statistics", "statistic", "x.name", "SELECT x.* FROM statistic x", "x.subject_id = ? AND x.status = 'complete'", 1, "x.measure", describe_statistic},
-    {"dictionaries", "dictionary", "x.name", "SELECT x.* FROM dictionary x", "(x.subject_id = ? OR x.id IN (SELECT dictionary_id FROM selection WHERE subject_id = ? AND dictionary_id IS NOT NULL) OR (x.scope = 'dataset' AND x.dataset_id IN (SELECT dataset_id FROM subject WHERE id = ?)))", 3, "x.scope", describe_dictionary},
+    {"dictionaries", "dictionary", "x.name", "SELECT x.* FROM dictionary x", "(x.subject_id = ? OR x.id IN (SELECT dictionary_id FROM selection WHERE subject_id = ? AND dictionary_id IS NOT NULL) OR (x.scope = 'dataset' AND x.dataset_id IN (SELECT dataset_id FROM subject WHERE id = ?)) OR x.scope = 'app')", 3, "x.scope", describe_dictionary},
     {"spaces", "space", "x.name", "SELECT x.* FROM space x", "x.subject_id = ?", 1, "x.geometry", describe_space},
     {"acquisitions", "acquisition", "x.label", "SELECT x.* FROM acquisition x", "x.subject_id = ?", 1, nullptr, describe_acquisition},
     {"jobs", "job", "x.created_utc", "SELECT x.*, s.name AS subject_name FROM job x LEFT JOIN subject s ON s.id = x.subject_id", "x.subject_id = ?", 1, "x.kind", describe_job},
@@ -520,9 +537,9 @@ CommandResult list_class(const ListClassRequest& rq, const Progress& progress) {
     // the columns of the class: from the first row, or, with no row, from an empty description of the class (a name no node can have)
     if (known.empty()) {
       static const std::map<std::string, std::vector<std::string>> by_class = {
-          {"manifolds", {"subject", "id", "name", "kind", "type", "label", "description", "primary", "acquisition", "coordinates", "size", "factors", "component_of", "component_ordinal", "derived_from", "derived_by", "stored", "provenance"}},
+          {"manifolds", {"subject", "id", "name", "kind", "type", "label", "description", "primary", "acquisition", "coordinates", "size", "factors", "component_of", "component_ordinal", "from_index", "derived_from", "derived_by", "stored", "provenance"}},
           {"fields", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "stored", "lineage", "provenance"}},
-          {"selections", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "elements", "members", "of_field", "weights", "stored", "dictionary", "entries", "provenance"}},
+          {"selections", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "elements", "members", "member_of", "member_ordinal", "code", "of_field", "weights", "stored", "dictionary", "entries", "provenance"}},
           {"operators", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "from", "to", "method", "parameters", "shape", "stored", "lineage", "provenance"}},
           {"statistics", {"subject", "id", "name", "measure", "method", "type", "label", "acquisition", "description", "of_field", "of_statistic", "partition", "members", "members_skipped", "dof", "axes", "stored", "provenance"}},
           {"dictionaries", {"subject", "id", "name", "scope", "description", "entries", "provenance"}},

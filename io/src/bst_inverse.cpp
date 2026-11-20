@@ -8,6 +8,7 @@
 
 #include "bst_pyvalue.h"
 #include "nxr/bst/naming.h"
+#include "nxr/bst/subject.h"
 #include "nxr/io/layout.h"
 
 namespace nxr::bst {
@@ -536,106 +537,108 @@ std::vector<std::string> import_condition_kernels(SubjectWriter& sub, const Cond
   std::map<std::string, Done> fwd_done;
   std::vector<std::string> inv_names;
   for (const fs::path& kf : kernel_files) {
-    if (starts_with(kf.filename().string(), "._")) continue;
-    const std::map<std::string, Value> kern = read_all_variables(kf);
-    if (const Value* K = get(kern, "ImagingKernel"); !K || !K->numel()) {
-      emit(Json{{"stage", "skip-kernel"}, {"file", path_str(kf)}, {"reason", "no ImagingKernel"}});
-      continue;
-    }
-    const Value* hv = get(kern, "HeadModelFile");
-    const std::string hm_link = py_truthy(hv) ? py_str(hv) : "";
-    std::string hm_path;
-    if (const auto it = c.head_model_map.find(hm_link); it != c.head_model_map.end() && !it->second.empty()) hm_path = it->second;
-    else if (!hm_link.empty()) hm_path = path_str(c.bst_root / "data" / hm_link);
-    std::error_code ec;
-    if (!hm_path.empty() && !fs::is_regular_file(hm_path, ec)) {
-      // Brainstorm never rewrites a kernel's HeadModelFile when the head model is renamed: stale links are NORMAL. One spatial head model beside it is the answer.
-      const auto spatial = spatial_head_models(c.cond_dir);
-      if (spatial.size() == 1) {
-        emit(Json{{"stage", "stale-headmodel-link"}, {"file", path_str(kf)}, {"link", hm_link}, {"resolved", spatial[0].filename().string()}});
-        hm_path = spatial[0].string();
-      } else {
-        Json cands = Json::array();
-        for (const auto& s : spatial) cands.push_back(s.filename().string());
-        emit(Json{{"stage", "skip-kernel"}, {"file", path_str(kf)}, {"reason", "head model missing: " + hm_link}, {"candidates", cands}});
-        continue;
+    or_skip_unreadable_v73(sub, emit, [&] {   // a kernel or its head model in MATLAB v7.3 this build cannot read: that kernel is skipped, named
+      if (starts_with(kf.filename().string(), "._")) return;
+      const std::map<std::string, Value> kern = read_all_variables(kf);
+      if (const Value* K = get(kern, "ImagingKernel"); !K || !K->numel()) {
+        emit(Json{{"stage", "skip-kernel"}, {"file", path_str(kf)}, {"reason", "no ImagingKernel"}});
+        return;
       }
-    }
-    std::optional<std::vector<double>> gl, go;
-    std::optional<std::string> fwd_id;
-    if (!hm_path.empty()) {
-      // PROBED, and once per head model: the Gain (~84 MB) is decoded only when the forward is written
-      auto have = fwd_done.find(hm_path);
-      std::map<std::string, Value> grid;
-      if (have == fwd_done.end()) grid = read_variables(hm_path, {"GridLoc", "GridOrient"});
-      const Value* gv = get(grid, "GridLoc");
-      if (have == fwd_done.end() && c.require_source_grid && (!gv || gv->numel() == 0)) {
-        emit(Json{{"stage", "skip-kernel"}, {"file", path_str(kf)}, {"reason", "modal head model (empty GridLoc)"}});
-        continue;
-      }
-      if (have == fwd_done.end()) {
-        const std::string hm_fp = source_fingerprint({hm_path}, c.channels_id + "|" + c.surface_id + "|" + (c.write_gain ? "True" : "False"));
-        const auto [hm_name, hm_shared] = claim_node_name(sub, "", headmodel_node_name(hm_path), c.acquisition, hm_fp);
-        Done d;
-        if (hm_shared) {
-          d.name = hm_name;
-          d.id = nxr::io::text(*sub.find("operator", hm_name), "id");
-          emit(Json{{"stage", "forward-shared"}, {"name", hm_name}});
+      const Value* hv = get(kern, "HeadModelFile");
+      const std::string hm_link = py_truthy(hv) ? py_str(hv) : "";
+      std::string hm_path;
+      if (const auto it = c.head_model_map.find(hm_link); it != c.head_model_map.end() && !it->second.empty()) hm_path = it->second;
+      else if (!hm_link.empty()) hm_path = path_str(c.bst_root / "data" / hm_link);
+      std::error_code ec;
+      if (!hm_path.empty() && !fs::is_regular_file(hm_path, ec)) {
+        // Brainstorm never rewrites a kernel's HeadModelFile when the head model is renamed: stale links are NORMAL. One spatial head model beside it is the answer.
+        const auto spatial = spatial_head_models(c.cond_dir);
+        if (spatial.size() == 1) {
+          emit(Json{{"stage", "stale-headmodel-link"}, {"file", path_str(kf)}, {"link", hm_link}, {"resolved", spatial[0].filename().string()}});
+          hm_path = spatial[0].string();
         } else {
-          ForwardOptions fo;
-          fo.acquisition = c.acquisition;
-          fo.name = hm_name;
-          fo.channels_id = c.channels_id;
-          fo.surface_id = c.surface_id;
-          fo.n_channels = c.n_channels;
-          fo.n_vertices = c.n_vertices;
-          fo.head_model_file = hm_path;
-          fo.bst_root = c.bst_root.string();
-          fo.write_gain = c.write_gain;
-          fo.source_sha1 = hm_fp;
-          const ForwardInfo fi = export_forward(sub, read_all_variables(hm_path), fo);
-          d.name = fi.name;
-          d.id = fi.id;
-          emit(Json{{"stage", "forward"}, {"name", fi.name}});
+          Json cands = Json::array();
+          for (const auto& s : spatial) cands.push_back(s.filename().string());
+          emit(Json{{"stage", "skip-kernel"}, {"file", path_str(kf)}, {"reason", "head model missing: " + hm_link}, {"candidates", cands}});
+          return;
         }
-        d.grid_loc = rows_of(gv);
-        d.has_loc = gv && gv->numel();
-        d.grid_orient = rows_of(get(grid, "GridOrient"));
-        d.has_orient = !d.grid_orient.empty();
-        have = fwd_done.emplace(hm_path, std::move(d)).first;
       }
-      const Done& f = have->second;
-      fwd_id = f.id;
-      if (f.has_loc) gl = f.grid_loc;
-      if (f.has_orient) go = f.grid_orient;
-    }
-    const std::string k_fp = source_fingerprint({kf}, c.channels_id + "|" + c.surface_id + "|" + (fwd_id ? *fwd_id : "None"));
-    const auto [k_name, k_shared] = claim_node_name(sub, "", kernel_node_name(kf), c.acquisition, k_fp);
-    std::string ii_name, ii_method;
-    if (k_shared) {
-      const Json pj = Json::parse(nxr::io::opt_text(*sub.find("operator", k_name), "producer_json").value_or("{}"), nullptr, false);
-      ii_name = k_name;
-      ii_method = pj.is_object() && pj.contains("method") && pj["method"].is_string() ? pj["method"].get<std::string>() : "unknown";
-    } else {
-      InverseOptions io;
-      io.acquisition = c.acquisition;
-      io.name = k_name;
-      io.channels_id = c.channels_id;
-      io.surface_id = c.surface_id;
-      io.forward_id = fwd_id;
-      io.kernel_file = path_str(kf);
-      io.bst_root = path_str(c.bst_root);
-      io.channel_names = c.channel_names;
-      io.n_vertices = c.n_vertices;
-      io.grid_loc = gl;
-      io.grid_orient = go;
-      io.source_sha1 = k_fp;
-      const InverseInfo ii = export_inverse(sub, kern, io);
-      ii_name = ii.name;
-      ii_method = ii.method;
-    }
-    inv_names.push_back(ii_name);
-    emit(Json{{"stage", "inverse"}, {"name", ii_name}, {"method", ii_method}});
+      std::optional<std::vector<double>> gl, go;
+      std::optional<std::string> fwd_id;
+      if (!hm_path.empty()) {
+        // PROBED, and once per head model: the Gain (~84 MB) is decoded only when the forward is written
+        auto have = fwd_done.find(hm_path);
+        std::map<std::string, Value> grid;
+        if (have == fwd_done.end()) grid = read_variables(hm_path, {"GridLoc", "GridOrient"});
+        const Value* gv = get(grid, "GridLoc");
+        if (have == fwd_done.end() && c.require_source_grid && (!gv || gv->numel() == 0)) {
+          emit(Json{{"stage", "skip-kernel"}, {"file", path_str(kf)}, {"reason", "modal head model (empty GridLoc)"}});
+          return;
+        }
+        if (have == fwd_done.end()) {
+          const std::string hm_fp = source_fingerprint({hm_path}, c.channels_id + "|" + c.surface_id + "|" + (c.write_gain ? "True" : "False"));
+          const auto [hm_name, hm_shared] = claim_node_name(sub, "", headmodel_node_name(hm_path), c.acquisition, hm_fp);
+          Done d;
+          if (hm_shared) {
+            d.name = hm_name;
+            d.id = nxr::io::text(*sub.find("operator", hm_name), "id");
+            emit(Json{{"stage", "forward-shared"}, {"name", hm_name}});
+          } else {
+            ForwardOptions fo;
+            fo.acquisition = c.acquisition;
+            fo.name = hm_name;
+            fo.channels_id = c.channels_id;
+            fo.surface_id = c.surface_id;
+            fo.n_channels = c.n_channels;
+            fo.n_vertices = c.n_vertices;
+            fo.head_model_file = hm_path;
+            fo.bst_root = c.bst_root.string();
+            fo.write_gain = c.write_gain;
+            fo.source_sha1 = hm_fp;
+            const ForwardInfo fi = export_forward(sub, read_all_variables(hm_path), fo);
+            d.name = fi.name;
+            d.id = fi.id;
+            emit(Json{{"stage", "forward"}, {"name", fi.name}});
+          }
+          d.grid_loc = rows_of(gv);
+          d.has_loc = gv && gv->numel();
+          d.grid_orient = rows_of(get(grid, "GridOrient"));
+          d.has_orient = !d.grid_orient.empty();
+          have = fwd_done.emplace(hm_path, std::move(d)).first;
+        }
+        const Done& f = have->second;
+        fwd_id = f.id;
+        if (f.has_loc) gl = f.grid_loc;
+        if (f.has_orient) go = f.grid_orient;
+      }
+      const std::string k_fp = source_fingerprint({kf}, c.channels_id + "|" + c.surface_id + "|" + (fwd_id ? *fwd_id : "None"));
+      const auto [k_name, k_shared] = claim_node_name(sub, "", kernel_node_name(kf), c.acquisition, k_fp);
+      std::string ii_name, ii_method;
+      if (k_shared) {
+        const Json pj = Json::parse(nxr::io::opt_text(*sub.find("operator", k_name), "producer_json").value_or("{}"), nullptr, false);
+        ii_name = k_name;
+        ii_method = pj.is_object() && pj.contains("method") && pj["method"].is_string() ? pj["method"].get<std::string>() : "unknown";
+      } else {
+        InverseOptions io;
+        io.acquisition = c.acquisition;
+        io.name = k_name;
+        io.channels_id = c.channels_id;
+        io.surface_id = c.surface_id;
+        io.forward_id = fwd_id;
+        io.kernel_file = path_str(kf);
+        io.bst_root = path_str(c.bst_root);
+        io.channel_names = c.channel_names;
+        io.n_vertices = c.n_vertices;
+        io.grid_loc = gl;
+        io.grid_orient = go;
+        io.source_sha1 = k_fp;
+        const InverseInfo ii = export_inverse(sub, kern, io);
+        ii_name = ii.name;
+        ii_method = ii.method;
+      }
+      inv_names.push_back(ii_name);
+      emit(Json{{"stage", "inverse"}, {"name", ii_name}, {"method", ii_method}});
+    });
   }
   // NO KERNEL IS NOT AN ERROR: a legitimate anatomy + timeseries session
   if (inv_names.empty()) emit(Json{{"stage", "no-kernel"}, {"message", "no inverse kernel in this condition \xe2\x80\x94 the session is anatomy + timeseries"}});

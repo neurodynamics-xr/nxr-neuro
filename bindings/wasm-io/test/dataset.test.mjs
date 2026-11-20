@@ -220,5 +220,17 @@ test('a write handle holds the lock across processes; a read handle keeps its da
     r.close();
     await assert.rejects(r.read.manifold({ subject: 'S1', name: 'sensors' }), /closed/);
     assert.throws(() => nxr.open(D, 'append'), /mode is 'read' or 'write'/);
+
+    // a second module instance in the SAME process: refused while the first holds the lock, granted once it is released (each instance has its own memory: the record is the process's)
+    const { nxrNeuro } = await import(pathToFileURL(join(PACKAGE, 'index.mjs')).href);
+    const other = await nxrNeuro();
+    const first = nxr.open(D, 'write');
+    assert.throws(() => other.open(D, 'write'), (e) => e instanceof NxrError && e.code === 'writer_lock_held');
+    await assert.rejects(other.add.line({ dataset: D, subject: 'S1', name: 'same_process', n: 3, spacing: 1, unit: 's' }), (e) => e.code === 'writer_lock_held');
+    first.close();
+    const second = other.open(D, 'write');
+    assert.throws(() => nxr.open(D, 'write'), (e) => e.code === 'writer_lock_held');
+    second.close();
+    nxr.open(D, 'write').close();
   } finally { done(); }
 });

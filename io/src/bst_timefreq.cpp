@@ -7,6 +7,7 @@
 
 #include "bst_pyvalue.h"
 #include "nxr/bst/frequency.h"
+#include "nxr/bst/subject.h"
 #include "nxr/io/layout.h"
 
 namespace nxr::bst {
@@ -237,17 +238,19 @@ int export_condition_timefreqs(SubjectWriter& sub, const fs::path& cond_dir, con
   int n = 0;
   for (const fs::path& tf : files) {
     if (starts_with(tf.filename().string(), "._")) continue;
-    if (auto info = export_timefreq(sub, tf, acquisition)) {
-      Json line = Json{{"stage", "field"}};
-      for (auto it = info->begin(); it != info->end(); ++it) line[it.key()] = it.value();
-      emit(line);
-      ++n;
-    } else if (auto st = export_timefreq_statistic(sub, tf, acquisition)) {
-      Json line = Json{{"stage", "statistic"}};
-      for (auto it = st->begin(); it != st->end(); ++it) line[it.key()] = it.value();
-      emit(line);
-      ++n;
-    }
+    or_skip_unreadable_v73(sub, emit, [&] {   // a v7.3 file this build cannot read: skipped, named
+      if (auto info = export_timefreq(sub, tf, acquisition)) {
+        Json line = Json{{"stage", "field"}};
+        for (auto it = info->begin(); it != info->end(); ++it) line[it.key()] = it.value();
+        emit(line);
+        ++n;
+      } else if (auto st = export_timefreq_statistic(sub, tf, acquisition)) {
+        Json line = Json{{"stage", "statistic"}};
+        for (auto it = st->begin(); it != st->end(); ++it) line[it.key()] = it.value();
+        emit(line);
+        ++n;
+      }
+    });
   }
   return n;
 }

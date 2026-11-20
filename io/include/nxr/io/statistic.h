@@ -44,7 +44,8 @@ struct StoredStatistic {
 std::vector<Row> statistics_of(const Database& db, const std::string& subject_id, const std::optional<std::string>& of_field_id = std::nullopt,
                                const std::optional<std::string>& measure = std::nullopt);
 /** a statistic of the subject by name (an Error no_such_row naming the subject's statistics when there is none) */
-StoredStatistic read_statistic(SubjectWriter& sub, const std::string& name);
+// `with_values` false: the record, the axes and the shape only (no value read: a caller that reads a region of the array itself)
+StoredStatistic read_statistic(SubjectWriter& sub, const std::string& name, bool with_values = true);
 
 /** A MAP OF A STATISTIC (2026-11-13, the maintainers: map statistics are read as maps): a statistic whose first axis lies on a manifold (the vertices of a surface,
  *  the modes) and whose second lists named entries (bands: {name, …}) is a stack of maps; slice k is entry k's map, named `<statistic>_<entry name>` (as

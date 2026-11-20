@@ -25,6 +25,11 @@ namespace nxr::bst {
 
 using Emit = std::function<void(const Json&)>;   // one progress line (`stage` keyed)
 
+// ONE FILE of an import, run by `body`: when it meets a MATLAB v7.3 file this build cannot read (mat.h UnreadableV73: the WebAssembly build), what `body` wrote is rolled back,
+// the file is named with its reason (kUnreadableV73) to the import's SkippedFiles and as a `skipped` progress line, and false is returned; the import goes on with the rest.
+// Any other error goes on as before.
+bool or_skip_unreadable_v73(nxr::io::SubjectWriter& sub, const Emit& emit, const std::function<void()>& body);
+
 // One Brainstorm tess_*.mat as a `surface` manifold and what describes it: its hemispheres, its registration sphere (`Reg.Sphere`) and its parcellations.
 // `primary`: the surface the kernel indexes (refused when its mesh is unhealthy only under NXR_STRICT_MESH=1; a display surface only warns); only a primary is
 // marked `is_primary`. `bst_root`: the protocol root, which makes the manifold's `source` the file's path under `anat/`. `atlases`: only these parcellations (an empty list: none; unset: every one).

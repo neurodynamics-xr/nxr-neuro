@@ -62,6 +62,16 @@ R"TBL(--atlas-finest	QUANTITY	The finest tile of the default subject's group tre
 --berg-dipoles	J	Number of equivalent dipoles in the Berg-Scherg approximation of the three-shell EEG sphere.	3	-
 --berg-starts	N	Number of simplex starts when fitting the three-dipole Berg-Scherg approximation of the EEG sphere model; the best fit is kept	12	-
 --berg-terms	N	Number of series terms fitted when approximating the multi-shell EEG model by the Berg-Scherg parameters.	200	terms
+--by@add surface	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add field	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add selection	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add statistic	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add measurements	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add operator	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add points	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add line	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add product	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add dictionary	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
 --block-frames	N	How many frames the steps after a frame tiling process at once; limits memory only, the result does not change (0 = the whole chunk's frames).	256	frames
 --block-frames@run	N	How many frames the steps after a frame tiling process at once; limits memory only, the result does not change (0 = the whole chunk's frames).	256	frames
 --block-samples	N	Samples processed at a time, which sets memory use only and does not change the result (run: width for the steps after the last filter, 0 = whole chunk)	run: 1024	samples
@@ -299,6 +309,16 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --reference-level	L	Spatial tile level whose power the blur patch is cut from.	6	level
 --region	a:b,c:d	Read only this region of the array: a start:stop range per dimension.	the whole array	samples
 --region@read dataset	a:b,c:d	Read only this region of the array: one start:stop index range per dimension, stop excluded; used with --array.	the whole array	samples
+--region@read field	START:STOP,...	A part of a field with no time line: [START, STOP) along each leading axis of each array it gives (a STOP past an array's extent is cut to it; the result's regions say what each array read). A time-resolved field is read by --rows and --from/--to instead; a sparse field whole.	the whole field	-
+--region@read statistic	START:STOP,...	A part of the statistic: [START, STOP) along each leading axis of each array the read gives (a STOP past an array's extent is cut to it; the result's regions say what each array read).	the whole statistic	-
+--region@read operator	START:STOP,...	A part of the operator: [START, STOP) along each leading axis of each array the read gives (a STOP past an array's extent is cut to it; the result's regions say what each array read). A sparse operator is read whole.	the whole operator	-
+--region@read selection	START:STOP,...	A part of the selection: [START, STOP) along each leading axis of each array the read gives (a STOP past an array's extent is cut to it; the result's regions say what each array read).	the whole selection	-
+--region@read manifold	START:STOP,...	A part of the manifold: [START, STOP) along each leading axis of each array the read gives (a STOP past an array's extent is cut to it; the result's regions say what each array read).	the whole manifold	-
+--budget@read field	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
+--budget@read statistic	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
+--budget@read operator	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
+--budget@read selection	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
+--budget@read manifold	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
 --regularisation	ridge|diagonal|none	Regularisation of the noise covariance when whitening	ridge	-
 --regulariser	connection|ambient	Smoothness term of the flow: connection (connection Laplacian on the signpost gauge) or ambient (Dirichlet energy of the ambient 3-vector field, Lefevre and Baillet).	connection	-
 --replace		Replace an existing result of the same name instead of refusing; the old one is moved aside, not deleted.	off	-
@@ -868,7 +888,7 @@ alias: refused
 summary: Add a surface to a subject: a mesh file (OBJ, PLY or STL), or its vertices and faces as .npy files.
 pos: FILE?
 example: nxr-neuro add surface bunny.obj --dataset /data/study --subject sub-01
-opts: --dataset* --faces --name --no-primary --primary --scale --subject* --vertices --templates+
+opts: --by --dataset* --faces --name --no-primary --primary --scale --subject* --vertices --templates+
 )TBL",
 R"TBL(@ list recordings
 old: __list recordings
@@ -1199,73 +1219,73 @@ R"TBL(@ read field
 old: __read field
 summary: Read a stored field by name: its values (a time-resolved field over a stated time range, read one chunk at a time), its manifold and cells, as JSON or .npy.
 example: nxr-neuro read field --dataset /data/study --subject sub-01 --name rest --from 0 --to 10 --out rest.npy
-opts: --all --dataset* --from --name* --out --projectors --rows --shape-only --subject* --to --templates+
+opts: --all --budget --dataset* --from --name* --out --projectors --region --rows --shape-only --subject* --to --templates+
 )TBL",
 R"TBL(@ read statistic
 old: __read statistic
 summary: Read a stored statistic by name: its values on its axes, in the stored precision, as JSON or .npy.
 example: nxr-neuro read statistic --dataset /data/study --subject sub-01 --name rest_psd --out psd.npy
-opts: --dataset* --name* --out --subject* --templates+
+opts: --budget --dataset* --name* --out --region --subject* --templates+
 )TBL",
 R"TBL(@ read operator
 old: __read operator
 summary: Read a stored operator by name: dense values, or a sparse operator's data, indices and indptr, as JSON or .npy files.
 example: nxr-neuro read operator --dataset /data/study --subject sub-01 --name kernel --out kernel.npy
-opts: --dataset* --name* --out --subject* --templates+
+opts: --budget --dataset* --name* --out --region --subject* --templates+
 )TBL",
 R"TBL(@ read selection
 old: __read selection
 summary: Read a stored selection by name: its per-element array, or its spans and dictionary, or its measurement table of a measure.
 example: nxr-neuro read selection --dataset /data/study --subject sub-01 --name rest_bad_segments --out bad.npy
-opts: --dataset* --field --measure --name* --out --subject* --templates+
+opts: --budget --dataset* --field --measure --name* --out --region --subject* --templates+
 )TBL",
 R"TBL(@ read manifold
 old: __read manifold
 summary: Read a stored manifold by name: its positions and cells, axes, element names and coordinate system, or one labelling of it.
 example: nxr-neuro read manifold --dataset /data/study --subject sub-01 --name cortex --out cortex.npy
-opts: --dataset* --family --name* --out --subject* --templates+
+opts: --budget --dataset* --family --name* --out --region --subject* --templates+
 )TBL",
 R"TBL(@ add field
 old: __add field
 summary: Store values computed elsewhere as a field on a manifold (optionally time-resolved on a time line), from a .npy file, as one unit; or in pieces with --begin, --append and --commit.
 example: nxr-neuro add field --dataset /data/study --subject sub-01 --name thickness --manifold cortex --values thickness.npy --unit mm
-opts: --append --begin --by-operator --cell --commit --contribution+ --dataset* --derived-from --description --dtype --kind --manifold --name --producer --region --replace --shape --subject --time --unit --value-type --values --write --templates+
+opts: --append --begin --by --by-operator --cell --commit --contribution+ --dataset* --derived-from --description --dtype --kind --manifold --name --producer --region --replace --shape --subject --time --unit --value-type --values --write --templates+
 )TBL",
 R"TBL(@ add selection
 old: __add selection
 summary: Store a partition, set, pick of elements or spans on a line computed elsewhere, from a .npy file, as one unit.
 example: nxr-neuro add selection --dataset /data/study --subject sub-01 --name regions --manifold cortex --type partition --members regions.npy
-opts: --dataset* --description --entries --indices --manifold* --members --name* --of-field --producer --replace --spans --subject* --type* --weights --templates+
+opts: --by --dataset* --description --entries --indices --manifold* --members --name* --of-field --producer --replace --spans --subject* --type* --weights --templates+
 )TBL",
 R"TBL(@ add statistic
 old: __add statistic
 summary: Store a statistic computed elsewhere (values on named axes, each along a manifold), from a .npy file, as one unit; or in pieces with --begin, --append and --commit.
 example: nxr-neuro add statistic --dataset /data/study --subject sub-01 --name psd --measure power_density --method welch --values psd.npy --axes channel:sensors frequency:freq --of-field rest
-opts: --append --axes+ --begin --commit --dataset* --description --dtype --measure --method --name --of-field --partition --region --replace --shape --subject --unit --value-type --values --write --templates+
+opts: --append --axes+ --begin --by --commit --dataset* --description --dtype --measure --method --name --of-field --partition --region --replace --shape --subject --unit --value-type --values --write --templates+
 )TBL",
 R"TBL(@ add measurements
 old: __add measurements
 summary: Store measurements computed elsewhere over a selection's members (one array a measure), from .npy files, as one unit.
 example: nxr-neuro add measurements --dataset /data/study --subject sub-01 --selection regions --field thickness --measure mean=mean.npy
-opts: --dataset* --field --measure+* --replace --selection* --subject* --unit --templates+
+opts: --by --dataset* --field --measure+* --replace --selection* --subject* --unit --templates+
 )TBL",
 R"TBL(@ add operator
 old: __add operator
 summary: Store a linear operator between two manifolds computed elsewhere, dense or sparse (CSR), from .npy files, as one unit.
 example: nxr-neuro add operator --dataset /data/study --subject sub-01 --name smoother --from-manifold cortex --to-manifold cortex --data d.npy --indices i.npy --indptr p.npy
-opts: --data --dataset* --description --from-manifold* --from-selection --indices --indptr --kind --layout --method --name* --params --replace --subject* --to-manifold* --values --templates+
+opts: --by --data --dataset* --description --from-manifold* --from-selection --indices --indptr --kind --layout --method --name* --params --producer --replace --subject* --to-manifold* --values --templates+
 )TBL",
 R"TBL(@ add points
 old: __add points
 summary: Store a manifold of points (positions or one coordinate each) from a .npy file, as one unit.
 example: nxr-neuro add points --dataset /data/study --subject sub-01 --name electrodes --positions electrodes.npy
-opts: --coordinate-system --dataset* --description --name* --positions* --replace --subject* --templates+
+opts: --by --coordinate-system --dataset* --description --name* --positions* --replace --subject* --templates+
 )TBL",
 R"TBL(@ add line
 old: __add line
 summary: Store a line: n points a spacing apart from an origin (a time line in seconds, a frequency line), or points at the coordinates given (an eigenvalue axis).
 example: nxr-neuro add line --dataset /data/study --subject sub-01 --name epoch_time --n 1000 --spacing 0.004 --unit s
-opts: --coordinates --dataset* --dimension --kinds --n --name* --origin --replace --spacing --subject* --unit* --templates+
+opts: --by --coordinates --dataset* --dimension --kinds --n --name* --origin --replace --spacing --subject* --unit* --templates+
 )TBL",
 R"TBL(--subject@list manifolds	NAME	The subject whose the manifolds are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
 --name@list manifolds	TEXT	Only the the manifolds whose name contains TEXT (case-insensitive).	all names	-
@@ -1421,6 +1441,7 @@ R"TBL(--begin@add field		Write the field in pieces, step 1: take its shape (--sh
 --method@add operator	NAME	With --layout analytic: how the operator is evaluated (its method's name).	none	-
 --params@add operator	JSON	With --layout analytic: the method's parameters, a JSON object.	none	-
 --from-selection@add operator	NAME	The selection of the --from-manifold the operator reads, by name or id.	none	-
+--producer@add operator	JSON	What the maker says of how the operator was made, a JSON object kept in its producer record (not under the keys the command records itself: command, program, inputs, output, cache).	none	-
 --coordinates@add line	FILE.npy	A line whose points are not evenly spaced: one coordinate a point [n], strictly increasing, in --unit; float32 or float64, stored in float64. Not with --n, --spacing or --origin.	none (an evenly spaced line)	-
 --kinds@add line	FILE.npy	With --coordinates: one integer code a point [n] (what each point is, e.g. the kind of an eigenmode).	none	-
 --templates@add product	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1453,13 +1474,13 @@ R"TBL(@ add product
 old: __add product
 summary: Store the product manifold of stored factors (a line over time, a surface over time) under a name, as one unit.
 example: nxr-neuro add product --dataset /data/study --subject sub-01 --name spectrum_by_time --factors eigenvalues,epoch_time
-opts: --dataset* --factors* --name* --subject* --templates+
+opts: --by --dataset* --factors* --name* --subject* --templates+
 )TBL",
 R"TBL(@ add dictionary
 old: __add dictionary
 summary: Store a dictionary (codes with names, labels, colours, descriptions and parameters) of the dataset or of a subject, from a JSON file, as one unit.
 example: nxr-neuro add dictionary --dataset /data/study --name quality --scope dataset --entries quality.json
-opts: --dataset* --description --entries* --name* --scope* --subject --templates+
+opts: --by --dataset* --description --entries* --name* --scope* --subject --templates+
 )TBL",
 R"TBL(@ edit manifold
 old: __edit manifold

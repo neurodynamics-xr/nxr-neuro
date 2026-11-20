@@ -9,6 +9,7 @@
 #include "nxr/io/layout.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/records/records.h"
+#include "nxr/io/selection.h"
 #include "nxr/io/selection_measurement.h"
 #include "nxr/io/selection_reads.h"
 #include "nxr/io/selection_store.h"
@@ -318,9 +319,20 @@ std::vector<KeyDigest> Subject::key_digests(const std::string& prefix) const {
   return out;
 }
 
-std::vector<Span> Subject::spans(const Node& selection) const {
+std::vector<Span> Subject::spans(const Node& sel) const {
   std::vector<Span> out;
-  for (const auto& r : impl_->records().selections().spans(selection.id)) out.push_back({r.ordinal, r.start, r.stop, r.code});
+  for (const auto& r : impl_->records().selections().spans(sel.id)) out.push_back({r.ordinal, r.start, r.stop, r.code});
+  // a TILING (a closed-form spans selection) stores no span rows, only its rule (origin, width, hop, count): its spans are the rule's members, the last one cut at the line's end
+  // (a subject opened without its store, over a database alone, gives none, as before)
+  if (out.empty() && impl_->writer && sel.type == std::optional<std::string>("spans") && sel.params.is_object() && sel.params.contains("tiling")) {
+    const selection::Selection t = selection::Selection::read(*impl_->db, impl_->writer->store(), sel.id);
+    const std::int64_t n = t.count();
+    out.reserve(static_cast<std::size_t>(std::max<std::int64_t>(n, 0)));
+    for (std::int64_t k = 0; k < n; ++k) {
+      const selection::Span s = t.at(k);
+      out.push_back({s.ordinal, s.start, s.stop, s.code});
+    }
+  }
   return out;
 }
 

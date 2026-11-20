@@ -373,7 +373,7 @@ target_link_libraries(nxr-neuro-bst-compare PRIVATE nxr_io)
 
 # --- tests (hand-written + ctest) ---
 if(NXR_IO_BUILD_TESTS)
-  set(NXR_IO_TESTS export_gifti export_tsv export_fif export_bids import_recording import_fif_objects import_nifti import_surfaces import_cifti import_bids synthetic records task codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup measurement_query schema53 schema54 migrate_measurement chunk_separator compact format52 subject_package subject_filter catalogue migrate templates template_import fibers schema51 split_groups task_dataset)
+  set(NXR_IO_TESTS export_gifti export_tsv export_fif export_bids import_recording import_fif_objects import_nifti import_surfaces import_cifti import_bids synthetic records task codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup measurement_query schema53 schema54 migrate_measurement chunk_separator compact format52 subject_package subject_filter catalogue migrate templates template_import import_skip_v73 fibers schema51 split_groups task_dataset)
   foreach(t ${NXR_IO_TESTS})
     add_executable(test_${t} test/test_${t}.cpp)
     target_link_libraries(test_${t} PRIVATE nxr_io nxr_io_testing)
@@ -402,6 +402,7 @@ if(NXR_IO_BUILD_TESTS)
            -DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/test/golden/store_identity.txt -DWORK=${CMAKE_CURRENT_BINARY_DIR}/store_identity_compact_work -P ${CMAKE_CURRENT_SOURCE_DIR}/test/store_identity.cmake)
   target_link_libraries(test_bst PRIVATE matio)   # the test writes its .mat files with matio itself
   target_link_libraries(test_template_import PRIVATE matio)
+  target_link_libraries(test_import_skip_v73 PRIVATE matio)   # writes its v5 and v7.3 .mat files with matio
   target_link_libraries(test_statistic PRIVATE matio)
 
   # Optional Eigen interop (header-only). The core library never needs Eigen.

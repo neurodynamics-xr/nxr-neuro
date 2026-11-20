@@ -175,7 +175,7 @@ int surface_main(const std::vector<std::string>& argv) {
   const std::string prog = "nxr-neuro surface add";
   // a mesh FILE, or the surface from arrays (--vertices and --faces, .npy): then no positional argument
   const bool arrays = std::find(rest.begin(), rest.end(), "--vertices") != rest.end() || std::find(rest.begin(), rest.end(), "--faces") != rest.end();
-  const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--scale", "--vertices", "--faces"}, {"--primary", "--no-primary"}, {"--dataset", "--subject"}, arrays ? 0 : 1);
+  const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--scale", "--vertices", "--faces", "--by"}, {"--primary", "--no-primary"}, {"--dataset", "--subject"}, arrays ? 0 : 1);
   task::AddSurfaceRequest rq;
   rq.scale = a.maybe("--scale") ? std::stod(*a.maybe("--scale")) : 1.0;
   rq.dataset = a.get("--dataset");
@@ -188,6 +188,7 @@ int surface_main(const std::vector<std::string>& argv) {
   rq.no_primary = a.flag.count("--no-primary") > 0;
   rq.templates = values_of(a, "--templates");
   rq.created_by = stamp();
+  rq.by = a.maybe("--by");
   emit_result(call(prog, [&] { return task::add_surface(rq, progress()); }).result);
   return 0;
 }
