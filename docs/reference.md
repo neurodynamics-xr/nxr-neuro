@@ -1259,11 +1259,13 @@ cycles, amplitude A = 2|W| / (π^(1/4) √σ) and phase, in physical units, and 
 - **The method** (the default reproduces the reference detector the spec ports, written in Python; chosen 2026-11-20):
   - the atoms: the time filter bank's `Family::Gabor` (`timefilterbank.h`: one member an atom, gain G times the unit-energy atom, `Normalisation::UnitEnergy` recorded on the bank; analytic
     only; not a frame), on the grid `gaborGrid`: widths σ_min · 2^(k/per_octave) up to σ_max, at each width the band's frequencies widened by one σ_f = 1/(2πσ) in steps of σ_f/2, f·σ ≥ min_f_sigma.
-    The node `signal.gabor` gives W on every atom, rows atom-major (row = atom × channels + channel), at the recording's rate.
-  - each atom's own LEVEL: the mean |W| per tile of a time grid (`measurement.reduce`), then its median and robust SD (1.4826 × MAD) over the time partition (`measurement.summarize`): a statistic, never
+    The node `signal.gabor` (accumulating, with the halo) gives |W| on every atom, EACH WIDTH AT ITS OWN RATE (the reference's): one spectrum of the block, then one width at a time, each atom read on
+    its own bins at every D-th sample (`nxr::signal::wtDecimated`: exactly the full-rate values there), D the largest power of two keeping at least 3 samples a σ; each width's |W| is a series on its own
+    frames, a line tiled from the recording's samples (frame j at sample j·D). Rows atom-major (row = atom × channels + channel), one row group a width. `decimation: none` reads every width at every sample (for checks).
+  - each atom's own LEVEL: the median and robust SD (1.4826 × MAD) of its |W| over its width's frames (`measurement.summarize`, extended to row groups each over its own members): a statistic, never
     computed inside a node.
-  - the candidates (`select.events.peaks`): per channel and width, the local maxima of |W| in (frequency × tile) (3 × 3, the box clipped at the edges) at least median + k × SD; tiles within
-    max(edge, 3σ) of the run's ends left out. A candidate's time is its tile's centre.
+  - the candidates (`select.events.peaks`): per channel and width, the local maxima of |W| in (frequency × frame) (3 × 3, the box clipped at the edges) at least median + k × SD; frames within
+    max(edge, 3σ) of the run's ends left out. A candidate's time is its frame's instant.
   - the fit (`select.gabor_fit`, on the channel's samples, `collect`, as `select.risefall`): a parabola through log|W| in frequency (± σ_f/2) and in log width (× 2^(±1/8)), twice, by the inner
     product itself (`nxr::signal::gaborFit`); then t0, f, σ, FWHM, cycles at half maximum (2.355 σ f), amplitude, phase, |W|, the width test (`atom_width_peak`: |W| larger than at σ × 2^(±1/per_octave),
     inside the grid's widths) and R² (`atom_r2`) of the atom against the band's signal in its half-maximum window.
@@ -1276,21 +1278,25 @@ cycles, amplitude A = 2|W| / (π^(1/4) √σ) and phase, in physical units, and 
   - the global windows (`select.events.spans` rule `union`): the bursts of every channel joined where they overlap in time and in frequency (f ± 1/(2πσ)), chained (`nxr::select::overlapGroups`);
     each window records its bursts. `overlap: time` joins by time alone.
 - **Defaults** (the reference detector's): band 8–35 Hz, σ 25–640 ms, 4 widths an octave, min_f_sigma 0.5, k = 4, edge 0.5 s, 2 rounds of the fit, 2 cycles, R² ≥ 0.7 against the band's signal
-  (`r2_shape: meyer`, flat in the band; the reference used a sum of Morlet members), tangent edges, windows by time-frequency overlap. The time grid is the caller's: `tile` names the stored grid
-  (`run select_time_grid --rule tiles --duration "0.008 s"` first; about σ_min / 3). The halo is the widest atom's reach down to `tolerance` (1e-6) of its response, so the result does not depend on the
+  (`r2_shape: morlet_ladder`, the reference's: the recording through Σ g² of the members of a Morlet ladder, 1–64 Hz, 8 an octave, whose centres lie in the band, by `signal.band_filter`; `meyer` and `morlet` are
+  named options), tangent edges, windows by time-frequency overlap, each width at its own rate. The halo is the widest atom's reach down to `tolerance` (1e-6) of its response, so the result does not depend on the
   chunk size. Every option is a parameter, recorded in the provenance and the cache key.
-- **Stored:** `gabor_bursts.candidates.<recording>` (spans, type `atom`: every candidate, its tile) and `atoms` over them (`atom_time`, `atom_frequency`, `atom_width`, `atom_fwhm`, `atom_cycles`,
+- **Stored:** `gabor_bursts.candidates.<recording>` (spans, type `atom`: every candidate, its frame) and `atoms` over them (`atom_time`, `atom_frequency`, `atom_width`, `atom_fwhm`, `atom_cycles`,
   `atom_amplitude`, `atom_phase`, `atom_coefficient`, `atom_width_peak`, `atom_r2`, [channels × candidates], NaN off a candidate's channel); `bursts` (spans, type `burst`, [onset, offset) on the channel)
   and `burst_values` over them (the atom's measures, `onset`, `offset`); `windows` (spans, type `window`, no channel; each window's bursts in its params). The measures are in the registry (codes 1067–1078).
-- **Memory:** the |W| measurement holds atoms × channels × tiles doubles (the default grid has several hundred atoms a channel), and `collect` holds the span's samples twice: run a short span, or
-  few channels, on a long recording. Each width is computed at the recording's rate (the decimation of each width to its own rate is not built).
-- **Tested** (`test_gabor`, `test_gabor_golden`, `test_gabor_bursts`, synthetic): against the reference detector (`golden/gabor_golden.txt`, its generator `gen_gabor_golden.py`; the reference's folder in
+- **Memory, stated and checked.** One block of `signal.gabor` holds channels × (the padded block × 8 + its spectrum × 16) bytes, then one width at a time: one atom's decimated coefficients and the
+  width's |W| on the block's frames (atoms of the width × channels × the block's frames × 4). Before any data flows the node computes this for the largest chunk (2^15 samples and the halo) and refuses a
+  block over `budget` (1 GB by default), saying the size and the remedy (fewer channels, a narrower band, a smaller σ_max, a shorter chunk). Worked: 270 channels at 1200 Hz, the default grid
+  (8–35 Hz, 1218 atoms a channel): 0.50 GB a block (13–30 Hz, 804 atoms: 0.49 GB); every width at the recording's rate it would be about 108 GB. The run also holds each width's |W| over the span:
+  about 31 MB per second of recording at 270 channels (atoms × the width's rate summed over the widths, float32), and `collect` holds the span's samples twice: on a long recording run a span of
+  minutes, or fewer channels (a level computed without holding the series is not built, #189).
+- **Tested** (`test_gabor`, `test_gabor_golden`, `test_gabor_bursts`, synthetic): the decimated transform equals the full rate at every D-th sample (1e-12); against the reference detector (`golden/gabor_golden.txt`, its generator `gen_gabor_golden.py`; the reference's folder in
   `NXR_GABOR_REFERENCE`): the grid (6e-14), the fit of each of its candidates (f, σ, amplitude, phase, |W| to 5e-13), its burst test, its merge (the same atoms, in order) and its tangent edges (1e-9 s); the grid; unit energy; |W| = (A/2) π^(1/4) √σ for a matched burst (A recovered to 1e-6) and the inner product equal to the bank's
   transform; a planted burst's f, σ, A and φ recovered from the nearest grid atom; two bursts at one frequency told apart by σ; the width test; R²; the local maxima, the suppression, the tangent edges
   of a Gaussian (t0 ∓ 2σ), the groups by overlap. In the pipeline: five planted bursts on three channels recovered once each within their resolution; every burst passes the gates; a burst narrower than
-  the ladder is a candidate and no burst; a stricter R² keeps fewer; half-maximum edges t0 ∓ 1.1775 σ; the same bursts to the last bit with chunks of 3000 samples; the windows by time-frequency
-  overlap and by time.
-- **What it cannot resolve:** an atom's time and frequency are known to its own resolution (σ and 1/(2πσ)): two bursts closer than that are one atom, and a burst's time is the tile's centre (the
+  the ladder is a candidate and no burst; a stricter R² keeps fewer; half-maximum edges t0 ∓ 1.1775 σ; the same bursts to the last bit with chunks of 3000 samples; each width at its own rate gives the bursts every width at the
+  recording's rate gives, within their resolution; a block over the budget refused at the plan with its size; the windows by time-frequency overlap and by time.
+- **What it cannot resolve:** an atom's time and frequency are known to its own resolution (σ and 1/(2πσ)): two bursts closer than that are one atom, and a burst's time is its frame's instant, within σ/6 (the
   fit refines frequency and width, not time). A burst that is not Gaussian in its envelope is matched by the nearest width; R² says how much of the band's signal one atom explains there. A burst
   outside the widths (narrower than σ_min, wider than σ_max) fails the width test. The levels are each atom's own over the run's span, so a recording full of bursts raises them. Per channel only:
   a burst on a sensor says nothing about where in the cortex it is; the spatial adjustment of the reference detector (its heat-kernel blobs on the sensor graph) is not built.
