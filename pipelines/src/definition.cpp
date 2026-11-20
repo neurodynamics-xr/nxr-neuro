@@ -774,6 +774,21 @@ std::string quantity_for_index_parameter(const std::string& name) {
   return it == kIndexNames.end() ? std::string() : it->second;
 }
 
+bool streams_recording(const Definition& d) {
+  if (d.over) return true;
+  auto takes_recording = [](const Json& inputs) {                         // an input that is a recording: the run is over it, so its span is the caller's
+    if (inputs.is_object()) for (const auto& [k, v] : inputs.items()) { (void)k; if (v.is_object() && v.value("field", Json()) == "recording") return true; }
+    return false;
+  };
+  if (takes_recording(d.inputs)) return true;
+  if (d.templ.is_null()) return false;
+  if (d.templ.contains("inputs") && takes_recording(d.templ["inputs"])) return true;
+  if (d.templ.contains("steps") && has_key_deep(d.templ["steps"], "chunks")) return true;
+  if (d.templ.contains("inputs") && d.templ["inputs"].is_object())
+    for (const auto& [k, v] : d.templ["inputs"].items()) { (void)k; if (v.is_object() && v.contains("chain")) return true; }
+  return false;
+}
+
 Definition expand(const Definition& d, const Json& params) {
   if (d.templ.is_null()) return d;
   const std::string where = d.source.empty() ? "pipeline" : d.source;

@@ -129,7 +129,7 @@ void add_definition(Table& t, const std::string& noun, const std::string& defini
   c.old = {"run"};
   c.alias = false;
   c.unprobed = true;
-  c.span = true;
+  c.span = nxr::pipelines::graph::streams_recording(d);   // a time range only for a definition that streams a recording (an eigensolve on a surface takes none)
   c.definition = definition;
   c.group = "Pipeline definitions";
   std::string first = d.description.substr(0, d.description.find_first_of(".\n"));
