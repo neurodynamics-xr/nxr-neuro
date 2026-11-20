@@ -123,7 +123,7 @@ test_frame_tiling	unit
 test_frames	golden
 test_frames_pipeline	integration
 test_gabor	unit
-test_gabor_bursts	integration	slow
+test_gabor_bursts	integration
 test_gabor_golden	golden
 test_gauge_workflow	unit
 test_geometry_bundle	unit

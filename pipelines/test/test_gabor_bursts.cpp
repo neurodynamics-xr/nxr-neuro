@@ -1,8 +1,9 @@
 // gabor_bursts (spec docs/specs/2026-11-20-gabor-bursts.md) on a synthetic recording (never a real dataset): 3 channels at 250 Hz, 40 s of white noise (SD 0.02) with planted Gaussian bursts
-// A e^(−(t−t0)²/2s²) cos(2πf(t−t0) + φ) of known (t0, f, s, A, φ); a narrower grid than the default (10-30 Hz, σ 50-400 ms, 2 widths an octave, 16 ms tiles) so the test stays small.
-// Checks: each planted burst recovered once, on its channel, within its resolution (t0 within a tile, f within σ_f/4, σ within 5 %, A within 5 %, φ within 0.2 rad); every burst passes the gates
+// A e^(−(t−t0)²/2s²) cos(2πf(t−t0) + φ) of known (t0, f, s, A, φ); a narrower grid than the default (10-30 Hz, σ 50-400 ms, 2 widths an octave) so the test stays small.
+// Checks: each planted burst recovered once, on its channel, within its resolution (t0 within σ/3, f within σ_f/4, σ within 5 %, A within 5 %, φ within 0.2 rad); every burst passes the gates
 // (a peak along width, at least 2 cycles, R² at least 0.7) and a burst narrower than the ladder is a candidate but no burst; a stricter R² keeps fewer; tangent edges against half-maximum edges;
-// the same bursts to the last bit with another chunk width; the global windows by time-frequency overlap (and by time alone).
+// the same bursts to the last bit with another chunk width; each width at its own rate gives the bursts the full rate gives, within their resolution; a block over the budget refused with its size and
+// the remedy; the global windows by time-frequency overlap (and by time alone).
 #include <unistd.h>
 
 #include <cmath>
@@ -18,7 +19,6 @@
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
 #include "nxr/pipelines/runner.h"
-#include "make_grids.h"
 
 using namespace nxr::io;
 namespace g = nxr::pipelines::graph;
@@ -87,9 +87,8 @@ int main() {
     });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  nxrtest::make_time_grids(ds, sub, "tiles", Json{{"duration", "0.016 s"}});
   const g::Definition d = g::load("gabor_bursts");
-  const Json small = Json{{"band", "10-30 Hz"}, {"sigma_min", 0.05}, {"sigma_max", 0.4}, {"per_octave", 2}, {"tile", "0.016 s"}};
+  const Json small = Json{{"band", "10-30 Hz"}, {"sigma_min", 0.05}, {"sigma_max", 0.4}, {"per_octave", 2}};
   auto run = [&](Json set, bool replace) {
     for (auto& [k, v] : small.items()) if (!set.contains(k)) set[k] = v;
     g::RunOptions o;
@@ -130,7 +129,6 @@ int main() {
     }
     return out;
   };
-  const double tile = 4 / sfreq;
 
   // 1. THE RUN on every recording (the two chunk widths), tangent edges
   const auto r1 = run(Json::object(), false);
@@ -145,7 +143,7 @@ int main() {
     int hits = 0;
     for (std::size_t k = 0; k < A.size(); ++k) {
       const Burst& b = A[k];
-      if (b.channel != p.channel || std::abs(b.t0 - p.t0) > tile || std::abs(b.f - p.f) > 1 / (2 * kPi * p.s)) continue;
+      if (b.channel != p.channel || std::abs(b.t0 - p.t0) > p.s / 3 || std::abs(b.f - p.f) > 1 / (2 * kPi * p.s)) continue;
       ++hits; used[k] = 1;
       const double dphi = std::arg(std::polar(1.0, b.phi - (p.phi + 2 * kPi * p.f * (b.t0 - p.t0))));
       std::printf("  planted ch %d t0 %.2f f %.1f s %.3f A %.2f: found t0 %.3f f %.2f s %.3f A %.3f dphi %.3f cycles %.2f R2 %.3f edges [%.3f, %.3f]\n", p.channel, p.t0, p.f, p.s, p.A, b.t0, b.f, b.s, b.A, dphi, b.cycles, b.r2, b.onset, b.offset);
@@ -204,6 +202,26 @@ int main() {
   const std::vector<Burst> S = bursts_of(r4.front(), "rest");
   CHECK(S.size() < A.size());
   for (const auto& b : S) CHECK(b.r2 >= 0.995);
+  // 5. EACH WIDTH AT ITS OWN RATE against EVERY WIDTH AT THE RECORDING'S RATE: the same bursts, within their resolution (a frame of D samples is at most σ/3)
+  {
+    const auto r5 = run(Json{{"recording", "rest"}, {"decimation", "none"}}, true);
+    const std::vector<Burst> F = bursts_of(r5.front(), "rest");
+    int matched = 0;
+    for (const auto& a : A) {
+      if (a.A < 0.2) continue;                                                      // the planted bursts
+      for (const auto& f : F)
+        if (f.channel == a.channel && std::abs(f.t0 - a.t0) <= a.s / 3 && std::abs(f.f - a.f) < 1 / (2 * kPi * a.s) / 4 && std::abs(f.s / a.s - 1) < 0.03 && std::abs(f.A / a.A - 1) < 0.03) { ++matched; break; }
+    }
+    std::printf("  full rate: %zu bursts; %d of the planted matched within resolution\n", F.size(), matched);
+    CHECK_EQ(matched, static_cast<int>(planted.size()));
+  }
+  // 6. THE SIZE CHECK: a block over the budget is refused before any data flows, with its size and the remedy
+  {
+    std::string why;
+    try { run(Json{{"recording", "rest"}, {"budget", 1.0e5}}, true); } catch (const Error& e) { why = e.what(); }
+    std::printf("  refused: %s\n", why.substr(0, 200).c_str());
+    CHECK(why.find("over the budget") != std::string::npos && why.find("GB") != std::string::npos && why.find("fewer channels") != std::string::npos && why.find("a block of 32768 samples") != std::string::npos);   // at the plan: the largest chunk
+  }
   // refusals: an unknown edges rule, a band past Nyquist
   bool refused = false;
   try { run(Json{{"recording", "rest"}, {"edges", "steepest"}}, true); } catch (const Error&) { refused = true; }

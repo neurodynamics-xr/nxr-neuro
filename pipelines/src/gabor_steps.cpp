@@ -1,16 +1,17 @@
 // nxr-pipelines — the registered steps of THE GABOR BURSTS (spec docs/specs/2026-11-20-gabor-bursts.md): burst detection in time by matched Gabor atoms of free width.
 //
-//   signal.gabor             chunk   the recording's coefficients on the Gabor atoms (the time filter bank's Gabor family, one member an atom), complex, rows atom-major (row = atom x channels + channel)
-//   select.events.peaks      after   the candidates: local maxima of a measurement over a time grid, per (row group x frequency row), in (frequency, tile), above the rows' levels read from a statistic
+//   signal.gabor             accumulate  |W| on the Gabor atoms (the time filter bank's Gabor family, one member an atom), EACH WIDTH AT ITS OWN RATE, one width at a time; a series per width, rows atom-major
+//   select.events.peaks      after   the candidates: local maxima of |W| per channel and width, in (frequency, frame), above the rows' levels read from a statistic
 //   select.gabor_fit         after   each candidate fitted on the samples around it (as select.risefall): t0, f, σ, FWHM, cycles, amplitude, phase, |W|, the width test, R² against the band's signal
 //   select.events.suppress   after   non-maximum suppression of the events within each event's own time and frequency resolution (σ, 1/(2πσ)), per row
 //   event_edges              after   (select.events.spans rule `edges`) each event's onset and offset: the tangent on its envelope (default) or the atom's half maximum, and the events' measures
 //   event_union              after   (select.events.spans rule `union`) the global windows: the events of all rows joined where they overlap in time (and, by default, in frequency)
 //
 // Every step is a node of the graph: a pure function of matrices (compute/: nxr::signal::timefilterbank, nxr::signal gaborFit, nxr::select localMaxima, suppress, tangentEdges, overlapGroups) with typed
-// ports. The atom's level (median and robust spread of |W| over time) is never computed here: it is a summary over the time partition (`measurement.summarize` of `measurement.reduce`), handed in.
+// ports. The atom's level (median and robust spread of |W| over time) is never computed here: it is a summary over each width's frames (`measurement.summarize`), handed in.
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <map>
 #include <set>
@@ -22,6 +23,7 @@
 #include "nxr/select/edges.h"
 #include "nxr/select/events.h"
 #include "nxr/select/peaks.h"
+#include "nxr/signal/fourier.h"
 #include "nxr/signal/gabor.h"
 #include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/wavelet.h"
@@ -47,19 +49,23 @@ std::pair<double, double> band_of(const Json& j, const std::string& who) {
 
 // THE ATOMS a request names (the Gabor grid, compute's gaborGrid), checked
 struct GaborRequest {
-  double fmin = 0, fmax = 0, sigma_min = 0, sigma_max = 0, min_f_sigma = 0, tolerance = 1e-6;
+  double fmin = 0, fmax = 0, sigma_min = 0, sigma_max = 0, min_f_sigma = 0, tolerance = 1e-6, budget = 1e9;
   int per_octave = 0;
+  std::string decimation = "own";
   tb::GaborGrid grid;
 };
 GaborRequest gabor_request(const Json& p, const std::string& who) {
   GaborRequest r;
   need(!p["band"].is_null(), who + ": band is required (the frequencies searched, e.g. \"8-35 Hz\")");
   std::tie(r.fmin, r.fmax) = band_of(p["band"], who);
-  for (const char* k : {"sigma_min", "sigma_max", "min_f_sigma", "tolerance"}) need(p[k].is_number(), std::string(who) + ": " + k + " is a number");
+  for (const char* k : {"sigma_min", "sigma_max", "min_f_sigma", "tolerance", "budget"}) need(p[k].is_number(), std::string(who) + ": " + k + " is a number");
   need(p["per_octave"].is_number_integer() && p["per_octave"].get<int>() >= 1, who + ": per_octave is a whole number of widths an octave, at least 1");
   r.sigma_min = p["sigma_min"].get<double>(); r.sigma_max = p["sigma_max"].get<double>(); r.min_f_sigma = p["min_f_sigma"].get<double>(); r.per_octave = p["per_octave"].get<int>();
-  r.tolerance = p["tolerance"].get<double>();
+  r.tolerance = p["tolerance"].get<double>(); r.budget = p["budget"].get<double>();
   need(r.tolerance > 0 && r.tolerance < 1, who + ": tolerance is in (0, 1) (the share of an atom's response left outside the halo)");
+  need(r.budget > 0, who + ": budget is the bytes one block may hold, above 0");
+  need(p["decimation"] == "own" || p["decimation"] == "none", who + ": decimation " + p["decimation"].dump() + ": own (each width at its own rate, the default) or none (every width at the recording's rate: for checks)");
+  r.decimation = p["decimation"].get<std::string>();
   try { r.grid = tb::gaborGrid(r.sigma_min, r.sigma_max, r.per_octave, r.fmin, r.fmax, r.min_f_sigma); } catch (const std::invalid_argument& e) { refuse(who + ": " + e.what()); }
   need(!r.grid.atoms.empty(), who + ": no atom: every width's lowest frequency (min_f_sigma / σ) is above the band");
   return r;
@@ -68,7 +74,7 @@ Json gabor_facts(const GaborRequest& r) {
   Json atoms = Json::array(), width_of = Json::array();
   for (std::size_t a = 0; a < r.grid.atoms.size(); ++a) { atoms.push_back(Json::array({r.grid.atoms[a].first, r.grid.atoms[a].second})); width_of.push_back(r.grid.widthOf[a]); }
   return Json{{"band", Json::array({r.fmin, r.fmax})}, {"sigma_min", r.sigma_min}, {"sigma_max", r.sigma_max}, {"per_octave", r.per_octave}, {"min_f_sigma", r.min_f_sigma},
-              {"widths", r.grid.widths}, {"atoms", atoms}, {"width_of", width_of}, {"normalisation", "unit energy (the matched filter): A = 2|W| / (pi^(1/4) sqrt(sigma))"}};
+              {"widths", r.grid.widths}, {"atoms", atoms}, {"width_of", width_of}, {"decimation", r.decimation}, {"normalisation", "unit energy (the matched filter): A = 2|W| / (pi^(1/4) sqrt(sigma))"}};
 }
 tb::GaborGrid grid_of_facts(const Json& g) {
   tb::GaborGrid out;
@@ -87,10 +93,64 @@ std::int64_t gabor_halo(const GaborRequest& r, double fs) {
   const std::size_t n = static_cast<std::size_t>(std::ceil(12 * r.grid.atoms[widest].first * fs)) + 16;
   return static_cast<std::int64_t>(tb::haloOf(tb::timeBank(d, tb::gridLength(n, tb::Padding::FastLen), fs), 0, r.tolerance));
 }
+// EACH WIDTH'S OWN RATE: the coarsest decimation (a power of two, so every width's frames lie on the finest's) that keeps at least 3 samples a σ; 1 with decimation none
+std::int64_t decimation_of(double sigma, double fs, const std::string& mode) {
+  if (mode == "none") return 1;
+  std::int64_t D = 1;
+  while (static_cast<double>(2 * D) <= sigma * fs / 3) D *= 2;
+  return D;
+}
+struct GaborWidth {
+  tb::Design design{tb::Family::Gabor, 1.0, tb::Sides::Analytic};
+  double sigma = 0;
+  std::int64_t D = 1, atom0 = 0, atoms = 0;
+};
 struct GaborState {
-  std::vector<tb::Design> widths;            // one design a width: its atoms (contiguous in the grid's order)
-  std::int64_t atoms = 0, halo = 0;
-  double fs = 0;
+  std::vector<GaborWidth> widths;
+  std::int64_t atoms = 0, halo = 0, Dmax = 1;
+  double fs = 0, origin = 0, budget = 1e9;
+};
+GaborState gabor_state(const GaborRequest& q, double fs, double origin) {
+  GaborState st;
+  st.fs = fs; st.origin = origin; st.budget = q.budget;
+  st.atoms = static_cast<std::int64_t>(q.grid.atoms.size());
+  for (std::size_t a = 0; a < q.grid.atoms.size(); ++a) {
+    if (a == 0 || q.grid.widthOf[a] != q.grid.widthOf[a - 1]) {
+      GaborWidth w;
+      w.design.edgeBins = tb::EdgeBins::Drop;                                 // the atoms' gain at DC is not taken (the reference's positive frequencies only)
+      w.sigma = q.grid.atoms[a].first;
+      w.D = decimation_of(w.sigma, fs, q.decimation);
+      w.atom0 = static_cast<std::int64_t>(a);
+      st.widths.push_back(w);
+      st.Dmax = std::max(st.Dmax, w.D);
+    }
+    st.widths.back().design.atoms.push_back(q.grid.atoms[a]);
+    ++st.widths.back().atoms;
+  }
+  st.halo = gabor_halo(q, fs);
+  return st;
+}
+// THE GRID A BLOCK IS TRANSFORMED ON: `width` samples, aligned on the coarsest decimation and zero-padded to twice (no wrap), a multiple of every width's decimation
+std::size_t block_grid(const GaborState& st, std::int64_t width) {
+  return static_cast<std::size_t>(st.Dmax) * nxr::signal::next_fast_len(static_cast<std::size_t>((2 * (width + st.Dmax) + st.Dmax - 1) / st.Dmax), true);
+}
+// THE BYTES ONE BLOCK HOLDS (stated so a run is sized before it allocates): the padded block and its spectrum, then, one width at a time, one atom's decimated coefficients and the width's |W| on the block's own frames
+double block_bytes(const GaborState& st, std::int64_t channels, std::int64_t width, std::int64_t own) {
+  const double C = static_cast<double>(channels), N = static_cast<double>(block_grid(st, width));
+  double per_width = 0;
+  for (const auto& w : st.widths) per_width = std::max(per_width, C * (N / static_cast<double>(w.D)) * 16 * 2 + static_cast<double>(w.atoms) * C * std::ceil(static_cast<double>(own) / static_cast<double>(w.D)) * 4);
+  return C * N * 8 + C * (N / 2 + 1) * 16 + per_width;
+}
+std::string gigabytes(double b) { char t[32]; std::snprintf(t, sizeof t, "%.3g GB", b / 1e9); return t; }
+void size_check(const GaborState& st, std::int64_t channels, std::int64_t own, const std::string& who) {
+  const double b = block_bytes(st, channels, own + 2 * st.halo, own);
+  need(b <= st.budget, who + ": one block would hold " + gigabytes(b) + " (" + std::to_string(channels) + " channels, a block of " + std::to_string(own) + " samples and a halo of " + std::to_string(st.halo) +
+                           " each side), over the budget of " + gigabytes(st.budget) + ": run fewer channels, a narrower band (fewer atoms a width), a smaller sigma_max (a shorter halo), or a shorter chunk; or raise `budget`");
+}
+struct GaborAcc {
+  std::vector<std::vector<std::vector<float>>> rows;   // per width, per row (atom x channels + channel): |W| at the width's frames, in order
+  std::vector<std::int64_t> first;                     // per width: the global index of its first frame
+  std::int64_t channels = -1;
 };
 
 // the column a measurement over an event set holds for row i of `ev` (a subset of that set keeps `measured_ordinals`); the same row when the measurement is over `ev` itself
@@ -161,76 +221,111 @@ void add_gabor_steps(std::vector<StepSpec>& r) {
   // ───────────────────────── signal.gabor ─────────────────────────
   {
     StepSpec s;
-    s.name = "signal.gabor"; s.kind = "chunk";
-    s.inputs = {"x"}; s.outputs = {"y"};
-    s.parameters = Json{{"band", nullptr}, {"sigma_min", 0.025}, {"sigma_max", 0.64}, {"per_octave", 4}, {"min_f_sigma", 0.5}, {"tolerance", 1e-6}};
-    s.matches = "the reference detector's channel_atoms (unit-energy atoms of free width; its grid); compute nxr::signal::timefilterbank (Family::Gabor, gaborGrid; spectrum, filterSpectrum)";
-    s.description = "the coefficients W(t, f, σ) = ∫ x ψ* of a real field on … × time on every Gabor atom of the grid (unit-energy atoms ψ = (πσ²)^(−1/4) e^(−t²/2σ²) e^(i2πft): widths sigma_min · 2^(k/per_octave) up to sigma_max, "
-                    "at each width the frequencies of `band` widened by one σ_f = 1/(2πσ), in steps of σ_f/2, f·σ at least min_f_sigma): a complex field, rows atom-major (row = atom x channels + channel), at the recording's rate. "
-                    "The block is the chunk with the halo the widest atom needs (its response down to `tolerance` of its L1 norm), so the coefficients do not depend on the chunk size. MEMORY: atoms x channels x the block, float32 x 2.";
-    s.traits = node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the block is transformed in double; the output block follows the input (float32 blocks)",
+    s.name = "signal.gabor"; s.kind = "accumulate";
+    s.inputs = {"x", "exclude"}; s.optional = {"exclude"}; s.outputs = {"y"};
+    s.parameters = Json{{"band", nullptr}, {"sigma_min", 0.025}, {"sigma_max", 0.64}, {"per_octave", 4}, {"min_f_sigma", 0.5}, {"tolerance", 1e-6}, {"decimation", "own"}, {"budget", 1e9}, {"bad_segments", "exclude"}};
+    s.matches = "the reference detector's channel_atoms (unit-energy atoms of free width; its grid; each width on its own band, at its own rate); compute nxr::signal::timefilterbank (Family::Gabor, gaborGrid; spectrum), nxr::signal::wtDecimated";
+    s.description = "|W| = |∫ x ψ*| of a real field on … × time on every Gabor atom of the grid (unit-energy atoms ψ = (πσ²)^(−1/4) e^(−t²/2σ²) e^(i2πft): widths sigma_min · 2^(k/per_octave) up to sigma_max, at each width the "
+                    "frequencies of `band` widened by one σ_f = 1/(2πσ), in steps of σ_f/2, f·σ at least min_f_sigma), EACH WIDTH AT ITS OWN RATE (decimation own: every D-th sample, D the largest power of two keeping at least 3 samples a σ; "
+                    "none: every sample, for checks): computed one width at a time from one spectrum of the block, on the width's own bins (exactly the full-rate values at its frames), and kept as a series on the width's frames "
+                    "(a line tiled from the recording's samples). Rows atom-major (row = atom x channels + channel), one group of rows a width over its own frames. A frame belongs to the chunk holding its sample; the block "
+                    "carries the halo the widest atom needs (its response down to `tolerance` of its L1 norm), so the series does not depend on the chunk size. Frames on a bad sample are NaN. The magnitude is taken here, as the "
+                    "series leaves the loop (holding it complex would double it; nothing after reads its phase: the fit reads the samples). MEMORY of one block, checked against `budget` (bytes) before any data flows and "
+                    "refused with the remedy: channels x (the padded block x 8 + its spectrum x 16) + the largest width's atoms x channels x the block's frames x 4; of the run: Σ over widths of atoms x channels x frames x 4.";
+    s.traits = node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the block is transformed in double; |W| is kept in float32 (follows the float32 blocks)",
                            "the widest atom's reach: timefilterbank::haloOf of the Gabor member of sigma_max down to `tolerance`, samples on each side");
     s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
       const Value& x = ins.at("x");
       need(x.cls == "field" && x.time && x.chunked && x.facts.value("axis", std::string("samples")) == "samples", "signal.gabor: x must be a field on … × time, inside the chunk loop, on the recording's own samples");
       need(!x.complex, "signal.gabor: x is complex; the atoms are analytic (one-sided) and are taken of a real field");
       need(x.value_type == "scalar", "signal.gabor: x is " + x.value_type + "; one number a channel");
+      need(p["bad_segments"] == "exclude" || p["bad_segments"] == "ignore", "signal.gabor: bad_segments " + p["bad_segments"].dump() + ": exclude or ignore");
       const GaborRequest q = gabor_request(p, "signal.gabor");
       double top = 0;
       for (const auto& a : q.grid.atoms) top = std::max(top, a.second + 1 / (2 * kPi * a.first));
       need(top < x.rate / 2, "signal.gabor: the atoms reach " + std::to_string(top) + " Hz, past Nyquist (" + std::to_string(x.rate / 2) + " Hz)");
+      // THE SIZE CHECK, before any data flows: a chunk is at most 2^15 samples, with the halo each side
+      if (!x.manifolds.empty() && x.manifold_facts.contains(x.manifolds[0]) && x.manifold_facts[x.manifolds[0]].contains("n"))
+        size_check(gabor_state(q, x.rate, x.origin), x.manifold_facts[x.manifolds[0]]["n"].get<std::int64_t>(), std::int64_t(1) << 15, "signal.gabor");
       Value y = made(x);
-      y.complex = true;
-      y.facts["members"] = Json{{"axis", "atoms"}, {"count", static_cast<std::int64_t>(q.grid.atoms.size())}, {"layout", "atom-major: row = atom x channels + channel"}};
-      y.facts["gabor"] = gabor_facts(q);
-      y.facts["made_by"] = "gabor";
+      y.cls = "measurement";
+      y.chunked = false;
+      y.complex = false;
+      y.manifolds = {*x.time};
+      y.facts = Json{{"measure", "gabor_magnitude"}, {"gabor", gabor_facts(q)}, {"made_by", "gabor"}, {"nonlinear", true},
+                     {"over", Json{{"frames", "each width's own frames: every D-th sample of the recording's line (tiled from it)"}, {"made_from", "tiled"}, {"selection", "the widths' frames of this run"}}}};
       return Values{{"y", y}};
     };
-    s.prepare = [](const Values& ins, const Json& p, ExecContext&) {
-      const GaborRequest q = gabor_request(p, "signal.gabor");
-      GaborState st;
-      st.fs = ins.at("x").rate;
-      st.atoms = static_cast<std::int64_t>(q.grid.atoms.size());
-      for (std::size_t a = 0; a < q.grid.atoms.size(); ++a) {
-        if (a == 0 || q.grid.widthOf[a] != q.grid.widthOf[a - 1]) {
-          tb::Design d(tb::Family::Gabor, 1.0, tb::Sides::Analytic);
-          d.edgeBins = tb::EdgeBins::Drop;                                      // the atoms' gain at DC is not taken (the reference's positive frequencies only)
-          st.widths.push_back(d);
-        }
-        st.widths.back().atoms.push_back(q.grid.atoms[a]);
-      }
-      st.halo = gabor_halo(q, st.fs);
-      return std::any(std::move(st));
-    };
+    s.prepare = [](const Values& ins, const Json& p, ExecContext&) { return std::any(gabor_state(gabor_request(p, "signal.gabor"), ins.at("x").rate, ins.at("x").origin)); };
     s.halo = [](const std::any& st) { return std::any_cast<const GaborState&>(st).halo; };
     s.halo_at_plan = [](const Values& ins, const Json& p) { return gabor_halo(gabor_request(p, "signal.gabor"), ins.at("x").rate); };
-    s.record = [](const std::any& st) { return Json{{"halo_samples", std::any_cast<const GaborState&>(st).halo}, {"atoms", std::any_cast<const GaborState&>(st).atoms}}; };
-    s.chunk = [](const std::any& st_, const Blocks& ins, std::int64_t keep) {
+    s.record = [](const std::any& st_) {
       const GaborState& st = std::any_cast<const GaborState&>(st_);
+      Json w = Json::array();
+      for (const auto& g : st.widths) w.push_back(Json{{"sigma", g.sigma}, {"decimation", g.D}, {"atoms", g.atoms}});
+      return Json{{"halo_samples", st.halo}, {"atoms", st.atoms}, {"widths", w}, {"budget", st.budget}};
+    };
+    s.start = [](const std::any& st_) {
+      const GaborState& st = std::any_cast<const GaborState&>(st_);
+      GaborAcc a;
+      a.rows.resize(st.widths.size());
+      a.first.assign(st.widths.size(), -1);
+      return std::any(std::move(a));
+    };
+    s.fold = [](const std::any& st_, std::any& acc_, const Blocks& ins, const Place& at) {
+      const GaborState& st = std::any_cast<const GaborState&>(st_);
+      GaborAcc& acc = std::any_cast<GaborAcc&>(acc_);
       const Block& b = ins.at("x");
-      const std::int64_t C = b.rows, kl = std::min(keep, b.left), kr = std::min(keep, b.right), w = b.own() + kl + kr, c0 = b.left - kl;
+      const std::int64_t C = b.rows;
       need(b.width >= 2, "signal.gabor: a block holds at least 2 samples");
-      Eigen::MatrixXd xs(b.width, C);                                           // [samples x channels]
-      for (std::int64_t c = 0; c < C; ++c) for (std::int64_t t = 0; t < b.width; ++t) xs(t, c) = b.re[static_cast<std::size_t>(c * b.width + t)];
-      const std::size_t nfft = tb::gridLength(static_cast<std::size_t>(b.width), tb::Padding::FastLen);   // zero-padded, no wrap: the halo holds the edge
-      Block y{st.atoms * C, w, kl, kr, std::vector<float>(static_cast<std::size_t>(st.atoms * C * w)), std::vector<float>(static_cast<std::size_t>(st.atoms * C * w))};
+      size_check(st, C, at.n, "signal.gabor");
+      if (acc.channels < 0) { acc.channels = C; for (std::size_t k = 0; k < st.widths.size(); ++k) acc.rows[k].assign(static_cast<std::size_t>(st.widths[k].atoms * C), {}); }
+      // the block on the line: column 0 is sample s0; padded on the left to a0 (a multiple of every width's decimation), so a width's frames fall on its decimated grid
+      const std::int64_t s0 = at.first - b.left, a0 = (s0 >= 0 ? s0 / st.Dmax : (s0 - st.Dmax + 1) / st.Dmax) * st.Dmax, pad = s0 - a0;
+      const std::size_t nfft = block_grid(st, pad + b.width);
+      Eigen::MatrixXd xs = Eigen::MatrixXd::Zero(static_cast<Eigen::Index>(nfft), C);   // [samples x channels], zero outside the block (no wrap)
+      for (std::int64_t c = 0; c < C; ++c) for (std::int64_t t = 0; t < b.width; ++t) xs(pad + t, c) = b.re[static_cast<std::size_t>(c * b.width + t)];
       Eigen::MatrixXcd X;
-      std::int64_t a = 0;
-      for (const tb::Design& d : st.widths) {
-        const tb::TimeFilterbank bank = tb::timeBank(d, nfft, st.fs);
-        if (X.size() == 0) X = tb::spectrum(bank, xs);                           // one spectrum of the block, every width's atoms on it
-        const Eigen::MatrixXd G = tb::gains(bank);
-        for (int m = 0; m < bank.size(); ++m, ++a) {
-          const Eigen::MatrixXcd W = tb::filterSpectrum(bank, G.col(m), X);       // [nfft x channels]
-          for (std::int64_t c = 0; c < C; ++c)
-            for (std::int64_t t = 0; t < w; ++t) {
-              const std::size_t at = static_cast<std::size_t>((a * C + c) * w + t);
-              y.re[at] = static_cast<float>(W(c0 + t, c).real());
-              y.im[at] = static_cast<float>(W(c0 + t, c).imag());
+      for (std::size_t k = 0; k < st.widths.size(); ++k) {
+        const GaborWidth& w = st.widths[k];
+        const tb::TimeFilterbank bank = tb::timeBank(w.design, nfft, st.fs);
+        if (X.size() == 0) X = tb::spectrum(bank, xs);                            // one spectrum of the block, every width read from it
+        // this block's own frames of the width: frame j at sample j·D, j·D in [first, first + n)
+        const std::int64_t j0 = (at.first + w.D - 1) / w.D, j1 = (at.first + at.n + w.D - 1) / w.D;
+        if (acc.first[k] < 0) acc.first[k] = j0;
+        for (std::int64_t m = 0; m < w.atoms; ++m) {
+          const Eigen::MatrixXcd W = nxr::signal::wtDecimated(bank, static_cast<int>(m), X, static_cast<int>(w.D));   // [channels x nfft/D]: the block's samples a0 + i·D
+          for (std::int64_t c = 0; c < C; ++c) {
+            std::vector<float>& row = acc.rows[k][static_cast<std::size_t>(m * C + c)];
+            for (std::int64_t j = j0; j < j1; ++j) {
+              const std::int64_t i = (j * w.D - a0) / w.D, u = j * w.D - at.first;
+              const bool good = !(at.good && !at.good->empty() && !(*at.good)[static_cast<std::size_t>(u)]);
+              row.push_back(good ? static_cast<float>(std::abs(W(c, i))) : std::numeric_limits<float>::quiet_NaN());
             }
+          }
         }
       }
-      return Blocks{{"y", std::move(y)}};
+    };
+    s.finish = [](const std::any& st_, std::any& acc_) {
+      const GaborState& st = std::any_cast<const GaborState&>(st_);
+      GaborAcc& acc = std::any_cast<GaborAcc&>(acc_);
+      need(acc.channels > 0, "signal.gabor: no sample in the span");
+      Array y;
+      Json groups = Json::array(), widths = Json::array();
+      std::int64_t off = 0, row0 = 0;
+      for (std::size_t k = 0; k < st.widths.size(); ++k) {
+        const GaborWidth& w = st.widths[k];
+        const std::int64_t R = w.atoms * acc.channels, n = R ? static_cast<std::int64_t>(acc.rows[k][0].size()) : 0;
+        for (const auto& r : acc.rows[k]) { y.single.insert(y.single.end(), r.begin(), r.end()); }
+        acc.rows[k].clear();
+        groups.push_back(Json{{"first_row", row0}, {"rows", R}, {"members", n}, {"offset", off}});
+        widths.push_back(Json{{"sigma", w.sigma}, {"decimation", w.D}, {"hop_s", static_cast<double>(w.D) / st.fs}, {"first_frame", acc.first[k]}, {"frames", n}, {"atom0", w.atom0}, {"atoms", w.atoms}});
+        off += R * n; row0 += R;
+      }
+      y.rows = row0; y.cols = 1;
+      y.meta = Json{{"measure", "gabor_magnitude"}, {"row_groups", groups}, {"widths", widths}, {"channels", acc.channels}, {"rate", st.fs}, {"origin", st.origin},
+                    {"layout", "per width (a row group), rows atom x channels + channel, each over the width's own frames (frame j at sample j x decimation)"}};
+      return Arrays{{"y", std::move(y)}};
     };
     r.push_back(std::move(s));
   }
@@ -240,22 +335,21 @@ void add_gabor_steps(std::vector<StepSpec>& r) {
     StepSpec s;
     s.name = "select.events.peaks"; s.kind = "after";
     s.inputs = {"x", "baseline"}; s.outputs = {"spans"};
-    s.parameters = Json{{"k", 4.0}, {"edge", 0.5}, {"measure", nullptr}};
+    s.parameters = Json{{"k", 4.0}, {"edge", 0.5}};
     s.matches = "the reference detector's peaks (scipy maximum_filter 3 x 3, mode nearest; median + k · 1.4826 MAD of |W| over time, per frequency row); compute nxr::select::localMaxima";
-    s.description = "POINT EVENTS at the local maxima of a measurement over a time grid whose rows are the atoms of `signal.gabor` (atom-major) x channels: per channel and width, the cells of the (frequency x tile) grid that are at "
-                    "least every neighbour in their 3 x 3 box and at least their row's level, median + k x robust SD, read from `baseline` (`measurement.summarize`: median and mad of the same rows, over the time partition); "
-                    "tiles within max(edge, 3σ) of the run's ends are left out. Each event is one tile on its channel, and records its atom (σ, f), its value and its score (value − median) / robust SD.";
-    s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the measurement and the statistic: double; a table of events");
+    s.description = "POINT EVENTS at the local maxima of `signal.gabor`'s |W| (each width over its own frames): per channel and width, the cells of the (frequency x frame) grid that are at least every neighbour in their 3 x 3 box and "
+                    "at least their row's level, median + k x robust SD, read from `baseline` (`measurement.summarize`: median and mad of the same rows, each over its width's frames); frames within max(edge, 3σ) of the run's "
+                    "ends are left out. Each event is its frame's instant on its channel (spans in samples of the line, one decimation long), and records its atom (σ, f), its value and its score (value − median) / robust SD.";
+    s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the series and the statistic: double; a table of events");
     s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
       const Value &x = ins.at("x"), &b = ins.at("baseline");
-      need(x.cls == "measurement" && x.facts.contains("over") && x.facts.contains("gabor"), "select.events.peaks: x must be a measurement over a time grid of a field made by `signal.gabor` (its rows the atoms x channels)");
+      need(x.cls == "measurement" && x.facts.contains("gabor") && x.facts.value("measure", std::string()) == "gabor_magnitude", "select.events.peaks: x must be `signal.gabor`'s |W| (each width over its own frames)");
       need(b.cls == "statistic" && b.facts.contains("summaries"), "select.events.peaks: baseline must be a statistic made by `summarize`");
       bool med = false, mad = false;
       for (const auto& n : b.facts["summaries"]) { med = med || n == "median"; mad = mad || n == "mad"; }
       need(med && mad, "select.events.peaks: the baseline must hold median and mad");
       need(b.facts.value("combine", std::string()) == "each", "select.events.peaks: the baseline is per row (combine each): one level an atom and channel");
       need(p["k"].is_number() && p["edge"].is_number() && p["edge"].get<double>() >= 0, "select.events.peaks: k (robust SDs above the median) and edge (s, at least 0) are numbers");
-      need(p["measure"].is_null() || measures_has(x, p["measure"].get<std::string>()), "select.events.peaks: measure " + p["measure"].dump() + " is not one of x's measures");
       Value y = made(x);
       y.cls = "spans";
       y.facts = Json{{"events_kind", "atoms"}, {"gabor", x.facts["gabor"]}, {"peaks", p}};
@@ -266,58 +360,51 @@ void add_gabor_steps(std::vector<StepSpec>& r) {
       const Json& p = std::any_cast<const Json&>(st);
       const Array &x = ins.at("x"), &base = ins.at("baseline");
       const tb::GaborGrid grid = grid_of_facts(p["gabor"]);
-      const std::int64_t A = static_cast<std::int64_t>(grid.atoms.size()), T = x.cols;
-      need(A > 0 && x.rows % A == 0, "select.events.peaks: x has " + std::to_string(x.rows) + " rows, not a whole number of the " + std::to_string(A) + " atoms");
-      const std::int64_t C = x.rows / A;
-      const double w = x.meta.value("width_s", 0.0), origin = x.meta.value("origin", 0.0);
-      need(w > 0, "select.events.peaks: x carries no tile width (a measurement over a time grid)");
-      std::int64_t comp = 0;
-      if (p["measure"].is_string()) comp = measure_columns(x).at(p["measure"].get<std::string>());
-      else need(std::max<std::int64_t>(1, x.comps) == 1, "select.events.peaks: x holds several measures; `measure` names the one the peaks are found on");
-      // the baseline's median and mad columns (measure-major: the chosen measure's block)
+      const std::int64_t C = x.meta["channels"].get<std::int64_t>();
+      const double fs = x.meta["rate"].get<double>(), origin = x.meta["origin"].get<double>();
       std::int64_t bmed = -1, bmad = -1;
       for (std::size_t k = 0; k < base.meta["summaries"].size(); ++k) { const std::string n = base.meta["summaries"][k]["name"]; if (n == "median") bmed = static_cast<std::int64_t>(k); if (n == "mad") bmad = static_cast<std::int64_t>(k); }
-      const std::int64_t S = static_cast<std::int64_t>(base.meta["summaries"].size()), bshift = (base.cols > S ? comp : 0) * S;
       need(base.rows == x.rows, "select.events.peaks: the baseline has " + std::to_string(base.rows) + " rows, x " + std::to_string(x.rows));
       const double k = p["k"].get<double>(), edge = p["edge"].get<double>();
       Array out{0, 4, {}};
       Json events = Json::array();
-      std::int64_t below_spread = 0;
-      for (std::int64_t c = 0; c < C; ++c) {
-        std::size_t a0 = 0;
-        while (a0 < grid.atoms.size()) {
-          std::size_t a1 = a0;
-          while (a1 < grid.atoms.size() && grid.widthOf[a1] == grid.widthOf[a0]) ++a1;
-          const std::int64_t F = static_cast<std::int64_t>(a1 - a0);
-          const double sigma = grid.atoms[a0].first;
+      std::int64_t below_spread = 0, last_sample = 0;
+      for (std::size_t g = 0; g < x.meta["widths"].size(); ++g) {
+        const Json& wd = x.meta["widths"][g];
+        const Json& gr = x.meta["row_groups"][g];
+        const std::int64_t D = wd["decimation"].get<std::int64_t>(), j0 = wd["first_frame"].get<std::int64_t>(), T = wd["frames"].get<std::int64_t>(), a0 = wd["atom0"].get<std::int64_t>(), F = wd["atoms"].get<std::int64_t>();
+        const std::int64_t r0 = gr["first_row"].get<std::int64_t>(), off = gr["offset"].get<std::int64_t>();
+        const double sigma = wd["sigma"].get<double>();
+        last_sample = std::max(last_sample, (j0 + T) * D);
+        for (std::int64_t c = 0; c < C; ++c) {
           Eigen::MatrixXd v(F, T);
           Eigen::VectorXd level(F), med(F), sd(F);
           std::int64_t first = T, last = -1;
           for (std::int64_t i = 0; i < F; ++i) {
-            const std::int64_t row = (static_cast<std::int64_t>(a0) + i) * C + c;
-            for (std::int64_t j = 0; j < T; ++j) { v(i, j) = value_at(x, row, j, comp); if (std::isfinite(v(i, j))) { first = std::min(first, j); last = std::max(last, j); } }
-            med(i) = base.at(static_cast<std::size_t>(row * base.cols + bmed + bshift));
-            sd(i) = base.at(static_cast<std::size_t>(row * base.cols + bmad + bshift));
+            const std::int64_t local = i * C + c, row = r0 + local;
+            for (std::int64_t j = 0; j < T; ++j) { v(i, j) = x.at(static_cast<std::size_t>(off + local * T + j)); if (std::isfinite(v(i, j))) { first = std::min(first, j); last = std::max(last, j); } }
+            med(i) = base.at(static_cast<std::size_t>(row * base.cols + bmed));
+            sd(i) = base.at(static_cast<std::size_t>(row * base.cols + bmad));
             level(i) = med(i) + k * sd(i);
             if (!(sd(i) > 0)) ++below_spread;
           }
-          const double t_lo = origin + static_cast<double>(first) * w + std::max(edge, 3 * sigma), t_hi = origin + static_cast<double>(last + 1) * w - std::max(edge, 3 * sigma);
+          auto time = [&](std::int64_t j) { return origin + static_cast<double>((j0 + j) * D) / fs; };
+          const double t_lo = time(first) + std::max(edge, 3 * sigma), t_hi = time(last) - std::max(edge, 3 * sigma);
           for (const auto& [i, j] : nxr::select::localMaxima(v, level)) {
-            const double t = origin + (static_cast<double>(j) + 0.5) * w;
+            const double t = time(j);
             if (!(t >= t_lo && t <= t_hi)) continue;
-            const std::int64_t atom = static_cast<std::int64_t>(a0) + i;
-            out.data.insert(out.data.end(), {static_cast<double>(j), static_cast<double>(j + 1), static_cast<double>(c), static_cast<double>(atom)});
+            const std::int64_t atom = a0 + i, sample = (j0 + j) * D;
+            out.data.insert(out.data.end(), {static_cast<double>(sample), static_cast<double>(sample + D), static_cast<double>(c), static_cast<double>(atom)});
             ++out.rows;
             events.push_back(Json{{"atom", atom}, {"sigma", sigma}, {"f", grid.atoms[static_cast<std::size_t>(atom)].second}, {"value", v(i, j)},
                                   {"score", sd(i) > 0 ? Json((v(i, j) - med(i)) / sd(i)) : Json()}, {"f_at_edge", i == 0 || i == F - 1}});
           }
-          a0 = a1;
         }
       }
-      out.meta = Json{{"tiles_of", x.meta}, {"candidates", events}, {"thresholds", Json{{"k", k}, {"edge_s", edge}, {"rows_without_spread", below_spread},
-                      {"statistic", "per atom and channel: median + k x the robust SD (1.4826 x MAD) of the baseline statistic (summarize) over the time partition"}}},
+      out.meta = Json{{"tiles_of", Json{{"width_s", 1 / fs}, {"origin", origin}, {"unit", "sample"}, {"instant", true}, {"tiles", last_sample}, {"rate", fs}}}, {"candidates", events},
+                      {"thresholds", Json{{"k", k}, {"edge_s", edge}, {"rows_without_spread", below_spread},
+                                          {"statistic", "per atom and channel: median + k x the robust SD (1.4826 x MAD) of the baseline statistic (summarize) over the width's own frames"}}},
                       {"reference", "the reference detector's peaks"}};
-      out.meta["tiles_of"].erase("describe");
       return Arrays{{"spans", std::move(out)}};
     };
     r.push_back(std::move(s));
@@ -364,7 +451,7 @@ void add_gabor_steps(std::vector<StepSpec>& r) {
         need(row >= 0 && row < R, "select.gabor_fit: an event on row " + std::to_string(row) + " but the series has " + std::to_string(R) + " rows");
         need(atom >= 0 && atom < static_cast<std::int64_t>(grid.atoms.size()), "select.gabor_fit: an event names atom " + std::to_string(atom) + ", not one of the grid's");
         const Eigen::Map<const Eigen::VectorXd> series(x.data.data() + row * x.cols, x.cols);
-        const double t = origin + (sp[0] + 0.5) * w - offset;                     // the tile's centre on the series' clock
+        const double t = origin + (sp[0] + (ev.meta["tiles_of"].value("instant", false) ? 0.0 : 0.5)) * w - offset;   // the frame's instant (a tile's centre) on the series' clock
         const auto [sigma, f] = grid.atoms[static_cast<std::size_t>(atom)];
         const nxr::signal::GaborAtom a = nxr::signal::gaborFit(series, fs, t, f, sigma, static_cast<int>(steps));
         const bool peak = nxr::signal::gaborWidthPeak(series, fs, a, grid.widths.front(), grid.widths.back(), step);

@@ -1,14 +1,13 @@
 # THE GABOR BURSTS of a recording: bursts in time, per channel, matched by unit-energy Gabor atoms of FREE width (spec docs/specs/2026-11-20-gabor-bursts.md). THE GRAPH:
-#   recording -- signal.gabor (every atom of the grid: widths sigma_min..sigma_max, per_octave a octave; at each width the band's frequencies in steps of sigma_f/2) -- signal.field_form magnitude (|W|)
-#   -- reduce {over: the time grid of `tile`}: the mean |W| per tile, per atom and channel (a measurement over a GRID) -- summarize --> each atom's own level (median and robust SD over the time partition)
-#   -- select.events.peaks (local maxima in frequency x tile at each width, above median + k SD) --> the candidates -- select.gabor_fit (each candidate fitted on its channel's samples: t0, f, sigma, FWHM, cycles,
+#   recording -- signal.gabor (|W| on every atom of the grid: widths sigma_min..sigma_max, per_octave a octave; at each width the band's frequencies in steps of sigma_f/2; EACH WIDTH AT ITS OWN RATE, one width at a
+#   time: a series per width on its own frames, every D-th sample, D the largest power of two keeping 3 samples a sigma) -- summarize --> each atom's own level (median and robust SD over its width's frames)
+#   -- select.events.peaks (local maxima in frequency x frame at each width, above median + k SD) --> the candidates -- select.gabor_fit (each candidate fitted on its channel's samples: t0, f, sigma, FWHM, cycles,
 #   amplitude, phase, |W|, the width test, R² against the band's signal) -- keep_where (a peak along width, at least min_cycles, f in the band) -- select.events.suppress (strongest first, within each
-#   atom's time and frequency resolution) -- keep_where (R² >= min_r2) -- edges (tangent on the envelope | half_max) --> THE BURSTS, per channel, with their measures -- union --> THE GLOBAL WINDOWS.
-# The time grid sets the time resolution of the candidates (a tile's centre is an atom's time; the fit refines frequency and width, never time): `run select_time_grid --rule tiles --duration <tile>` first.
+#   atom's time and frequency resolution, across the widths) -- keep_where (R² >= min_r2) -- edges (tangent on the envelope | half_max) --> THE BURSTS, per channel, with their measures -- union --> THE GLOBAL WINDOWS.
 # Stored: the candidates and their atoms' measures, the bursts and their measures (with onset and offset), the global windows (each window's bursts recorded in its params).
-# MEMORY: the |W| measurement holds atoms x channels x tiles doubles (several hundred atoms on the default grid: a short span, or few channels, on a long recording); the samples of the span twice (`collect`).
+# MEMORY: one block holds channels x (the padded block x 8 + its spectrum x 16 bytes) and one width's |W| on the block's frames; it is checked against `budget` before any data flows (refused with the remedy).
+# The run holds each width's |W| over the span (about 31 MB a second of recording at 270 channels on the default grid, float32) and the span's samples twice (`collect`).
 #
-#   nxr-neuro run select_time_grid --dataset <folder> --subject sub-01 --recording rest --rule tiles --duration "0.008 s"   # the time grid, once
 #   nxr-neuro run gabor_bursts --dataset <folder> --subject sub-01 --band "8-35 Hz" --from 0 --to 60
 pipeline: gabor_bursts
 version: 1
@@ -17,7 +16,6 @@ scope: subject
 
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}}
-  grid:      {selection: any, manifold: recording.time, where: {name: "{recording} time grid tiles ${tile}"}, hint: "the time grid of the atoms' times (`nxr-neuro run select_time_grid --rule tiles --duration \"0.008 s\"` first)"}
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
 
 parameters:
@@ -28,34 +26,36 @@ parameters:
   per_octave: {default: 4, meaning: "widths an octave (the reference detector's 4)", unit: widths/octave}
   min_f_sigma: {default: 0.5, meaning: "the smallest f x sigma of an atom (0.5: about 1.2 cycles at half maximum; the Gaussian kept off DC)", unit: "-"}
   tolerance: {default: 1.0e-6, meaning: "the share of the widest atom's response (L1) left outside the halo: the halo the chunks are read with", unit: fraction}
-  tile: {default: "0.008 s", meaning: "the time grid's tile (the candidates' time resolution; about sigma_min / 3, as the reference detector's 3 samples a sigma); names the grid found", unit: s, chart: clock}
+  decimation: {default: own, meaning: "own: each width at its own rate (every D-th sample, D the largest power of two keeping 3 samples a sigma; the reference detector's) | none: every width at the recording's rate (for checks: memory as the full block)", unit: "-", choices: [own, none]}
+  budget: {default: 1000000000, meaning: "the bytes one block of signal.gabor may hold; a larger one is refused before any data flows, with the remedy", unit: bytes}
   k: {default: 4.0, meaning: "robust SDs above each atom's median |W| over time for a candidate (the reference detector's 4)", unit: "robust SD"}
   edge: {default: 0.5, meaning: "candidates within max(edge, 3 sigma) of the run's ends are left out (the reference detector's 0.5 s)", unit: s, chart: clock}
   steps: {default: 2, meaning: "the fit's rounds of the parabola in frequency and in log width (the reference detector's 2)", unit: rounds}
   min_cycles: {default: 2.0, meaning: "a burst holds at least this many cycles at half maximum (the reference detector's mincyc 2)", unit: cycles}
   min_r2: {default: 0.7, meaning: "a burst is an atom whose R² against the band's signal in its half-maximum window is at least this (the reference detector's 0.7)", unit: "-"}
-  r2_shape: {default: meyer, meaning: "the band's signal R² is measured against: the recording through the band, meyer (flat in the band, compact edges) | morlet", unit: "-", choices: [meyer, morlet]}
+  r2_shape: {default: morlet_ladder, meaning: "the band's signal R² is measured against: morlet_ladder (the reference detector's: the squared gains of a Morlet ladder's members in the band) | meyer (flat in the band, compact edges) | morlet", unit: "-", choices: [morlet_ladder, meyer, morlet]}
+  ladder_min: {default: 1.0, meaning: "r2_shape morlet_ladder: the ladder's lowest centre (the reference detector's 1 Hz)", unit: Hz}
+  ladder_max: {default: 64.0, meaning: "r2_shape morlet_ladder: the ladder's highest centre (the reference detector's 64 Hz)", unit: Hz}
+  ladder_voices: {default: 8, meaning: "r2_shape morlet_ladder: the ladder's members an octave (the reference detector's 8)", unit: voices/octave}
   edges: {default: tangent, meaning: "the bursts' onset and offset: tangent (on the envelope at the burst's frequency, the reference detector's default) | half_max (the atom's, t0 -/+ FWHM/2)", unit: "-", choices: [tangent, half_max]}
   envelope_window: {default: 3.0, meaning: "tangent edges: the envelope is read over the burst's time -/+ max(this, 6 sigma)", unit: s, chart: clock}
   trough_reach: {default: 1.0, meaning: "tangent edges: with no local minimum below half the peak, the trough is the lowest point within this of the peak", unit: s, chart: clock}
   overlap: {default: time_frequency, meaning: "the global windows: bursts joined where they overlap in time and frequency (f -/+ 1/(2 pi sigma)) | in time alone", unit: "-", choices: [time_frequency, time]}
-  bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans (in the atoms' levels)", unit: "-"}
+  bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans (their frames NaN: left out of the atoms' levels and the peaks)", unit: "-"}
 
 steps:
   chunks:
     over: recording
     do:
-      - {node: signal.gabor, in: {x: recording}, with: {band: $band, sigma_min: $sigma_min, sigma_max: $sigma_max, per_octave: $per_octave, min_f_sigma: $min_f_sigma, tolerance: $tolerance}, out: w}
-      - {node: signal.field_form, in: {x: w}, with: {form: magnitude}, out: magnitude}
-      - {node: measurement.reduce, in: {x: magnitude, over: grid, exclude: bad}, with: {measures: [mean], bad_segments: $bad_segments}, out: [levels, levels_ingredients]}
+      - {node: signal.gabor, in: {x: recording, exclude: bad}, with: {band: $band, sigma_min: $sigma_min, sigma_max: $sigma_max, per_octave: $per_octave, min_f_sigma: $min_f_sigma, tolerance: $tolerance, decimation: $decimation, budget: $budget, bad_segments: $bad_segments}, out: magnitude}
       # the samples the atoms are fitted on, and the band's signal their R² is measured against
       - {node: measurement.collect, in: {x: recording}, out: series}
-      - {node: signal.band_filter, in: {x: recording}, with: {band: $band, shape: $r2_shape}, out: band_signal}
+      - {node: signal.band_filter, in: {x: recording}, with: {band: $band, shape: $r2_shape, ladder_min: $ladder_min, ladder_max: $ladder_max, voices: $ladder_voices}, out: band_signal}
       - {node: measurement.collect, in: {x: band_signal}, out: band_series}
   after:
-    # each atom's own level: the median and robust SD of its |W| over the time partition (a statistic, never computed inside a node)
-    - {node: measurement.summarize, in: {x: levels}, with: {summaries: [median, mad], combine: each}, out: baseline}
-    - {node: select.events.peaks, in: {x: levels, baseline: baseline}, with: {k: $k, edge: $edge}, out: candidates}
+    # each atom's own level: the median and robust SD of its |W| over its width's frames (a statistic, never computed inside a node)
+    - {node: measurement.summarize, in: {x: magnitude}, with: {summaries: [median, mad], combine: each}, out: baseline}
+    - {node: select.events.peaks, in: {x: magnitude, baseline: baseline}, with: {k: $k, edge: $edge}, out: candidates}
     - {node: select.gabor_fit, in: {x: series, events: candidates, band: band_series}, with: {steps: $steps}, out: atoms}
     - {node: select.events.spans, in: {events: candidates, x: atoms}, with: {rule: keep_where, where: {atom_width_peak: [1, null], atom_cycles: [$min_cycles, null], atom_frequency: $band}}, out: shaped}
     - {node: select.events.suppress, in: {events: shaped, x: atoms}, out: merged}
@@ -64,8 +64,8 @@ steps:
     - {node: select.events.spans, in: {events: bursts, x: burst_values}, with: {rule: union, overlap: $overlap}, out: windows}
 
 outputs:
-  candidates:   {kind: spans, types: [atom], detected_over: grid}
+  candidates:   {kind: spans, types: [atom]}
   atoms:        {kind: measurement, over: candidates, of: recording}
-  bursts:       {kind: spans, types: [burst], detected_over: grid}
+  bursts:       {kind: spans, types: [burst]}
   burst_values: {kind: measurement, over: bursts, of: recording}
-  windows:      {kind: spans, types: [window], detected_over: grid}
+  windows:      {kind: spans, types: [window]}
