@@ -519,7 +519,7 @@ A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<val
 
 | command | what it does | old spelling |
 |---|---|---|
-| `nxr-neuro list datasets` | List the dataset folders in a folder (`--datastore`). | `dataset list` |
+| `nxr-neuro list datasets` | List the dataset folders in a folder (`--datastore`): every dataset of either form (`form`: `one-database`, or `catalogue` as `create dataset --dataset` makes it), with its id, name, path, database and subject count; an empty folder is an empty list, a folder that does not exist is `not_found`. | `dataset list` |
 | `nxr-neuro list subjects` | List the subjects of a dataset. | `subject list` |
 | `nxr-neuro list recordings` | List the recordings of a subject. |  |
 | `nxr-neuro list kernels` | List the inverse kernels of a subject. |  |
