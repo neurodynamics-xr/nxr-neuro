@@ -206,6 +206,7 @@ struct MinNormPrepared {
   bool averaged = false;
   std::string forward, covariance, conventions;
   Json projectors = Json::object();          // which projectors went where (the provenance)
+  Json channels_matched;                     // the covariance's channel set matched to the head model's by name (the preparation's record), null: on the head model's own set
 };
 
 // the projectors handed with the covariance (the runner reads its channels' projector Operators, those the caller chose with the run's projectors option: `meta.projectors`)
@@ -418,7 +419,7 @@ ng::NodeSpec minimum_norm() {
     pr.forward = F.meta.value("name", std::string());
     pr.covariance = S.meta.value("name", std::string());
     if (F.meta.value("to_manifold_id", std::string()) != S.meta.value("channels_manifold_id", std::string()))
-      ng::refuse("meeg.minimum_norm: " + pr.covariance + " is on other channels than " + pr.forward);
+      ng::refuse("meeg.minimum_norm: " + pr.covariance + " is on other channels than " + pr.forward + " (a covariance of another channel set is matched to the head model's by name when it is prepared)");
     if (F.cols % 3 != 0) ng::refuse("meeg.minimum_norm: " + pr.forward + ": the gain is not channels x 3N");
     pr.channels = S.meta.value("channels", std::vector<std::int32_t>());
     pr.types = S.meta.value("channel_types", std::vector<std::string>());
@@ -436,7 +437,8 @@ ng::NodeSpec minimum_norm() {
     }
     const MinNormInputs mi = minimum_norm_inputs(Fall, C, pr.channels, pr.types, projectors_of(S.meta), cov_projs, pr.conventions, p.value("average_reference", true));
     pr.G = mi.G; pr.C = mi.C; pr.right = mi.right; pr.averaged = mi.averaged; pr.projectors = mi.record;
-    if (S.meta.contains("projectors_choice")) pr.projectors["choice"] = S.meta["projectors_choice"];   // which projectors the caller had handed (the run's --projectors), for the provenance
+    if (S.meta.contains("projectors_choice")) pr.projectors["choice"] = S.meta["projectors_choice"];
+    if (S.meta.contains("channels_matched")) pr.channels_matched = S.meta["channels_matched"];   // a covariance of another channel set, matched to the head model's by name   // which projectors the caller had handed (the run's --projectors), for the provenance
     return std::any(std::move(pr));
   };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
@@ -452,6 +454,7 @@ ng::NodeSpec minimum_norm() {
                          {"use_depth", pr.opt.depth.enabled}, {"noise_method", w.regularisation == nxr::meeg::Regularisation::Ridge ? "reg" : w.regularisation == nxr::meeg::Regularisation::Diagonal ? "diag" : "none"},
                          {"snr_method", "fixed"}, {"snr_fixed", pr.opt.snr}, {"whitener_rank", ker.whitenerRank}, {"lambda", ker.lambda},
                          {"computed", Json{{"options", options}, {"conventions", pr.conventions}, {"average_reference", pr.averaged}, {"projectors", pr.projectors}, {"forward", pr.forward}, {"noise_cov", pr.covariance}, {"notes", ker.notes}}}};
+    if (!pr.channels_matched.is_null()) producer["computed"]["noise_cov_channels"] = pr.channels_matched;
     if (pr.opt.depth.enabled) { producer["weight_exp"] = pr.opt.depth.exponent; producer["weight_limit"] = pr.opt.depth.limit; }
     if (w.regularisation == nxr::meeg::Regularisation::Ridge) producer["noise_reg"] = w.ridgeFraction;
     const std::optional<Json> inverse = nxr::bst::inverse_method_of(producer);   // the importer's shape, so a computed kernel is found as an imported one is

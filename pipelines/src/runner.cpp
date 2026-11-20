@@ -805,6 +805,100 @@ std::vector<nxr::bst::StoredProjector> handed_projectors(nxr::io::SubjectWriter&
     if (std::find(choice.names.begin(), choice.names.end(), q.name) != choice.names.end()) { q.status = 1; out.push_back(std::move(q)); }
   return out;
 }
+// THE CHANNEL SET A STATISTIC OVER CHANNELS IS MATCHED TO BY NAME (preparation; Brainstorm matches a noise covariance to a head model's channels by name): a statistic handed to a step
+// beside a stored operator that maps ONTO channels (a head model's gain) is on that operator's channel set. When it lies on ANOTHER channel set of the subject (the empty room's), the
+// operator's channel set is returned and the statistic is matched to it by name (match_channels_by_name); nullopt: on the same set, or no such operator.
+std::optional<std::string> channels_matched_to(nxr::io::SubjectWriter& sub, const Plan& P, const std::string& name) {
+  if (!P.found.count(name)) return std::nullopt;
+  const Value& v = P.found.at(name);
+  if (v.cls != "statistic" || !v.row) return std::nullopt;
+  const auto mid = channel_manifold_of(sub, *v.row);
+  if (!mid || mid->empty()) return std::nullopt;
+  for (const Planned& p : P.steps) {
+    bool reads = false;
+    for (const auto& [port, t] : p.ins) if (t == name) reads = true;
+    if (!reads) continue;
+    for (const auto& [port, t] : p.ins) {
+      if (t == name || !P.found.count(t) || P.found.at(t).cls != "operator" || !P.found.at(t).row) continue;
+      const std::string to = nxr::io::opt_text(*P.found.at(t).row, "to_manifold_id").value_or("");
+      if (!to.empty() && to != *mid && !nxr::pipelines::channel_types_of(sub, to).empty()) return to;
+    }
+  }
+  return std::nullopt;
+}
+
+// THE MATCH BY NAME: the statistic [channels x channels] over its pick of `from` (its own channel set) restricted and reordered to the channels of `to` (the operator's set), in `to`'s order:
+// a permutation and selection of its rows and columns, nothing computed. Every channel of `to` of a type the statistic covers must be in `from` (else refused, naming the missing ones); the
+// statistic's channels not in `to` are dropped; channels of `to` that `from` holds but its pick left out (bad in the statistic's recording) are not covered. The match is in meta.channels_matched.
+void match_channels_by_name(nxr::io::SubjectWriter& sub, nxr::graph::Array& a, const std::string& from, const std::string& to) {
+  const std::string stat = a.meta.value("name", std::string());
+  const std::vector<std::int32_t> pick = a.meta.value("channels", std::vector<std::int32_t>());
+  const std::int64_t M = static_cast<std::int64_t>(pick.size());
+  const auto from_row = sub.db().read("manifold", from), to_row = sub.db().read("manifold", to);
+  const std::string from_name = from_row ? text(*from_row, "name") : from, to_name = to_row ? text(*to_row, "name") : to;
+  if (M == 0 || a.rows != M || a.cols != M)
+    refuse("steps: " + stat + " is on the channel set " + from_name + ", not " + to_name + ", and is not [channels x channels]: only a covariance over channels is matched by name");
+  const std::vector<std::string> from_names = nxr::pipelines::channel_names_of(sub, from), to_names = nxr::pipelines::channel_names_of(sub, to);
+  const std::vector<std::string> from_types = nxr::pipelines::channel_types_of(sub, from), to_types = nxr::pipelines::channel_types_of(sub, to);
+  if (from_names.empty() || to_names.empty())
+    refuse("steps: " + stat + " is on the channel set " + from_name + ", not " + to_name + ", and " + (from_names.empty() ? from_name : to_name) + " stores no channel names to match them by");
+  if (to_types.size() != to_names.size()) refuse("steps: " + to_name + ": its channels' types and names do not agree");
+  std::map<std::string, std::int64_t> in_set, in_pick;                    // a name -> its channel in `from`; a name -> its place in the statistic's pick
+  for (std::size_t i = 0; i < from_names.size(); ++i)
+    if (!in_set.emplace(from_names[i], static_cast<std::int64_t>(i)).second) refuse("steps: " + from_name + ": the channel name '" + from_names[i] + "' is not unique");
+  std::set<std::string> covered_types;
+  for (std::int64_t i = 0; i < M; ++i) {
+    const auto c = static_cast<std::size_t>(pick[static_cast<std::size_t>(i)]);
+    if (c >= from_names.size()) refuse("steps: " + stat + ": a channel of its pick is outside " + from_name);
+    in_pick[from_names[c]] = i;
+    if (c < from_types.size()) covered_types.insert(from_types[c]);
+  }
+  std::vector<std::string> missing, not_covered;
+  std::vector<std::int32_t> channels;                                    // the matched channels, in `to`
+  std::vector<std::int64_t> place;                                       // each one's place in the statistic's pick
+  Json mapping = Json::array(), types = Json::array();
+  std::set<std::string> seen;
+  for (std::size_t j = 0; j < to_names.size(); ++j) {
+    const std::string& n = to_names[j];
+    if (!seen.insert(n).second) refuse("steps: " + to_name + ": the channel name '" + n + "' is not unique");
+    if (!covered_types.count(to_types[j])) continue;                       // a type the statistic does not cover (a stimulus channel, EEG beside an MEG covariance)
+    if (!in_set.count(n)) { missing.push_back(n); continue; }
+    const auto it = in_pick.find(n);
+    if (it == in_pick.end()) { not_covered.push_back(n); continue; }
+    channels.push_back(static_cast<std::int32_t>(j));
+    place.push_back(it->second);
+    types.push_back(to_types[j]);
+    mapping.push_back(Json{{"name", n}, {"from", pick[static_cast<std::size_t>(it->second)]}, {"to", static_cast<std::int64_t>(j)}});
+  }
+  if (!missing.empty()) {
+    std::string list;
+    for (std::size_t i = 0; i < missing.size(); ++i) list += (i ? ", " : "") + missing[i];
+    refuse("steps: " + stat + " (on the channel set " + from_name + ") does not hold " + std::to_string(missing.size()) + " channel(s) of " + to_name + ", matched by name: " + list);
+  }
+  if (channels.empty()) refuse("steps: " + stat + " (on the channel set " + from_name + ") shares no channel of its types with " + to_name);
+  Json dropped = Json::array();
+  {
+    std::set<std::string> to_set(to_names.begin(), to_names.end());
+    for (std::int64_t i = 0; i < M; ++i) {
+      const std::string& n = from_names[static_cast<std::size_t>(pick[static_cast<std::size_t>(i)])];
+      if (!to_set.count(n)) dropped.push_back(n);
+    }
+  }
+  const std::int64_t N = static_cast<std::int64_t>(channels.size());
+  std::vector<double> data(static_cast<std::size_t>(N * N));
+  for (std::int64_t i = 0; i < N; ++i)
+    for (std::int64_t j = 0; j < N; ++j) data[static_cast<std::size_t>(i * N + j)] = a.data[static_cast<std::size_t>(place[static_cast<std::size_t>(i)] * M + place[static_cast<std::size_t>(j)])];
+  a.data = std::move(data);
+  a.rows = N; a.cols = N;
+  a.meta["shape"] = std::vector<std::int64_t>{N, N};
+  a.meta["channels"] = channels;
+  a.meta["channel_types"] = types;
+  a.meta["channels_manifold_id"] = to;
+  a.meta.erase("channels_selection_id");                                 // the statistic's own pick no longer describes its rows
+  a.meta["channels_matched"] = Json{{"by", "name"}, {"channels", from_name}, {"channels_id", from}, {"matched_to", to_name}, {"matched_to_id", to},
+                                    {"mapping", mapping}, {"dropped", dropped}, {"not_covered", not_covered}};
+}
+
 // what was handed, for the cache key and the provenance: the choice and each projector's name and status as handed
 Json handed_record(const std::vector<nxr::bst::StoredProjector>& handed, const nxr::io::Projectors& choice) {
   Json list = Json::array();
@@ -914,14 +1008,18 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   key.input = Json{{"inputs", ids}, {"span", span_json}};
   {
     // the projectors handed with a statistic over channels (handed_projectors): the choice and the stored statuses are data a node uses, so they are in the key (a status edited is a new result)
-    Json handed = Json::object();
+    // a statistic matched by name to an operator's channel set (channels_matched_to): its own set and the one it is matched to are in the key, and the projectors handed are the latter's
+    Json handed = Json::object(), matched = Json::object();
     for (const auto& [k, v] : P.found) {
       if (v.cls != "statistic" || !v.row || (group && group->ids.count(k))) continue;
-      const auto mid = channel_manifold_of(sub, *v.row);
-      if (!mid || mid->empty() || nxr::bst::stored_projectors(sub.db(), sub.store(), *mid).empty()) continue;
+      auto mid = channel_manifold_of(sub, *v.row);
+      if (!mid || mid->empty()) continue;
+      if (const auto to = channels_matched_to(sub, P, k)) { matched[k] = Json{{"channels", *mid}, {"matched_to", *to}, {"by", "name"}}; mid = to; }
+      if (nxr::bst::stored_projectors(sub.db(), sub.store(), *mid).empty()) continue;
       handed[k] = handed_record(handed_projectors(sub, *mid, opt.projectors), opt.projectors);
     }
     if (!handed.empty()) key.input["channel_projectors"] = handed;
+    if (!matched.empty()) key.input["channels_by_name"] = matched;
   }
   const Json projection_json = source ? source->projection_record() : Json();   // the projectors the load applied (null: the recording has no active projector)
   if (!projection_json.is_null()) key.input["projectors"] = projection_json;
@@ -1153,12 +1251,15 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
             const std::vector<std::int32_t> ch = bound.array_int32(text(*sel, "array_path"));
             a.meta["channels"] = ch;
             a.meta["channels_selection_id"] = text(*sel, "id");
-            const std::string mid = nxr::io::opt_text(*sel, "manifold_id").value_or("");
+            std::string mid = nxr::io::opt_text(*sel, "manifold_id").value_or("");
             a.meta["channels_manifold_id"] = mid;
             const std::vector<std::string> all = nxr::pipelines::channel_types_of(sub, mid);
             Json types = Json::array();
             for (const auto c : ch) types.push_back(c >= 0 && static_cast<std::size_t>(c) < all.size() ? all[static_cast<std::size_t>(c)] : std::string());
             a.meta["channel_types"] = types;
+            // on another channel set than the operator it is handed with (an empty-room covariance beside a run's head model): matched to the operator's channels by name, and the
+            // projectors below are that channel set's (the run's), never the statistic's own set's
+            if (const auto to = channels_matched_to(sub, P, name)) { match_channels_by_name(sub, a, mid, *to); mid = *to; }
             // the channels' projector Operators (SSP, ICA), for a node that applies them as its reference does (the inverse kernel): those the caller chose (handed_projectors)
             Json projs = Json::array();
             const std::vector<nxr::bst::StoredProjector> handed = handed_projectors(sub, mid, opt.projectors);
