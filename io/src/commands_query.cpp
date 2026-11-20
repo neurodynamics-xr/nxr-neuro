@@ -134,7 +134,7 @@ Json describe_manifold(const Ctx& c, const Row& m) {
               {"coordinates", coordinates},
               {"size", Json{{"vertices", Jt(m, "n_vertices")}, {"edges", Jt(m, "n_edges")}, {"faces", Jt(m, "n_faces")}, {"volumes", Jt(m, "n_volumes")}}},
               {"factors", factors},
-              {"component_of", c.ref("manifold", m, "component_of_id")}, {"component_ordinal", Jt(m, "component_ordinal")},
+              {"component_of", c.ref("manifold", m, "component_of_id")}, {"component_ordinal", Jt(m, "component_ordinal")}, {"from_index", Jt(m, "from_index")},
               {"derived_from", c.ref("manifold", m, "derived_from_id")}, {"derived_by", Jt(m, "operator")}, {"stored", !is_null(m, "path")}, {"provenance", provenance(m)}};
 }
 
