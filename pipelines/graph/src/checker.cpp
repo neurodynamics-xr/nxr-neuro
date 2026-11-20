@@ -284,8 +284,9 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
     const PortType& t = it->second;
     const std::string hint = pat.hint.empty() ? "" : " " + pat.hint;
     if (!t.typed) u.fail(port, "the value has no type in the type system's terms (no domain); the checker types only what is typed");
-    // THE STREAMED FACTOR (spec time-as-a-mesh): the factor the chunk service walks is the field port's last, and it must be a line in seconds
-    if (t.streamed() && !t.domain.factors.empty() && !in_seconds(*t.domain.factors.back()))
+    // THE STREAMED FACTOR (spec time-as-a-mesh): when a streamed value's domain names the line it streams over (its last factor is a line), that line is in seconds;
+    // a value whose time is implicit (a field on the cortex inside the loop, its samples the block's) names none and is not checked here, as before
+    if (t.streamed() && !t.domain.factors.empty() && t.domain.factors.back()->kind == ManifoldKind::line && !in_seconds(*t.domain.factors.back()))
       u.fail(port, "is streamed, and the factor it streams over, " + print(t.domain.factors.back()) + ", is not a line in seconds (the chunk service walks a line in seconds).");
     if (pat.cls && t.cls != *pat.cls)
       u.fail(port, std::string("is a ") + to_string(t.cls) + "; a " + to_string(*pat.cls) + " is wanted." + hint);
