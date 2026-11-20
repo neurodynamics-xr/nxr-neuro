@@ -909,10 +909,15 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   if (st.measure.empty() || st.method.empty()) bad(o, "its node describes no measure or method");
   // a statistic OF a measurement the run stores (a summary of its members): it is of the measurement's own field (found, or stored before it)
   const std::string of = statistic_of(P, spec, o, false);
-  const std::string of_id = link(P, of, &made, o);
+  // OF A GROUP RUN'S PER-SUBJECT INPUT (stacked over the members): what it is of lies in every member's own package, never in the group's, so the statistic is the group's own row (detached: no
+  // link into a member's package; the members and each one's inputs are in its provenance, `group`)
+  const bool of_members = P.found.count(of) && P.found.at(of).facts.is_object() && P.found.at(of).facts.contains("stack");
   const bool of_field = !P.found.count(of) || P.found.at(of).cls == "field";
-  if (of_field) st.of_field_id = of_id; else st.of_statistic_id = of_id;
-  const std::string acq = acquisition_of(P, of);
+  const std::string of_id = of_members ? std::string() : link(P, of, &made, o);
+  if (of_members) st.detached = true;
+  else if (of_field) st.of_field_id = of_id;
+  else st.of_statistic_id = of_id;
+  const std::string acq = of_members ? std::string() : acquisition_of(P, of);
   const Json axes_desc = d.value("axes", Json::array());
   Json axes_decl = spec.value("axes", Json::array());
   if (!spec.contains("axes")) for (const auto& ax : axes_desc) axes_decl.push_back(Json{{"name", ax.value("name", std::string())}});   // none declared: the node's own axes, as it describes them
@@ -977,7 +982,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     seg.name = nxr::io::safe_name(fill(P, p["tiling"].get<std::string>())); seg.output = o; seg.type = "tiling";
     seg.manifold_id = link_of(P, p, "on", &made, o);
     seg.tiling = tiling_of(P, d["tiling"], p["on"].get<std::string>(), o);
-    if (of_field) seg.of_field_id = of_id;
+    if (of_field && !of_members) seg.of_field_id = of_id;
     if (!acq.empty()) seg.acquisition = acq;
     const std::int64_t n = seg.tiling->count + seg.tiling->skipped;
     seg.description = "the " + std::to_string(n) + " segments of " + (P.found.count(of) && P.found.at(of).row ? text(*P.found.at(of).row, "name") : of) + " behind " + name + " (" + std::to_string(seg.tiling->skipped) + " left out)";

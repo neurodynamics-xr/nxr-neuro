@@ -1345,7 +1345,18 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   if (group) {                                                              // the members, and what each one's input found: the result is of these
     Json members = Json::object();
     for (const auto& [k, list] : group->ids) { Json per = Json::object(); for (std::size_t i = 0; i < group->subjects.size(); ++i) per[group->subjects[i]] = list[i]; members[k] = per; }
-    producer["group"] = Json{{"subjects", group->subjects}, {"inputs", members}};
+    // per member: its subject and, for each per-subject input, the id and name of what was read in the member's own package (a group result links no member's row)
+    Json each = Json::array();
+    for (std::size_t i = 0; i < group->subjects.size(); ++i) {
+      Json in = Json::object();
+      for (const auto& [k, list] : group->ids) {
+        Json one = Json{{"id", list[i]}};
+        if (group->names.count(k) && i < group->names.at(k).size()) one["name"] = group->names.at(k)[i];
+        in[k] = one;
+      }
+      each.push_back(Json{{"subject", group->subjects[i]}, {"inputs", in}});
+    }
+    producer["group"] = Json{{"subjects", group->subjects}, {"inputs", members}, {"members", each}};
   }
   if (!P.preset.empty()) producer["preset"] = P.preset;                      // provenance only: the key holds the resolved parameters
   if (!d.chains.empty()) producer["chains"] = d.chains;
@@ -1642,7 +1653,7 @@ GroupInputs stack_members(const std::vector<GroupMember>& members, const std::ve
   for (const auto& k : per) { any_keyed = any_keyed || found.front().at(k).cls == "measurement"; any_selection = any_selection || found.front().at(k).cls == "selection"; }
   if (any_selection && !any_keyed && (!params.contains("measures") || !params["measures"].is_array() || params["measures"].empty())) refuse(pipeline + ": a group run states the measures to roll up (the parameter `measures`, a list)");
   for (const auto& k : per) {
-    for (std::size_t i = 0; i < members.size(); ++i) g.ids[k].push_back(text(*found[i].at(k).row, "id"));
+    for (std::size_t i = 0; i < members.size(); ++i) { g.ids[k].push_back(text(*found[i].at(k).row, "id")); g.names[k].push_back(text(*found[i].at(k).row, "name")); }
     if (found.front().at(k).cls == "statistic") { g.stacked[k] = stack_statistics(members, found, k, g.subjects); continue; }
     const bool keyed = found.front().at(k).cls == "measurement";            // a stored measurement found by its key: its own measure and of, in each member
     if (found.front().at(k).cls != "selection" && !keyed) continue;

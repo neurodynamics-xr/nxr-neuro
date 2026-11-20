@@ -170,7 +170,11 @@ ng::NodeSpec feature_table() {
     if (T.meta.contains("unit")) out.meta["unit"] = T.meta["unit"];
     out.meta["subjects"] = subjects;
     out.meta["n_target"] = n_members;
-    out.meta["inputs"] = Json{{"target", tn}, {"database", dn}, {"vector", vector}};
+    // what a feature is, for a reader to map it: the stored feature's axes (their entries in the STORED order: a connectome's regions are not re-sorted, where the release sorts them by name)
+    // and the vector's layout; each feature's indices along those axes are the feature axis's entries
+    out.meta["inputs"] = Json{{"target", tn}, {"database", dn}, {"vector", vector}, {"feature_axes", T.meta.value("axes", Json::array())},
+                              {"feature_order", vector == "upper-triangle" ? "per slice, the pairs (i, j), i <= j, row-major in the stored order of the axes' entries (the release orders a connectome's regions by name)"
+                                                                           : "row-major over the stored axes, in their stored order"}};
     return ng::Arrays{{"table", std::move(out)}};
   };
   return n;
@@ -317,6 +321,7 @@ ng::NodeSpec identification_curve() {
     const Json options = Json{{"steps", c.steps}, {"used", c.used}, {"best_k", k_best}, {"best_rule", "the first step of the largest mean reconstructed self-identifiability"},
                               {"self_identifiability", S.meta["self_identifiability"]}, {"pca", "an exact thin SVD of the centred stacked table (nxr::stats::pca); the release's scikit-learn PCA(k) is randomised at this size"},
                               {"input", pca_options.value("input", Json::object())}, {"members", members}};
+    // (the feature axes and their order: in `input.axes[1].features`, as stats.featureTable described the table)
     Eigen::MatrixXd curve(static_cast<Eigen::Index>(steps.size()), 5);
     for (std::size_t s = 0; s < steps.size(); ++s)
     {

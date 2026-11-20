@@ -91,6 +91,7 @@ struct GroupInputs {
   std::vector<std::string> subjects;                              // the members' names, in the caller's order (the stack's first axis)
   std::map<std::string, nxr::graph::Array> stacked;               // per_subject input → its values stacked over the subjects (meta: subjects, measures, rows, members, shape)
   std::map<std::string, std::vector<std::string>> ids;            // per_subject input → each member's found id
+  std::map<std::string, std::vector<std::string>> names;          // per_subject input → each member's found name (the provenance: a group result links no member's row)
 };
 /** one planned run executed and its outputs stored (or found in the cache): {pipeline, anchor, stored: [{output, path, id, on}], run, hit}. `group`: the stacked inputs of a group run (run_group), whose
  *  outputs `sub` (the group's default subject) holds; null: a run of one subject. */
