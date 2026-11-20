@@ -24,6 +24,8 @@ layering_sql_only_in_io	guard
 layering_sql_only_in_io_catches	guard
 layering_toolboxes_catches	guard
 layering_toolboxes_follow_the_dag	guard
+meeg_test_beamformer	unit
+meeg_test_beamformer_parity	golden
 meeg_test_forward	unit
 meeg_test_forward_parity	golden
 meeg_test_inverse	unit
