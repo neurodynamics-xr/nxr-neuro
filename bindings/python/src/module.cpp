@@ -7,6 +7,7 @@
 
 #include "nxr/core/errors.h"
 #include "nxr/io/errors.h"
+#include "nxr/io/task/commands.h"
 
 namespace nb = nanobind;
 
@@ -17,6 +18,7 @@ void bind_operators(nb::module_& m);
 void bind_access(nb::module_& m);
 void bind_formats(nb::module_& m);
 void bind_pipeline(nb::module_& m);
+void bind_commands(nb::module_& m);
 }  // namespace nxrpy
 
 namespace {
@@ -36,6 +38,8 @@ NB_MODULE(_core, m) {
       [](const std::exception_ptr& p, void*) {
         try {
           std::rethrow_exception(p);
+        } catch (const nxr::io::task::Refused& e) {   // a command's options refused as given (the command line's usage error)
+          raise("invalid_argument", e.what());
         } catch (const nxr::io::Error& e) {
           raise(e.code(), e.what());
         } catch (const nxr::core::Error& e) {
@@ -50,4 +54,5 @@ NB_MODULE(_core, m) {
   nxrpy::bind_access(m);
   nxrpy::bind_formats(m);
   nxrpy::bind_pipeline(m);
+  nxrpy::bind_commands(m);
 }
