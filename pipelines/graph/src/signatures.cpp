@@ -167,17 +167,25 @@ void statistic_of_stream(Unified& u, const std::string& port, const std::string&
 
 // ── the consolidated measurement nodes (spec 2026-11-17-consolidation.md, section 2) ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // `reduce`: a field over the members of any selection (the only move that removes a factor); its two outputs, the measures' values and the ingredients they are read from, are the same measurement.
+// x is a series on a time or frame line, OR a static map on a manifold (a stored per-vertex map, read whole as the loop's one block): its domain is any product, and the partition is over the
+// factors it covers (measure_rule). Bad segments (`exclude`) are spans of x's time line, so a static map takes none.
 Signature s_reduce() {
   return sig(Move::measure).accumulating()
-      .in("x", field({R, TF}).streamed().value_in({VT::real, VT::vector3, VT::complex}).because("Reduce a real quantity of it (give it a form first: field.form magnitude | power | phase_current), or a complex field by sum or mean."))
+      .in("x", field({R}).streamed().value_in({VT::real, VT::vector3, VT::complex}).because("Reduce a real quantity of it (give it a form first: field.form magnitude | power | phase_current), or a complex field by sum or mean."))
       .in("over", selection_any().optional().over())
-      .in("exclude", selection({TF}).optional())
+      .in("exclude", selection_any().optional())
       .in("weights", any_port().optional())
       .out("values", make_of(PortClass::measurement))
       .out("ingredients", make_of(PortClass::measurement))
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
         if (!p.contains("measures") || !p["measures"].is_array() || p["measures"].empty()) u.fail("x", "`measures` names what is measured (no default): the caller's, or the preset's");
+        if (u.has("exclude")) {                                     // the samples excluded are spans of x's own time (or frame) line
+          const PortType& ex = u.type("exclude");
+          if (!x.domain.streamed()) u.fail("exclude", "excludes spans of a time line; x lies on " + print(x.domain) + ", which has none (a static map has no bad segments)");
+          if (ex.domain.factors.size() != 1 || !same(ex.domain.factors[0], x.domain.factors.back()))
+            u.fail("exclude", "lies on " + print(ex.domain) + "; x's time line is " + print(x.domain.factors.back()));
+        }
         const std::string m = p["measures"][0].get<std::string>();
         // a COMPLEX field is reduced as it is only by the measures linear in its value; the others need a real quantity (an order, a magnitude)
         if (x.value == VT::complex)
