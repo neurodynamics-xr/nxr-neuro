@@ -79,12 +79,12 @@ def test_add_options_dictionaries_and_edit_round_trip(demo):
     smooth = next(o for o in nn.read.subject(dataset=demo, subject="S1")["operators"] if o["name"] == "smooth")
     assert smooth["method"] == "gaussian" and smooth["parameters"] == {"sigma": 2.0} and smooth["stored"] is False
     # a dictionary from a list of dicts, one entry edited, then the manifold's primary flag
-    nn.add.dictionary(dataset=demo, subject="S1", name="quality", scope="dataset",
+    nn.add.dictionary(dataset=demo, subject="S1", name="segment_quality", scope="dataset",
                       entries=[{"code": 0, "name": "good", "colour": "#00ff00", "label": "Good"}, {"code": 1, "name": "bad", "colour": "#ff0000", "params": {"threshold": 3}}])
     with pytest.raises(nn.InvalidArgumentError, match="not #rrggbb"):
         nn.add.dictionary(dataset=demo, subject="S1", name="q2", scope="dataset", entries=[{"code": 0, "name": "x", "colour": "green"}])
-    nn.edit.dictionary(dataset=demo, subject="S1", name="quality", entry=1, name_of="artefact", colour="#0000ff", params={"threshold": 5})
-    quality = nn.list.dictionaries(dataset=demo, subject="S1", name="quality")["rows"][0]
+    nn.edit.dictionary(dataset=demo, subject="S1", name="segment_quality", entry=1, name_of="artefact", colour="#0000ff", params={"threshold": 5})
+    quality = nn.list.dictionaries(dataset=demo, subject="S1", name="segment_quality")["rows"][0]
     assert quality["entries"][1]["name"] == "artefact" and quality["entries"][1]["colour"] == "#0000ff" and quality["entries"][1]["params"] == {"threshold": 5}
     assert quality["entries"][0]["label"] == "Good"
     with pytest.raises(nn.InvalidArgumentError, match="only a surface is primary"):
