@@ -21,6 +21,7 @@ struct MinNormInputs {
   std::optional<Eigen::MatrixXd> right;
   bool averaged = false;
   nxr::io::Json record;
+  std::vector<nxr::bst::StoredProjector> info_projectors;   // mne: the projectors the kernel ends with (the recording's, with the average reference as a projector), before they are cut to the pick
 };
 MinNormInputs minimum_norm_inputs(const Eigen::MatrixXd& F, const Eigen::MatrixXd& C, const std::vector<std::int32_t>& pick, const std::vector<std::string>& types,
                                   const std::vector<nxr::bst::StoredProjector>& projectors, const std::vector<std::string>& covariance_projectors, const std::string& conventions,
