@@ -251,9 +251,11 @@ int export_main(const std::vector<std::string>& argv);    // cli/export_command.
 int crossspectrum_read_main(const std::vector<std::string>& rest);   // cli/meeg_command.cpp
 int read_node_main(const std::vector<std::string>& argv);   // cli/node_command.cpp
 int add_node_main(const std::vector<std::string>& argv);    // cli/node_command.cpp
+int edit_node_main(const std::vector<std::string>& argv);   // cli/node_command.cpp
 int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
   if (cmd == "__list") return list_nodes_main(rest);
   if (cmd == "__read") return read_node_main(rest);           // `read field | statistic | operator | selection | manifold`
+  if (cmd == "__edit") return edit_node_main(rest);           // `edit manifold | dictionary`
   if (cmd == "__add") return add_node_main(rest);             // `add field | selection | statistic | measurements | operator | points | line`
   if (cmd == "read") {
     std::vector<std::string> store = {"read"};
