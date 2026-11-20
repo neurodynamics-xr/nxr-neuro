@@ -112,34 +112,14 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
     if (d.inputs.at(*d.over).value("read", std::string("samples")) == "shape") P.values[*d.over].facts["read"] = "shape";   // the steps see it: only one that reads no sample may take it
   }
   // THE GRAPH the executor checks: the definition's steps as uses of nodes, its found inputs as typed ports (the streamed one is the recording the loop walks), its outputs as the graph's.
-  // `with` is written out here ($names and nested ones replaced), so the executor sees values only; the parameters are the run's (defaults, then the caller's).
-  nxr::graph::Graph& g = P.graph;
-  g.name = d.name; g.version = d.version; g.text = d.text;
-  for (const auto& [k, v] : params.items()) g.parameters[k] = Json{{"default", v}, {"optional", v.is_null()}};   // the run's values; a null one (an optional bound) is "not given", read by the steps
+  std::vector<std::string> present;
   for (const auto& [k, v] : P.values) {
-    g.inputs.push_back(k);
+    present.push_back(k);
     P.types[k] = port_of(v);
     if (channels && v.cls == "field" && v.time && v.row) P.types[k].facts["channels"] = channels(nxr::io::text(*v.row, "name"));   // the recording's channels are facts its nodes read at plan
   }
-  for (const auto& [o, _] : d.outputs.items()) g.outputs.push_back(o);
-  std::set<std::string> defined;                                           // the inputs found, then what each step makes
-  for (const auto& [k, _] : P.values) defined.insert(k);
-  for (const auto& use : d.uses()) {
-    const StepSpec& st = step(use.step);
-    const std::string w = "steps: " + st.name + " (" + label(use.section) + ")";
-    nxr::graph::Use u;
-    u.node = st.name;
-    for (const auto& [port, thing] : use.ins.items()) {
-      const std::string t = thing.get<std::string>();
-      if (defined.count(t)) u.in[port] = t;
-      else if (std::find(st.optional.begin(), st.optional.end(), port) == st.optional.end())
-        refuse(w + ": in." + port + " '" + t + "' is absent (an optional input the subject lacks), and the step needs it");
-    }
-    for (const auto& [k, v] : use.with.items()) u.with[k] = with_value(v, params);
-    u.out = use.outs;
-    for (const auto& o : use.outs) defined.insert(o);
-    (use.section == "before" ? g.before : use.section == "after" ? g.after : g.chunks).push_back(std::move(u));
-  }
+  P.graph = graph_of(d, params, present);
+  const nxr::graph::Graph& g = P.graph;
   // THE CHECK, on types, before any data: arrows, kinds by section, halo, retiming (the executor's). The steps read the subject's records through the plan's binding (nothing stored).
   const Bound bound{task::Subject::of(db, subject_id)};
   const auto binding = std::make_shared<Binding>();
@@ -152,6 +132,7 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
   }
   for (const auto& [name, t] : checked.values) P.values[name] = value_of(t);
   P.align = checked.align;
+  P.checked = std::make_shared<const nxr::graph::Checked>(checked);
   std::size_t at = 0;
   for (const auto& use : d.uses()) {
     const StepSpec& st = step(use.step);
@@ -189,6 +170,33 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
       if (!db.read("manifold", m)) refuse("outputs." + o + ": its manifold " + m + " is not among the subject's rows");
   }
   return P;
+}
+
+// `with` is written out here ($names and nested ones replaced), so the executor sees values only; the parameters are the run's (defaults, then the caller's).
+nxr::graph::Graph graph_of(const Definition& d, const Json& params, const std::vector<std::string>& present) {
+  nxr::graph::Graph g;
+  g.name = d.name; g.version = d.version; g.text = d.text;
+  for (const auto& [k, v] : params.items()) g.parameters[k] = Json{{"default", v}, {"optional", v.is_null()}};   // the run's values; a null one (an optional bound) is "not given", read by the steps
+  g.inputs = present;
+  for (const auto& [o, _] : d.outputs.items()) g.outputs.push_back(o);
+  std::set<std::string> defined(present.begin(), present.end());          // the inputs present, then what each step makes
+  for (const auto& use : d.uses()) {
+    const StepSpec& st = step(use.step);
+    const std::string w = "steps: " + st.name + " (" + label(use.section) + ")";
+    nxr::graph::Use u;
+    u.node = st.name;
+    for (const auto& [port, thing] : use.ins.items()) {
+      const std::string t = thing.get<std::string>();
+      if (defined.count(t)) u.in[port] = t;
+      else if (std::find(st.optional.begin(), st.optional.end(), port) == st.optional.end())
+        refuse(w + ": in." + port + " '" + t + "' is absent (an optional input the subject lacks), and the step needs it");
+    }
+    for (const auto& [k, v] : use.with.items()) u.with[k] = with_value(v, params);
+    u.out = use.outs;
+    for (const auto& o : use.outs) defined.insert(o);
+    (use.section == "before" ? g.before : use.section == "after" ? g.after : g.chunks).push_back(std::move(u));
+  }
+  return g;
 }
 
 Json parameters_of(const Definition& d, const Json& set, const std::string& preset) {

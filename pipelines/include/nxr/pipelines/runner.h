@@ -12,6 +12,7 @@
 //            (then moved aside, never deleted).
 #pragma once
 #include <functional>
+#include <memory>
 #include <map>
 #include <optional>
 #include <string>
@@ -44,12 +45,16 @@ struct Plan {
   nxr::graph::Types types;                     // its inputs' types, from what was found
   std::string preset;                          // the named parameter set the run was asked for (`--set NAME`): in the provenance only, never the cache key (a preset is only a named parameter set); empty: none
   std::int64_t align = 0;                      // the grid (samples) the span snaps to: the largest a node of the graph asks (Planned::align); 0: none
+  std::shared_ptr<const nxr::graph::Checked> checked;   // the graph as the plan checked it (every value's type, the halo): what `compile` hands back
 
   std::vector<const Planned*> section(const std::string& sec) const;
   /** the plan as a person reads it (`--dry-run`) */
   std::string text(const nxr::io::Database& db) const;
 };
 
+/** the executor's form of an (expanded) definition: its steps as uses of nodes with `with` written out for the run's parameters `params`, the inputs named in `present`
+ *  (an optional input absent from it is left unwired; a required one refused), its outputs */
+nxr::graph::Graph graph_of(const Definition& d, const Json& params, const std::vector<std::string>& present);
 /** every step's arrows checked on the inputs, in order; what each makes; the outputs' places: before any data is read */
 /** what a node may know of a recording's channels (types, quality, units: channel_facts), as a function of the recording's name; given by a caller that holds the subject's store (a plan reads the database only) */
 using ChannelFacts = std::function<Json(const std::string& recording)>;

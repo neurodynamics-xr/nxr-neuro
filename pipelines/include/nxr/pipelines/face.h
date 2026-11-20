@@ -185,4 +185,23 @@ struct ExportMeasurementsRequest {
 };
 CommandResult export_measurements(const ExportMeasurementsRequest& request);
 
+/** `compile`: a pipeline definition expanded and type-checked WITHOUT running it; the COMPILED GRAPH handed back, so another program (a renderer) builds on nxr-neuro's types.
+ *  Nothing is read beyond metadata and nothing is written. Each plan of the definition (one per match of its `each:` input and per combination of its `plans:` lists) is compiled:
+ *  - with `dataset` and `subject` (both, read-only): the inputs are found as `run` finds them and typed from their stored records, and the graph is checked as `run` checks it
+ *    (every node's plan and signature: the halo and the span grid are known); `bind` names the stored node each input that is not streamed is bound to, `streams` the recording read;
+ *  - without them: each input's type is the caller's (`inputs`: name -> a type in the structured JSON form or the printed form; an optional input left out is absent) and the
+ *    graph is checked by the node signatures alone (no node's plan runs: `halo` and `align` are null).
+ *  `signatures` declares nodes nxr-neuro does not implement (nxr/graph/type_json.h `external_nodes`), checked with the rest; a node neither registered nor declared is refused.
+ *  Result: {definition, subject (or null), types: "stored" | "given", plans: [{parameters, anchor, graph (nxr::graph::compiled_json), bind, streams}]}. A refusal is an Error
+ *  invalid_argument carrying the checker's message. */
+struct CompileRequest {
+  std::string definition;                  // a shipped definition's name or a .yaml path
+  std::optional<std::string> dataset, subject;   // both or neither
+  Json parameters = Json::object();        // the definition's parameters by name (the command line's --set NAME=VALUE, the value read as YAML)
+  std::string preset;                      // a named parameter set of the definition (`--set NAME`)
+  Json signatures;                         // the external nodes' signatures ({"nodes": [...]} or a list); null: none
+  Json inputs = Json::object();            // without a dataset: each input's type by name
+};
+CommandResult compile(const CompileRequest& request);
+
 }  // namespace nxr::pipelines::face

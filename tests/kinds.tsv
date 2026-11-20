@@ -55,6 +55,7 @@ test_codec_pipeline	unit
 test_compact	unit
 test_compute_types	unit
 test_connection_laplacian	unit
+test_compile	integration
 test_connectome	unit
 test_connectome_definition	integration
 test_connectome_gate	unit
