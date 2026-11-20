@@ -226,6 +226,7 @@ Json describe_statistic(const Ctx& c, const Row& s) {
 }
 
 // ---- dictionaries, spaces, acquisitions, jobs ----
+// a subject sees its own dictionaries, the ones its selections read, its dataset's, and every app-scope one (the program's: the atlases' codes, the frequency bands), each with its `scope`
 Json describe_dictionary(const Ctx& c, const Row& d) {
   Json entries = Json::array();
   for (const Row& e : c.db.all("SELECT code, name, color_json, measurement, measurement_unit, function, params_json, attributes_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {V(text(d, "id"))}))
@@ -279,7 +280,7 @@ const ClassDef kDefs[] = {
     {"selections", "selection", "x.name", "SELECT x.* FROM selection x", "x.subject_id = ? AND x.status = 'complete'", 1, "x.type", describe_selection},
     {"operators", "operator", "x.name", "SELECT x.* FROM operator x", "x.subject_id = ? AND x.status = 'complete'", 1, "x.kind", describe_operator},
     {"statistics", "statistic", "x.name", "SELECT x.* FROM statistic x", "x.subject_id = ? AND x.status = 'complete'", 1, "x.measure", describe_statistic},
-    {"dictionaries", "dictionary", "x.name", "SELECT x.* FROM dictionary x", "(x.subject_id = ? OR x.id IN (SELECT dictionary_id FROM selection WHERE subject_id = ? AND dictionary_id IS NOT NULL) OR (x.scope = 'dataset' AND x.dataset_id IN (SELECT dataset_id FROM subject WHERE id = ?)))", 3, "x.scope", describe_dictionary},
+    {"dictionaries", "dictionary", "x.name", "SELECT x.* FROM dictionary x", "(x.subject_id = ? OR x.id IN (SELECT dictionary_id FROM selection WHERE subject_id = ? AND dictionary_id IS NOT NULL) OR (x.scope = 'dataset' AND x.dataset_id IN (SELECT dataset_id FROM subject WHERE id = ?)) OR x.scope = 'app')", 3, "x.scope", describe_dictionary},
     {"spaces", "space", "x.name", "SELECT x.* FROM space x", "x.subject_id = ?", 1, "x.geometry", describe_space},
     {"acquisitions", "acquisition", "x.label", "SELECT x.* FROM acquisition x", "x.subject_id = ?", 1, nullptr, describe_acquisition},
     {"jobs", "job", "x.created_utc", "SELECT x.*, s.name AS subject_name FROM job x LEFT JOIN subject s ON s.id = x.subject_id", "x.subject_id = ?", 1, "x.kind", describe_job},
