@@ -687,7 +687,7 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
 | `nxr-neuro add selection` | A partition or set (`--members`), a pick (`--indices`) or spans on a line (`--spans`), `--type` naming which; `--of-field`, `--weights V.npy`, `--producer JSON`. | |
 | `nxr-neuro add statistic` | Values on named axes (`--axes NAME:MANIFOLD ...`), with `--measure` and `--method` from the registries, of a field (`--of-field`) or detached. | |
 | `nxr-neuro add measurements` | One value a member of a selection for each measure (`--measure NAME=V.npy ...`), of a field (`--field`) or the members' own. | |
-| `nxr-neuro add operator` | A map between two manifolds, dense (`--values` [to x from]), sparse CSR (`--data --indices --indptr`) or analytic (`--layout analytic --method NAME --params JSON`, no matrix); `--from-selection`. | |
+| `nxr-neuro add operator` | A map between two manifolds, dense (`--values` [to x from]), sparse CSR (`--data --indices --indptr`) or analytic (`--layout analytic --method NAME --params JSON`, no matrix); `--from-selection`, `--producer JSON`. | |
 | `nxr-neuro add points` | A manifold of points: positions [n x 3] or one coordinate each [n]. | |
 | `nxr-neuro add line` | A closed-form line: `--n`, `--spacing`, `--origin`, `--unit`; `--dimension time` (seconds) makes a time line fields can be time-resolved on. With `--coordinates C.npy --dimension eigenvalue [--kinds K.npy]`, a line whose points are not evenly spaced. | |
 | `nxr-neuro add product` | The product manifold of stored factors (`--name N --factors A,B`: a line over time, a surface over time). | |
@@ -763,7 +763,7 @@ refusals store nothing). Each option is stored in a column the schema already ha
 - **`add selection --of-field NAME`** names the field (a recording) the selection belongs to; **`--weights W.npy`** is one weight a member (a set's labelled members, the picks, the spans), stored beside
   the selection and named in its parameters (`weights`; `read selection` gives the array `weights`, `read subject` the flag `weights`); **`--producer JSON`** as above.
 - **`add operator --layout analytic --method NAME [--params JSON] [--from-selection NAME]`** stores an operator by its method, with no matrix (`stored` false, no array to read); `--from-selection` names the
-  selection of the from manifold it reads, for any layout.
+  selection of the from manifold it reads, for any layout; **`--producer JSON`** as for `add field`.
 - **`add dictionary --name N --scope dataset|subject [--subject S] --entries E.json`**: the entries are a JSON list (the file, or the text itself; in Python and JavaScript a list of objects) of
   `{code, name, label, colour, description, params}`; codes are unique and a colour is `#rrggbb`, else refused; a dictionary of that name and scope that exists is refused. `--subject` opens the unit
   (required for a subject scope and for a catalogue of packages; a one-database dataset's dataset-scope dictionary needs none). The label and the description are kept with the entry's attributes; `read

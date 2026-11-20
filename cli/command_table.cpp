@@ -1263,7 +1263,7 @@ R"TBL(@ add operator
 old: __add operator
 summary: Store a linear operator between two manifolds computed elsewhere, dense or sparse (CSR), from .npy files, as one unit.
 example: nxr-neuro add operator --dataset /data/study --subject sub-01 --name smoother --from-manifold cortex --to-manifold cortex --data d.npy --indices i.npy --indptr p.npy
-opts: --by --data --dataset* --description --from-manifold* --from-selection --indices --indptr --kind --layout --method --name* --params --replace --subject* --to-manifold* --values --templates+
+opts: --by --data --dataset* --description --from-manifold* --from-selection --indices --indptr --kind --layout --method --name* --params --producer --replace --subject* --to-manifold* --values --templates+
 )TBL",
 R"TBL(@ add points
 old: __add points
@@ -1431,6 +1431,7 @@ R"TBL(--begin@add field		Write the field in pieces, step 1: take its shape (--sh
 --method@add operator	NAME	With --layout analytic: how the operator is evaluated (its method's name).	none	-
 --params@add operator	JSON	With --layout analytic: the method's parameters, a JSON object.	none	-
 --from-selection@add operator	NAME	The selection of the --from-manifold the operator reads, by name or id.	none	-
+--producer@add operator	JSON	What the maker says of how the operator was made, a JSON object kept in its producer record (not under the keys the command records itself: command, program, inputs, output, cache).	none	-
 --coordinates@add line	FILE.npy	A line whose points are not evenly spaced: one coordinate a point [n], strictly increasing, in --unit; float32 or float64, stored in float64. Not with --n, --spacing or --origin.	none (an evenly spaced line)	-
 --kinds@add line	FILE.npy	With --coordinates: one integer code a point [n] (what each point is, e.g. the kind of an eigenmode).	none	-
 --templates@add product	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-

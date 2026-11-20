@@ -507,6 +507,7 @@ CommandResult add_operator(const AddOperatorRequest& rq, const Progress& progres
     need_real(v, sparse ? "--data" : "--values", sparse ? *rq.data : *rq.values);
   }
   const Json parameters = rq.params ? json_of(*rq.params, "--params") : Json();
+  const Json maker = maker_producer(rq.producer);
   return in_unit(rq.dataset, rq.subject, rq.templates, author_of(rq), producer_of("add operator", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
     const Node from = require_manifold(ts, rq.from_manifold, "--from-manifold"), to = require_manifold(ts, rq.to_manifold, "--to-manifold");
     const std::int64_t rows = to.n_vertices.value_or(-1), cols = from.n_vertices.value_or(-1);
@@ -519,6 +520,7 @@ CommandResult add_operator(const AddOperatorRequest& rq, const Progress& progres
     o.description = rq.description;
     o.data = v;
     o.params = parameters;
+    o.producer = maker;
     if (rq.from_selection) {
       const auto sel = ts.by_id_or_name(Cls::selection, *rq.from_selection);
       if (!sel) throw Error(code::no_such_row, "the subject holds no selection named '" + *rq.from_selection + "' (--from-selection)");

@@ -17,7 +17,7 @@
 //   nxr-neuro edit manifold --dataset D --subject S --name N [--primary yes|no] [--label TEXT] [--description TEXT]
 //   nxr-neuro edit dictionary --dataset D [--subject S] --name N (--entry CODE [--name-of TEXT] [--label TEXT] [--colour #rrggbb] [--description TEXT] [--params JSON] | --entries FILE.json --replace)
 //   (add field also takes --by-operator NAME, --contribution SUBJECT:FIELD[:WEIGHT] ..., --producer JSON; add selection --of-field NAME, --weights FILE.npy, --producer JSON;
-//    add operator --layout analytic --method NAME [--params JSON] [--from-selection NAME]; every add takes --by TEXT, the author recorded as created_by)
+//    add operator --layout analytic --method NAME [--params JSON] [--from-selection NAME] [--producer JSON]; every add takes --by TEXT, the author recorded as created_by)
 //
 // Arrays go in and out as .npy files (C order, little-endian, the stored precision). The command parses, calls its library function once (nxr/pipelines/face.h for read,
 // nxr/io/task/commands.h for add) and prints the result.
@@ -279,7 +279,7 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.measure = values_of(a, "--measure");
     r = call(prog, [&] { return task::add_measurements(rq, progress()); });
   } else if (what == "operator") {
-    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--kind", "--from-manifold", "--to-manifold", "--values", "--data", "--indices", "--indptr", "--description", "--layout", "--method", "--params", "--from-selection"}, {"--replace"},
+    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--kind", "--from-manifold", "--to-manifold", "--values", "--data", "--indices", "--indptr", "--description", "--layout", "--method", "--params", "--from-selection", "--producer"}, {"--replace"},
                          {"--dataset", "--subject", "--name", "--from-manifold", "--to-manifold"});
     task::AddOperatorRequest rq;
     common(a, rq);
@@ -296,6 +296,7 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.method = a.maybe("--method");
     rq.params = a.maybe("--params");
     rq.from_selection = a.maybe("--from-selection");
+    rq.producer = a.maybe("--producer");
     r = call(prog, [&] { return task::add_operator(rq, progress()); });
   } else if (what == "points") {
     const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--positions", "--coordinate-system", "--description"}, {"--replace"}, {"--dataset", "--subject", "--name", "--positions"});

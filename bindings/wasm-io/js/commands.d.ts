@@ -796,6 +796,7 @@ export interface AddOperatorOptions {
   method?: string | number;
   name: string | number;
   params?: Record<string, unknown> | unknown[] | string;
+  producer?: Record<string, unknown> | unknown[] | string;
   replace?: boolean;
   subject: string | number;
   templates?: string[] | string;

@@ -459,6 +459,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.method = o.maybe("method");
     q.params = o.maybe("params");
     q.from_selection = o.maybe("from_selection");
+    q.producer = o.maybe("producer");
     q.replace = o.flag("replace");
     q.templates = o.list("templates");
     q.by = o.maybe("by");

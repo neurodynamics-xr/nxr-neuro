@@ -89,7 +89,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("add", "selection", "", "by dataset* description entries indices manifold* members name* of_field producer replace! spans subject* type* weights templates+"),
     ("add", "statistic", "", "append! axes+ begin! by commit! dataset* description dtype measure method name of_field partition region replace! shape subject unit value_type values write templates+"),
     ("add", "measurements", "", "by dataset* field measure*+ replace! selection* subject* unit templates+"),
-    ("add", "operator", "", "by data dataset* description from_manifold* from_selection indices indptr kind layout method name* params replace! subject* to_manifold* values templates+"),
+    ("add", "operator", "", "by data dataset* description from_manifold* from_selection indices indptr kind layout method name* params producer replace! subject* to_manifold* values templates+"),
     ("add", "points", "", "by coordinate_system dataset* description name* positions* replace! subject* templates+"),
     ("add", "line", "", "by coordinates dataset* dimension kinds n name* origin replace! spacing subject* unit* templates+"),
     ("add", "product", "", "by dataset* factors* name* subject* templates+"),
@@ -134,7 +134,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
 JSON_OPTIONS = {
     ("add", "field"): {"producer"},
     ("add", "selection"): {"producer"},
-    ("add", "operator"): {"params"},
+    ("add", "operator"): {"params", "producer"},
     ("add", "dictionary"): {"entries"},
     ("edit", "dictionary"): {"params", "entries"},
 }

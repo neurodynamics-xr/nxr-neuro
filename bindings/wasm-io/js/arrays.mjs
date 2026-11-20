@@ -15,7 +15,7 @@ export const ARRAY_OPTIONS = {
 export const JSON_OPTIONS = {
   'add field': ['producer'],
   'add selection': ['producer'],
-  'add operator': ['params'],
+  'add operator': ['params', 'producer'],
   'add dictionary': ['entries'],
   'edit dictionary': ['params', 'entries'],
 };

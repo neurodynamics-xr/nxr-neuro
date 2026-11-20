@@ -290,6 +290,7 @@ struct AddOperatorRequest {
   std::optional<std::string> description;
   // `layout analytic`: an operator stored by its method (`method`, its `params` as JSON text) and no matrix; `from_selection`: the selection of the from manifold it reads, by name or id
   std::optional<std::string> layout, method, params, from_selection;
+  std::optional<std::string> producer;     // JSON text: what the maker says of how it was made, added to the producer record
   bool replace = false;
   std::vector<std::string> templates;
   std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
