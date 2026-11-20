@@ -56,7 +56,21 @@ const char* to_string(OutputPrecision p);
 enum class Kind { array, chunk, accumulate };
 const char* to_string(Kind k);
 
-struct PortSpec { std::string name, meaning; bool optional = false; };
+/** an input port. `many`: the port takes a LIST of values, in order: a definition wires `<port>.0`, `<port>.1`, ... (written `in: {<port>: {for: {band: $bands}, each: "x_{band}"}}`), and the node reads
+ *  them in that order (`many_inputs`); one at least unless `optional`. */
+struct PortSpec { std::string name, meaning; bool optional = false; bool many = false; };
+/** the wired values of a `many` port, in order: the keys `<port>.0`, `<port>.1`, ... of a node's inputs (a missing index ends the list) */
+template <class Map> std::vector<typename Map::const_iterator> many_inputs(const Map& in, const std::string& port) {
+  std::vector<typename Map::const_iterator> out;
+  for (std::size_t i = 0;; ++i) {
+    const auto it = in.find(port + "." + std::to_string(i));
+    if (it == in.end()) break;
+    out.push_back(it);
+  }
+  return out;
+}
+/** the port a wired key names: `<port>` itself, or the `many` port `<port>` of a key `<port>.<index>` */
+std::string port_of_key(const std::string& key);
 /** a parameter: its default (null: the caller must set it, unless `optional`), meaning and unit; the command line's help is made from these. `optional`: null is a value, "not given": the node decides what that means (a pipeline's optional bound) */
 struct ParamSpec { std::string name; Json def; std::string meaning, unit; std::vector<std::string> choices; bool optional = false; };
 
