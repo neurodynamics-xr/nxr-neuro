@@ -255,7 +255,8 @@ ng::NodeSpec correlation() {
   n.kind = ng::Kind::array;
   n.inputs = {{"covariance", "a covariance, rows x rows (stats.cov over the span, or a stored one)", false}};
   n.outputs = {{"correlation", "Pearson's correlation of every pair of rows, rows x rows, its diagonal 1", false}};
-  n.parameters = {{"measure", Json("correlation"), "the name the correlation is stored under (the amplitude envelope correlation of MEG fingerprinting: aec)", "-", {}, false}};
+  n.parameters = {{"measure", Json("correlation"), "the name the correlation is stored under (the amplitude envelope correlation of MEG fingerprinting: amplitude_envelope_correlation)", "-", {}, false},
+                  {"warnings", Json::array(), "what the chain before it cannot resolve, recorded in the statistic's producer (producer_json.warnings)", "-", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "a ratio of the covariance's entries, once a run");
   n.matches = "MATLAB corrcoef, Brainstorm's bst_corrn (of 2018-10-12), numpy corrcoef; compute nxr::stats::correlation";
   n.description = "Pearson's correlation of every pair of rows, from their covariance";
@@ -266,7 +267,7 @@ ng::NodeSpec correlation() {
     out.out["correlation"] = statistic_out();
     return out;
   };
-  n.prepare = [](const ng::Types&, const ng::Arrays&, const Json& p, ng::Shared&) { return std::any(p.value("measure", std::string("correlation"))); };
+  n.prepare = [](const ng::Types&, const ng::Arrays&, const Json& p, ng::Shared&) { return std::any(std::make_pair(p.value("measure", std::string("correlation")), p.value("warnings", Json::array()))); };
   n.run = [](const std::any& prepared, const ng::Arrays& in) {
     const ng::Array& c = given(in, "covariance", "stats.correlation");
     Eigen::MatrixXd R;
@@ -278,10 +279,10 @@ ng::NodeSpec correlation() {
     for (std::int64_t i = 0; i < n; ++i) for (std::int64_t j = 0; j < n; ++j) a.data[static_cast<std::size_t>(i * n + j)] = R(i, j);
     const Json cd = c.meta.value("describe", Json::object());
     a.meta["describe"] = Json{
-        {"measure", std::any_cast<const std::string&>(prepared)}, {"method", "pearson"}, {"label", "pearson"}, {"precision", "float64"}, {"unit", "1"},
+        {"measure", std::any_cast<const std::pair<std::string, Json>&>(prepared).first}, {"method", "pearson"}, {"label", "pearson"}, {"precision", "float64"}, {"unit", "1"},
         {"axes", cd.value("axes", Json::array({Json{{"name", "row"}, {"size", n}}, Json{{"name", "row"}, {"size", n}}}))},
         {"n_members", 1}, {"options", Json{{"of", "covariance"}, {"covariance", cd.value("options", Json::object())}}},
-        {"producer", Json{{"stage", "correlation"}, {"covariance", cd.value("producer", Json::object())}, {"references", references()}}},
+        {"producer", Json{{"stage", "correlation"}, {"covariance", cd.value("producer", Json::object())}, {"references", references()}, {"warnings", std::any_cast<const std::pair<std::string, Json>&>(prepared).second}}},
         {"description", "Pearson's correlation of every pair of " + std::to_string(n) + " rows over the run's span (from their covariance)"}};
     return ng::Arrays{{"correlation", std::move(a)}};
   };

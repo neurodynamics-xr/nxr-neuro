@@ -13,7 +13,8 @@
 
 namespace nxr::signal {
 
-inline Eigen::MatrixXcd linearMap(const Eigen::MatrixXcd& weights, const Eigen::MatrixXd& X) {
+namespace detail {
+inline Eigen::MatrixXcd linearMapComplex(const Eigen::MatrixXcd& weights, const Eigen::MatrixXd& X) {
     if (weights.cols() != X.rows())
         throw std::invalid_argument("linearMap: the operator acts on " + std::to_string(weights.cols()) + " channels, the data has " + std::to_string(X.rows()));
     const Eigen::Index R = weights.rows();
@@ -26,12 +27,19 @@ inline Eigen::MatrixXcd linearMap(const Eigen::MatrixXcd& weights, const Eigen::
         for (Eigen::Index t = 0; t < X.cols(); ++t) Z(r, t) = std::complex<double>(Y(r, t), Y(R + r, t));
     return Z;
 }
-
-/** A REAL operator: Y = W X, W [R x C], X [C x T], Y [R x T] real (a region map: one row a region's signal). */
-inline Eigen::MatrixXd linearMap(const Eigen::MatrixXd& weights, const Eigen::MatrixXd& X) {
+inline Eigen::MatrixXd linearMapReal(const Eigen::MatrixXd& weights, const Eigen::MatrixXd& X) {
     if (weights.cols() != X.rows())
         throw std::invalid_argument("linearMap: the operator acts on " + std::to_string(weights.cols()) + " channels, the data has " + std::to_string(X.rows()));
     return weights * X;
+}
+}  // namespace detail
+
+/** ONE function for both operators, chosen by the operator's scalar type (so any Eigen expression resolves, with every compiler): a COMPLEX W [R x C] gives Z = W X complex (Re W . X +
+ *  i Im W . X); a REAL W gives Y = W X real (a region map: one row a region's signal). X [C x T] real. */
+template <class Weights, class Data>
+auto linearMap(const Eigen::MatrixBase<Weights>& weights, const Eigen::MatrixBase<Data>& X) {
+    if constexpr (Eigen::NumTraits<typename Weights::Scalar>::IsComplex) return detail::linearMapComplex(weights.template cast<std::complex<double>>(), X.template cast<double>());
+    else return detail::linearMapReal(weights.template cast<double>(), X.template cast<double>());
 }
 
 }  // namespace nxr::signal

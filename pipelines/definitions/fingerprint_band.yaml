@@ -61,7 +61,7 @@ steps:
       - {node: signal.hilbert, in: {x: regions}, with: {lowest: $lower, beta: $beta, transform: envelope}, out: envelope, when: $single_bandpass}
       - {node: stats.cov, in: {x: envelope}, with: {axis: region}, out: covariance}
   after:
-    - {node: stats.correlation, in: {covariance: covariance}, with: {measure: amplitude_envelope_correlation}, out: aec}
+    - {node: stats.correlation, in: {covariance: covariance}, with: {measure: amplitude_envelope_correlation, warnings: ["the band-pass and the Hilbert transform stream (chunks with halos): the envelopes differ from the 2018 release's whole-half filtering within about one filter length of each half's ends; measured on the synthetic goldens (compute/test/golden/gen_fingerprint_features_golden.m) the correlation differs by |dr| 6.6e-3 (delta, 1-4 Hz), 4.1e-4 (alpha, 8-13 Hz), 1.6e-5 (gamma, 30-50 Hz)"]}, out: aec}
 
 outputs:
   spectrum:

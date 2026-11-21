@@ -161,6 +161,9 @@ follows them from the start, and no change may move existing code further from t
 **3. Every pipeline is a definition.**
 - A pipeline is a YAML definition: its inputs, parameters (each with meaning, default and unit, from which `run <pipeline> --help` is generated),
   steps wired port to port, and outputs. Built-in pipelines ship as definitions in `pipelines/definitions/`; users write their own.
+- **List ports** (accepted 2026-11-20): a node input declared `many` (`nxr::graph::PortSpec::many`) takes a list of values in order, wired `<port>.0`, `<port>.1`, ... A definition writes
+  it `in: {<port>: {for: {band: $band_names}, each: "spectrum_{band}"}}`, written out in the list's order before anything else reads the definition; the node reads them with
+  `nxr::graph::many_inputs`. It is how one node takes one value per member of a set whose size is a parameter (the bands' statistics of `fingerprint_features`).
 - **No pipeline is a hand-wired C++ chain.** A new analysis is new nodes (pure functions, registered with their ports, parameters and traits) plus a
   definition. Never a `<x>_compute` function that finds its own inputs, loops and stores.
 - **A graph of pure functions is itself a pure function.** The graph executor (arrow and port checks, the halo composed from the nodes' traits, state

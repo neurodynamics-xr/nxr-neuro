@@ -999,7 +999,9 @@ reading where the release departs from it is a named option. Every stored result
   leave (the numbers are printed by `test_fingerprint_features`).
 - **What it cannot resolve:** what the region map cannot (a region's first principal component over THIS half, its sign a convention; neighbouring regions share signal through the
   beamformer's spread, which also raises their envelope correlation, unorthogonalised as in the release); the spectrum is power per 0.5 Hz bin in the release's units, not a density; the release
-  band-passes and Hilbert-transforms each half held whole (an FFT over it): here they stream, equal away from the half's ends and different within about one filter length of them.
+  band-passes and Hilbert-transforms each half held whole (an FFT over it): here they stream, equal away from the half's ends and different within about one filter length of them
+  (accepted by the maintainers, 2026-11-20). Measured on the synthetic goldens, the envelope correlation differs from the release's by |dr| 6.6e-3 (delta), 4.1e-4 (alpha), 1.6e-5 (gamma); every
+  `<name>_aec` records this limit in `producer_json.warnings`.
 
 ## Temporal filters (`compute/include/nxr/filter.h`, `lowpass|highpass|bandpass|bandstop|notch`)
 
