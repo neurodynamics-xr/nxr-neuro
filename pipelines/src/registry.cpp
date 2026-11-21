@@ -1603,7 +1603,7 @@ StepSpec describe_native(const nxr::graph::NodeSpec& n) {
   s.name = n.name;
   s.native = true;
   s.kind = n.kind == nxr::graph::Kind::chunk ? "chunk" : n.kind == nxr::graph::Kind::accumulate ? "accumulate" : "array";
-  for (const auto& p : n.inputs) { s.inputs.push_back(p.name); if (p.optional) s.optional.push_back(p.name); }
+  for (const auto& p : n.inputs) { s.inputs.push_back(p.name); if (p.optional) s.optional.push_back(p.name); if (p.many) s.many.push_back(p.name); }
   for (const auto& p : n.outputs) s.outputs.push_back(p.name);
   for (const auto& p : n.parameters) s.parameters[p.name] = p.def;
   s.matches = n.matches;

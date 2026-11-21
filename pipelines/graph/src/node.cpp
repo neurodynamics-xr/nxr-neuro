@@ -151,6 +151,13 @@ const NodeSpec& Registry::at(const std::string& name) const {
   }
   refuse(msg);
 }
+std::string port_of_key(const std::string& key) {
+  const std::size_t dot = key.rfind('.');
+  if (dot == std::string::npos || dot + 1 >= key.size()) return key;
+  for (std::size_t i = dot + 1; i < key.size(); ++i) if (key[i] < '0' || key[i] > '9') return key;
+  return key.substr(0, dot);
+}
+
 Registry& registry() {
   static Registry r = [] { Registry x; register_frame_nodes(x); return x; }();
   return r;

@@ -32,11 +32,27 @@
 // What it cannot show: identification says the two measurements of a person are more alike than those of different people, not why (anatomy, the head's position, the kernel, recurring
 // artefacts and the day's noise are individual too); accuracy falls as the cohort grows and is not comparable between cohorts; the curve and its best k are fitted on the data they score.
 #include <Eigen/Dense>
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace nxr::stats {
+
+/** THE SPECTRAL FEATURE of a person (the published method's step 18, spec 2026-11-16-meg-fingerprinting.md, 11.3 and 12.1): each band's spectrum `spectra[b]` [regions x bins] (frequencies
+ *  f0 + k df) cut to its band `bands[b]` = {lo, hi} (the bins with lo <= f <= hi, both ends INCLUSIVE, as a band member holds its Welch bins), the cuts side by side in the bands' order:
+ *  [regions x sum of the bands' bins] (with the reference's six bands at 0.5 Hz: 8 + 8 + 10 + 34 + 40 + 201 = 301 bins, 0 to 150 Hz). Each bin is taken from the spectrum of the band that
+ *  holds it. A cut, not a reduction: no value is changed. std::invalid_argument when the counts differ (spectra, bands), the spectra differ in shape, or a band holds no bin. */
+struct SpectralFeature {
+    Eigen::MatrixXd values;                  // [regions x bins kept]
+    std::vector<double> frequencies;         // each kept bin's frequency, Hz
+    std::vector<std::int64_t> counts;        // each band's bins
+};
+SpectralFeature spectralFeature(const std::vector<Eigen::MatrixXd>& spectra, double df, double f0, const std::vector<std::array<double, 2>>& bands);
+
+/** THE CONNECTOME FEATURE (step 19): one [r x r] matrix a band (the amplitude envelope correlation), stacked on a trailing band axis: [r x r x bands], C order (value (i r + j) B + b), what
+ *  `featureTable` reads with the layout UpperTriangle. std::invalid_argument when none is given or they differ in shape or are not square. */
+std::vector<double> connectomeFeature(const std::vector<Eigen::MatrixXd>& matrices);
 
 enum class FeatureLayout { Flatten, UpperTriangle };
 enum class SelfReference { All, Others };

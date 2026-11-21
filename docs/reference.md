@@ -443,6 +443,8 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run inverse` | The depth-weighted minimum-norm inverse kernel, from a noise covariance and a head model. | `inverse compute` |
 | `nxr-neuro run lcmv` | The LCMV beamformer from a head model, a data covariance and a noise covariance: Brainstorm's 2016 pseudo neural activity index (fixed orientation, the default), or MNE-Python's `make_lcmv` (`--conventions mne`: free, normal or max-power orientation; none, unit-noise-gain, unit-noise-gain-invariant or nai weight normalisation). | (the definition) |
 | `nxr-neuro run region_pca` | Each region's signal as the first principal component of its sources over a span (Brainstorm's scout PCA with the sign flip): a region map of the channels and its offsets. | (the definition) |
+| `nxr-neuro run fingerprint_band` | One band of a person over a span (MEG fingerprinting, steps 17 and 19): the region spectrum (Brainstorm 2018's Welch) and the amplitude envelope correlation of the region signals. | (the definition) |
+| `nxr-neuro run fingerprint_features` | A person's two features over a span (steps 18 and 19): the bands' region spectra cut to their bands side by side (68 x 301 by default), and their envelope correlations on a band axis. | (the definition) |
 | `nxr-neuro run headmodel` | The sphere head model (gain matrix) for a subject's cortex, MEG and EEG. | `headmodel compute` |
 | `nxr-neuro run pointspread` | The instrument's blur: unit currents at sample vertices through the head model and inverse kernel. | `pointspread compute` |
 | `nxr-neuro run eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface, with the intrinsic complex and the modes' full forms (cached); `--glued` for a cortex of two hemispheres. | `eigen solve` |
@@ -994,6 +996,43 @@ code is only run by the generator, never copied). Every stored result carries th
   computed from the stored surface; `corner_angle` (geometry-central's corner-angle weighted normals, `nxr::geometry::vertexNormals`) is a named option. The two differ in direction as well as
   sign; the choice is in the provenance and the cache key. **Deviation to know:**
   The covariance a region map is made from must be of the recording the run reads: the span is checked, the recording is the caller's.
+
+### The per-subject features of MEG fingerprinting: the region spectra and the envelope correlations (`run fingerprint_band`, `run fingerprint_features`; spec `docs/specs/2026-11-16-meg-fingerprinting.md`, 11.3, steps 16-19, and 12)
+
+**Why:** the published method identifies a person from two features of each half of a recording: the region spectra (each band's region signals' spectrum, cut to the band) and the amplitude
+envelope correlations of the region signals (the connectome). **The reference** is the authors' release megFingerprinting v1.0.0 (06fdba8), `2_prerprocessing_PSD.m` and
+`2_preprocessing_AEC_ortho.m`, with Brainstorm's release of 2018-10-12 (process_psd: bst_psd; process_aec1n: bst_connectivity's AEC); the default reproduces it, its quirks included; the paper's
+reading where the release departs from it is a named option. Every stored result carries the citation (`producer.references`).
+- **One band over one half (`run fingerprint_band`).** The band's band-passed run (`run bandpass --design brainstorm_2018`) through the band's region map over the same half (`run region_pca`):
+  `signal.linear_map` (the map's rows, one real series a region, the statistics' region axis naming the map's partition and each member; the map's offsets are constants that the Welch detrend and the band-pass remove) → **step 17**, `signal.psd`: Welch as bst_psd of
+  2018 computes it: round(2 fs) samples (even) from the span's start, 50 % overlap, a symmetric Hamming window, each segment's mean removed, and the release's units: |2 X / n|^2 at EVERY bin, the
+  window's power not corrected, DC and Nyquist doubled too (`--scaling brainstorm_2018`, `nxr::signal::spectral::Scaling::Brainstorm2018`); bad segments left out → `<name>_spectrum` (power,
+  regions x 0.5 Hz bins). **Step 19**, the region signals band-passed AGAIN (the release's quirk: process_aec1n filters each band's sources once more; `--single-bandpass` is the paper's reading)
+  by `signal.filter --design brainstorm_2018 --ends span`: the half is the record, as the release loads only that window (its mean is not removed: of a band-passed signal it is near zero; the
+  ends are padded with zeros) → `signal.hilbert` (a Kaiser-windowed FIR Hilbert transformer whose transition at DC spans half the band's lower edge; `--transform envelope`: |z|) →
+  `stats.cov` (the envelopes' covariance over the span: a statistic over its time partition) → `stats.correlation` (Pearson, no orthogonalisation: the paper and the code agree) → `<name>_aec`.
+- **Brainstorm's filter of 2018 (`--design brainstorm_2018` of `signal.filter`, `bandpass`, `lowpass`, `highpass`; `nxr::signal::filters::TransitionRule::Brainstorm2018`).** That release's
+  bst_bandpass_hfilter: the high-pass stop edge at 0.5 x the edge (0.85 x above 5 Hz), the low-pass stop edge at 1.15 x the edge (1.05 x for a low-pass alone), kaiserord on the narrower transition
+  (60 dB), fir1 with the cut-offs at the transitions' midpoints, the record's mean removed and its ends padded with zeros. The current release's rule (`brainstorm`) stays the default of the filter
+  verbs. `--ends span` (signal.filter): the run's span is the record (nothing outside it is read; the output is 0 outside it).
+- **The two features (`run fingerprint_features`).** **Step 18**, `stats.spectralFeature`: each band's region spectrum cut to its band, the bands side by side, each bin taken from the spectrum of
+  the band that holds it; the cuts are a band set (`select.bands`), lo to hi INCLUSIVE, by default the reference's: delta 0-3.5 Hz, theta 4-7.5, alpha 8-12.5, beta 13-29.5, gamma 30-49.5, high gamma
+  50-150 (8 + 8 + 10 + 34 + 40 + 201 = 301 bins); the release holds no such export: the cut is the only reading that reproduces its notebooks' table sizes (spec 12.1), recorded as an inference.
+  `stats.connectomeFeature`: the bands' envelope correlations on a band axis, [regions x regions x bands]. Stored `<name>_spectral` and `<name>_connectome`, what `run fingerprint` reads
+  (`--vector flatten`; `--vector upper-triangle`: per band the upper triangle with its diagonal). The bands' statistics are a LIST input of each node (`in: {spectra: {for: {band: $band_names},
+  each: "spectrum_{band}"}}`, wired `spectra.0`, `spectra.1`, ...: a port declared `many`).
+- **The run order of a subject** (each band and each half is its own recording, kernel and span, so composition cannot write it as one definition; it is in the header of
+  `fingerprint_features.yaml`): per band, `bandpass` of the run and the empty room, `noisecov` of each (data and noise covariances), `lcmv`; per band and half, `noisecov` over the half, `region_pca`,
+  `fingerprint_band`; per half, `fingerprint_features`. The halves are step 16's: A = [5 s, floor(T/2)] (the release's training half: the database) and B = [ceil(T/2), T - 5 s] (validation: the
+  target), T the run's last time. The release takes T from the last band's file; every band is the same run filtered, so T is the run's own here.
+- **Goldens** (`compute/test/golden/gen_fingerprint_features_golden.m`, Brainstorm's release of 2018-10-12 found through `BRAINSTORM_2018_HOME`, MATLAB R2023b): on synthetic region signals at
+  200 Hz, a half of 3001 samples: the 2018 band-pass's order and output to 1e-13; bst_psd's spectrum to 1e-10; the envelope correlation, 1-4, 8-13 and 30-50 Hz, to the tolerance the half's ends
+  leave (the numbers are printed by `test_fingerprint_features`).
+- **What it cannot resolve:** what the region map cannot (a region's first principal component over THIS half, its sign a convention; neighbouring regions share signal through the
+  beamformer's spread, which also raises their envelope correlation, unorthogonalised as in the release); the spectrum is power per 0.5 Hz bin in the release's units, not a density; the release
+  band-passes and Hilbert-transforms each half held whole (an FFT over it): here they stream, equal away from the half's ends and different within about one filter length of them
+  (accepted by the maintainers, 2026-11-20). Measured on the synthetic goldens, the envelope correlation differs from the release's by |dr| 6.6e-3 (delta), 4.1e-4 (alpha), 1.6e-5 (gamma); every
+  `<name>_aec` records this limit in `producer_json.warnings`.
 
 ## Temporal filters (`compute/include/nxr/filter.h`, `lowpass|highpass|bandpass|bandstop|notch`)
 

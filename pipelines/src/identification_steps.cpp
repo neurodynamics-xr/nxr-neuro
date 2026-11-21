@@ -13,6 +13,7 @@
 // What it cannot show: why a person's two measurements are alike (anatomy, the head's position, the kernel, recurring artefacts and the day's noise are individual too); accuracy falls as
 // the cohort grows and is not comparable between cohorts; the curve and its best k are fitted on the data they score; the edgewise statistics are on features z-scored within each vector.
 #include "nxr/pipelines/identification_steps.h"
+#include "nxr/pipelines/fingerprint_steps.h"
 
 #include <string>
 #include <vector>
@@ -345,6 +346,7 @@ ng::NodeSpec identification_curve() {
 }  // namespace
 
 void register_identification_nodes() {
+  register_fingerprint_feature_nodes();
   ng::Registry& r = ng::registry();
   for (ng::NodeSpec n : {feature_table(), identification(), identification_curve()})
     if (!r.find(n.name)) r.add(std::move(n));

@@ -41,6 +41,7 @@ add_library(nxr_pipelines
   src/partition_steps.cpp
   src/pca_steps.cpp
   src/identification_steps.cpp
+  src/fingerprint_steps.cpp
   src/flow_steps.cpp
   src/form_steps.cpp
   src/verb_steps.cpp
@@ -147,6 +148,10 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_fingerprint_pipeline PRIVATE nxr_pipelines)
   target_include_directories(test_fingerprint_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
   add_test(NAME test_fingerprint_pipeline COMMAND test_fingerprint_pipeline)
+  add_executable(test_fingerprint_features_pipeline test/test_fingerprint_features_pipeline.cpp)   # MEG fingerprinting end to end on a synthetic cohort: per band and half the features, then the group run
+  target_link_libraries(test_fingerprint_features_pipeline PRIVATE nxr_pipelines)
+  target_include_directories(test_fingerprint_features_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_fingerprint_features_pipeline COMMAND test_fingerprint_features_pipeline)
   add_executable(test_face test/test_face.cpp)   # what the Python and MATLAB faces call (face.h): run, list, read, on a synthetic dataset; the same result as the command line's
   target_link_libraries(test_face PRIVATE nxr_pipelines)
   target_include_directories(test_face PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test)

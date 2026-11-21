@@ -90,6 +90,11 @@ node	stats.pca	nxr::stats::pca	ok
 node	stats.featureTable	nxr::stats::featureTable	ok
 node	stats.identification	nxr::stats::identification	ok
 node	stats.identificationCurve	nxr::stats::identificationCurve	ok
+node	stats.cov	nxr::stats::cov	ok
+node	stats.correlation	nxr::stats::correlation	ok
+node	stats.spectralFeature	nxr::stats::spectralFeature	ok
+node	stats.connectomeFeature	nxr::stats::connectomeFeature	ok
+node	signal.hilbert	nxr::signal::hilbert	ok
 node	measurement.summarize	-	composite
 node	geometry.surface_frames	-	composite
 node	synthesis.lagfree	-	composite

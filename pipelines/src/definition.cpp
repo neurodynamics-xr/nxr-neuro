@@ -1,5 +1,6 @@
 // nxr-pipelines — a pipeline definition (definition.h): nxr's nxr/pipelines/definition.py `parse`, line for line.
 #include "nxr/pipelines/definition.h"
+#include "nxr/graph/node.h"
 
 #include <algorithm>
 #include <cmath>
@@ -241,6 +242,19 @@ Json expand_steps(const Json& list, const Json& params, const VarMap& vars, cons
       for (const VarMap& m : combinations(el["for"], params, vars, where)) for (const auto& x : expand_steps(el["do"], params, m, where)) out.push_back(x);
     } else {
       Json one = substitute(el, vars);
+      if (one.is_object() && one.contains("in") && one["in"].is_object()) {      // a LIST PORT: `<port>: {for: {var: $list}, each: "<value {var}>"}` written out as `<port>.0`, `<port>.1`, ... in the list's order
+        Json ins = Json::object();
+        for (const auto& [port, v] : one["in"].items()) {
+          if (v.is_object() && v.contains("for")) {
+            if (v.size() != 2 || !v.contains("each") || !v["each"].is_string()) err(where, "in." + port + ": a list port is {for: {var: $list}, each: \"<value, with {var}>\"}");
+            std::size_t i = 0;
+            for (const VarMap& m : combinations(v["for"], params, vars, where + ": in." + port)) ins[port + "." + std::to_string(i++)] = substitute(v["each"], m);
+          } else {
+            ins[port] = v;
+          }
+        }
+        one["in"] = std::move(ins);
+      }
       if (one.is_object() && one.contains("when")) {                      // a step left out when its condition fails; the key never reaches the flat definition
         const bool on = holds(one["when"], params, where);
         one.erase("when");
@@ -480,12 +494,14 @@ Definition parse(const Json& written, const std::string& source, const std::stri
       const Json ins = s.contains("in") && !s["in"].is_null() ? s["in"] : Json::object();
       if (!ins.is_object()) err(w, "in: a mapping of port → thing");
       for (const auto& [port, thing] : ins.items()) {
-        if (std::find(st.inputs.begin(), st.inputs.end(), port) == st.inputs.end()) err(w, "in: '" + port + "' is not one of its ports (" + join(st.inputs) + ")");
+        const std::string base = nxr::graph::port_of_key(port);
+        const bool listed = base != port && std::find(st.many.begin(), st.many.end(), base) != st.many.end();   // an element of a list port: `<port>.<index>`
+        if (!listed && std::find(st.inputs.begin(), st.inputs.end(), port) == st.inputs.end()) err(w, "in: '" + port + "' is not one of its ports (" + join(st.inputs) + ")");
         if (!thing.is_string() || !known.count(thing.get<std::string>())) err(w, "in." + port + ": " + thing.dump() + " is neither an input nor an earlier step's output");
       }
       std::vector<std::string> missing;
       for (const auto& p : st.inputs)
-        if (!ins.contains(p) && std::find(st.optional.begin(), st.optional.end(), p) == st.optional.end()) missing.push_back(p);
+        if (!ins.contains(p) && !ins.contains(p + ".0") && std::find(st.optional.begin(), st.optional.end(), p) == st.optional.end()) missing.push_back(p);
       if (!missing.empty()) err(w, "in: its port(s) " + join(missing) + " are not given");
       const Json with = s.contains("with") && !s["with"].is_null() ? s["with"] : Json::object();
       if (!with.is_object()) err(w, "with: a mapping of parameter → value");

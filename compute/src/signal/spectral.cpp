@@ -154,6 +154,7 @@ double segmentScale(const WelchOptions& options, const SegmentFamily& family) {
         case Scaling::Density: return 1.0 / (options.sfreq * family.windowSumSquares);
         case Scaling::Spectrum: return 1.0 / (family.windowSum * family.windowSum);
         case Scaling::Chain: return 1.0 / (static_cast<double>(family.samples) * family.windowSumSquares);
+        case Scaling::Brainstorm2018: return 4.0 / (static_cast<double>(family.samples) * static_cast<double>(family.samples));   // |2 X / n|^2, every bin (Welch::result doubles none)
     }
     return 0;
 }
@@ -225,6 +226,7 @@ WelchResult Welch::result() const {
     if (segments_ == 0) return r;
     const double scale = segmentScale(opt_, family_);
     r.psd = mean_.sum().real() * (scale / static_cast<double>(segments_));
+    if (opt_.scaling == Scaling::Brainstorm2018) return r;      // |2 X / n|^2 at every bin already: DC and Nyquist are not kept single (the 2018 release's bst_psd)
     const std::size_t last = (n_ % 2 == 0) ? bins - 1 : bins;   // doubled: 1 .. last - 1 (an even n keeps Nyquist single)
     for (std::size_t k = 1; k < last; ++k) r.psd.col(static_cast<Eigen::Index>(k)) *= 2.0;
     return r;
@@ -291,6 +293,7 @@ void stft(const MatrixXcd& block, const std::vector<std::uint8_t>& good, const S
 
 ComplexWelch::ComplexWelch(int series, const WelchOptions& options) : opt_(options), n_(options.segmentSamples) {
     if (series < 1) throw std::invalid_argument("welch: at least one series");
+    if (opt_.scaling == Scaling::Brainstorm2018) throw std::invalid_argument("welch: the Brainstorm 2018 scaling is the real Welch PSD's (signal.psd of a real recording) only");
     family_ = segmentFamily(opt_);
     channels_ = series;
 }
@@ -342,6 +345,7 @@ ComplexWelchResult psd(const Eigen::MatrixXcd& z, const WelchOptions& options, c
 
 CrossWelch::CrossWelch(int channels, const WelchOptions& options, const std::vector<BinGroup>& groups, bool withQuadrature) : opt_(options), n_(options.segmentSamples), groups_(groups), quadrature_(withQuadrature) {
     if (channels < 1) throw std::invalid_argument("welch: at least one channel");
+    if (opt_.scaling == Scaling::Brainstorm2018) throw std::invalid_argument("welch: the Brainstorm 2018 scaling is the real Welch PSD's (signal.psd of a real recording) only");
     family_ = segmentFamily(opt_);
     const std::size_t bins = rfftBins(n_);
     if (groups_.empty()) throw std::invalid_argument("welch: at least one group of bins");
@@ -412,6 +416,7 @@ LinearWelch::LinearWelch(const MatrixXd& map, std::size_t rowsPerOutput, const W
     : map_(map), group_(rowsPerOutput), first_(firstBin), last_(lastBin), opt_(options), n_(options.segmentSamples) {
     if (map.cols() < 1 || map.rows() < 1) throw std::invalid_argument("welch: the map holds at least one row and one channel");
     if (group_ < 1 || static_cast<std::size_t>(map.rows()) % group_ != 0) throw std::invalid_argument("welch: the map's " + std::to_string(map.rows()) + " rows are not a multiple of " + std::to_string(group_));
+    if (opt_.scaling == Scaling::Brainstorm2018) throw std::invalid_argument("welch: the Brainstorm 2018 scaling is the real Welch PSD's (signal.psd of a real recording) only");
     family_ = segmentFamily(opt_);
     const std::size_t bins = rfftBins(n_);
     if (first_ > last_ || last_ >= bins) throw std::invalid_argument("welch: the bins lie outside 0 .. " + std::to_string(bins - 1));

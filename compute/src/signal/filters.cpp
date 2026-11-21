@@ -3,6 +3,7 @@
 #include "nxr/signal/fourier.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -87,6 +88,32 @@ static Design designKaiser(const FilterOptions& o) {
     if ((o.kind == Kind::Highpass || o.kind == Kind::Bandpass) && !(lower > 0 && lower < ny)) bad("the high-pass edge must be between 0 and Nyquist (" + std::to_string(ny) + " Hz)");
     if ((o.kind == Kind::Lowpass || o.kind == Kind::Bandpass) && !(upper > 0 && upper < ny)) bad("the low-pass edge must be between 0 and Nyquist (" + std::to_string(ny) + " Hz)");
     if (o.kind == Kind::Bandpass && !(lower < upper)) bad("the lower edge must be below the upper edge");
+    if (o.transitionRule == TransitionRule::Brainstorm2018 && !o.transitionBandwidth) {
+        // the 2018-10-12 release's rule: stop edges at 0.5 x (0.85 x above 5 Hz) the high-pass edge and 1.15 x (1.05 x alone) the low-pass edge; the order from the narrower
+        // transition (kaiserord), each cut-off at its transition's midpoint (MATLAB kaiserord's Wn)
+        double width = std::numeric_limits<double>::infinity();
+        double lo = 0, hi = 0;   // the cut-offs, Hz
+        std::vector<std::pair<double, double>> pass;      // in units of Nyquist
+        if (lower > 0) {
+            const double stop = (lower <= 5 ? 0.5 : 0.85) * lower;
+            width = std::min(width, lower - stop);
+            lo = (lower + stop) / 2;
+        }
+        if (upper > 0) {
+            const double stop = std::min((o.kind == Kind::Lowpass ? 1.05 : 1.15) * upper, ny * (1 - 1e-15));
+            if (!(stop > upper)) bad("the low-pass edge's stop band reaches Nyquist");
+            width = std::min(width, stop - upper);
+            hi = (upper + stop) / 2;
+        }
+        if (o.kind == Kind::Lowpass) pass = {{0, hi / ny}};
+        else if (o.kind == Kind::Highpass) pass = {{lo / ny, 1}};
+        else if (o.kind == Kind::Bandpass) pass = {{lo / ny, hi / ny}};
+        else bad("the Kaiser FIR design makes low-pass, high-pass and band-pass filters");
+        auto [n, beta] = kaiserord(width, o.sfreq, o.ripple);
+        const std::size_t order = n + (n % 2);
+        d.b = fir1(order, pass, kaiser(order + 1, beta));
+        return d;
+    }
     // Brainstorm's rule: 0.5 Hz transition bands, 1 Hz when the high-pass edge is above 5 Hz and for a low-pass alone
     const double tb = o.transitionBandwidth ? *o.transitionBandwidth : (o.kind == Kind::Lowpass ? 1.0 : lower <= 5 ? 0.5 : 1.0);
     if (!(tb > 0)) bad("the transition bandwidth must be positive");
