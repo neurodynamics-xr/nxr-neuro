@@ -41,6 +41,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("split", "dataset", "", "dataset* dry_run! registered_by*"),
     ("join", "dataset", "", "dataset*"),
     ("migrate", "measurements", "", "dataset* dry_run! remove_statistics!"),
+    ("migrate", "selections", "", "dataset* dry_run!"),
     # subject packages and the catalogue
     ("create", "recording", "", "acquisition amplitude channels duration frequency+ name noise package* seed sfreq synthetic!"),
     ("create", "package", "", "home_dataset* kind name* package*"),
