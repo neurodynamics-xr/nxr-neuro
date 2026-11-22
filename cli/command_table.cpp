@@ -453,6 +453,7 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --tsv@export participants	FILE	The file to write the participants table to as BIDS participants.tsv; nothing else is written.	required	-
 --sidecar@export participants	FILE	Also write the participants.json sidecar to this file.	none	-
 --registered-by@split dataset	WHO	Who runs the split: recorded with each catalogue entry.	required	-
+--dry-run@migrate selections		Report, per subject, the selections that would be converted to the member form, without changing anything.	off	-
 --dry-run@migrate measurements		Report, per subject, the statistics that would become measurements, the products and tilings that would be rewritten, and the conflicts, without changing anything.	off	-
 --remove-statistics@migrate measurements		The explicit second step, taken only when asked for explicitly: remove each migrated statistic whose measurement is verified (and its array). Never the default: the old statistics are kept.	off	-
 --dry-run@split dataset		Report the subjects and the format without changing anything (not even bringing the dataset to format 52).	off	-
@@ -775,6 +776,12 @@ old: package split
 alias: no
 summary: Split a one-database dataset into subject packages with a catalogue, in place, verified row for row and byte for byte, resumable; the old database is kept.
 opts: --dataset* --dry-run --registered-by*
+)TBL",
+R"TBL(@ migrate selections
+old: package migrate-selections
+alias: no
+summary: Bring a dataset's selections to the member form (schema 52): each selection's elements are stored by member number. In place, subject by subject, under the dataset's writer lock; --dry-run reports what would change and changes nothing.
+opts: --dataset* --dry-run
 )TBL",
 R"TBL(@ migrate measurements
 old: package migrate-measurements
