@@ -316,6 +316,12 @@ elseif(CASE STREQUAL "packages")
   expect_rc(1 split dataset --dataset cohort --registered-by test)
   expect_rc(2 compact dataset --dataset cohort --dry-run)
   expect_in("one-database" "${ERR}" "compact refuses a catalogue")
+  # `migrate selections` is reachable (the split and the reader name it) and runs on a one-database dataset
+  expect_rc(0 create dataset --datastore store1 --name onedb)
+  expect_rc(0 migrate selections --dataset store1/onedb --dry-run)
+  expect_in("\"dry_run\": true" "${OUT}" "migrate selections --dry-run")
+  expect_rc(0 migrate selections --dataset store1/onedb)
+  expect_in("\"label_arrays\": 0" "${OUT}" "migrate selections on an empty dataset")
   # a catalogue is not a place for a one-database dataset's options
   expect_rc(2 create dataset --dataset cohort2 --templates fsdir)
   expect_rc(2 create dataset --dataset cohort2 --datastore store --name x)

@@ -128,7 +128,7 @@ std::vector<std::int64_t> read_ints(const Store& store, const std::string& path)
 void require_member_storage(const Database& db) {
   const auto r = db.one("SELECT value FROM meta WHERE key = 'selection_storage'");
   if (!r || text(*r, "value") != kSelectionStorage)
-    throw Error(code::schema_version, "this dataset stores its selections in the form before member numbers: convert it first (migrate_selection_storage, `nxr-neuro package migrate-selections --dataset <folder>`)");
+    throw Error(code::schema_version, "this dataset stores its selections in the form before member numbers: convert it first (migrate_selection_storage, `nxr-neuro migrate selections --dataset <folder>`)");
 }
 
 Json tiling_json(const Tiling& t) { return Json{{"origin", t.origin}, {"width", t.width}, {"hop", t.hop}, {"count", t.count}}; }
