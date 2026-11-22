@@ -111,6 +111,12 @@ export interface SplitDatasetOptions {
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
+export interface MigrateSelectionsOptions {
+  dataset: string | number;
+  dry_run?: boolean;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
 export interface MigrateMeasurementsOptions {
   dataset: string | number;
   dry_run?: boolean;
@@ -1111,6 +1117,7 @@ export interface Verbs {
     dataset: (options: SplitDatasetOptions) => Promise<Result>;
   };
   migrate: {
+    selections: (options: MigrateSelectionsOptions) => Promise<Result>;
     measurements: (options: MigrateMeasurementsOptions) => Promise<Result>;
   };
   join: {
