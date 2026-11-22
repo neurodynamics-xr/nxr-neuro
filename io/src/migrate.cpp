@@ -256,7 +256,7 @@ Json split_dataset(const fs::path& folder_in, const SplitOptions& opt) {
   {   // the selections are converted first: a package made from unconverted rows would carry the new marker over the old form
     Database db = Database::open(original, false, "", true);
     const auto m = db.one("SELECT value FROM meta WHERE key = 'selection_storage'");
-    if (!m || text(*m, "value") != kSelectionStorage) throw refuse("split: convert the selections first (migrate_selection_storage: `nxr-neuro package migrate-selections --dataset <folder>`)");
+    if (!m || text(*m, "value") != kSelectionStorage) throw refuse("split: convert the selections first (migrate_selection_storage: `nxr-neuro migrate selections --dataset <folder>`)");
   }
   if (opt.dry_run) {
     Database db = Database::open(original, false, "", true);
