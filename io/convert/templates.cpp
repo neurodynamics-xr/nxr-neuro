@@ -533,8 +533,9 @@ Json import_hcp(SubjectWriter& sub, const HcpSource& h, SourceChecker& sc) {
 // ── building a template package ─────────────────────────────────────────────────────────────────────────────────
 
 Json build_template(const BuildRequest& rq) {
+  const bool fsavg = rq.recipe == "fsaverage" || rq.recipe == "fsaverage5";   // FreeSurfer's fsaverage (ico7) or fsaverage5 (ico5): the same reader, each its own listed files
   const bool icbm = rq.recipe.rfind("icbm152", 0) == 0;   // icbm152 (Brainstorm's current default anatomy) or icbm152_2023b
-  if (rq.recipe != "fsaverage" && !icbm) refuse("recipe '" + rq.recipe + "': choose fsaverage, icbm152 or icbm152_2023b");
+  if (!fsavg && !icbm) refuse("recipe '" + rq.recipe + "': choose fsaverage, fsaverage5, icbm152 or icbm152_2023b");
   if (rq.hcp_trk && !icbm) refuse("the streamlines are imported into the ICBM152 template (their coordinates are MNI's): use the icbm152 recipe");
   if (rq.hcp_trk && rq.hcp_end_surface.empty()) refuse("--hcp-trk needs --hcp-end-surface: the surface the ends are placed on is a choice of data");
   if (fs::exists(rq.package)) refuse(rq.package.string() + ": exists (a package is made new)");
@@ -544,7 +545,7 @@ Json build_template(const BuildRequest& rq) {
   po.home_dataset = rq.home_dataset;
   po.subject.kind = "template";
   po.subject.created_by = rq.created_by;
-  po.subject.source_format = rq.recipe == "fsaverage" ? "freesurfer" : "brainstorm";
+  po.subject.source_format = fsavg ? "freesurfer" : "brainstorm";
   po.built_by = rq.created_by;
   nxr::io::DatasetWriter w = nxr::io::create_package(rq.package, name, po);
   Json info;
@@ -552,7 +553,7 @@ Json build_template(const BuildRequest& rq) {
   try {
     SubjectWriter sub = SubjectWriter::open(w, name);
     sub.compose([&] {
-      if (rq.recipe == "fsaverage") {
+      if (fsavg) {
         FreeSurferSource s;
         s.folder = rq.sources;
         if (!rq.surfaces.empty()) s.surfaces = rq.surfaces;
@@ -603,7 +604,7 @@ Json build_template(const BuildRequest& rq) {
     std::string files_text;
     for (const auto& e : sources["files"]) files_text += (files_text.empty() ? "" : ", ") + e["path"].get<std::string>() + " (sha256 " + e["sha256"].get<std::string>().substr(0, 12) + "...)";
     nxr::io::OriginRecord base;
-    if (rq.recipe == "fsaverage") base = freesurfer_origin("FreeSurfer fsaverage, read natively by nxr-neuro from: " + files_text);
+    if (fsavg) base = freesurfer_origin("FreeSurfer " + rq.recipe + ", read natively by nxr-neuro from: " + files_text);
     else {
       base = {"Brainstorm default anatomy ICBM152 (ICBM 2009c nonlinear asymmetric), read natively by nxr-neuro from: " + files_text,
               "MNI/ICBM152 permissive notice (use, copy, modify and distribute for any purpose, notice kept); cortex surfaces: FreeSurfer Software License Agreement Part B v1.0",
@@ -630,7 +631,7 @@ Json build_template(const BuildRequest& rq) {
         o.redistributable = true;
       }
       if (it.name == "head" || it.name == "head_landmarks") {
-        o.source = std::string(it.name == "head" ? "the scalp surface" : "the landmarks") + " of " + (rq.recipe == "fsaverage" ? "MNE-Python's fsaverage (bem/outer_skin.surf, bem/fsaverage-fiducials.fif; derived from FreeSurfer's fsaverage MRI)" : "the Brainstorm default anatomy ICBM152 (tess_head.mat, subjectimage_T1.mat)") +
+        o.source = std::string(it.name == "head" ? "the scalp surface" : "the landmarks") + " of " + (fsavg ? "MNE-Python's fsaverage (bem/outer_skin.surf, bem/fsaverage-fiducials.fif; derived from FreeSurfer's fsaverage MRI)" : "the Brainstorm default anatomy ICBM152 (tess_head.mat, subjectimage_T1.mat)") +
                    ", read natively by nxr-neuro from: " + files_text;
       }
       nxr::io::set_origin(w.db(), it.table, it.id, o);

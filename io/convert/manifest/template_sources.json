@@ -80,6 +80,76 @@
         }
       ]
     },
+    "fsaverage5": {
+      "template": "fsaverage5",
+      "description": "FreeSurfer's fsaverage5 (ico5, 10242 vertices per hemisphere), read as fsaverage is: the pial, white and inflated surfaces, the registered sphere (sphere.reg), and the parcellations and cortex masks named explicitly.",
+      "download": "the `fsaverage5` subject of a FreeSurfer installation (https://surfer.nmr.mgh.harvard.edu/)",
+      "licence": "FreeSurfer Software License Agreement, Part B v1.0 (https://surfer.nmr.mgh.harvard.edu/fswiki/FreeSurferSoftwareLicense): redistribute only with the licence text and notice, keep the attributions, mark modified versions",
+      "citations": [
+        "Fischl B, Sereno MI, Dale AM (1999) Cortical surface-based analysis II. NeuroImage 9:195-207",
+        "Fischl B, Sereno MI, Tootell RBH, Dale AM (1999) High-resolution intersubject averaging and a coordinate system for the cortical surface. Hum Brain Mapp 8:272-284",
+        "Desikan RS et al. (2006) An automated labeling system for subdividing the human cerebral cortex on MRI scans into gyral based regions of interest. NeuroImage 31:968-980",
+        "Destrieux C et al. (2010) Automatic parcellation of human cortical gyri and sulci using standard anatomical nomenclature. NeuroImage 53:1-15"
+      ],
+      "files": [
+        {
+          "path": "surf/lh.pial",
+          "sha256": "d3e772b74f39ed7a979d78dab5b98d1fe5916f1354b52d05c23b85a8080b72bd"
+        },
+        {
+          "path": "surf/rh.pial",
+          "sha256": "64440462e8d1cec650d100c0fb16cb4704937e19e0bc42f58997a6a09e5e536b"
+        },
+        {
+          "path": "surf/lh.white",
+          "sha256": "e33d59c96804df78159483a607eb782345e50e67b75a16436d543d158adf5e8e"
+        },
+        {
+          "path": "surf/rh.white",
+          "sha256": "44796e919742358d106cda399509d1f9836aab6459b3f1bcd66712ec43788eba"
+        },
+        {
+          "path": "surf/lh.inflated",
+          "sha256": "e09e3029d5d8142f90a9e6fa56a2872b6c0c2a92c646254ae856d29a9e75ec61"
+        },
+        {
+          "path": "surf/rh.inflated",
+          "sha256": "7b08a24c6a2f2e685f3706d7111ff91bcee5e28cc293e6741814d1dbe939b528"
+        },
+        {
+          "path": "surf/lh.sphere.reg",
+          "sha256": "5772df32ee7a0eaaf1f3296a3c4f1c51c075e7fe58e53cbc92bdb5ddec62fbf4"
+        },
+        {
+          "path": "surf/rh.sphere.reg",
+          "sha256": "5772df32ee7a0eaaf1f3296a3c4f1c51c075e7fe58e53cbc92bdb5ddec62fbf4"
+        },
+        {
+          "path": "label/lh.aparc.annot",
+          "sha256": "74d1c2fd5e6b7ca193f06fee45a86f5638f347e38cea5ba27fce9fd69c0056be"
+        },
+        {
+          "path": "label/rh.aparc.annot",
+          "sha256": "ca86b3b0bd5b74e367519dd94157154ae7c61ad128680fcc7b52e1a799e34e9f"
+        },
+        {
+          "path": "label/lh.aparc.a2009s.annot",
+          "sha256": "c2401d6137949f33788283a4926cb61cb3b0bfe5bda1b368c22aa921ea06d38d"
+        },
+        {
+          "path": "label/rh.aparc.a2009s.annot",
+          "sha256": "99c028f9f9d8dce617e9f29a5ebdc2f1b187d83650b68128fae53c3669588da7"
+        },
+        {
+          "path": "label/lh.cortex.label",
+          "sha256": "ea6f4f61a7cab55a6364ed2e7742ddafe22d980cd5363adc0f6769f2d18d1ea4"
+        },
+        {
+          "path": "label/rh.cortex.label",
+          "sha256": "1c020887ec9ae24a29e27acda12a033e4c5093e24f977416f3b8368dcdd0c4e6"
+        }
+      ]
+    },
     "icbm152": {
       "template": "icbm152",
       "description": "Brainstorm's default anatomy ICBM152_2026 (labelled \"ICBM152 2026\") (ICBM 2009c nonlinear asymmetric; FreeSurfer-derived cortex surfaces with their registered spheres): the cortex surfaces and, named explicitly, their parcellations; the MNI and SCS transforms come from subjectimage_T1.mat.",

@@ -271,6 +271,18 @@ int main() {
     const ReleaseReport full = release_package(rq2.package, ReleaseOptions{"fsaverage", "1.0", "test", shelf});
     const ReleaseReport red = release_redistributable(full.folder, shelf, "test");
     CHECK(red.left_out.empty());
+    // fsaverage5 (ico5): the same reader under its own recipe and listed files; the template is named by the recipe, and an unknown recipe names the choices
+    BuildRequest rq5 = rq;
+    rq5.recipe = "fsaverage5";
+    rq5.package = root / "work" / "fsaverage5.nxr.zarr";
+    CHECK(has(what_of([&] { BuildRequest r = rq5; r.accept_unlisted_sources = false; build_template(r); }), "5772df32"));   // refused against ITS manifest entry (fsaverage5's lh.sphere.reg checksum)
+    CHECK(!fs::exists(rq5.package));
+    const Json made5 = build_template(rq5);
+    SubjectPackage p5 = SubjectPackage::open(rq5.package);
+    CHECK_EQ(p5.record().name, std::string("fsaverage5"));
+    CHECK(p5.db().all("SELECT 1 FROM manifold WHERE name = 'cortex_pial' AND n_vertices = 12").size() == 1);
+    CHECK(made5["sources"]["recipe"] == "fsaverage5");
+    CHECK(has(what_of([&] { BuildRequest r = rq5; r.recipe = "fsaverage6"; r.package = root / "work" / "z.nxr.zarr"; build_template(r); }), "fsaverage5"));
   }
 
   // ── the scalp and the landmarks: fsaverage (MNE's bem/outer_skin.surf and fiducials file, the surfaces in FreeSurfer's surface RAS in metres) ──
