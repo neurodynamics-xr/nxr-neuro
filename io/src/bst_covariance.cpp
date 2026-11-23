@@ -66,7 +66,9 @@ std::optional<fs::path> covariance_file(const fs::path& dir, bool data) {
 
 }  // namespace
 
-Json import_covariance(SubjectWriter& sub, const fs::path& dir_in, const std::string& condition, const CovarianceOptions& opt, const Emit& progress) {
+Json import_covariance(SubjectWriter& sub, const fs::path& dir_in, const std::string& study, const CovarianceOptions& opt, const Emit& progress) {
+  // the ACQUISITION a study was imported as: its folder's name without Brainstorm's `@raw` prefix (the condition import's rule, bst_protocol)
+  const std::string condition = starts_with(study, "@raw") ? study.substr(4) : study;
   if (opt.kind != "noise" && opt.kind != "data") refuse("--kind: '" + opt.kind + "' is not one of noise, data");
   const bool data = opt.kind == "data";
   const fs::path& dir = dir_in;
