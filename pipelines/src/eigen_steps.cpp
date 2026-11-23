@@ -106,7 +106,7 @@ SolveMethod method_of(const Json& p) {
   return sm;
 }
 
-const char* const kOutputs[] = {"modes", "kind", "eigenvalues", "support", "eigenvectors", "forms2", "complex", "d0", "d1",
+const char* const kOutputs[] = {"modes", "kind", "eigenvalues", "support", "eigenvectors", "forms2", "forms1", "complex", "d0", "d1",
                                 "length", "star0", "star1", "star2", "angle_tail", "angle_tip", "angle_sum", "reference"};
 
 StepSpec hodge_dirac_step() {
@@ -120,7 +120,7 @@ StepSpec hodge_dirac_step() {
   s.description =
       "The Hodge-Dirac eigenmodes of a surface: the Laplace-Beltrami ladder (exact modes) and the 2-form ladder (coexact modes) of the surface's intrinsic Delaunay complex, cut at one lambda, the constants out. "
       "The surface is ONE closed piece: a cortex of two hemispheres is solved on its glued surface (made by `geometry.glue`, named as the input). Makes the mode axis (the eigenvalues mu, ascending), each mode's kind (0 exact, 2 coexact), "
-      "the eigenvectors (per mode one vertex potential) and the 2-form parts (the faces of the complex), the complex itself with d0 and d1 and the stars and signposts on its cells.";
+      "the eigenvectors (per mode one vertex potential) the 2-form parts (the faces of the complex) and the 1-form parts (its edges), the complex itself with d0 and d1 and the stars and signposts on its cells.";
   s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the surface: positions as the Studio receives them (float32 widened), double");
 
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
@@ -137,7 +137,7 @@ StepSpec hodge_dirac_step() {
       const std::string port = o;
       v.cls = (port == "modes" || port == "complex") ? "manifold"
               : port == "support" ? "selection"
-              : (port == "eigenvectors" || port == "forms2" || port == "d0" || port == "d1") ? "operator" : "field";
+              : (port == "eigenvectors" || port == "forms2" || port == "forms1" || port == "d0" || port == "d1") ? "operator" : "field";
       if (v.cls == "operator") v.manifolds = {sid, sid};                  // the places themselves are declared (from, to)
       else v.manifolds = {sid};
       if (port == "kind" || port == "reference") v.value_type = "integer";
@@ -225,6 +225,11 @@ StepSpec hodge_dirac_step() {
                           {"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"to_cell", "2"}, {"producer", fpj},
                           {"params", Json{{"forms", "2-form part chi/sqrt2 of each Dirac eigenvector (0, delta chi/mu, chi)/sqrt2; *2-normalised: sum *2 (chi/sqrt2)^2 = 1/2"}, {"complex", iname}}},
                           {"description", "Hodge-Dirac modes' 2-form parts chi/sqrt2 on the intrinsic faces (0 on an exact mode); with " + stem + "_eigenvectors (the 0-form parts) the full forms"}});
+
+    out["forms1"] = made(nE, K, widened(h.forms1), Json{{"precision", "float32"}, {"chunks", Json::array({nE, 1})}, {"shards", Json::array({nE, std::min<std::int64_t>(K, 64)})},
+                          {"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"from_cell", "0"}, {"to_cell", "1"}, {"producer", fpj},
+                          {"params", Json{{"forms", "1-form part of each Dirac eigenvector (0, delta chi/mu, chi)/sqrt2 or (psi, d psi/mu, 0)/sqrt2: d psi/(mu sqrt2) (exact), *1^-1 d1^T *2 chi/(mu sqrt2) (coexact); *1-orthogonal, sum *1 phi^2 = 1/2"}, {"complex", iname}}},
+                          {"description", "Hodge-Dirac modes' 1-form parts on the intrinsic edges; with " + stem + "_eigenvectors and " + stem + "_forms2 the full forms (a 1-form is read into the modes by inner products with them)"}});
 
     // THE INTRINSIC COMPLEX the modes were solved on (the same vertices, its own edges and faces; two edges may join one pair of vertices: read the incidence from d0 and d1)
     out["complex"] = made(Vg, 3, G.positions, Json{{"edges", h.edges}, {"faces", h.faces}, {"cs", cs}, {"producer", Json{{"intrinsic_of", solved}, {"mesh", solved_mesh}, {"delaunay", complex_rec}}},

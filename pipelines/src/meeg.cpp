@@ -866,6 +866,14 @@ HodgePackageForms hodge_package_forms(SubjectWriter& sub, const HodgePackageData
   f.nF = shape[0];
   f.forms2.resize(static_cast<std::size_t>(f.nF * f.K));
   for (std::int64_t r = 0; r < f.nF; ++r) for (std::int64_t k = 0; k < f.K; ++k) f.forms2[static_cast<std::size_t>(r * f.K + k)] = all[static_cast<std::size_t>(r * shape[1] + k)];
+  if (const auto op1 = find_operator(sub.db(), sub.id(), "eigenvectors", d.stem + "_forms1")) {   // the stored 1-form parts, when the package has them
+    std::vector<std::int64_t> shape1;
+    const std::vector<float> all1 = read_all<float>(sub.store(), text(*op1, "path"), &shape1);
+    if (shape1.size() != 2 || shape1[1] < f.K) invalid(d.stem + "_forms1: the stored 1-form parts are not [edges x at least " + std::to_string(f.K) + " modes]");
+    f.nE = shape1[0];
+    f.forms1.resize(static_cast<std::size_t>(f.nE * f.K));
+    for (std::int64_t r = 0; r < f.nE; ++r) for (std::int64_t k = 0; k < f.K; ++k) f.forms1[static_cast<std::size_t>(r * f.K + k)] = all1[static_cast<std::size_t>(r * shape1[1] + k)];
+  }
   const auto ev = find_operator(sub.db(), sub.id(), "eigenvectors", d.stem + "_eigenvectors");
   const Json prov = ev ? Json::parse(opt_text(*ev, "producer_json").value_or("{}"), nullptr, false) : Json();
   if (prov.is_object() && prov.contains("solve") && prov["solve"].is_object() && prov["solve"].contains("options") && prov["solve"]["options"].is_object()) {

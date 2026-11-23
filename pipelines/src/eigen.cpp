@@ -1,6 +1,7 @@
 #include "nxr/geometry/curvature.h"
 #include "nxr/signal/surface_calculus.h"
 #include "nxr/pipelines/eigen.h"
+#include "nxr/signal/intrinsic_forms.h"
 #include "nxr/io/subject_reads.h"
 #include "nxr/pipelines/cache.h"
 #include "nxr/pipelines/run_shipped.h"
@@ -167,6 +168,15 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
       const nxr::operators::HodgeLadders::Mode& md = lad.modes[j];
       if (md.kind != 2) continue;
       for (std::size_t f = 0; f < F_; ++f) out.forms2[f * K + j] = static_cast<float>(chi(static_cast<Eigen::Index>(f), md.col) / r2);
+    }
+    // each mode's 1-form part, one column at a time (no [nE x K] double temporary): the 0-form part of an exact mode, the 2-form part of a coexact one, over mu
+    out.forms1.assign(static_cast<std::size_t>(nE) * K, 0.0f);
+    for (std::size_t j = 0; j < K; ++j) {
+      const nxr::operators::HodgeLadders::Mode& md = lad.modes[j];
+      Eigen::MatrixXd zero = Eigen::MatrixXd::Zero(nV, 1), two = Eigen::MatrixXd::Zero(nF, 1);
+      if (md.kind == 0) zero.col(0) = psi.col(md.col) / (r2 * md.mu); else two.col(0) = chi.col(md.col) / (r2 * md.mu);
+      const Eigen::MatrixXd part = nxr::signal::oneFormFromParts(hd.d0, hd.d1, hd.star1, hd.star2, zero, two);
+      for (int e = 0; e < nE; ++e) out.forms1[static_cast<std::size_t>(e) * K + j] = static_cast<float>(part(e, 0));
     }
   }
   out.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();

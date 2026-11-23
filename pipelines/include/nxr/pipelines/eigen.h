@@ -30,9 +30,11 @@
 //     <intrinsic>_star0, _angle_sum, _reference   Field (cell 0)    ⋆0 (the mixed-Voronoi mass), cone angles, reference neighbours
 //     <intrinsic>_star2                            Field (cell 2)    ⋆2 = 1 / area
 //     hodgeDirac_forms2                            Operator  [nF x K]         axis → the faces (cell 2): each mode's 2-form part χ/√2 (0 on an exact mode)
+//     hodgeDirac_forms1                            Operator  [nE x K]         axis → the edges (cell 1): each mode's 1-form part dψ/(μ√2) (exact) or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2) (coexact)
 //
-// With the 0-form parts (hodgeDirac_eigenvectors: ψ/√2) both 1-form parts follow exactly: dψ/(μ√2) and ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2); they are ⋆1-orthogonal with
-// energy 1/2 each (test_pipelines), so a 1-form on the intrinsic edges is read into the modes by inner products.
+// The 1-form parts are ⋆1-orthogonal with energy 1/2 each (test_pipelines), so a 1-form on the intrinsic edges is read into the modes by inner products.
+// They are stored (`_forms1`), made by the solve with `signal::oneFormFromParts` (the node `operators.hodge_one_form_parts` makes them for a package solved without them, the same numbers);
+// a reading takes the stored parts when the package has them, else makes them from the 0- and 2-form parts.
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -87,6 +89,7 @@ struct HodgeDirac {
   std::vector<double> angle_sum;             // [nV] each vertex's cone angle
   std::vector<std::int32_t> reference;       // [nV] each vertex's reference neighbour (the head of its angle-0 halfedge, an input edge)
   std::vector<float> forms2;                 // [nF x K] each mode's 2-form part χ/√2 on the intrinsic faces (0 for an exact mode)
+  std::vector<float> forms1;                 // [nE x K] each mode's 1-form part dψ/(μ√2) (exact) or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2) (coexact) on the intrinsic edges: the solve's own 1-form rows
   std::int64_t n_modes() const { return static_cast<std::int64_t>(mu.size()); }
 };
 

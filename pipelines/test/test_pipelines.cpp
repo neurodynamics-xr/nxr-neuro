@@ -15,6 +15,7 @@
 #include <Eigen/Sparse>
 
 #include "check.h"
+#include "run_definition.h"
 #include "nxr/io/task/task.h"
 #include "nxr/geometry/surface_maps.h"
 #include "nxr/pipelines/eigen.h"
@@ -221,6 +222,42 @@ int main() {
     CHECK(norm02 < 1e-4);
     CHECK(diagErr < 1e-4);
     CHECK(off < 1e-4);
+    {   // the stored 1-form parts (`_forms1`, [nE x K], the solve's own 1-form rows) are the parts rebuilt here from the 0- and 2-form parts
+      CHECK(s3.find("operator", "hodgeDirac__cortex_glued_forms1").has_value());
+      const auto X1 = as_d(text(*s3.find("operator", "hodgeDirac__cortex_glued_forms1"), "path"));
+      CHECK(static_cast<std::int64_t>(X1.size()) == nE * K);
+      // A coexact part is ⋆1⁻¹ d1ᵀ ⋆2 χ: on an edge whose ⋆1 is ~0 (the glued bridge) the sum cancels to the same order as ⋆1, so rebuilding it from the float32 2-form parts and ⋆1 loses it;
+      // the solve's own double values (stored) are the accurate ones. Compared on the edges with a ⋆1 of at least 1e-3 of the mean (every edge for an exact mode); the others are counted.
+      const double s1mean = s1.mean();
+      std::int64_t ill = 0;
+      for (std::int64_t e = 0; e < nE; ++e) ill += s1(e) < 1e-3 * s1mean;
+      double e1 = 0, sc = 0;
+      for (std::int64_t k = 0; k < Kc; ++k) for (std::int64_t e = 0; e < nE; ++e) {
+        sc = std::max(sc, std::abs(W(e, k)));
+        if (kind[k] == 0 || s1(e) >= 1e-3 * s1mean) e1 = std::max(e1, std::abs(X1[e * K + k] - W(e, k)));
+      }
+      std::printf("  edges with a star1 under 1e-3 of the mean (a coexact part rebuilt from float32 parts is lost there): %lld of %lld\n", (long long)ill, (long long)nE);
+      std::printf("  stored 1-form parts vs rebuilt: max |difference| %.1e (scale %.1e)\n", e1, sc);
+      CHECK(e1 < 1e-5 * sc);
+      // the definition `hodgeforms1` adds the parts to a package that has none, without solving: here under another name, it makes the numbers the solve stored (the same cells)
+      const auto rep = nxrtest::run_definition(ds, s3, "hodgeforms1", nxr::io::Json{{"package", "hodgeDirac__cortex_glued"}, {"surface", "cortex_glued"}, {"name", "again_forms1"}});
+      CHECK(!rep.empty());
+      const auto again = s3.find("operator", "again_forms1");
+      CHECK(again.has_value());
+      if (again) {
+        const auto X1b = as_d(text(*again, "path"));
+        CHECK(X1b.size() == X1.size());
+        double eb = 0;
+        for (std::size_t i = 0; i < X1.size() && i < X1b.size(); ++i) {   // as above: the edges where a coexact part is not lost to rebuilding from float32 parts
+          const std::int64_t e = static_cast<std::int64_t>(i) / K, k = static_cast<std::int64_t>(i) % K;
+          if (kind[k] == 0 || s1(e) >= 1e-3 * s1mean) eb = std::max(eb, std::abs(X1b[i] - X1[i]));
+        }
+        std::printf("  hodgeforms1 vs the solve's stored parts: max |difference| %.1e\n", eb);
+        CHECK(eb < 1e-5 * sc);
+        CHECK(opt_text(*again, "to_cell") == std::optional<std::string>("1") && opt_text(*again, "from_cell") == std::optional<std::string>("0"));
+        CHECK(opt_text(*s3.find("operator", "hodgeDirac__cortex_glued_forms1"), "to_cell") == std::optional<std::string>("1"));
+      }
+    }
   }
   CHECK(eigen_solve(ds, s3, opt).hit);
   // a re-solve with --replace whose glue is the same surface KEEPS the glued surface: a field another run stored on it stays
@@ -237,6 +274,7 @@ int main() {
     CHECK_EQ(text(*s3.find("manifold", "source/cortex_glued"), "id"), gid);
     CHECK(s3.find("field", nxr::io::task::Subject::of(s3).node_path(gid, "other_run")).has_value());
     CHECK(s3.find("operator", "hodgeDirac__cortex_glued_forms2").has_value());
+    CHECK(s3.find("operator", "hodgeDirac__cortex_glued_forms1").has_value());
   }
   // the glued sphere pair is ONE closed surface of genus 0: two zero modes dropped, the first exact mode non-constant across the bridge
   CHECK(g.modes.mu.front() > 0);
@@ -253,6 +291,7 @@ int main() {
     CHECK(!r.hit && r.modes.n_exact > 0 && r.modes.n_coexact > 0);
     CHECK(dsub.find("operator", "hodgeDirac_eigenvectors").has_value());
     CHECK(dsub.find("operator", "hodgeDirac_forms2").has_value());
+    CHECK(dsub.find("operator", "hodgeDirac_forms1").has_value());
     CHECK(dsub.find("manifold", "eigenvalue/hodgeDirac").has_value());
     dd.close();
   }

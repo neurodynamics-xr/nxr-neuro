@@ -60,7 +60,8 @@ HodgePackageData hodge_package_data(nxr::io::SubjectWriter& sub, const std::stri
  *  options its intrinsic complex was built with (the solve's provenance: mollify, flip_eps, star1_floor; null floor: none named), so a node rebuilds the same complex from the glued surface */
 struct HodgePackageForms {
   std::vector<float> forms2;
-  std::int64_t nF = 0, K = 0;
+  std::vector<float> forms1;                 // the 1-form parts [nE x K] of `<stem>_forms1` (float32 as stored, row-major); empty when the package has none (a reading makes them)
+  std::int64_t nF = 0, K = 0, nE = 0;
   double mollify = 1e-6, flip_eps = 1e-6, star1_floor = 0.0;
 };
 HodgePackageForms hodge_package_forms(nxr::io::SubjectWriter& sub, const HodgePackageData& package);

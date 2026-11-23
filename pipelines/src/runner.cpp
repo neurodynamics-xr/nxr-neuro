@@ -1392,6 +1392,11 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
           const auto* bytes = reinterpret_cast<const std::uint8_t*>(f.forms2.data());
           a.meta["forms2"] = Json::binary(std::vector<std::uint8_t>(bytes, bytes + f.forms2.size() * sizeof(float)));
           a.meta["forms2_shape"] = Json::array({f.nF, f.K});
+          if (!f.forms1.empty()) {                                          // the stored 1-form parts, when the package has them
+            const auto* b1 = reinterpret_cast<const std::uint8_t*>(f.forms1.data());
+            a.meta["forms1"] = Json::binary(std::vector<std::uint8_t>(b1, b1 + f.forms1.size() * sizeof(float)));
+            a.meta["forms1_shape"] = Json::array({f.nE, f.K});
+          }
           a.meta["complex"] = Json{{"mollify", f.mollify}, {"flip_eps", f.flip_eps}, {"star1_floor", f.star1_floor}};
         }
         constants[name] = std::move(a);

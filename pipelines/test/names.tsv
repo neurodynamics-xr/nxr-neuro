@@ -26,6 +26,7 @@ node	geometry.frame_rotate	-	composite
 node	geometry.glue	-	composite
 node	signal.gradient_power	-	composite
 node	operators.hodge_dirac	-	composite
+node	operators.hodge_one_form_parts	-	composite
 node	meeg.largest_component	-	composite
 node	meeg.lcmv	-	composite
 node	meeg.minimum_norm	-	composite

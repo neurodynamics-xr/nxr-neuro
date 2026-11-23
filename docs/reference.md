@@ -448,6 +448,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run headmodel` | The sphere head model (gain matrix) for a subject's cortex, MEG and EEG. | `headmodel compute` |
 | `nxr-neuro run pointspread` | The instrument's blur: unit currents at sample vertices through the head model and inverse kernel. | `pointspread compute` |
 | `nxr-neuro run eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface, with the intrinsic complex and the modes' full forms (cached); `--glued` for a cortex of two hemispheres. | `eigen solve` |
+| `nxr-neuro run hodgeforms1` | The modes' 1-form parts (`<stem>_forms1`) added to a stored Hodge-Dirac package that has none, without solving again. | - |
 | `nxr-neuro run surface_frames` | The canonical (north, west) and anatomical frames of a surface. | `frames compute`, `run surface_frames` |
 | `nxr-neuro run select_dyadic_surface` | The dyadic equal-area tiles of a surface as one grid with closed-form levels, from a stated finest tile (subject, group tree or transfer). | `tiles compute`, `run select_dyadic_surface`, `run select_dyadic_surface --rule group`, `run group_tiles` |
 | `nxr-neuro run select_time_grid` | The dyadic time grid of a recording's line: tiles, band, frames (density and origin are options), constant-Q, segments, windows, chunks. | `constantq compute`, `run select_time_grid --rule frames` |
@@ -1076,7 +1077,7 @@ ladder the coexact modes; one lambda cut, the constants out) and stores them wit
 surface; a surface of two pieces without it, or of one piece with it, is refused with the reason; three or more pieces are refused. Eigenmodes come first: a spatial band that needs modes that are not stored has the runner
 make them with this run, said in a message. What it cannot resolve: a mode above the mesh's resolution is not a property of the cortex, and the bridge is not cortex.
 Stored (stem `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not the primary one; the layout is unchanged from `eigen solve`): the mode axis `<stem>` (points, coordinate mu = sqrt(lambda), ascending), the field
-`<stem>_kind` (0 exact, 2 coexact; of the eigenvectors operator), the operators `<stem>_eigenvectors` (axis to surface, [V x K] float32) and `<stem>_forms2` (axis to the complex's faces, cell 2), the selection `<stem>_support`; the
+`<stem>_kind` (0 exact, 2 coexact; of the eigenvectors operator), the operators `<stem>_eigenvectors` (axis to surface, [V x K] float32) `<stem>_forms2` (axis to the complex's faces, cell 2) and `<stem>_forms1` (axis to its edges, cell 1), the selection `<stem>_support`; the
 glued surface `<surface>_glued` with its bridge `<surface>_glued_bridge`; and the cell complex `<solved>_intrinsic` (vertices, edges, faces) with the sparse operators `_d0` (cell 0 to 1) and `_d1` (cell 1 to 2) and the fields
 `_length`, `_star0`, `_star1`, `_star2`, `_angle_tail`, `_angle_tip`, `_angle_sum`, `_reference` on its cells. The library's `eigen_solve` (`pipelines/eigen.h`) is a thin caller of this definition.
 
@@ -2355,8 +2356,11 @@ nxr-neuro solves the Hodge–Dirac modes **exactly as nxr and Rheome do** (`nxr.
 edges (lengths along the surface) and faces, and on the cortex some pairs of vertices are joined by two different edges, so it is not a mesh of vertex
 triples. Stored as its own manifold `source/<surface>[_glued]_intrinsic` (edges and faces as its cells), with d0 and d1 as sparse operators between its
 cells, the edge lengths, the stars ⋆0, ⋆1, ⋆2 and the signposts as fields on its cells, and each mode's 2-form part χ/√2 on its faces
-(`hodgeDirac_forms2`, axis → faces). With the 0-form parts (the eigenvectors, ψ/√2) both 1-form parts follow exactly, and they are orthonormal in ⋆1:
-reading a 1-form on the intrinsic edges into the modes is a set of inner products (tested: the 1-form Gram matrix is I/2 to 1e-7). **Why:** the modes
+(`hodgeDirac_forms2`, axis → faces) and its 1-form part, dψ/(μ√2) (exact) or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2) (coexact), on its edges
+(`hodgeDirac_forms1`, axis → edges, float32, one mode a chunk like the others; about 4 bytes × edges a mode, three times the vertex count of edges). The 1-form parts are orthonormal in ⋆1:
+reading a 1-form on the intrinsic edges into the modes is a set of inner products (tested: the 1-form Gram matrix is I/2 to 1e-7). The readings (`signal.phase_split`, `projectOneForm`, `synthesizeOneForm`) take the stored
+parts; a package solved before they were stored has none, and the readings make them from the 0- and 2-form parts (the same numbers to float precision). The node `operators.hodge_one_form_parts` and the definition
+`hodgeforms1` add `<stem>_forms1` to such a package without solving again: `nxr-neuro run hodgeforms1 --subject <s> --package hodgeDirac`. **Why:** the modes
 live on that complex; reading or synthesising fields with the input mesh's operators mixes two triangulations (the readings it gave were not
 orthonormal and, on rough fields, not projections).
 
