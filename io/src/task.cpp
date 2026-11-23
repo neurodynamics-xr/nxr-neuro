@@ -448,6 +448,16 @@ std::optional<std::string> Subject::line_named(const std::string& name) const {
   return text(*r, "id");
 }
 
+std::optional<std::string> Subject::frequency_line_of(const std::string& time_line_id, std::int64_t n, double fs) const {
+  auto near = [](double a, double b) { return std::abs(a - b) <= 1e-12 * std::max(1.0, std::abs(b)); };
+  for (const auto& r : impl_->db->all("SELECT to_manifold_id, params_json FROM operator WHERE subject_id = ? AND from_manifold_id = ? AND layout = 'analytic' AND method = 'fft' AND status <> 'deleting'", {V(impl_->id), V(time_line_id)})) {
+    if (is_null(r, "to_manifold_id") || is_null(r, "params_json")) continue;
+    const Json p = Json::parse(text(r, "params_json"), nullptr, false);
+    if (p.is_object() && p.value("n", std::int64_t(0)) == n && near(p.value("fs", 0.0), fs) && p.value("sides", std::string()) == "one-sided") return text(r, "to_manifold_id");
+  }
+  return std::nullopt;
+}
+
 std::optional<std::string> Subject::manifold_named(const std::string& name) const {
   const auto r = impl_->db->one("SELECT id FROM manifold WHERE subject_id = ? AND name = ?", {V(impl_->id), V(name)});
   if (!r) return std::nullopt;

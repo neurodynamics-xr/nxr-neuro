@@ -402,6 +402,8 @@ class Subject {
   std::optional<Node> by_id_or_name(Cls, const std::string& key) const;   // the complete node with that id or that name (an id match first)
   std::optional<std::string> line_named(const std::string& name) const;   // the id of the manifold of type line with that name (any status)
   std::optional<std::string> manifold_named(const std::string& name) const;   // the id of the manifold with that name (the subject's, any status)
+  // the one-sided frequency line of a span of n samples at fs on a time line, found by its key (its analytic `fft` operator row); none when it was never made (Unit::frequency_line makes it)
+  std::optional<std::string> frequency_line_of(const std::string& time_line_id, std::int64_t n, double fs) const;
   // the time lines a complete recording lies on (the line factors of its product manifold): every recording's, first seen first; or the named recording's first
   std::vector<std::string> recording_time_lines() const;
   std::optional<std::string> recording_time_line(const std::string& recording) const;
