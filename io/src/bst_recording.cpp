@@ -268,7 +268,7 @@ BstReader::BstReader(const Value& sfile, const fs::path& path) : path_(path) {
   n_chan_ = num("nchannels");
   epoch_ = num("epochsize");
   hdr_ = num("hdrsize");
-  n_total_ = num("nsamples");
+  n_total_ = declared_ = num("nsamples");
 }
 
 void BstReader::read(std::int64_t s0, std::int64_t n, std::int64_t c0, std::int64_t c1, std::vector<float>& out) {
