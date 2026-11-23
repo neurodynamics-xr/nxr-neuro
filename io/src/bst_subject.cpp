@@ -345,7 +345,7 @@ std::string subject_cortex(const fs::path& root, const std::string& subject, Sub
 }
 
 Json compose_subject(SubjectWriter& sub, const fs::path& root, const std::string& subject, const Emit& emit, std::optional<double> resample) {
-  Json sessions = Json::array(), volumes = Json::array(), maps = Json::array(), fibers = Json::array(), connectomes = Json::array(), skipped = Json::array();
+  Json sessions = Json::array(), volumes = Json::array(), maps = Json::array(), fibers = Json::array(), connectomes = Json::array(), skipped = Json::array(), truncated = Json::array();
   auto skip = [&](const std::string& what, const std::string& reason) {
     skipped.push_back(Json{{"what", what}, {"reason", reason}});
     emit(Json{{"stage", "skipped"}, {"what", what}, {"reason", reason}});
@@ -358,8 +358,9 @@ Json compose_subject(SubjectWriter& sub, const fs::path& root, const std::string
     const std::size_t mark = sub.mark();
     try {
       const ConditionPlan plan = condition_plan(root, subject, cond);
-      convert_condition(sub, root, cond, plan, ConvertOptions{true, false, resample}, emit);
+      const Json cr = convert_condition(sub, root, cond, plan, ConvertOptions{true, false, resample}, emit);
       sessions.push_back(cond);
+      if (cr.contains("truncated")) { Json w = cr["truncated"]; w["condition"] = cond; truncated.push_back(w); }
     } catch (const Error& e) {
       if (!is_one_of(e, {code::invalid_argument, code::not_found, code::unsupported})) throw;
       sub.rollback_to(mark);
@@ -410,7 +411,9 @@ Json compose_subject(SubjectWriter& sub, const fs::path& root, const std::string
       connectomes.push_back(info["connectome"]);
     }
   }
-  return Json{{"subject", subject}, {"sessions", sessions}, {"volumes", volumes}, {"maps", maps}, {"fibers", fibers}, {"connectomes", connectomes}, {"skipped", skipped}};
+  Json res{{"subject", subject}, {"sessions", sessions}, {"volumes", volumes}, {"maps", maps}, {"fibers", fibers}, {"connectomes", connectomes}, {"skipped", skipped}};
+  if (!truncated.empty()) res["truncated"] = truncated;   // raw recordings whose binary was cut short, each imported to its last whole sample
+  return res;
 }
 
 Json convert_subject(nxr::io::DatasetWriter& ds, const fs::path& root, const std::string& subject, const Emit& emit, const std::string& created_by,

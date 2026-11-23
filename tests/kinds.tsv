@@ -279,3 +279,4 @@ test_welch_halo	integration
 test_wishart_null	integration
 test_writer	unit
 test_wt_at	unit
+test_bst_binary	unit

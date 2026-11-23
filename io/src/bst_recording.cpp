@@ -268,7 +268,21 @@ BstReader::BstReader(const Value& sfile, const fs::path& path) : path_(path) {
   n_chan_ = num("nchannels");
   epoch_ = num("epochsize");
   hdr_ = num("hdrsize");
-  n_total_ = num("nsamples");
+  n_total_ = declared_ = num("nsamples");
+  // A file SHORTER than its header declares (an interrupted copy or write): keep the largest sample count every channel has in full, and say so (truncated()).
+  // An epoch is [n_chan x its length] channel after channel, so in a cut epoch the last channel is the one that runs out first.
+  std::error_code ec;
+  const auto bytes = fs::file_size(path_, ec);
+  if (ec) return;   // a missing file is reported by the first read
+  const std::int64_t avail = std::max<std::int64_t>(0, (static_cast<std::int64_t>(bytes) - hdr_) / 4);
+  const std::int64_t full = std::min(avail / (n_chan_ * epoch_), declared_ / epoch_);
+  if (full * epoch_ >= declared_) return;
+  const std::int64_t len = std::min(epoch_, declared_ - full * epoch_), rem = avail - full * n_chan_ * epoch_;
+  n_total_ = std::min(declared_, full * epoch_ + std::clamp<std::int64_t>(rem - (n_chan_ - 1) * len, 0, len));
+  if (n_total_ == declared_) return;
+  if (n_total_ * 2 < declared_)
+    throw nxr::io::Error(code::invalid_argument, "BST-BIN file " + py_path(path_.string()) + " holds " + i2s(n_total_) + " of the " + i2s(declared_) +
+                         " samples its header declares (less than half): refused");
 }
 
 void BstReader::read(std::int64_t s0, std::int64_t n, std::int64_t c0, std::int64_t c1, std::vector<float>& out) {
@@ -277,18 +291,21 @@ void BstReader::read(std::int64_t s0, std::int64_t n, std::int64_t c0, std::int6
   out.assign(static_cast<std::size_t>(nc * n), 0.0f);
   std::ifstream f(path_, std::ios::binary);
   if (!f) throw nxr::io::Error(code::not_found, "[Errno 2] No such file or directory: " + str_repr(py_path(path_.string())));
-  std::vector<float> block(static_cast<std::size_t>(epoch_ * nc));
+  std::vector<float> block;
   std::int64_t got = 0;
   const std::int64_t e0 = s0 / epoch_, e1 = (s0 + n - 1) / epoch_;
   for (std::int64_t e = e0; e <= e1; ++e) {
+    const std::int64_t len = std::min(epoch_, declared_ - e * epoch_);   // the last epoch is partial: its channels are `len` apart, not `epoch_`
     const std::int64_t lo = std::max(e * epoch_, s0), hi = std::min((e + 1) * epoch_, s0 + n), count = hi - lo;
+    block.assign(static_cast<std::size_t>(len * nc), 0.0f);
     f.clear();
-    f.seekg(static_cast<std::streamoff>(hdr_ + (e * n_chan_ + c0) * epoch_ * 4));
+    f.seekg(static_cast<std::streamoff>(hdr_ + (e * n_chan_ * epoch_ + c0 * len) * 4));
     f.read(reinterpret_cast<char*>(block.data()), static_cast<std::streamsize>(block.size() * 4));
     const std::int64_t have = static_cast<std::int64_t>(f.gcount()) / 4;
-    if (have < epoch_ * nc) value_error("cannot reshape array of size " + i2s(have) + " into shape (" + i2s(nc) + "," + i2s(epoch_) + ")");
+    // a cut file: every channel of the samples kept is read in full (n_total_), the rest of the epoch need not be there
+    if (have < (nc - 1) * len + (hi - e * epoch_)) value_error("cannot reshape array of size " + i2s(have) + " into shape (" + i2s(nc) + "," + i2s(len) + ")");
     for (std::int64_t c = 0; c < nc; ++c)
-      std::copy(block.begin() + c * epoch_ + (lo - e * epoch_), block.begin() + c * epoch_ + (hi - e * epoch_), out.begin() + c * n + got);
+      std::copy(block.begin() + c * len + (lo - e * epoch_), block.begin() + c * len + (hi - e * epoch_), out.begin() + c * n + got);
     got += count;
   }
 }
@@ -318,6 +335,7 @@ Json export_raw_timeseries(SubjectWriter& sub, const std::string& name, const Va
   if (!sf) throw nxr::io::Error(code::no_such_row, "sfreq");
   if (!tv) throw nxr::io::Error(code::no_such_row, "times");
   double sfreq = sf->scalar();
+  const double sfreq_file = sfreq;
   const double t0 = tv->doubles().at(0);
 
   Json producer = Json{{"format", fmt}, {"device", str_of(sfile.field("device"))}};
@@ -372,7 +390,14 @@ Json export_raw_timeseries(SubjectWriter& sub, const std::string& name, const Va
   r.n_samples = n_t;
   r.sfreq = sfreq;
   r.producer = producer;
-  return write_recording(sub, r);
+  Json out = write_recording(sub, r);
+  if (reader.truncated()) {   // the file holds fewer samples than its header declares: what is whole was imported, and the loss is reported
+    const double lost = static_cast<double>(reader.declared_samples() - reader.n_samples()) / sfreq_file;
+    out["truncated"] = Json{{"file", py_path(bst_path.string())}, {"declared_samples", reader.declared_samples()}, {"read_samples", reader.n_samples()}, {"seconds_lost", lost}};
+    if (progress) progress(Json{{"stage", "truncated"}, {"name", name}, {"file", py_path(bst_path.string())}, {"declared_samples", reader.declared_samples()},
+                                {"read_samples", reader.n_samples()}, {"seconds_lost", lost}});
+  }
+  return out;
 }
 
 Json export_timeseries(SubjectWriter& sub, const std::string& name, const fs::path& data_file, const std::string& acquisition, const std::string& channels_id,

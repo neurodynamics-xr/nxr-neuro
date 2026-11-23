@@ -27,11 +27,13 @@ class BstReader {
   // samples [s0, s0+n) of channels [c0, c1) as [c1-c0, n] float32, row after row
   void read(std::int64_t s0, std::int64_t n, std::int64_t c0, std::int64_t c1, std::vector<float>& out);
   std::int64_t n_channels() const { return n_chan_; }
-  std::int64_t n_samples() const { return n_total_; }
+  std::int64_t n_samples() const { return n_total_; }   // the samples the file holds in full (< declared_samples() when it is cut short)
+  std::int64_t declared_samples() const { return declared_; }
+  bool truncated() const { return n_total_ < declared_; }
 
  private:
   std::filesystem::path path_;
-  std::int64_t n_chan_, epoch_, hdr_, n_total_;
+  std::int64_t n_chan_, epoch_, hdr_, n_total_, declared_;
 };
 
 // the binary a raw link reads (D122); emits `relinked` when it is beside the link
