@@ -164,13 +164,13 @@ int main() {
   ic.protocol = P.string();
   ic.subject = "S01";
   ic.condition = "rest";
-  ic.dataset = cd.dataset;
+  ic.dataset = (root / "study").string();
   ic.created_by = "test";
   task::import_condition(ic);
 
   task::ImportCovarianceRequest rq;
   rq.protocol = P.string();
-  rq.dataset = cd.dataset;
+  rq.dataset = (root / "study").string();
   rq.subject = "S01";
   rq.condition = "rest";
   rq.created_by = "test";

@@ -41,6 +41,7 @@
 //                                         the product CODE, mixed radix with the FIRST factor fastest: code = c0 + n0 (c1 + n1 (..)) (a joint's first radix is a power of
 //                                         two, D129: code = (tile << bits) | frame)
 #pragma once
+#include <map>
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -83,8 +84,18 @@ struct Grid {
                                             // 2^k samples from the line's first sample: never stored per level (the `ladder` row `<line> time grid`, selection_store.h `save_time_grid`)
 };
 
+// A KERNEL member's profile (the selection system: a kernel = an anchor + a profile + a chart): io stores what it is given (as type `kernel`, the anchor as its own type stores it);
+// compute resolves it onto a line (nxr::selection::resolve_weights). The same fields as compute's Profile, kept here because io never depends on compute.
+struct Profile {
+  std::string family;                          // `box` | `gaussian` | ...
+  std::map<std::string, double> params;        // the family's parameters (gaussian: fwhm, in the chart's units); the centre is the member's anchor
+  std::string chart;                           // `linear` | `log2` | `log10`: the coordinates the widths are in
+  double gain = 1;                             // the peak amplitude g at the profile's centre
+};
+
 struct Description {
   Type type = Type::set;
+  std::optional<Profile> profile;           // a kernel member: its profile (none: a plain point, span or distance)
   Family family = Family::unmarked;        // a set: GRID or IRREGULAR (params_json.family)
   std::optional<std::int64_t> code;        // its label among its siblings (read with its set's lookup)
   std::string unit;                         // a span's or a tiling's coordinates · a distance's radius

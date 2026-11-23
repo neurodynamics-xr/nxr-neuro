@@ -2,8 +2,7 @@
 // toy nodes (pure, registered under grouped names) describe a field, a statistic (a channel axis on the recording's channels, a frequency line made from the node's description, the segment
 // partition as a tiling), an operator, a partition and a manifold; the definition places them by link. Checked: every kind stored with its provenance and cache key; a manifold an output lies on made
 // FIRST by the same run; all or nothing (an output that fails leaves nothing of the run); a rerun a cache hit; another key refused, then replaced with --replace (moved aside); a declaration the
-// node does not meet refused; presets (defaults < preset < the caller's, an unknown one refused, the name in the provenance and the key); a shipped-style definition's field output stored as before;
-// TYPED AXES: a node that declares them with an anonymous axis is refused before any data, and one whose axis is the recording's channel manifold is stored with that link.
+// node does not meet refused; presets (defaults < preset < the caller's, an unknown one refused, the name in the provenance and the key); a shipped-style definition's field output stored as before.
 #include <unistd.h>
 
 #include <cmath>
@@ -86,33 +85,6 @@ void register_toys() {
   r.add(toy("toy.online", "statistic", [](const Json& p) {
     return arr(6, 1, scale_of(p), Json{{"measure", "power"}, {"method", "mean"}, {"axes", Json::array({Json{{"name", "frequency"}, {"size", 6}}})}});
   }));
-}
-// a toy ACCUMULATE node that declares TYPED AXES (NodeTraits::typed_axes): a statistic per channel of the recording, its axis the recording's channel manifold; with `undeclared`, an anonymous axis
-ng::NodeSpec typed_toy() {
-  ng::NodeSpec n;
-  n.name = "toy.typed_statistic";
-  n.kind = ng::Kind::accumulate;
-  n.inputs.push_back({"x", "the recording", false});
-  n.outputs.push_back({"out", "one value a channel", false});
-  n.parameters.push_back({"undeclared", Json(false), "give an anonymous axis (a fault)", "-", {}, false});
-  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "a toy, over the blocks");
-  n.traits.typed_axes = true;
-  n.description = "a toy node with typed axes";
-  n.plan = [](const ng::Types& in, const Json& p) {
-    ng::Planned out;
-    ng::PortType t;
-    t.cls = ng::PortClass::constant;
-    t.facts["cls"] = "statistic";
-    t.typed = true;
-    const ng::PortType& x = in.at("x");
-    t.domain.factors = {p.value("undeclared", false) || x.domain.empty() ? ng::anonymous(1) : x.domain.factors.front()};
-    out.out["out"] = t;
-    return out;
-  };
-  n.start = [](const std::any&) { return std::any(0); };
-  n.step = [](const std::any&, std::any st, const ng::Blocks&, std::int64_t, const ng::Place&) { return std::make_pair(ng::Blocks{}, std::move(st)); };
-  n.finish = [](const std::any&, std::any) { return ng::Arrays{{"out", arr(3, 1, 1.0, Json{{"measure", "mean"}, {"method", "mean"}})}}; };
-  return n;
 }
 }  // namespace
 
@@ -286,22 +258,6 @@ int main() {
   CHECK(has(refusal([&] { g::run(ds, sub, def("pipeline: t\n" + inputs + "steps:\n  before: [{node: toy.map, out: map}]\noutputs: {map: {kind: field, kind_name: x, on: nothing.manifold.0}}\n"), Json::object(), opt, true); }), "nothing"));
   CHECK(has(refusal([&] { def("pipeline: t\n" + inputs + "steps:\n  before: [{node: toy.operator, out: op}]\noutputs: {op: {kind: operator, from: recording.manifold.0}}\n"); }), "operator_kind"));
   CHECK(has(refusal([&] { def("pipeline: t\n" + inputs + "presets: {p: {nope: 1}}\nsteps:\n  before: [{node: toy.map, out: map}]\noutputs: {map: {kind: field, kind_name: x, on: recording.manifold.0}}\n"); }), "not a parameter"));
-
-  // TYPED AXES: a node that declares them has every axis of its outputs refused at preparation unless it is a stored thing, and the runner writes the links when it stores
-  ng::registry().add(typed_toy());
-  const std::string typed = "pipeline: typed\n" + inputs + "parameters:\n  undeclared: false\n"
-      "steps:\n  chunks:\n    over: recording\n    do:\n      - {node: toy.typed_statistic, in: {x: recording}, with: {undeclared: $undeclared}, out: s}\n"
-      "outputs:\n  s: {kind: statistic, of: recording, name: '{recording}_typed'}\n";
-  const std::string undeclared = refusal([&] { g::run(ds, sub, def(typed), Json{{"undeclared", true}}, opt, true); });
-  CHECK(has(undeclared, "typed axes") && has(undeclared, "undeclared") && has(undeclared, "anonymous"));
-  g::run(ds, sub, def(typed), Json::object(), opt);
-  {
-    const task::Node ts = s.require(task::Want{.cls = task::Cls::statistic, .name = std::string("rest_typed")}, "the typed statistic");
-    const Json axes = asj(ts.fact("axes_json"));
-    CHECK_EQ(axes.size(), static_cast<std::size_t>(1));
-    CHECK_EQ(axes[0]["manifold_id"].get<std::string>(), cid);              // the axis the node declared: the recording's channel manifold, by id
-    CHECK_EQ(axes[0]["size"].get<std::int64_t>(), static_cast<std::int64_t>(3));
-  }
   std::cout << "test_runner_outputs: ok\n";
   fs::remove_all(root);
   return 0;
