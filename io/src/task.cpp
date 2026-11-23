@@ -1030,17 +1030,22 @@ std::string stored_line(SubjectWriter& sub, Database& db, const LineOut& l, cons
 }
 }  // namespace
 
+namespace {
+// whether the closed-form line `line_id` has n points of `spacing` from `origin`
+bool closed_form_line_fits(Database& db, const std::string& line_id, std::int64_t n, double spacing, double origin) {
+  const auto d = db.one("SELECT d.spacing AS spacing, d.n_vertices AS n, d.origin AS origin FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? AND d.ordinal = 0", {V(line_id)});
+  return d && integer(*d, "n") == n && std::abs(std::stod(text(*d, "spacing")) - spacing) <= 1e-12 * std::max(1.0, std::abs(spacing)) &&
+         std::abs(std::stod(text(*d, "origin")) - origin) <= 1e-12 * std::max(1.0, std::abs(origin));
+}
+}  // namespace
+
 std::string Unit::line(const LineOut& l) {
   need_open(open_);
   SubjectWriter& sub = *impl_->writer;
   Database& db = *impl_->db;
   if (!l.coordinates.empty()) return stored_line(sub, db, l, by_);
   auto named = [&](const std::string& n) { return db.one("SELECT m.id AS id FROM manifold m WHERE m.subject_id = ? AND m.name = ? AND m.type = 'line'", {V(impl_->id), V(n)}); };
-  auto fits = [&](const std::string& lid) {
-    const auto d = db.one("SELECT d.spacing AS spacing, d.n_vertices AS n, d.origin AS origin FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? AND d.ordinal = 0", {V(lid)});
-    return d && integer(*d, "n") == l.n && std::abs(std::stod(text(*d, "spacing")) - l.spacing) <= 1e-12 * std::max(1.0, std::abs(l.spacing)) &&
-           std::abs(std::stod(text(*d, "origin")) - l.origin) <= 1e-12 * std::max(1.0, std::abs(l.origin));
-  };
+  auto fits = [&](const std::string& lid) { return closed_form_line_fits(db, lid, l.n, l.spacing, l.origin); };
   std::string name = l.name;
   if (const auto r = named(name)) {
     if (fits(text(*r, "id"))) return text(*r, "id");
@@ -1074,6 +1079,50 @@ std::string Unit::line(const LineOut& l) {
   return sub.manifold(std::move(ms));
 }
 
+
+// THE FREQUENCY LINE OF A SPAN: a span of n samples at fs (a member of a time line's grid) has one one-sided frequency line, origin 0, spacing fs / n, n / 2 + 1 bins. It is keyed by what makes it
+// (the time line, n, fs), never by a name: the FFT is an analytic operator row from the time line to the frequency line, its params {n, fs, sides, window}, and the line is found through that row.
+// A line a dataset already holds under the old per-recording name (`legacy_name`) with the same grid is that line (nothing renamed, nothing added).
+std::string Unit::frequency_line(const std::string& time_line_id, std::int64_t n, double fs, const std::string& legacy_name) {
+  need_open(open_);
+  SubjectWriter& sub = *impl_->writer;
+  Database& db = *impl_->db;
+  if (n < 2 || !(fs > 0) || !std::isfinite(fs)) throw Error(code::invalid_argument, "frequency line: a span of n >= 2 samples at a rate fs > 0 (n " + std::to_string(n) + ", fs " + std::to_string(fs) + ")");
+  const auto tl = db.one("SELECT name FROM manifold WHERE id = ? AND subject_id = ? AND type = 'line'", {V(time_line_id), V(impl_->id)});
+  if (!tl) throw Error(code::no_such_row, "frequency line: the time line " + time_line_id + " is not a line of this subject");
+  const std::int64_t bins = n / 2 + 1;
+  const double spacing = fs / static_cast<double>(n);
+  auto near = [](double a, double b) { return std::abs(a - b) <= 1e-12 * std::max(1.0, std::abs(b)); };
+  // 1. by its key: an analytic fft operator of this time line whose parameters are these
+  for (const auto& r : db.all("SELECT to_manifold_id, params_json FROM operator WHERE subject_id = ? AND from_manifold_id = ? AND layout = 'analytic' AND method = 'fft' AND status <> 'deleting'", {V(impl_->id), V(time_line_id)})) {
+    if (is_null(r, "to_manifold_id") || is_null(r, "params_json")) continue;
+    const Json p = Json::parse(text(r, "params_json"), nullptr, false);
+    if (p.is_object() && p.value("n", std::int64_t(0)) == n && near(p.value("fs", 0.0), fs) && p.value("sides", std::string()) == "one-sided") return text(r, "to_manifold_id");
+  }
+  // 2. a line an older run made under the recording's name, with the same grid: that line
+  if (!legacy_name.empty())
+    if (const auto old = db.one("SELECT m.id AS id FROM manifold m WHERE m.subject_id = ? AND m.name = ? AND m.type = 'line'", {V(impl_->id), V(legacy_name)}))
+      if (closed_form_line_fits(db, text(*old, "id"), bins, spacing, 0.0)) return text(*old, "id");
+  // 3. made: the line, named for its time line and its level (n = 2^k: `_freq_L<k>`; any other n: `_freq_n<n>`), and the operator that makes it
+  std::string level;
+  if ((n & (n - 1)) == 0) { int k = 0; while ((std::int64_t(1) << k) < n) ++k; level = "L" + std::to_string(k); } else level = "n" + std::to_string(n);
+  LineOut l;
+  l.name = text(*tl, "name") + "_freq_" + level; l.alt = l.name + "_alt";
+  l.n = bins; l.spacing = spacing; l.origin = 0.0; l.unit = "Hz"; l.dimension = "frequency"; l.folder = "spectral"; l.cs_key = "hz";
+  const auto fa = db.one("SELECT acquisition_id FROM manifold WHERE id = ?", {V(time_line_id)});
+  if (fa && !is_null(*fa, "acquisition_id")) l.acquisition_id = text(*fa, "acquisition_id");
+  const std::string line_id = line(l);
+  OperatorOut op;
+  op.name = text(*tl, "name") + "_fft_" + level; op.output = "frequency_line"; op.kind = "transform";
+  op.from_manifold_id = time_line_id; op.to_manifold_id = line_id; op.from_cell = "0"; op.to_cell = "0";
+  op.from_value_type = "scalar"; op.to_value_type = "complex";
+  op.analytic = OperatorOut::Analytic{"fft", bins, n};
+  op.params = Json{{"n", n}, {"fs", fs}, {"sides", "one-sided"}, {"window", "none"}};
+  op.description = "the one-sided FFT of a span of " + std::to_string(n) + " samples at " + std::to_string(fs) + " Hz: its frequency line";
+  op.acquisition = l.acquisition_id;
+  operator_(op);
+  return line_id;
+}
 
 std::string Unit::surface(const SurfaceOut& o) {
   need_open(open_);

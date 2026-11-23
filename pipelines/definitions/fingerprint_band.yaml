@@ -12,7 +12,7 @@
 #            signal.hilbert      the analytic signal (a FIR Hilbert transformer whose length follows the band's lower edge), transform envelope: its modulus |z|  ->  envelope
 #            stats.cov           the envelopes' covariance over the span (a statistic over the span's time partition, one block, its mean removed)  ->  covariance
 #   after:   stats.correlation   Pearson's correlation of every pair of regions (no orthogonalisation: the paper and the code agree)  ->  aec [regions x regions]
-# Stored: `<name>_spectrum` (power by welch, OF the recording; axes region x frequency, the frequency line `<recording>_freq`; its segments `<name>_spectrum_segments`) and `<name>_aec`
+# Stored: `<name>_spectrum` (power by welch, OF the recording; axes region x frequency, the frequency line of the segment length (the time line's fft operator row; an older `<recording>_freq` of the same grid is still found); its segments `<name>_spectrum_segments`) and `<name>_aec`
 # (measure amplitude_envelope_correlation by pearson, OF the recording; axes region x region). `run fingerprint_features` assembles the bands' into a person's two features.
 #
 # It cannot resolve: what the region map cannot (a region's first principal component over THIS span, signed by a convention; neighbouring regions share signal through the beamformer's spread);
@@ -68,7 +68,7 @@ outputs:
     kind: statistic
     name: "$name_spectrum"
     of: recording
-    axes: [{name: region}, {name: frequency, line: "{recording}_freq"}]
+    axes: [{name: region}, {name: frequency, line: "{recording}_freq", of_time: recording.time}]
     partition: {tiling: "$name_spectrum_segments", on: recording.time}
   aec:
     kind: statistic

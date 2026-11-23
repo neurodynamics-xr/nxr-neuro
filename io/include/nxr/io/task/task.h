@@ -472,6 +472,9 @@ class Unit {
   std::int64_t measurements(const MeasurementOut&);   // the rows written (one a measure); a measure already there for the field is replaced
   // MANIFOLDS (the sixth kind): made first, so the other results of the unit can lie on them; each found and reused when identical, never replaced
   std::string line(const LineOut&);
+  // the one-sided frequency line of a span of n samples at fs on a time line of this subject (origin 0, spacing fs / n, n / 2 + 1 bins): found by (time line, n, fs) through its analytic `fft` operator
+  // row, else a line of the same grid under `legacy_name` (the old per-recording name), else made with that operator row. Named `<time line>_freq_L<k>` for n = 2^k, else `_freq_n<n>`.
+  std::string frequency_line(const std::string& time_line_id, std::int64_t n, double fs, const std::string& legacy_name = "");
   std::string surface(const SurfaceOut&);
   std::string product(const ProductOut&);
   std::string points(const PointsOut&);            // found by path and kept when it holds the same coordinates; another one's is replaced by `replace` first

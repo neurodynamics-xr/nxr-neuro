@@ -1105,7 +1105,7 @@ span's start) · `scipy` · `nxr-chain`. Segments still cross chunk edges at ½ 
 a STATISTIC (2026-11-13, `docs/specs/2026-11-13-statistics.md`; until then a Field on channels × frequency, which stays readable): `<recording>_psd_welch`,
 measure `power_density` (`power` for the spectrum and chain scalings), method `welch`, OF the recording, computed from its segment partition
 `<name>_segments` (Welch's segments as a closed-form spans Selection on the time line: width, hop, count) and resting on `n_members` segments
-(`members_skipped` left out for a bad sample), axes channel × the frequency line `<recording>_freq`, float32, unit `<unit>^2/Hz`, the span, every Welch
+(`members_skipped` left out for a bad sample), axes channel × the frequency line of the segment length (the one-sided line of n samples at the rate, keyed by the time line, n and the rate and made by an analytic `fft` operator row from the time line; named `<recording>_freq_L<k>` for n = 2^k, else `<recording>_freq_n<n>`; a line an older run stored as `<recording>_freq` with the same grid is still found), float32, unit `<unit>^2/Hz`, the span, every Welch
 option in `options_json`, the spectral scaling record, and in `producer_json` the cache key, the share of samples excluded and the
 projectors applied on load (`run.projectors`). All channels are kept, the bad ones too.
 

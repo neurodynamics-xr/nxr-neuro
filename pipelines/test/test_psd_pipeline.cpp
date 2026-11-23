@@ -179,7 +179,13 @@ int main() {
     const auto line = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::manifold, st.axes[1]["manifold_id"].get<std::string>());
     CHECK(line.has_value());
     const auto line_axis = nxr::io::task::Subject::of(sub).geometry(line->id).axes.at(0);
-    CHECK_EQ(line->name, std::string("rest_freq"));
+    {   // keyed by the time line, the span length (200 samples) and the rate, and made by an analytic fft operator row from the time line to it
+      const std::string stem = "_freq_n200";
+      CHECK(line->name.size() > stem.size() && line->name.compare(line->name.size() - stem.size(), stem.size(), stem) == 0);
+      const std::string time_name = line->name.substr(0, line->name.size() - stem.size());
+      const auto fft = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::operator_, .name = time_name + "_fft_n200"});
+      CHECK(fft && fft->to_manifold_id && *fft->to_manifold_id == line->id && fft->params["n"] == 200 && fft->params["sides"] == "one-sided");
+    }
     CHECK_EQ(*line_axis.unit, std::string("Hz"));
     CHECK(std::abs(*line_axis.spacing - 0.5) < 1e-12);
     // the partition: Welch's segments as a closed-form spans Selection on the time line (200 samples, a new one every 100)
@@ -296,7 +302,7 @@ int main() {
     }
     with_span("tiles_span", Json{{"segment_seconds", 2.0}}, [](auto& ro) { ro.start = 3.0; ro.stop = 33.0; }, "tiles");
     CHECK(stat("tiles_span").span["start_sample"] == 256 && stat("tiles_span").span["stop_sample"] == 3328);
-    nxrtest::run_psd(ds, sub, "rest_b", Json{{"segment_samples", 128}, {"name", "tiles_l7"}});   // (the line `rest_b_freq` of 101 bins is taken: this is the second resolution)
+    nxrtest::run_psd(ds, sub, "rest_b", Json{{"segment_samples", 128}, {"name", "tiles_l7"}});   // (a span of another length: its own frequency line)
     CHECK(stat("tiles_l7").options["segment_samples"] == 128);
     CHECK(has(refusal([&] { nxrtest::run_psd(ds, sub, "rest", Json{{"segment_seconds", 2.0}, {"name", "t1"}, {"overlap", 0.3}}); }), "hop"));
     CHECK(has(refusal([&] { nxrtest::run_psd(ds, sub, "rest", Json{{"segment_samples", 200}, {"name", "t2"}}); }), "tile"));

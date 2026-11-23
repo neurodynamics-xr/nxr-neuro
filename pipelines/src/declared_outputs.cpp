@@ -951,6 +951,14 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     } else if (decl.contains("line")) {
       if (!ax.contains("line")) bad(o, "axis " + decl["name"].get<std::string>() + " declares a line; its node describes none");
       const Json& l = ax["line"];
+      if (decl.contains("of_time") && l.contains("fft")) {              // the frequency line of a span of this time line (the node says it is the full one-sided line of n samples at fs): keyed by (time line, n, fs), made by the FFT operator (io's frequency_line); `line` is the old name, still found
+        const std::string time_line = link(P, decl["of_time"].get<std::string>(), &made, o);
+        out["manifold_id"] = unit.frequency_line(time_line, l["fft"].value("n", std::int64_t(0)), l["fft"].value("fs", 0.0), nxr::io::safe_name(fill(P, decl["line"].get<std::string>())));
+        out["unit"] = l.value("unit", std::string("Hz"));
+        axes.push_back(out);
+        shape.push_back(size);
+        continue;
+      }
       task::LineOut lo;
       lo.name = nxr::io::safe_name(fill(P, decl["line"].get<std::string>())); lo.alt = lo.name + "_alt";
       lo.n = size; lo.spacing = l.value("spacing", 1.0); lo.origin = l.value("origin", 0.0);
