@@ -1,6 +1,6 @@
 {
   "name": "@neurodynamics-xr/nxr-compute",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Portable C++ math/compute engine — Eigen + Spectra + geometry-central. Bindings: Node N-API, WASM, MATLAB MEX, CLI.",
   "type": "module",
   "main": "wasm/js/index.mjs",
