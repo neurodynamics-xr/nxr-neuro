@@ -4,5 +4,6 @@
 target_sources(nxr_compute PRIVATE
   src/selection/selection.cpp
   src/selection/selection_resolved.cpp
+  src/selection/selection_kernel.cpp
 )
 
