@@ -6,6 +6,7 @@
 
 #include "commands_open.h"
 #include "nxr/bst/fibers.h"
+#include "nxr/bst/covariance.h"
 #include "nxr/bst/inverse.h"
 #include "nxr/bst/maps.h"
 #include "nxr/bst/mat.h"
@@ -305,6 +306,29 @@ static CommandResult import_inverse_work(const ImportInverseRequest& rq, const P
   nxr::bst::InverseInfo info;
   o.sub.compose([&] { info = nxr::bst::add_inverse(o.sub, rq.file, ao, said(progress)); });
   return result_of(nxr::bst::inverse_json(info));
+}
+
+static CommandResult import_covariance_work(const ImportCovarianceRequest& rq, const Progress& progress);
+CommandResult import_covariance(const ImportCovarianceRequest& rq, const Progress& progress) {
+  return recorded("import:covariance", JobTarget{rq.dataset, "", rq.subject}, Json{{"subject", rq.subject}, {"condition", rq.condition}, {"kind", rq.kind}, {"name", oj(rq.name)}, {"replace", rq.replace}}, rq.created_by,
+                  [&] { return import_covariance_work(rq, progress); });
+}
+
+static CommandResult import_covariance_work(const ImportCovarianceRequest& rq, const Progress& progress) {
+  const fs::path data = fs::path(rq.protocol) / "data" / rq.subject;
+  std::error_code ec;
+  fs::path dir = data / rq.condition;
+  if (!fs::is_directory(dir, ec)) dir = data / ("@raw" + rq.condition);     // a raw file's study
+  if (!fs::is_directory(dir, ec)) throw Error(code::not_found, "no study " + rq.condition + " of " + rq.subject + " in the protocol");
+  Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
+  nxr::bst::CovarianceOptions co;
+  co.kind = rq.kind;
+  co.bst_root = rq.protocol;
+  co.name = rq.name;
+  co.replace = rq.replace;
+  Json body;
+  o.sub.compose([&] { body = nxr::bst::import_covariance(o.sub, dir, rq.condition, co, said(progress)); });
+  return result_of(body);
 }
 
 static CommandResult import_map_work(const ImportMapRequest& rq, const Progress& progress);

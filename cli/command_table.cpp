@@ -239,6 +239,10 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@create dataset	NAME	Name of the new dataset.	the folder's name (required with --datastore)	-
 --name@create subject	NAME	Name of the new subject in the dataset.	required	-
 --name@delete dataset	NAME	Name of the dataset's folder to delete, inside the folder given by --datastore	required	-
+--name@import covariance	NAME	Name of the stored statistic.	<condition>_noise_covariance or <condition>_data_covariance	-
+--kind@import covariance	noise|data	Which covariance of the study: its noise covariance (noisecov_*.mat) or its data covariance (ndatacov_*.mat).	noise	-
+--protocol@import covariance	PATH	The Brainstorm protocol's folder (the one holding data/ and anat/).	required	-
+--condition@import covariance	NAME	The condition (study) whose covariance is imported; its channels must be imported already (`import condition`); the statistic is stored under that acquisition.	required	-
 --name@import inverse	NAME	Name of the stored kernel.	Brainstorm's file stem, session-qualified if already taken	-
 --name@import resample	NAME	Name of the resampled recording that is created	<recording>_<rate>Hz (e.g. meg_250Hz)	-
 --name@read crossspectrum	NAME	The stored band-resolved cross-spectrum to read, named <stem>_<band>_bins (made by run crossspectrum --resolve bins).	required	-
@@ -1058,6 +1062,12 @@ old: convert inverse
 alias: refused
 summary: Import a Brainstorm inverse kernel as an operator of a subject.
 opts: --acquisition* --bst-root* --channel-file --channels-id --dataset* --file* --forward-id --name --subject* --surface-id --templates+
+)TBL",
+R"TBL(@ import covariance
+old: convert covariance
+alias: refused
+summary: Import a Brainstorm study's own noise covariance (noisecov_*.mat) or data covariance (ndatacov_*.mat) as a statistic of the condition's channels, the one `run inverse --noise-cov` reads.
+opts: --condition* --dataset* --kind --name --protocol* --replace --subject* --templates+
 )TBL",
 R"TBL(@ import map
 old: convert map
