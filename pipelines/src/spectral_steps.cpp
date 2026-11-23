@@ -86,6 +86,8 @@ ng::NodeSpec mode_analysis() {
     ng::PortType t;
     t.cls = ng::PortClass::operator_;
     t.facts["cls"] = "operator";
+    // its TARGET is the package's mode axis (the eigenvectors' source manifold): the rows it gives are modes of that stored axis (a subset: the coefficients name the members)
+    if (const auto pk = in.find("package"); pk != in.end() && !pk->second.domain.factors.empty()) { t.typed = true; t.target = pk->second.domain; }
     out.out["operator"] = t;
     return out;
   };
@@ -208,8 +210,10 @@ ng::NodeSpec spectral_coefficients() {
     if (t < 2 || (t & (t - 1)) != 0) ng::refuse(std::string(kCoefficients) + ": tile_samples is a power of two (the tile grid)");
     if (!p.contains("frequency_span") || !p["frequency_span"].is_array() || p["frequency_span"].size() != 2) ng::refuse(std::string(kCoefficients) + ": frequency_span [lo, hi) has no default: name it");
     text_param(p, "bad_segments", kCoefficients);
+    // A STATISTIC of the run whose axes the definition declares and the runner links (the four classes): the tiles (positions on the recording's time line), the bins kept of the
+    // frequency line a tile's transform makes (keyed by (time line, n, fs)), the modes kept of the package's mode axis (one block a Cartesian component)
     ng::Planned out;
-    out.out["coefficients"] = constant_of("measurement");
+    out.out["coefficients"] = constant_of("statistic");
     out.align = t;
     return out;
   };
@@ -282,13 +286,26 @@ ng::NodeSpec spectral_coefficients() {
     a.rows = T * pr.bins * R; a.cols = 2;
     a.data.assign(s.values.begin(), s.values.end());
     const double df = pr.sfreq / static_cast<double>(pr.tile);
-    a.meta["describe"] = Json{{"measures", Json::array({Json{{"measure", "fourier_coefficient"}, {"unit", "(operator output) x samples"}}})},
-                              {"complex", true}, {"values_f32", true}, {"values_shape", Json::array({T, pr.bins, R})},
-                              {"attributes", Json{{"tiles", s.tiles}, {"tiles_left_out", s.left_out}, {"tile_samples", pr.tile},
-                                                  {"frequency_line", Json{{"origin", 0.0}, {"spacing", df}, {"unit", "Hz"}, {"fft", Json{{"n", pr.tile}, {"fs", pr.sfreq}}}}},
-                                                  {"first_bin", pr.first_bin}, {"bins", pr.bins}, {"frequency_span", Json::array({pr.lo, pr.hi})},
-                                                  {"transform", "one-sided, unscaled, no window (numpy rfft norm backward)"}, {"operator", pr.op_meta}}},
-                              {"description", "the mode-space Fourier coefficients per time tile: [tiles x bins x rows]"}};
+    Json tiles = Json::array();
+    for (const auto m : s.tiles) tiles.push_back(Json{{"member", m}, {"span", Json::array({static_cast<double>(m * pr.tile) / pr.sfreq, static_cast<double>((m + 1) * pr.tile) / pr.sfreq})}});
+    Json bins = Json::array();
+    for (std::int64_t k = 0; k < pr.bins; ++k) bins.push_back(pr.first_bin + k);
+    Json mode = Json{{"name", "mode"}, {"size", R}, {"members", pr.op_meta.value("modes", Json::array())}};
+    const std::int64_t components = pr.op_meta.value("components", std::int64_t(1));
+    if (components > 1) { Json parts = Json::array({"x", "y", "z"}); parts.erase(parts.begin() + components, parts.end()); mode["parts"] = parts; }
+    a.rows = T; a.cols = pr.bins * R * 2;
+    a.meta["describe"] = Json{{"measure", "fourier_coefficient"}, {"method", "spectral_coefficients"}, {"label", "spectral_coefficients"}, {"precision", "float32"}, {"value_type", "complex"},
+                              {"shape", Json::array({T, pr.bins, R, 2})}, {"unit", "(operator output) x samples"},
+                              {"axes", Json::array({Json{{"name", "tile"}, {"size", T}, {"values", tiles}},
+                                                    Json{{"name", "frequency"}, {"size", pr.bins}, {"members", bins},
+                                                         {"line", Json{{"spacing", df}, {"origin", 0.0}, {"unit", "Hz"}, {"dimension", "frequency"}, {"fft", Json{{"n", pr.tile}, {"fs", pr.sfreq}}}}}},
+                                                    mode})},
+                              {"options", Json{{"tiles_left_out", s.left_out}, {"tile_samples", pr.tile}, {"frequency_span", Json::array({pr.lo, pr.hi})},
+                                               {"transform", "one-sided, unscaled, no window (numpy rfft norm backward)"}, {"operator", pr.op_meta}}},
+                              {"producer", Json{{"sfreq", pr.sfreq}, {"tile_samples", pr.tile}, {"first_bin", pr.first_bin}, {"bins", pr.bins}, {"frequency_resolution_hz", df},
+                                                {"modes", pr.op_meta.value("modes", Json::array())}, {"mu", pr.op_meta.value("mu", Json::array())}, {"components", components},
+                                                {"normalisation", pr.op_meta.value("normalisation", Json())}, {"tiles", s.tiles}}},
+                              {"description", "the mode-space Fourier coefficients per time tile: [tiles x bins x modes] (complex)"}};
     return ng::Arrays{{"coefficients", std::move(a)}};
   };
   return n;

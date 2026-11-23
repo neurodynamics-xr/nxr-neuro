@@ -112,9 +112,12 @@ int main() {
   };
   const ng::Array A = feed(total);
   const Json& d = A.meta.at("describe");
-  const std::int64_t bins = d["attributes"]["bins"].get<std::int64_t>(), R = O.rows;
-  CHECK(bins == 16 && d["attributes"]["tiles"] == Json::array({0, 2}) && d["attributes"]["tiles_left_out"] == Json::array({1}));
-  CHECK(A.rows == 2 * bins * R && A.cols == 2 && d["values_shape"] == Json::array({2, bins, R}));
+  // a statistic of the run on three declared axes: the tiles kept (positions on the time line), the bins kept of the frequency line, the modes kept of the package's mode axis
+  const std::int64_t bins = d["axes"][1]["size"].get<std::int64_t>(), R = O.rows;
+  CHECK(bins == 16 && d["axes"][1]["members"].size() == 16 && d["axes"][1]["line"]["fft"]["n"] == tile);
+  CHECK(d["axes"][0]["size"] == 2 && d["axes"][0]["values"][0]["member"] == 0 && d["axes"][0]["values"][1]["member"] == 2 && d["options"]["tiles_left_out"] == Json::array({1}));
+  CHECK(d["axes"][2]["size"] == R && d["axes"][2]["members"].size() == static_cast<std::size_t>(R) && d["value_type"] == "complex");
+  CHECK(A.rows == 2 && A.cols == 2 * bins * R && d["shape"] == Json::array({2, bins, R, 2}));
   double worst = 0, scale = 0;
   for (int i = 0; i < 2; ++i) {
     const std::int64_t t0 = i == 0 ? 0 : 2 * tile;

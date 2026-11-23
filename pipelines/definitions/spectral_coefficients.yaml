@@ -53,4 +53,8 @@ steps:
       - {node: signal.spectral_coefficients, in: {x: recording, operator: operator, exclude: bad}, with: {tile_samples: $tile_samples, frequency_span: $frequency_span, bad_segments: $bad_segments}, out: coefficients}
 
 outputs:
-  coefficients: {kind: measurement, over: tiles, of: recording, name: $name}
+  coefficients:
+    kind: statistic
+    name: $name
+    of: recording
+    axes: [{name: tile, on: recording.time}, {name: frequency, line: "{recording}_freq", of_time: recording.time}, {name: mode, on: package.from}]
