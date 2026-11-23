@@ -1,0 +1,48 @@
+# THE SENSOR SURFACE: the channels given a geometry, a triangulated helmet whose vertices ARE the channels. A manifold DERIVED from the channels by its own definition (as `glue`
+# makes the glued cortex): vertex i is the channel `<name>_map`[i] of the channels manifold, so a field on those channels is a field on the surface's vertices with no mapping, and the
+# channels get what any surface has: the intrinsic complex and its operators, the Hodge-Dirac modes (`run eigenmodes --surface <name>`; the helmet is an open disc), the heat distance,
+# and neighbourhood selections, before any inverse model.
+#
+# THE GRAPH:  channels (a points manifold, coils when stored), pick (an indices selection of it) --[meeg.channel_positions]--> positions [n x 3], channel_index [n];
+#             positions --[geometry.point_set_mesh]--> faces [F x 3];  positions, faces --[geometry.surface_from_parts]--> surface.
+# Stored: the surface `<name>` (type surface, derived from the channels manifold; its producer records the pick, the position rule and the mesher's options and report) and the
+# map `<name>_map` (an integer field on the surface: each vertex's channel).
+# WHICH CHANNELS is the caller's: the pick names them and their order (e.g. the channels a cross-spectrum or a kernel was made on, `<name>_channels`); --channels and --pick are REQUIRED
+# (their default is `required`, which the reader refuses to run with).
+# Positions: Brainstorm's rule by default (the mean of a channel's first four coil points: a CTF axial gradiometer's pickup coil), or the stored point (named: position_rule stored).
+# The mesh: nxr's sensor mesh (the projection about the pole, the planar Delaunay, long chords cut, pinches and holes repaired, every triangle turned outward); a point in no triangle
+# is refused.
+#
+# What it cannot resolve: the surface is a triangulation of the sensors, not a physical surface: its geometry is the helmet's layout (the sensors' spacing is its resolution: no
+# pattern shorter than about two sensor spacings is resolved on it), and a field on it is the sensors' measurement (lead fields, not cortical currents).
+#
+#   nxr-neuro run sensor_surface --dataset <folder> --subject sub-01 --channels <channels manifold> --pick <indices selection of it> [--name NAME] [--position-rule stored] [--cut 2]
+pipeline: sensor_surface
+version: 1
+description: the channels as a surface, a triangulated helmet whose vertices are the picked channels, a manifold derived from the channels with its vertex-to-channel map
+scope: subject
+
+inputs:
+  channels: {manifold: points, where: {name: $channels}, hint: "name the channels manifold (--channels)"}
+  pick:     {selection: indices, manifold: channels.manifold.0, where: {name: $pick}, hint: "name an indices selection of the channels: the surface's vertices and their order (--pick)"}
+
+parameters:
+  channels: {default: required, meaning: "the channels manifold (a points manifold) by name", unit: "-"}
+  pick: {default: required, meaning: "an indices selection of the channels by name: which channels are the vertices, in which order", unit: "-"}
+  name: {default: "{channels}_surface", meaning: "the surface's name; its map is <name>_map", unit: "-"}
+  position_rule: {default: brainstorm, meaning: "a channel's position: brainstorm (the mean of its first coil_points coil points; its stored point without coils) or stored (its stored point)", unit: "-", choices: [brainstorm, stored]}
+  coil_points: {default: 4, meaning: "how many of a channel's first coil points are averaged (Brainstorm: 4)", unit: points}
+  cut: {default: 2.0, meaning: "a triangle is removed when one of its edges is cut x the median edge or longer (nxr: 2)", unit: "-"}
+  pole: {default: [0, 0, 1], meaning: "the projection's pole, a direction in the channels' coordinate system (nxr: +z)", unit: "-"}
+  orientation: {default: outward, meaning: "each triangle turned so that its normal points away from the sensors' centroid (outward), or as_triangulated", unit: "-", choices: [outward, as_triangulated]}
+  repair_passes: {default: 20, meaning: "the most passes of the pinch repair before refusing (nxr: 20)", unit: passes}
+
+steps:
+  before:
+    - {node: meeg.channel_positions, in: {channels: channels, pick: pick}, with: {position_rule: $position_rule, coil_points: $coil_points}, out: [positions, channel_index]}
+    - {node: geometry.point_set_mesh, in: {points: positions}, with: {cut: $cut, pole: $pole, orientation: $orientation, repair_passes: $repair_passes}, out: faces}
+    - {node: geometry.surface_from_parts, in: {vertices: positions, faces: faces}, out: surface}
+
+outputs:
+  surface:       {kind: manifold, type: surface, name: $name, derived_from: channels.manifold.0}
+  channel_index: {kind: field, kind_name: channel map, name: "{name}_map", on: surface}

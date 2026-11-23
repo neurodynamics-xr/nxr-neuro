@@ -70,6 +70,7 @@ void add_connectome_steps(std::vector<StepSpec>& r);   // connectome_steps.cpp: 
 void add_tile_steps(std::vector<StepSpec>& r);          // tiles_steps.cpp: tile_grid, group_tile_grid
 void add_eigen_steps(std::vector<StepSpec>& r);         // eigen_steps.cpp: hodge_dirac
 void add_montage_steps(std::vector<StepSpec>& r);       // montage_steps.cpp: eeg_montage_1005
+void add_sensor_surface_steps(std::vector<StepSpec>& r);   // sensor_surface_steps.cpp: channel_positions, point_set_mesh, surface_from_parts
 void add_spatial_events_steps(std::vector<StepSpec>& r);   // spatial_events_steps.cpp: at_level, relative, …
 void add_gabor_steps(std::vector<StepSpec>& r);            // gabor_steps.cpp: signal.gabor, select.events.peaks, select.gabor_fit, select.events.suppress, event_edges, event_union
 
@@ -708,6 +709,7 @@ std::vector<StepSpec> build() {
   add_surrogate_steps(r);
   add_connectome_steps(r);
   add_montage_steps(r);
+  add_sensor_surface_steps(r);
   add_tile_steps(r);
   add_eigen_steps(r);
   bind_execution(r);                                                    // each step's state and its kind's methods, then its declared traits (a combined step takes its parts' afterwards)

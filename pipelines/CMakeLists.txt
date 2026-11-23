@@ -56,6 +56,7 @@ add_library(nxr_pipelines
   src/crossings_steps.cpp
   src/connectome_steps.cpp
   src/montage_steps.cpp
+  src/sensor_surface_steps.cpp
   src/select_nodes.cpp
   src/measurement_nodes.cpp
   src/tiles_steps.cpp
@@ -461,6 +462,10 @@ if(NXR_NEURO_BUILD_TESTS)
     target_compile_definitions(test_filter_pipeline PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_filter_pipeline COMMAND test_filter_pipeline)
+  add_executable(test_sensor_surface test/test_sensor_surface.cpp)   # the sensor surface (a derived manifold of the channels) and its Hodge-Dirac modes, synthetic
+  target_link_libraries(test_sensor_surface PRIVATE nxr_pipelines)
+  target_include_directories(test_sensor_surface PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_sensor_surface COMMAND test_sensor_surface)
   add_executable(test_headmodel test/test_headmodel.cpp)
   target_link_libraries(test_headmodel PRIVATE nxr_pipelines)
   target_include_directories(test_headmodel PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test)

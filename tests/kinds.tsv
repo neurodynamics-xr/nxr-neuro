@@ -134,6 +134,7 @@ test_geometry_central_extras	unit
 test_global_bursts	integration
 test_glue	golden
 test_point_set_mesh	unit
+test_channel_positions	unit
 test_glued_form	golden
 test_graph	unit
 test_graph_agnostic	unit
@@ -146,6 +147,7 @@ test_group_tree	golden
 test_groups	unit
 test_hat	golden
 test_headmodel	integration
+test_sensor_surface	integration
 test_histogram	golden
 test_hodge_dirac	unit
 test_hodge_power	integration

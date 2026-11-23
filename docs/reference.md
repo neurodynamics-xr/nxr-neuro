@@ -455,6 +455,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run select_bands` | A band set on the Frequency or Eigenvalue line, each band a quantity. | `run pyramid_bands`, `run spatial_bands` |
 | `nxr-neuro run select_product` | A product of grids and band sets (a box, cells, the joint partition), levels coupled to a band. | `joint compute`, `run select_product` |
 | `nxr-neuro run glue` | The two hemispheres of a cortex glued by a bridge: a derived manifold with its map and bridge selection. | `--glued` of `run eigenmodes` |
+| `nxr-neuro run sensor_surface` | The channels as a surface: a triangulated helmet whose vertices are the picked channels, a derived manifold with its vertex-to-channel map. | (new) |
 | `nxr-neuro run roll_up` | A measurement rolled up through its grid's hierarchy, or across a group's subjects (scope group). | `run roll_up` |
 | `nxr-neuro run band_analytic`, `cortical_band`, `member_activation`, `band_outer` | Field chains: pointwise fields (a band's analytic signal, the band on the cortex, one filter-bank member's activation, z z^H), run alone or composed into `measure`. | the steps of `pyramid`, `cortical_band_cells`, `opticalflow` |
 | `nxr-neuro run lowpass` | A zero-phase low-pass filter, written as a new recording. | `lowpass` |
@@ -1080,6 +1081,24 @@ Stored (stem `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not 
 `<stem>_kind` (0 exact, 2 coexact; of the eigenvectors operator), the operators `<stem>_eigenvectors` (axis to surface, [V x K] float32) `<stem>_forms2` (axis to the complex's faces, cell 2) and `<stem>_forms1` (axis to its edges, cell 1), the selection `<stem>_support`; the
 glued surface `<surface>_glued` with its bridge `<surface>_glued_bridge`; and the cell complex `<solved>_intrinsic` (vertices, edges, faces) with the sparse operators `_d0` (cell 0 to 1) and `_d1` (cell 1 to 2) and the fields
 `_length`, `_star0`, `_star1`, `_star2`, `_angle_tail`, `_angle_tip`, `_angle_sum`, `_reference` on its cells. The library's `eigen_solve` (`pipelines/eigen.h`) is a thin caller of this definition.
+
+## The sensor surface (`run sensor_surface`; the nodes `meeg.channel_positions`, `geometry.point_set_mesh`, `geometry.surface_from_parts`)
+
+Why: a cross-spectrum between channels holds the lags between sensors but gives them no place; read on a surface whose vertices ARE the sensors, a field on the
+channels gets the geometric toolbox (the intrinsic complex, the Hodge-Dirac modes, distances, neighbourhoods), so patterns can be measured in sensor space before
+any inverse model. `run sensor_surface --channels NAME --pick SELECTION [--name NAME]` makes a surface DERIVED from the channels manifold (as `run glue` makes the
+glued cortex): vertex i is channel `<name>_map`[i] (an integer field on the surface), in the order of the pick (an indices selection of the channels; both are
+required: which channels is the caller's choice). Positions (`nxr::meeg::channelPositions`, `--position-rule`): `brainstorm` (default; Brainstorm's
+GetChannelPositions: the mean of a channel's first `--coil-points` 4 coil points when coils are stored, its stored point otherwise) or `stored`. Triangles
+(`nxr::geometry::pointset::pointSetMesh`, the reference nxr's sensor mesh): the points projected about `--pole` (default +z) by the azimuthal equidistant map
+from their centroid, the planar Delaunay, triangles with an edge of `--cut` (2) x the median edge or longer removed, pinched rim vertices and inner holes repaired
+(at most `--repair-passes` 20), every triangle turned outward (`--orientation outward | as_triangulated`); a point in no triangle is refused. The producer records
+the pick, the rule and the mesher's options and report (boundary loops, Euler characteristic, triangles cut and added). The Hodge-Dirac modes of the helmet are
+`run eigenmodes --surface <name> --modes K --star1-floor F`: the helmet is an open disc, whose rim triangles usually have obtuse angles opposite boundary edges
+(negative cotan weights), refused unless a floor is named. What it cannot resolve: the surface is a triangulation of the sensors' layout, not a physical
+surface; its resolution is the sensor spacing (no pattern shorter than about two spacings), a field on it is the sensors' measurement (lead fields, not cortical
+currents), and on ragged layouts the repair's choices (which fan is dropped at a pinch) can depend on ties. Tests: `test_point_set_mesh`, `test_channel_positions`,
+`test_sensor_surface` (synthetic).
 
 ## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 
