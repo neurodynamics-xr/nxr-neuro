@@ -93,7 +93,19 @@ struct Modes {
     Eigen::MatrixXd X2;                        // [F x K] the 2-form parts χ/√2 (0 on an exact mode)
     Eigen::VectorXd mu;                        // [K]
     std::vector<int> kind;                     // [K] 0 exact · 2 coexact
+    // OPTIONAL: each mode's 1-form part φ_k = dψ/(μ√2) (exact) or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2) (coexact) on the intrinsic edges, [nE x K], float32 as the package stores it
+    // (`<stem>_forms1`). Empty (no columns): the readings below make it from P, X2, μ and the complex, the same numbers to float precision.
+    Eigen::MatrixXf X1;
+    bool hasOneFormParts() const { return X1.cols() > 0 && X1.cols() == mu.size(); }
 };
+
+/** The 1-form d0 A + ⋆1⁻¹ d1ᵀ ⋆2 B made by a 0-form part A [nV x m] and a 2-form part B [nF x m] (what the 1-form of a mixed form is: the exact part's d0 and the coexact part's codifferential).
+ *  The one expression both `synthesizeOneForm` and `oneFormParts` use; a solve that has its modes' 0- and 2-form parts as plain arrays calls it with its own operators. */
+Eigen::MatrixXd oneFormFromParts(const Eigen::SparseMatrix<double>& d0, const Eigen::SparseMatrix<double>& d1, const Eigen::VectorXd& star1, const Eigen::VectorXd& star2,
+                                 const Eigen::MatrixXd& zeroFormPart, const Eigen::MatrixXd& twoFormPart);
+/** THE MODES' 1-FORM PARTS [nE x K]: column k is φ_k = dP_k/μ_k (an exact mode) or ⋆1⁻¹ d1ᵀ ⋆2 X2_k/μ_k (a coexact one), the 1-form part of the mixed Hodge–Dirac mode, orthonormal in ⋆1 to 1/2.
+ *  What `projectOneForm` and `synthesizeOneForm` read the modes by; the eigensolve stores it (`<stem>_forms1`) so a reading need not rebuild it. Made in blocks of columns (no [nE x K x anything] temporary). */
+Eigen::MatrixXd oneFormParts(const IntrinsicComplex& c, const Modes& m);
 
 Eigen::MatrixXd projectOneForm(const IntrinsicComplex& c, const Modes& m, const Eigen::MatrixXd& w);       // [K x m]; 0 on nothing (every mode has a 1-form part)
 Eigen::MatrixXd synthesizeOneForm(const IntrinsicComplex& c, const Modes& m, const Eigen::MatrixXd& coef);   // [nE x m]
