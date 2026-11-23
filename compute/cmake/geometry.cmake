@@ -17,6 +17,7 @@ target_sources(nxr_compute PRIVATE
   src/geometry/normalize_delaunay.cpp
   src/geometry/normals.cpp
   src/geometry/parametrization.cpp
+  src/geometry/point_set_mesh.cpp
   src/geometry/query_measure.cpp
   src/geometry/signed_heat.cpp
   src/geometry/smooth_field.cpp
@@ -74,6 +75,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_transport test/test_transport.cpp)
   target_link_libraries(test_transport PRIVATE nxr_compute)
   add_test(NAME test_transport COMMAND test_transport)
+  add_executable(test_point_set_mesh test/test_point_set_mesh.cpp)
+  target_link_libraries(test_point_set_mesh PRIVATE nxr_compute)
+  add_test(NAME test_point_set_mesh COMMAND test_point_set_mesh)
   add_executable(test_glue test/test_glue.cpp)
   target_link_libraries(test_glue PRIVATE nxr_compute)
   target_compile_definitions(test_glue PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
