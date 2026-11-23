@@ -308,14 +308,14 @@ BandsPrepared bands_of(const ng::Types& in, const ng::Arrays* constants, const J
   auto name_of = [&](std::size_t k, const std::string& fallback) { return names_given && k < p["names"].size() ? p["names"][k].get<std::string>() : fallback; };
   if (names_given && list.is_array()) need(p["names"].size() == list.size(), who + ": names has one name per band");
   if (b.rule == "frequency") {
-    need(list.is_array() && !list.empty(), who + ": bands is a list of bands in a frequency chart (\"8-12 Hz\"); no default: the caller chooses");
+    need(list.is_array() && !list.empty(), who + ": bands is a list of bands in a frequency chart (\"8-12 Hz\"); no default: the caller chooses, e.g. --bands '[\"8-12 Hz\"]'");
     for (std::size_t k = 0; k < list.size(); ++k) {
       const auto [lo, hi] = hz_band(list[k], who);
       need(hi > lo && lo >= 0, who + ": band " + list[k].dump() + " needs 0 <= lo < hi");
       b.members.push_back(Json{{"code", k}, {"name", name_of(k, g(lo) + "-" + g(hi) + " Hz")}, {"lo", lo}, {"hi", hi}, {"unit", "Hz"}, {"chart", "linear"}});
     }
   } else if (b.rule == "eigenvalue" || b.rule == "wavelength") {
-    need(list.is_array() && !list.empty(), who + ": bands is a list of spans in the " + b.rule + " chart; no default");
+    need(list.is_array() && !list.empty(), who + ": bands is a list of spans in the " + b.rule + " chart; no default: pass them with --bands '[...]'");
     for (std::size_t k = 0; k < list.size(); ++k) {
       const nxr::quantity::Quantity q = parse_q(list[k], who, "band");
       double lo, hi;

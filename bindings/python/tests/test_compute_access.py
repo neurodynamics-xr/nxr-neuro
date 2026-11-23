@@ -69,7 +69,7 @@ def test_bandEnvelope_of_a_sine_is_flat_inside():
 
 
 def test_timeBank_describes_the_bank():
-    b = sg.timeBank(256.0, 1024, "meyer")
+    b = sg.timeBank(256.0, 1024, "meyer", sides="analytic", gain=1.0)
     assert b.gains.shape == (len(b.centre_frequencies), len(b.frequencies)) and len(b.frequencies) == 513
     assert b.frame_bounds[0] == pytest.approx(b.frame_bounds[1])
     c = sg.timeBank(256.0, 1024, "morlet", sides="two_sided", centres=[6.0, 12.0], cycles=6, gain=2.0)
@@ -129,7 +129,7 @@ def test_jwt_shape_and_modes_round_trip():
     g = {"family": "itersine", "lmax": 4.0, "num_filters": 3}
     t = {"family": "meyer", "sides": "analytic"}
     r = sg.jwt(C, fs, g, t, eigenvalues=lam)
-    nb = len(sg.graphBank("itersine", lmax=4.0, num_filters=3).roles) * len(sg.timeBank(fs, n_t, "meyer").centre_frequencies)
+    nb = len(sg.graphBank("itersine", lmax=4.0, num_filters=3).roles) * len(sg.timeBank(fs, n_t, "meyer", sides="analytic", gain=1.0).centre_frequencies)
     assert r.coefficients.shape == (nb, 8, n_t) and r.index.shape == (nb, 3)
     assert r.index[0].tolist() == [0, 0, 0] and r.index[1, 0] == 1 and r.index[1, 1] == 0   # g varies fastest
     np.testing.assert_allclose(sg.ijwt(r.coefficients, fs, n_t, g, t, eigenvalues=lam), C, atol=1e-8)
@@ -144,9 +144,13 @@ def test_names_the_library_refuses_are_value_errors():
     with pytest.raises(ValueError, match="nonsense"):
         sg.graphBank("nonsense", lmax=1.0)
     with pytest.raises(ValueError, match="nonsense"):
-        sg.timeBank(256.0, 256, "nonsense")
+        sg.timeBank(256.0, 256, "nonsense", sides="analytic", gain=1.0)
     with pytest.raises(ValueError, match="sideways"):
-        sg.timeBank(256.0, 256, "meyer", sides="sideways")
+        sg.timeBank(256.0, 256, "meyer", sides="sideways", gain=1.0)
+    with pytest.raises(ValueError, match="two_sided"):                       # sides and gain are required: no silent default
+        sg.timeBank(256.0, 256, "meyer", gain=1.0)
+    with pytest.raises(ValueError, match="gain is required"):
+        sg.timeBank(256.0, 256, "meyer", sides="analytic")
     x = np.zeros((1, 256))
     with pytest.raises(ValueError, match="oblique"):
         sg.iwt(sg.wt(x, 256.0, {"family": "meyer"}), 256.0, 256, {"family": "meyer"}, synthesis="oblique")
