@@ -39,6 +39,26 @@ std::vector<T> read_as(const nxr::io::Store& store, const std::string& key) {
   }
   return out;
 }
+// A hemisphere is a COMPONENT of the cortex: its own manifold over the union's arrays (io's surface writer), the vertices [from_index, from_index + n_vertices)
+// and the faces lying wholly inside them. Read as a surface it is that view, re-indexed from 0; the union's arrays are never handed out under its name.
+void apply_component_view(SurfaceInput& s, const Row& row) {
+  if (is_null(row, "component_of_id") || is_null(row, "from_index")) return;
+  const std::int64_t lo = integer(row, "from_index"), n = integer(row, "n_vertices");
+  const std::int64_t total = static_cast<std::int64_t>(s.vertices.size() / 3);
+  if (lo < 0 || n <= 0 || lo + n > total)
+    throw Error(code::invalid_argument, s.name + ": its vertices [" + std::to_string(lo) + ", " + std::to_string(lo + n) + ") lie outside the " + std::to_string(total) + " of the surface it is a component of");
+  std::vector<double> v(s.vertices.begin() + 3 * lo, s.vertices.begin() + 3 * (lo + n));
+  std::vector<std::int32_t> f;
+  for (std::size_t i = 0; i + 2 < s.faces.size(); i += 3) {
+    bool in = true;
+    for (int c = 0; c < 3; ++c) in = in && s.faces[i + c] >= lo && s.faces[i + c] < lo + n;
+    if (in)
+      for (int c = 0; c < 3; ++c) f.push_back(static_cast<std::int32_t>(s.faces[i + c] - lo));
+  }
+  s.vertices = std::move(v);
+  s.faces = std::move(f);
+}
+
 }  // namespace
 
 std::string hodge_package_stem(const SurfaceInput& S) {
@@ -77,6 +97,7 @@ SurfaceInput read_surface(SubjectWriter& sub, const std::optional<std::string>& 
     s.vertices.assign(p32.begin(), p32.end());
   }
   s.faces = read_as<std::int32_t>(sub.store(), *faces);
+  apply_component_view(s, *row);
   return s;
 }
 
@@ -93,6 +114,7 @@ SurfaceInput read_surface(const SubjectPackage& pk, const std::string& name) {
   s.primary = integer(*row, "is_primary") != 0;
   s.vertices = read_as<double>(pk.store(), text(*row, "positions_path"));
   s.faces = read_as<std::int32_t>(pk.store(), *faces);
+  apply_component_view(s, *row);
   return s;
 }
 
