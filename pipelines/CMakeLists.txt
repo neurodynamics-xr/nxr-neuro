@@ -44,6 +44,7 @@ add_library(nxr_pipelines
   src/fingerprint_steps.cpp
   src/flow_steps.cpp
   src/form_steps.cpp
+  src/spectral_steps.cpp
   src/verb_steps.cpp
   src/steps_measure.cpp
   src/scale_inputs.cpp
@@ -424,6 +425,10 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_phase_split PRIVATE nxr_pipelines)
   target_include_directories(test_phase_split PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_phase_split COMMAND test_phase_split)
+  add_executable(test_spectral_coefficients test/test_spectral_coefficients.cpp)   # the mode-space Fourier coefficients per tile, synthetic
+  target_link_libraries(test_spectral_coefficients PRIVATE nxr_pipelines)
+  target_include_directories(test_spectral_coefficients PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_spectral_coefficients COMMAND test_spectral_coefficients)
   add_executable(test_connectome_nodes test/test_connectome_nodes.cpp)
   target_link_libraries(test_connectome_nodes PRIVATE nxr_pipelines)
   target_include_directories(test_connectome_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)

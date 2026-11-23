@@ -183,6 +183,7 @@ test_projector_choice	integration
 test_channels_by_name	integration
 test_member_analytic	integration
 test_phase_split	integration
+test_spectral_coefficients	integration
 test_mesh_bundles	unit
 test_migrate	unit
 test_migrate_measurement	unit

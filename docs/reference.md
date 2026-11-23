@@ -456,6 +456,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run select_product` | A product of grids and band sets (a box, cells, the joint partition), levels coupled to a band. | `joint compute`, `run select_product` |
 | `nxr-neuro run glue` | The two hemispheres of a cortex glued by a bridge: a derived manifold with its map and bridge selection. | `--glued` of `run eigenmodes` |
 | `nxr-neuro run sensor_surface` | The channels as a surface: a triangulated helmet whose vertices are the picked channels, a derived manifold with its vertex-to-channel map. | (new) |
+| `nxr-neuro run spectral_coefficients` | The mode-space Fourier coefficients of a recording per time tile, through a composed spatial operator (a package's modes and a free kernel, or the sensor surface's channel map). | (new) |
 | `nxr-neuro run roll_up` | A measurement rolled up through its grid's hierarchy, or across a group's subjects (scope group). | `run roll_up` |
 | `nxr-neuro run band_analytic`, `cortical_band`, `member_activation`, `band_outer` | Field chains: pointwise fields (a band's analytic signal, the band on the cortex, one filter-bank member's activation, z z^H), run alone or composed into `measure`. | the steps of `pyramid`, `cortical_band_cells`, `opticalflow` |
 | `nxr-neuro run lowpass` | A zero-phase low-pass filter, written as a new recording. | `lowpass` |
@@ -1099,6 +1100,26 @@ the pick, the rule and the mesher's options and report (boundary loops, Euler ch
 surface; its resolution is the sensor spacing (no pattern shorter than about two spacings), a field on it is the sensors' measurement (lead fields, not cortical
 currents), and on ragged layouts the repair's choices (which fan is dropped at a pinch) can depend on ties. Tests: `test_point_set_mesh`, `test_channel_positions`,
 `test_sensor_surface` (synthetic).
+
+## The mode-space Fourier coefficients (`run spectral_coefficients`; the nodes `signal.mode_analysis`, `signal.spectral_coefficients`; compute `nxr/signal/mode_spectrum.h`)
+
+Why: the flow analysis reads power, in-phase and quadrature coupling, flow maps and their Hodge split on the cells of a joint (frequency x spatial scale) grid, at
+the whole run or tile by tile. All of them are measurements of ONE stored ingredient: the coefficients of each time tile's Fourier transform in a surface's
+Hodge-Dirac modes, A[tile, bin, row]. `run spectral_coefficients` makes it in one pass over the caller's span: `signal.mode_analysis` composes the spatial operator once
+(the selected modes' 0-form parts, `--modes exact | coexact | all`, normalised `--normalisation unit_mass | as_stored`, times the vertex mass; with `--kernel` a
+free-orientation inverse kernel carried onto the package's surface, each Cartesian component expanded on the same modes, component-major rows; with
+`--channel-map` the sensor surface's vertex-to-channel map, no inverse), then `signal.spectral_coefficients` transforms each tile of `--tile-samples` (one-sided,
+unscaled, no window: numpy's rfft) and applies the operator at the bins `lo <= f < hi` of `--frequency-span`. The two maps are linear and commute, so vertex x time is
+never formed. Stored: a complex measurement of the recording over its tile grid (`<recording>_chunks`), values [tiles x bins x rows], with the tiles kept, those
+left out (`--bad-segments exclude`: a tile touching a bad segment), the tile's frequency line and the operator's description in its attributes. No choice has a
+default; the preset `flow_reference` is the nxr flow scripts' expansion (exact modes, unit vertex-mass norm). Glued or per-hemisphere modes are the package named
+(a hemisphere's package needs a kernel on that hemisphere: refused otherwise). The readings (compute, `mode_spectrum.h`): `modeCrossSpectrum` (the weighted sum
+over tiles and bins: the cell's statistic), `contractComponents`, `flowMap` (power per vertex, phase current per intrinsic edge; with the forward transform a
+pattern travelling tail to tip gives a negative current), `cellMeasures` (power, in-phase and quadrature energies and the quadrature's noise ingredient per pair of
+scale members), `effectiveDegreesOfFreedom`. What it cannot resolve: a tile's bins are its own line (spacing fs / tile), so a span must hold whole tiles; motion
+that reverses within the tiles summed cancels in the quadrature (the whole-run view is net motion only); on sensors the coefficients describe the field on the
+helmet, nothing about its sources. Memory: the coefficients are held until the run ends (tiles x bins x rows complex). Tests: `test_mode_spectrum`,
+`test_spectral_coefficients` (synthetic).
 
 ## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 
