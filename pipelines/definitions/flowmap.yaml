@@ -1,0 +1,44 @@
+# THE WHOLE-RUN FLOW MAP of one cell of the joint filterbank (a frequency member x a scale member), read from the stored mode-space Fourier coefficients (`run spectral_coefficients`):
+#   coefficients [tiles x bins x modes] --[signal.flow_map]--> the cell's cross-spectrum over the tiles (S = sum_tiles sum_bins g^2 A A^H, the free kernel's components contracted),
+#   synthesised on the package's surface with the scale member's amplitudes: power per vertex (0-form), phase current per intrinsic edge (1-form), and its Hodge split by the package's
+#   modes: potential (exact: travel), stream function (coexact: rotation), the *1 energies per vertex (shares = sums over a partition, ratios at read).
+# The members are the caller's (no defaults): a frequency member (profile, chart, centre, width) and a scale member (none = every mode, or a profile on the wavelength 2 pi / mu, log2).
+# Every map is a sum over the coefficients' tiles (the tile partition): the mean is sum / tiles. The maps lie on the package's surface (vertices) and its intrinsic complex (edges).
+#
+#   nxr-neuro run flowmap --dataset D --subject S --coefficients NAME --package STEM --surface SURFACE --frequency-profile gaussian --frequency-chart log2 --frequency-centre 9.4
+#                         --frequency-width 0.125 --scale-profile none --name NAME
+pipeline: flowmap
+version: 1
+description: the whole-run flow map of one cell (a frequency member x a scale member) from stored mode-space Fourier coefficients - power, phase current and its Hodge split
+scope: subject
+
+inputs:
+  coefficients: {statistic: any, where: {name: $coefficients}, hint: "the stored mode-space Fourier coefficients (`nxr-neuro run spectral_coefficients` first)"}
+  package: {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, hint: "the Hodge-Dirac package the coefficients are on"}
+  complex: {manifold: surface, where: {name: "${surface}_intrinsic"}, hint: "the package's intrinsic complex: name the surface it was solved on (--surface)"}
+
+parameters:
+  coefficients: {default: null, meaning: "the stored coefficients' name", unit: "-"}
+  package: {default: null, meaning: "the Hodge-Dirac package's stem", unit: "-"}
+  surface: {default: null, meaning: "the surface the package was solved on (its complex is <surface>_intrinsic)", unit: "-"}
+  frequency_profile: {default: null, meaning: "the frequency member's profile: gaussian | box", unit: "-", choices: [gaussian, box]}
+  frequency_chart: {default: null, meaning: "the chart its width is in: log2 (octaves) | linear (Hz)", unit: "-", choices: [log2, linear]}
+  frequency_centre: {default: null, meaning: "the frequency member's centre", unit: Hz}
+  frequency_width: {default: null, meaning: "the frequency member's FWHM (gaussian) or full width (box), in its chart", unit: "-"}
+  scale_profile: {default: null, meaning: "the scale member on the mode axis: none (every mode) | gaussian | box", unit: "-", choices: [none, gaussian, box]}
+  scale_centre: {default: null, meaning: "the scale member's centre wavelength 2 pi / mu", unit: "surface length unit"}
+  scale_width: {default: null, meaning: "the scale member's width in octaves of wavelength", unit: octaves}
+  name: {default: "{coefficients}_flow", meaning: "the stem of the stored maps' names", unit: "-"}
+
+steps:
+  before:
+    - {node: signal.flow_map, in: {coefficients: coefficients, package: package}, with: {frequency_profile: $frequency_profile, frequency_chart: $frequency_chart, frequency_centre: $frequency_centre, frequency_width: $frequency_width, scale_profile: $scale_profile, scale_centre: $scale_centre, scale_width: $scale_width}, out: [power, phase_current, potential, stream, one_form_energy, exact_energy, coexact_energy]}
+
+outputs:
+  power: {kind: field, kind_name: power, name: "{name}_power", on: package.to}
+  phase_current: {kind: field, kind_name: phase current, name: "{name}_phase_current", on: complex}
+  potential: {kind: field, kind_name: potential, name: "{name}_potential", on: package.to}
+  stream: {kind: field, kind_name: stream function, name: "{name}_stream", on: package.to}
+  one_form_energy: {kind: field, kind_name: energy, name: "{name}_one_form_energy", on: package.to}
+  exact_energy: {kind: field, kind_name: energy, name: "{name}_exact_energy", on: package.to}
+  coexact_energy: {kind: field, kind_name: energy, name: "{name}_coexact_energy", on: package.to}
