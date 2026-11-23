@@ -250,6 +250,7 @@ test_runner_plan	integration
 test_scale	unit
 test_scale_selection	integration
 test_scale_step	integration	slow
+test_selection_kernel_roundtrip	integration
 test_scalespace	unit
 test_scaling	unit
 test_schema	unit
