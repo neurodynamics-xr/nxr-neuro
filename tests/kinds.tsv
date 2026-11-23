@@ -310,3 +310,4 @@ test_wt_at	unit
 test_bst_binary	unit
 test_component_surface	unit
 test_derived_origin	integration
+test_import_covariance	integration
