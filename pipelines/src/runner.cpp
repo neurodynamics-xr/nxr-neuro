@@ -24,6 +24,7 @@
 #include "nxr/io/array_reader.h"
 #include "nxr/io/chunk_loop.h"
 #include "nxr/io/hash.h"
+#include "nxr/io/subject_package.h"
 #include "nxr/io/layout.h"
 #include "nxr/pipelines/cache.h"
 #include "nxr/pipelines/declared_outputs.h"
@@ -931,6 +932,39 @@ nxr::graph::Array operator_constant(const Bound& bound, nxr::io::SubjectWriter& 
   return a;
 }
 
+// THE ORIGIN OF A DERIVED ITEM: an item a run makes from inputs that carry ORIGIN records (a template's surfaces) gets one too, so a package of derived items (a template's
+// eigenmodes, its glued surface) is released with every item's terms. Its source names the run and its inputs; its licence and attribution are the inputs'; it is
+// redistributable only when every input is. An input with no record makes the terms unknown, so the item is then not redistributable. Inputs without any record
+// (a subject's own data): nothing is written.
+struct DerivedOrigin {
+  bool any = false;
+  nxr::io::OriginRecord record;
+};
+DerivedOrigin derived_origin(const nxr::io::Database& db, const Plan& P, const std::string& pipeline) {
+  static const std::set<std::string> tables = {"manifold", "field", "operator", "selection", "statistic"};
+  DerivedOrigin out;
+  std::vector<std::string> from, licences, attributions;
+  bool redistributable = true;
+  auto add_unique = [](std::vector<std::string>& v, const std::string& x) { if (!x.empty() && std::find(v.begin(), v.end(), x) == v.end()) v.push_back(x); };
+  for (const auto& [port, v] : P.found) {
+    if (!v.row || !tables.count(v.cls)) continue;
+    const std::string id = nxr::io::text(*v.row, "id"), name = nxr::io::text(*v.row, "name");
+    from.push_back(v.cls + " " + name);
+    const auto o = nxr::io::origin_of(db, v.cls, id);
+    if (!o) { redistributable = false; add_unique(licences, "unknown (" + v.cls + " " + name + " has no origin record)"); continue; }
+    out.any = true;
+    add_unique(licences, o->licence);
+    add_unique(attributions, o->attribution);
+    redistributable = redistributable && o->redistributable;
+  }
+  auto join = [](const std::vector<std::string>& v) { std::string s; for (const auto& x : v) s += (s.empty() ? "" : "; ") + x; return s; };
+  out.record.source = "computed by nxr-neuro " + std::string(NXR_NEURO_VERSION) + " (pipeline " + pipeline + ") from " + join(from);
+  out.record.licence = join(licences);
+  out.record.attribution = join(attributions);
+  out.record.redistributable = redistributable;
+  return out;
+}
+
 Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan& P, const RunOptions& opt, const std::function<void(const Json&)>& progress, const GroupInputs* group) {
   auto say = [&](const Json& j) { if (progress) progress(j); };
   const Definition& d = P.definition;
@@ -1522,6 +1556,9 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   if (!recording_report.is_null()) stored.push_back(recording_report);
   bool replaced = false;
   // ONE UNIT for the whole result (io's task API): the nodes, their arrays, the measurement rows, the recipe and the cache key (in each producer record) are stored together, or nothing is
+  const DerivedOrigin inherited = derived_origin(sub.db(), P, d.name);   // the terms of what this run makes, when its inputs carry origin records
+  std::set<std::string> no_origin_before;
+  if (inherited.any) for (const auto& it : nxr::io::items_without_origin(sub.db())) no_origin_before.insert(it.table + ":" + it.id);
   nxr::pipelines::task::Subject subject = nxr::pipelines::task::Subject::of(sub);
   nxr::pipelines::task::Unit unit = subject.unit(nxr::pipelines::task::By{made_by(key), producer});
   {
@@ -1664,6 +1701,9 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     stored.push_back(Json{{"output", oo.name}, {"kind", "operator"}, {"stored", true}, {"cache_key", op.key}});
   }
   unit.commit();
+  if (inherited.any)                                                        // every item this run made (its components and derived manifolds too) carries the inputs' terms
+    for (const auto& it : nxr::io::items_without_origin(sub.db()))
+      if (!no_origin_before.count(it.table + ":" + it.id)) nxr::io::set_origin(sub.db(), it.table, it.id, inherited.record);
   report["hit"] = false;
   report["replaced"] = replaced;
   report["run"] = facts;
