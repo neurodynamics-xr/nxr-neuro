@@ -9,7 +9,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
-#include "nxr/io/subject_package.h"
+#include "nxr/io/subject_api.h"
 #include "run_definition.h"
 
 using namespace nxr::io;
@@ -34,7 +34,10 @@ DatasetWriter make_package(const fs::path& folder, const Brain& b, const std::op
       add_surface(sub, so, b.P, b.F);
     });
   }
-  if (terms) for (const auto& it : package_items(w.db())) set_origin(w.db(), it.table, it.id, *terms);
+  if (terms) {
+    SubjectWriter sub = SubjectWriter::open(w, "T");
+    for (const auto& it : items_without_origin(sub)) set_origin(sub, it.table, it.id, *terms);
+  }
   return w;
 }
 }  // namespace
@@ -51,13 +54,13 @@ int main() {
   {
     const OriginRecord terms{"a synthetic brain", "Licence A", "A. Author", true};
     DatasetWriter w = make_package(root / "with.nxr.zarr", b, terms);
-    CHECK(items_without_origin(w.db()).empty());
     SubjectWriter sub = SubjectWriter::open(w, "T");
+    CHECK(items_without_origin(sub).empty());
     nxrtest::run_definition(w, sub, "glue", Json{{"surface", "cortex"}});
-    CHECK(items_without_origin(w.db()).empty());                              // the glued surface, its map and its bridge: none left without
-    const auto glued = w.db().one("SELECT id FROM manifold WHERE name = 'cortex_glued'");
+    CHECK(items_without_origin(sub).empty());                                 // the glued surface, its map and its bridge: none left without
+    const auto glued = find_manifold(sub, "cortex_glued");
     CHECK(glued.has_value());
-    const auto o = origin_of(w.db(), "manifold", text(*glued, "id"));
+    const auto o = origin_of(sub, "manifold", text(*glued, "id"));
     CHECK(o && has(o->source, "pipeline glue") && has(o->source, "cortex") && o->licence == "Licence A" && o->attribution == "A. Author" && o->redistributable);
   }
 
@@ -67,8 +70,8 @@ int main() {
     DatasetWriter w = make_package(root / "closed.nxr.zarr", b, terms);
     SubjectWriter sub = SubjectWriter::open(w, "T");
     nxrtest::run_definition(w, sub, "glue", Json{{"surface", "cortex"}});
-    const auto glued = w.db().one("SELECT id FROM manifold WHERE name = 'cortex_glued'");
-    const auto o = origin_of(w.db(), "manifold", text(*glued, "id"));
+    const auto glued = find_manifold(sub, "cortex_glued");
+    const auto o = origin_of(sub, "manifold", text(*glued, "id"));
     CHECK(o && !o->redistributable && o->licence == "Licence B");
   }
 
@@ -77,7 +80,9 @@ int main() {
     DatasetWriter w = make_package(root / "without.nxr.zarr", b, std::nullopt);
     SubjectWriter sub = SubjectWriter::open(w, "T");
     nxrtest::run_definition(w, sub, "glue", Json{{"surface", "cortex"}});
-    CHECK(w.db().all("SELECT 1 FROM origin").empty());
+    const auto glued = find_manifold(sub, "cortex_glued");
+    CHECK(glued.has_value() && !origin_of(sub, "manifold", text(*glued, "id")).has_value());
+    CHECK(!items_without_origin(sub).empty());                                // nothing given a record
   }
   return nxrtest::finish("test_derived_origin");
 }
