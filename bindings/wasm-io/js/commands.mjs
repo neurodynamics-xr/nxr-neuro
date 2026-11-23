@@ -16,6 +16,7 @@ export const COMMANDS = [
   ["import", "participants", "", "dataset* sidecar tsv*"],
   ["export", "participants", "", "dataset* sidecar tsv*"],
   ["split", "dataset", "", "dataset* dry_run! registered_by*"],
+  ["migrate", "selections", "", "dataset* dry_run!"],
   ["migrate", "measurements", "", "dataset* dry_run! remove_statistics!"],
   ["join", "dataset", "", "dataset*"],
   ["verify", "package", "", "package*"],
