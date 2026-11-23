@@ -25,6 +25,7 @@ target_sources(nxr_compute PRIVATE
   src/signal/wavelet_cross.cpp
   src/signal/windowed_graphtransforms.cpp
   src/signal/intrinsic_forms.cpp
+  src/signal/mode_spectrum.cpp
   src/signal/hodge_decomposition.cpp
   src/signal/isolines.cpp
   src/signal/streamlines.cpp
@@ -59,6 +60,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_intrinsic_forms test/test_intrinsic_forms.cpp)
   target_link_libraries(test_intrinsic_forms PRIVATE nxr_compute)
   add_test(NAME test_intrinsic_forms COMMAND test_intrinsic_forms)
+  add_executable(test_mode_spectrum test/test_mode_spectrum.cpp)
+  target_link_libraries(test_mode_spectrum PRIVATE nxr_compute)
+  add_test(NAME test_mode_spectrum COMMAND test_mode_spectrum)
   add_executable(test_patterns test/test_patterns.cpp)
   target_link_libraries(test_patterns PRIVATE nxr_compute)
   add_test(NAME test_patterns COMMAND test_patterns)

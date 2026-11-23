@@ -163,6 +163,7 @@ test_integrals	golden
 test_intervals	unit
 test_intrinsic_delaunay	unit
 test_intrinsic_forms	unit
+test_mode_spectrum	unit
 test_intrinsic_surface	unit
 test_inverse_projectors	golden
 test_io_eigen	unit
