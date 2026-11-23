@@ -165,6 +165,7 @@ Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::
                                         [&] { Projection p = projection; p.record = recording_record(entries, chan, chan_name, std::nullopt); return p; }());
       emit(Json{{"stage", "timeseries"}, {"name", ti["name"]}, {"n_samples", ti["n_samples"]}, {"sfreq", ti["sfreq"]}, {"events", ti["events"]}});
     });
+  Json truncated;   // the raw recording, when its binary was cut short (reported in the result)
   if (plan.raw_data_file) {
     if (!raw_mat) raw_mat = read_all_variables(*plan.raw_data_file);
     const auto itF = raw_mat->find("F");
@@ -181,6 +182,7 @@ Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::
     Json line = Json{{"stage", "timeseries-raw"}};
     for (auto it = ri.begin(); it != ri.end(); ++it) if (it.key() != "id" && it.key() != "time_id") line[it.key()] = it.value();
     emit(line);
+    if (ri.contains("truncated")) truncated = ri["truncated"];
   }
 
   // ---- kernels (+ head models, deduped per file) ----
@@ -196,7 +198,9 @@ Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::
   ck.kernel_files = plan.kernel_files;
   ck.write_gain = opt.write_gain;
   const std::vector<std::string> inv_names = import_condition_kernels(sub, ck, emit);
-  return Json{{"subject", sub.name()}, {"surfaces", names}, {"inverses", inv_names}, {"acquisition", acquisition}};
+  Json res = Json{{"subject", sub.name()}, {"surfaces", names}, {"inverses", inv_names}, {"acquisition", acquisition}};
+  if (!truncated.is_null()) res["truncated"] = truncated;
+  return res;
 }
 
 }  // namespace nxr::bst
