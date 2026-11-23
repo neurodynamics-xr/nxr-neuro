@@ -14,7 +14,7 @@
 //   package migrate-selections --dataset D [--dry-run]                     package migrate-measurements --dataset D [--dry-run] [--remove-statistics]
 //   package release --package P --name N --template-version V --released-by WHO --into DIR    package release-redistributable --package P --into DIR --released-by WHO
 //   package templates [--templates DIR ...]
-//   package template-create --recipe fsaverage|icbm152 --sources DIR --package P [--name N] [--surface S ...] [--parcellation NAME ...] [--cortex-mask] [--hcp-trk FILE --hcp-end-surface S
+//   package template-create --recipe fsaverage|fsaverage5|icbm152 --sources DIR --package P [--name N] [--surface S ...] [--parcellation NAME ...] [--cortex-mask] [--hcp-trk FILE --hcp-end-surface S
 //                            [--max-end-distance MM] [--hcp-points N]] [--accept-unlisted-sources] [--home-dataset N]
 //   package registration-create --package P --name N --from NAME@VERSION --to NAME@VERSION --from-sphere S --to-sphere S [--method shepard|nearest|barycentric]
 //                               [--neighbours K] [--one-direction] [--templates DIR ...] [--home-dataset N] [--source TEXT --licence TEXT --attribution TEXT --redistributable yes|no]
