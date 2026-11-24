@@ -3,7 +3,8 @@
 //     selection on the original (the Desikan-Killiany member, its `unassigned` entry and code), the counts and the rule;
 //   - `read field|operator --onto <glued>` gives a node's rows selected onto the glued cortex: each glued vertex the rows of its original vertex (k rows a vertex), a bridge vertex's rows zero;
 //     a node whose rows are not the original's vertices, a manifold that is not a glued cortex, and --onto with --region are refused;
-//   - `migrate glue` states the relation of a glue whose record names only the original (an earlier version's), and is idempotent.
+//   - `migrate glue` states the relation of a glue whose record names only the original (an earlier version's), and is idempotent;
+//   - `run intrinsic` stores each field of the triangulation with its quantity (the field's kind) and unit: the edge length in the surface's unit, the angles in radians.
 #include <unistd.h>
 
 #include <cmath>
@@ -153,5 +154,21 @@ int main() {
     CHECK(opt_text(*sub.db().read("manifold", glued->id), "comment").value_or("").find("off the wall (ascending index)") != std::string::npos);
   }
   CHECK(migrate_glue(sub, std::string("cortex_glued"), "Structures", "Cortex L", "Cortex R")["glued"][0]["status"] == "already in the new form");
+
+  // THE INTRINSIC TRIANGULATION'S FIELDS state their quantity (the field's kind) and unit: the edge length in the surface's unit, the angles in radians
+  nxrtest::run_definition(ds, sub, "intrinsic", Json{{"surface", "cortex_glued"}});
+  {
+    const std::string unit = coordinate_unit_of(sub, glued->id);
+    std::printf("  the surface's unit: '%s'\n", unit.c_str());
+    CHECK(!unit.empty());
+    auto field = [&](const std::string& n) { return ts.find({.cls = tk::Cls::field, .name = "cortex_glued_intrinsic_" + n}); };
+    const auto len = field("length");
+    CHECK(len && len->kind == std::optional<std::string>("edge length") && len->unit == std::optional<std::string>(unit) && len->row.value("cell", std::string()) == "1");
+    for (const char* a : {"angle_tail", "angle_tip"}) { const auto f = field(a); CHECK(f && f->kind == std::optional<std::string>("signpost angle") && f->unit == std::optional<std::string>("rad")); }
+    const auto cone = field("angle_sum");
+    CHECK(cone && cone->kind == std::optional<std::string>("cone angle") && cone->unit == std::optional<std::string>("rad") && cone->row.value("cell", std::string()) == "0");
+    const auto ref = field("reference");
+    CHECK(ref && ref->kind == std::optional<std::string>("reference neighbour") && !ref->unit);
+  }
   return nxrtest::finish("test_glue_onto");
 }

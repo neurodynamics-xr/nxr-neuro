@@ -41,8 +41,8 @@ outputs:
   star0:       {kind: operator, operator_kind: hodge star, name: "{surface}_intrinsic_star0", from: triangulation, to: triangulation, layout: analytic}
   star1:       {kind: operator, operator_kind: hodge star, name: "{surface}_intrinsic_star1", from: triangulation, to: triangulation, layout: analytic}
   star2:       {kind: operator, operator_kind: hodge star, name: "{surface}_intrinsic_star2", from: triangulation, to: triangulation, layout: analytic}
-  length:      {kind: field, kind_name: intrinsic triangulation, name: "{surface}_intrinsic_length", on: triangulation}
-  angle_tail:  {kind: field, kind_name: intrinsic triangulation, name: "{surface}_intrinsic_angle_tail", on: triangulation}
-  angle_tip:   {kind: field, kind_name: intrinsic triangulation, name: "{surface}_intrinsic_angle_tip", on: triangulation}
-  angle_sum:   {kind: field, kind_name: intrinsic triangulation, name: "{surface}_intrinsic_angle_sum", on: triangulation}
-  reference:   {kind: field, kind_name: intrinsic triangulation, name: "{surface}_intrinsic_reference", on: triangulation}
+  length:      {kind: field, kind_name: edge length, name: "{surface}_intrinsic_length", on: triangulation}
+  angle_tail:  {kind: field, kind_name: signpost angle, name: "{surface}_intrinsic_angle_tail", on: triangulation}
+  angle_tip:   {kind: field, kind_name: signpost angle, name: "{surface}_intrinsic_angle_tip", on: triangulation}
+  angle_sum:   {kind: field, kind_name: cone angle, name: "{surface}_intrinsic_angle_sum", on: triangulation}
+  reference:   {kind: field, kind_name: reference neighbour, name: "{surface}_intrinsic_reference", on: triangulation}

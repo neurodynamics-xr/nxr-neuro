@@ -162,7 +162,19 @@ Json migrate_current(SubjectWriter& sub, const std::string& stem, const Json& ev
   bool recode = em.member_codes.size() != 3;
   for (std::size_t i = 0; i < em.member_codes.size() && !recode; ++i) recode = em.member_codes[i] != static_cast<std::int64_t>(i);
   for (std::int64_t k = 0; k < K && !recode; ++k) recode = em.member_of[static_cast<std::size_t>(k)] != kind[static_cast<std::size_t>(k)];
-  if (!zeroed && !recode && !support) return Json{{"stem", stem}, {"status", "already in the new form"}};
+  // the triangulation's fields without their quantity (stored as the field's kind) or unit (an earlier version stored the kind `intrinsic triangulation` and no unit on the lengths)
+  struct FieldFix { Json row; const IntrinsicQuantity* q; std::string unit; };
+  std::vector<FieldFix> fields;
+  {
+    const std::string tname = text(e.triangulation, "name"), tid = text(e.triangulation, "id"), length_unit = coordinate_unit_of(sub, text(e.surface, "id"));
+    for (const IntrinsicQuantity& q : intrinsic_quantities()) {
+      const auto r = row_named(sub, "field", tname + "_" + q.output);
+      if (!r || js(*r, "manifold_id") != tid) continue;
+      const std::string unit = q.length_unit ? length_unit : std::string(q.unit ? q.unit : "");
+      if (js(*r, "kind") != q.kind || jo(*r, "unit").value_or("") != unit) fields.push_back(FieldFix{*r, &q, unit});
+    }
+  }
+  if (!zeroed && !recode && !support && fields.empty()) return Json{{"stem", stem}, {"status", "already in the new form"}};
   Json from = Json{{"date", now_utc(false)}, {"from", "the four classes of an earlier version"}, {"items", Json::object()}};
   if (zeroed) from["vertex_rows"] = "the vertex rows of " + std::to_string(zeroed) + " coexact modes held the stream function; set to 0 (the 0-form part)";
   if (recode) from["kinds"] = "member numbers stored for the kinds; the codes of its dictionary stored instead (coexact 2), each mode's kind read from its parts";
@@ -170,7 +182,8 @@ Json migrate_current(SubjectWriter& sub, const std::string& stem, const Json& ev
   if (zeroed) { from["items"][stem + "_eigenvectors"] = Json{{"class", "operator"}, {"id", js(ev, "id")}}; if (lamf) from["items"][stem + "_eigenvalues"] = Json{{"class", "field"}, {"id", js(*lamf, "id")}}; }
   if (recode) from["items"][stem + "_kinds"] = Json{{"class", "selection"}, {"id", js(*kn, "id")}};
   if (support) from["items"][stem + "_support"] = Json{{"class", "selection"}, {"id", js(*support, "id")}};
-  if (say) say(Json{{"stage", "migrate"}, {"stem", stem}, {"coexact_vertex_rows_zeroed", zeroed}, {"kinds_recoded", recode}, {"support_removed", static_cast<bool>(support)}});
+  for (const FieldFix& f : fields) from["items"][js(f.row, "name")] = Json{{"class", "field"}, {"id", js(f.row, "id")}, {"stated", "its quantity and unit"}};
+  if (say) say(Json{{"stage", "migrate"}, {"stem", stem}, {"coexact_vertex_rows_zeroed", zeroed}, {"kinds_recoded", recode}, {"support_removed", static_cast<bool>(support)}, {"fields_stated", fields.size()}});
   std::vector<double> lam;
   if (zeroed && lamf) lam = read_as<double>(store, js(*lamf, "path"));
   const tk::Subject ts = tk::Subject::of(sub);
@@ -212,6 +225,24 @@ Json migrate_current(SubjectWriter& sub, const std::string& stem, const Json& ev
     u.selection(ks);
   }
   if (support) { u.replace(tk::Cls::selection, js(*support, "path"), true, "the support of the eigensolve " + stem + ": derived from the glued cortex's hemispheres labelling and the medial wall"); out["removed"] = stem + "_support"; }
+  if (!fields.empty()) {
+    Json stated = Json::array();
+    for (const FieldFix& x : fields) {
+      const std::string fpath = js(x.row, "path");
+      tk::FieldOut f;
+      f.name = js(x.row, "name"); f.output = x.q->output; f.kind = x.q->kind; f.manifold_id = js(x.row, "manifold_id"); f.cell = x.q->cell;
+      if (!x.unit.empty()) f.unit = x.unit;
+      f.description = std::string(x.q->output) == "length" ? "the edge length: each intrinsic edge's length along the surface (the triangulation's metric), in the surface's unit" + (x.unit.empty() ? std::string() : " (" + x.unit + ")")
+                                                           : jo(x.row, "description").value_or(x.q->kind);
+      f.producer = producer_of_row(x.row);
+      if (std::string(x.q->output) == "reference") { f.value_type = "integer"; f.data.i32 = read_as<std::int32_t>(store, fpath); f.data.shape = {static_cast<std::int64_t>(f.data.i32.size())}; }
+      else { f.data.f64 = read_as<double>(store, fpath); f.data.shape = {static_cast<std::int64_t>(f.data.f64.size())}; }
+      u.replace(tk::Cls::field, fpath, true, "the field " + f.name + " of an earlier version: its quantity and unit stated");
+      u.field(f);
+      stated.push_back(f.name);
+    }
+    out["fields_stated"] = stated;
+  }
   u.commit();
   return out;
 }
@@ -366,8 +397,12 @@ Json migrate_one(SubjectWriter& sub, const std::string& stem, const std::functio
   analytic("star2", "hodge star", nF, nF, "2", "2*");
   for (Kept& k : kept_fields) {
     tk::FieldOut f;
-    f.name = k.name; f.output = k.name.substr(tname.size() + 1); f.kind = "intrinsic triangulation"; f.manifold_id = tid; f.cell = k.cell;
-    if (!k.unit.empty()) f.unit = k.unit;
+    f.name = k.name; f.output = k.name.substr(tname.size() + 1); f.manifold_id = tid; f.cell = k.cell;
+    const IntrinsicQuantity* q = intrinsic_quantity(f.output);           // its quantity and unit (eigen.h): the edge length in the surface's unit
+    f.kind = q ? q->kind : "intrinsic triangulation";
+    if (q && q->length_unit) { if (const std::string lu = coordinate_unit_of(sub, js(*surf, "id")); !lu.empty()) f.unit = lu; }
+    else if (q && q->unit) f.unit = q->unit;
+    else if (!k.unit.empty()) f.unit = k.unit;
     if (!k.description.empty()) f.description = k.description;
     const std::int64_t n = static_cast<std::int64_t>(k.f64.empty() ? k.i32.size() : k.f64.size());
     f.data.shape = {n};

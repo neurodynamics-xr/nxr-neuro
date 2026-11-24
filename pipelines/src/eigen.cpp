@@ -65,6 +65,16 @@ IntrinsicTriangulation intrinsic_triangulation(const std::vector<double>& vertic
   return t;
 }
 
+const std::vector<IntrinsicQuantity>& intrinsic_quantities() {
+  static const std::vector<IntrinsicQuantity> q = {{"length", "edge length", "1", true, nullptr}, {"angle_tail", "signpost angle", "1", false, "rad"}, {"angle_tip", "signpost angle", "1", false, "rad"},
+                                                   {"angle_sum", "cone angle", "0", false, "rad"}, {"reference", "reference neighbour", "0", false, nullptr}};
+  return q;
+}
+const IntrinsicQuantity* intrinsic_quantity(const std::string& output) {
+  for (const auto& x : intrinsic_quantities()) if (output == x.output) return &x;
+  return nullptr;
+}
+
 HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vector<std::int32_t>& faces, int modes, const SolveMethod& method) {
   const auto t0 = std::chrono::steady_clock::now();
   const int nV = static_cast<int>(vertices.size() / 3), nF = static_cast<int>(faces.size() / 3);

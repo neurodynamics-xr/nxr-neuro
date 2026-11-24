@@ -114,6 +114,12 @@ struct IntrinsicTriangulation {
   std::int64_t n_edges() const { return static_cast<std::int64_t>(lengths.size()); }
   std::int64_t n_faces() const { return static_cast<std::int64_t>(faces.size() / 3); }
 };
+// WHAT EACH FIELD OF AN INTRINSIC TRIANGULATION HOLDS (its quantity, stored as the field's kind, and its unit): `length` the edge length (rank 1; the surface's length unit, metres for a cortex),
+// `angle_tail` and `angle_tip` the signpost angle at each end of an edge (rank 1, rad), `angle_sum` the cone angle (rank 0, rad), `reference` the reference neighbour (rank 0, a vertex index, no unit).
+// One table for `run intrinsic` (intrinsic.yaml names the same kinds) and `migrate eigensolve`.
+struct IntrinsicQuantity { const char* output; const char* kind; const char* cell; bool length_unit; const char* unit; };
+const std::vector<IntrinsicQuantity>& intrinsic_quantities();
+const IntrinsicQuantity* intrinsic_quantity(const std::string& output);
 IntrinsicTriangulation intrinsic_triangulation(const std::vector<double>& vertices, const std::vector<std::int32_t>& faces, double mollify = 1e-6, double flip_eps = 1e-6);
 
 // nxr-compute, no rows: the surface (vertices [nV x 3] float64, faces [nF x 3]) of one closed piece -> its Hodge–Dirac modes.

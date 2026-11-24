@@ -201,7 +201,9 @@ StepSpec intrinsic_step() {
       if (dtype) { d["dtype"] = dtype; d["value_type"] = "integer"; }
       return made(n, 1, std::move(v), d);
     };
-    out["length"] = cells_field("1", nE, t.lengths, "each intrinsic edge's length along the surface (the input's units)");
+    const std::string length_unit = ctx.bound.coordinate_unit(S.id);         // the surface's length unit (metres for a cortex); none recorded: none stated
+    out["length"] = cells_field("1", nE, t.lengths, "the edge length: each intrinsic edge's length along the surface (the triangulation's metric), in the surface's unit" + (length_unit.empty() ? std::string() : " (" + length_unit + ")"),
+                                length_unit.empty() ? nullptr : length_unit.c_str());
     out["angle_tail"] = cells_field("1", nE, std::move(atail), "the signpost: each edge's angle at its tail, in the tail's tangent plane (from its reference neighbour)", "rad");
     out["angle_tip"] = cells_field("1", nE, std::move(atip), "the signpost: each edge's angle at its tip, in the tip's tangent plane", "rad");
     out["angle_sum"] = cells_field("0", V, t.angle_sum.empty() ? std::vector<double>(static_cast<std::size_t>(V), NAN) : t.angle_sum, "each vertex's cone angle (the sum of its corners)", "rad");

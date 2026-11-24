@@ -169,6 +169,15 @@ int main() {
   auto has_field = [&](const std::string& name) { tk::Want w{.cls = tk::Cls::field}; w.name = name; return tk::Subject::of(sub).find(w).has_value(); };
   CHECK(!has_field("cortex_intrinsic_star1"));
   CHECK(has_field("cortex_intrinsic_length"));
+  {   // the earlier form's fields, now with their quantity and unit (eigen.h intrinsic_quantities): the edge length in the surface's unit
+    tk::Want w{.cls = tk::Cls::field}; w.name = std::string("cortex_intrinsic_length");
+    const auto len = tk::Subject::of(sub).find(w);
+    const std::string unit = coordinate_unit_of(sub, surf_id);
+    CHECK(len && len->kind == std::optional<std::string>("edge length") && !unit.empty() && len->unit == std::optional<std::string>(unit));
+    tk::Want a{.cls = tk::Cls::field}; a.name = std::string("cortex_intrinsic_angle_sum");
+    const auto cone = tk::Subject::of(sub).find(a);
+    CHECK(cone && cone->kind == std::optional<std::string>("cone angle") && cone->unit == std::optional<std::string>("rad"));
+  }
   CHECK(!has_field("hodgeDirac_kind"));
   {
     tk::Want lw{.cls = tk::Cls::field}; lw.name = std::string("hodgeDirac_eigenvalues");
@@ -241,6 +250,28 @@ int main() {
   // idempotent
   const Json again = migrate_eigensolve(sub, stem);
   CHECK(again["stems"][0]["status"] == "already in the new form");
+
+  // THE TRIANGULATION'S FIELDS OF AN EARLIER VERSION (the kind `intrinsic triangulation`, no unit on the lengths): migrate states their quantity and unit, the values kept
+  {
+    tk::Want w{.cls = tk::Cls::field}; w.name = std::string("cortex_intrinsic_length");
+    const auto len = tk::Subject::of(sub).find(w);
+    const std::vector<double> lengths = bytes_as<double>(sub, *len->path);
+    {
+      const tk::Subject ts = tk::Subject::of(sub);
+      tk::Unit u = ts.unit(tk::By{"an earlier version's triangulation", Json::object()});
+      u.replace(tk::Cls::field, *len->path, true, "test");
+      tk::FieldOut f; f.name = "cortex_intrinsic_length"; f.output = "length"; f.kind = "intrinsic triangulation"; f.manifold_id = text(e.triangulation, "id"); f.cell = "1";
+      f.data.shape = {static_cast<std::int64_t>(lengths.size())}; f.data.f64 = lengths; u.field(f);
+      u.commit();
+    }
+    const Json m3 = migrate_eigensolve(sub, stem);
+    std::printf("  an earlier version's triangulation fields: %s\n", m3.dump().substr(0, 200).c_str());
+    CHECK(m3["stems"][0]["status"] == "migrated" && m3["stems"][0]["fields_stated"] == Json::array({"cortex_intrinsic_length"}));
+    const auto again2 = tk::Subject::of(sub).find(w);
+    CHECK(again2 && again2->kind == std::optional<std::string>("edge length") && again2->unit == std::optional<std::string>(coordinate_unit_of(sub, surf_id)));
+    CHECK(bytes_as<double>(sub, *again2->path) == lengths);
+    CHECK(migrate_eigensolve(sub, stem)["stems"][0]["status"] == "already in the new form");
+  }
 
   // A SOLVE IN THE FOUR CLASSES OF AN EARLIER VERSION: the coexact vertex rows hold the stream function, the kinds hold member numbers (0 exact, 1 coexact, labels 0 and 2 beside them)
   const std::string stem2 = "hodgeDirac__earlier_version";

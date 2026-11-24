@@ -1086,7 +1086,9 @@ stored has the runner make them with this run, said in a message. What it cannot
 The intrinsic triangulation is made by its own definition, `run intrinsic --surface NAME [--mollify 1e-6] [--flip-eps 1e-6]` (the Studio's intrinsicDelaunay.ts; the runner makes it first, with its defaults, when an
 eigensolve reads it and none is stored: the input's `made_by`). It is a manifold with the surface's geometry (the same positions array) and its OWN topology (the flipped edges and faces are its cells, D92):
 `source/<surface>_intrinsic`; d0, d1 and the stars ⋆0, ⋆1, ⋆2 are ANALYTIC operators on it (`_d0` cell 0 to 1, `_d1` 1 to 2, `_star<k>` k to k*; layout analytic, method `dec`, no bytes: D93, evaluated
-from the triangulation as the Studio's `hodgeDirac.ts dec(m)` builds them); the edge lengths and signposts are fields on its cells (`_length`, `_angle_tail`, `_angle_tip`, `_angle_sum`, `_reference`).
+from the triangulation as the Studio's `hodgeDirac.ts dec(m)` builds them); the edge lengths and signposts are fields on its cells, each with its quantity (the field's kind) and unit: `_length` the
+edge length (rank 1, the surface's unit: metres for a cortex), `_angle_tail` and `_angle_tip` the signpost angle at each end of an edge (rank 1, rad), `_angle_sum` the cone angle (rank 0, rad), `_reference`
+the reference neighbour (rank 0, a vertex index). `migrate eigensolve` states the quantity and unit of a triangulation's fields stored by an earlier version (the kind `intrinsic triangulation`, no unit).
 
 Stored by the eigensolve (stem `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not the primary one), in the four classes: the EIGENVALUE LINE `<stem>` (a manifold of points, coordinate
 mu = sqrt(lambda), ascending), the field `<stem>_eigenvalues` (lambda; of the eigenvectors operator), the selection `<stem>_kinds` (a labelling of the line: exact, label 0; coexact, label 2),
