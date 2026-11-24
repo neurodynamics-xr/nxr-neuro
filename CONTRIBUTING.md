@@ -6,8 +6,9 @@ accepted. `docs/reference.md` describes every verb and method, `docs/specs/` the
 
 ## The method rule (how every computation is written; inside the paramount architecture)
 
-1. **Each method has a named reference, and the default reproduces it.** The references are nxr (Python), Rheome (MATLAB), the Cortical Flow Studio
-   (TypeScript), Brainstorm, MNE-Python and scipy. `docs/reference.md` says which one each method follows. The choice of the default reference is the maintainers';
+1. **Each method has a named reference, and the default reproduces it.** The references are the published methods and established external
+   implementations (Brainstorm, MNE-Python, scipy). The project's earlier implementations (nxr in Python, Rheome in MATLAB, the Cortical Flow Studio in
+   TypeScript) are not references: their existing goldens stay as regression checks until replaced, and no new method takes one of them as its reference. `docs/reference.md` says which one each method follows. The choice of the default reference is the maintainers';
    record it with its date in the method's section of `docs/reference.md`.
 2. **Alternatives are named options, never defaults.**
    - An option has the same name in the library's options struct and on the command line.
@@ -102,7 +103,7 @@ is a PR of its own, on the latest main, with these parts in this order. Nothing 
 5. **Delete the hand-wired code**: the `<x>_compute` function and its options and result types, its CLI parser and its entry in `cli/command_table.cpp` (the definition's command `run <x>` is made from the definition), its
    private helpers that nothing else uses. Keep the old spelling refused, naming the new one (`converted_spellings()` in `cli/registry.cpp`). Tests that only used `<x>_compute` to make a fixture call the runner through a helper
    (`pipelines/test/psd_run.h`).
-6. **Tests.** Compare with the REFERENCES (the method's goldens: scipy, Brainstorm, nxr, Rheome), not with the old output: one run per preset and parameter set against the golden, to the stored precision; the result the same to
+6. **Tests.** Compare with the REFERENCES (the method's goldens: scipy, MNE, Brainstorm; the existing nxr and Rheome goldens), not with the old output: one run per preset and parameter set against the golden, to the stored precision; the result the same to
    the last bit for another storage chunk width; the stored record (axes, lines, partition, scaling, unit, provenance, a cache hit on a rerun, a refused name and `--replace`); the refusals (each names the parameter or port).
    Build only the targets you touch and run only their tests (`tools/tests.py`), never the full suite.
 7. **Docs.** `docs/reference.md`: the method's section says it is a definition, lists its parameters and presets, and what is stored; the command table loses the hand-wired row.
@@ -131,7 +132,7 @@ Every ctest test has exactly one kind, listed in `tests/kinds.tsv` (`name<TAB>ki
 - **A test checks behaviour:** values, shapes, refusals with their reason. Never the internal layout of a provenance record (`producer_json`, `params_json`
   options), log text or private names; a binding test checks the binding (a call, its result, names and errors), not the library again.
 - **No refactor gates in the suite:** a comparison of new code against the old code it replaces (a golden recorded from the old code, the old function
-  copied into the test) is run during the refactor and removed with it; only references (scipy, MNE, nxr, Rheome, the Studio, Brainstorm) stay as goldens.
+  copied into the test) is run during the refactor and removed with it; only references (scipy, MNE, Brainstorm) and the existing nxr, Rheome and Studio goldens stay.
 - **Performance is measured in `bench/`** (`NXR_BUILD_BENCH`, off by default; `tools/bench.py` runs it and compares with a baseline), never in a test.
 - **A new pipeline:** one integration test, plus a unit test for each new node.
 - Select by kind: `tools/tests.py status --kind unit --fast REGEX` (`--kind` is repeatable, `--fast` leaves out `slow`).
