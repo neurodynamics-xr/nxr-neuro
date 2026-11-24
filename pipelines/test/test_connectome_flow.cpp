@@ -42,7 +42,7 @@ double at(const ng::Array& a, std::int64_t r, std::int64_t c) { return a.at(stat
 int main() {
   nxr::pipelines::graph::register_sensor_flow_nodes();
   nxr::pipelines::graph::register_connectome_flow_nodes();
-  for (const char* name : {"meeg.fiber_lengths", "connectome.tile_pairs", "connectome.laplacian_eigenmodes", "connectome.tile_operator", "connectome.tile_flow", "connectome.tile_time_cells", "connectome.network_flow"})
+  for (const char* name : {"meeg.fiber_lengths", "meeg.tile_pairs", "meeg.laplacian_eigenmodes", "signal.tile_operator", "signal.tile_flow", "signal.tile_time_cells", "meeg.network_flow"})
     CHECK(ng::registry().at(name).traits.declared());
 
   // ── the surface (four vertices), its grid (two pieces, depth 1: codes 2 piece + tile), the fibres ──
@@ -58,17 +58,17 @@ int main() {
   CHECK(len.at("lengths").rows == 2 && std::abs(len.at("lengths").data[0] - 3) < 1e-12 && std::abs(len.at("lengths").data[1] - 7) < 1e-12);
 
   const Json tp = Json{{"tiles_per_piece", 2}};
-  const auto net = run_array("connectome.tile_pairs", {{"end_vertex", column(ends)}, {"lengths", column(lengths)}, {"tiles", grid}, {"surface", surface}}, tp);
+  const auto net = run_array("meeg.tile_pairs", {{"end_vertex", column(ends)}, {"lengths", column(lengths)}, {"tiles", grid}, {"surface", surface}}, tp);
   const ng::Array& pairs = net.at("pairs");
   CHECK(pairs.rows == 6 && pairs.cols == 6);
   CHECK(at(pairs, nxr::meeg::pairIndex(0, 1, 4), 2) == 12 && at(pairs, nxr::meeg::pairIndex(2, 3, 4), 2) == 11 && at(pairs, nxr::meeg::pairIndex(0, 2, 4), 2) == 3);
   CHECK(std::abs(at(pairs, nxr::meeg::pairIndex(0, 1, 4), 3) - 0.0555) < 1e-9);      // numpy median of 0.050 .. 0.061
   CHECK(at(pairs, nxr::meeg::pairIndex(1, 2, 4), 5) == 1 && at(pairs, nxr::meeg::pairIndex(0, 1, 4), 5) == 0);
-  CHECK(refused([&] { run_array("connectome.tile_pairs", {{"end_vertex", column(ends)}, {"tiles", grid}, {"surface", surface}}, Json{{"tiles_per_piece", 3}}); }));   // not a power of two
-  CHECK(refused([&] { run_array("connectome.tile_pairs", {{"end_vertex", column(ends)}, {"tiles", grid}, {"surface", surface}}, Json{{"tiles_per_piece", 4}}); }));   // finer than the grid
+  CHECK(refused([&] { run_array("meeg.tile_pairs", {{"end_vertex", column(ends)}, {"tiles", grid}, {"surface", surface}}, Json{{"tiles_per_piece", 3}}); }));   // not a power of two
+  CHECK(refused([&] { run_array("meeg.tile_pairs", {{"end_vertex", column(ends)}, {"tiles", grid}, {"surface", surface}}, Json{{"tiles_per_piece", 4}}); }));   // finer than the grid
 
   const Json eig = Json{{"min_streamlines", 10}, {"null_tolerance", 1e-10}};
-  const auto modes = run_array("connectome.laplacian_eigenmodes", {{"pairs", pairs}}, eig);
+  const auto modes = run_array("meeg.laplacian_eigenmodes", {{"pairs", pairs}}, eig);
   CHECK(modes.at("eigenmodes").rows == 4 && modes.at("eigenmodes").meta["producer"]["null_modes"] == 2);   // the edges 0-1 and 2-3: two components (0-2 has 3 < 10)
   CHECK(std::abs(at(modes.at("eigenmodes"), 3, 0) - 24) < 1e-9);                                            // the largest: 2 x 12
 
@@ -107,7 +107,7 @@ int main() {
   ng::Array Kr = K;
   for (int r = 0; r < C; ++r) for (int c = 0; c < C; ++c) Kr.data[static_cast<std::size_t>(r * C + c)] = K.data[static_cast<std::size_t>(r * C + (C - 1 - c))];
   Kr.meta["channels"] = kernelChannels; Kr.meta["name"] = "identity";
-  const auto op = run_array("connectome.tile_operator", {{"kernel", Kr}, {"tiles", grid}, {"serving", S}}, tp);
+  const auto op = run_array("signal.tile_operator", {{"kernel", Kr}, {"tiles", grid}, {"serving", S}}, tp);
   const ng::Array& M = op.at("operator");
   CHECK(M.rows == 12 && M.cols == 12 && M.meta["synthesis_rank"] == 12);
   {
@@ -116,13 +116,13 @@ int main() {
     CHECK((m * serving - Eigen::MatrixXd::Identity(12, 12)).norm() < 1e-8);             // the served coordinates back to the tiles' currents
   }
   ng::Array wrongKernel = Kr; wrongKernel.meta["channels"] = std::vector<std::int32_t>(12, 99);
-  CHECK(refused([&] { run_array("connectome.tile_operator", {{"kernel", wrongKernel}, {"tiles", grid}, {"serving", S}}, tp); }));
+  CHECK(refused([&] { run_array("signal.tile_operator", {{"kernel", wrongKernel}, {"tiles", grid}, {"serving", S}}, tp); }));
 
   ng::Array atoms;
   const double fwhm = 2.0 * std::sqrt(2.0 * std::log(2.0)) / 12.0;                           // standard deviation centre / 12
   atoms.meta["params"] = Json{{"kernels", Json{{"members", Json::array({Json{{"start", f}, {"stop", f}, {"family", "gaussian"}, {"chart", "linear"}, {"gain", 2.0}, {"params", Json{{"fwhm", fwhm}, {"width_rule", "proportional"}}}}})}}}};
   const Json fp = Json{{"frequency_normalisation", "none"}};
-  const auto flow = run_array("connectome.tile_flow", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}}, fp);
+  const auto flow = run_array("signal.tile_flow", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}}, fp);
   const ng::Array& F = flow.at("flow");
   CHECK(F.rows == 1 && F.cols == 2 * 6 + 4);
   const std::int64_t q01 = nxr::meeg::pairIndex(0, 1, 4);
@@ -131,9 +131,9 @@ int main() {
   CHECK(std::abs(lag + tau) < 1e-3);
   CHECK(at(F, 0, 6 + q01) / std::sqrt(at(F, 0, 12) * at(F, 0, 13)) > 0.3);                 // the edge flow: tile 1 lags tile 0
   ng::Array wrongSpectra = spectra; wrongSpectra.meta["producer"]["modes"] = Json::array({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 99});
-  CHECK(refused([&] { run_array("connectome.tile_flow", {{"spectra", wrongSpectra}, {"operator", M}, {"frequency", atoms}}, fp); }));
+  CHECK(refused([&] { run_array("signal.tile_flow", {{"spectra", wrongSpectra}, {"operator", M}, {"frequency", atoms}}, fp); }));
 
-  const auto cells = run_array("connectome.tile_time_cells", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}}, Json{{"frequency_normalisation", "none"}, {"cell_width", 2.0}});
+  const auto cells = run_array("signal.tile_time_cells", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}}, Json{{"frequency_normalisation", "none"}, {"cell_width", 2.0}});
   const ng::Array& Z = cells.at("cells");
   const Json groups = Z.meta["describe"]["attributes"]["groups"];
   CHECK(groups.size() == 1 && Z.cols == 6 + 4 && Z.rows == groups[0]["cells"].get<std::int64_t>() && Z.rows >= 8);
@@ -144,11 +144,11 @@ int main() {
   const ng::Array& R = flip.at("consistency");
   CHECK(R.rows == 1 && std::abs(at(R, 0, q01) - 1) < 1e-12 && at(R, 0, 6 + q01) < 0.01);   // R1 = 1 and p small for the lagged pair
 
-  const auto network = run_array("connectome.network_flow", {{"pairs", pairs}, {"eigenmodes", modes.at("eigenmodes")}, {"flow", F}}, Json{{"min_streamlines", 10}});
+  const auto network = run_array("meeg.network_flow", {{"pairs", pairs}, {"eigenmodes", modes.at("eigenmodes")}, {"flow", F}}, Json{{"min_streamlines", 10}});
   const ng::Array& W = network.at("network");
   CHECK(W.rows == 1 && W.cols == 3 * 4 + 2);
   CHECK(at(W, 0, 0) < 0 && at(W, 0, 1) > 0 && std::abs(at(W, 0, 0) + at(W, 0, 1)) < 1e-12);  // out of tile 0, into tile 1
   CHECK(std::abs(at(W, 0, 12) / at(W, 0, 13) - 1) < 1e-9);                                  // a tree: every flow is a gradient
-  CHECK(refused([&] { run_array("connectome.network_flow", {{"pairs", pairs}, {"eigenmodes", modes.at("eigenmodes")}, {"flow", F}}, Json{{"min_streamlines", 2}}); }));   // eigenmodes made with 10
+  CHECK(refused([&] { run_array("meeg.network_flow", {{"pairs", pairs}, {"eigenmodes", modes.at("eigenmodes")}, {"flow", F}}, Json{{"min_streamlines", 2}}); }));   // eigenmodes made with 10
   return nxrtest::finish("test_connectome_flow");
 }

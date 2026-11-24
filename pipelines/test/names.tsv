@@ -20,6 +20,10 @@ node	meeg.end_gate	-	composite
 node	signal.envelope	-	composite
 node	measurement.estimate	-	composite
 node	meeg.fiber_ends	-	composite
+node	meeg.fiber_lengths	-	composite
+node	meeg.tile_pairs	-	composite
+node	meeg.laplacian_eigenmodes	-	composite
+node	meeg.network_flow	-	composite
 node	signal.field_form	-	composite
 node	signal.form	-	composite
 node	signal.analytic_frames	-	composite
@@ -86,6 +90,9 @@ node	signal.overlapped_spectrum	-	composite
 node	signal.chunk_spectra	-	composite
 node	signal.spectral_flow	-	composite
 node	signal.atom_time_cells	-	composite
+node	signal.tile_operator	-	composite
+node	signal.tile_flow	-	composite
+node	signal.tile_time_cells	-	composite
 node	stats.sign_flip_consistency	-	composite
 node	signal.sensor_power	-	composite
 node	stats.aperiodic_fit	-	composite

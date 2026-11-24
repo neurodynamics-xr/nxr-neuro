@@ -4,7 +4,7 @@
 # the edges are the pairs joined by at least `min_streamlines`; the connectome Laplacian of the edges (weights: their streamline counts) and ALL its eigenmodes (a dense solve).
 #
 # THE GRAPH. before: fibres --[meeg.fiber_ends, meeg.nearest_vertex, meeg.end_gate]--> each fibre's end vertices on the surface (the `connectome` definition's steps);
-# fibres --[meeg.fiber_lengths]--> each fibre's length; ends + lengths + tiles + surface --[connectome.tile_pairs]--> the tiles and the pairs; --[connectome.laplacian_eigenmodes]--> the eigenmodes.
+# fibres --[meeg.fiber_lengths]--> each fibre's length; ends + lengths + tiles + surface --[meeg.tile_pairs]--> the tiles and the pairs; --[meeg.laplacian_eigenmodes]--> the eigenmodes.
 # Every value below is a stated choice of this definition: nxr's flow through the fibres used 32 tiles a hemisphere (level 5) and 10 streamlines, its ends the nearest vertex
 # with no distance gate (max_end_distance none).
 #
@@ -40,8 +40,8 @@ steps:
     - {node: meeg.nearest_vertex, in: {points: end_points, positions: surface},                                                       out: [end_vertex, end_distance]}
     - {node: meeg.end_gate,       in: {end_distance: end_distance},              with: {max_end_distance_mm: $max_end_distance},     out: keep}
     - {node: meeg.fiber_lengths,  in: {fibers: fibers},                          with: {points_per_fiber: $points_per_fiber},        out: lengths}
-    - {node: connectome.tile_pairs, in: {end_vertex: end_vertex, keep: keep, lengths: lengths, tiles: tiles, surface: surface}, with: {tiles_per_piece: $tiles_per_piece}, out: [tiles_table, pairs]}
-    - {node: connectome.laplacian_eigenmodes, in: {pairs: pairs},                with: {min_streamlines: $min_streamlines, null_tolerance: $null_tolerance}, out: eigenmodes}
+    - {node: meeg.tile_pairs, in: {end_vertex: end_vertex, keep: keep, lengths: lengths, tiles: tiles, surface: surface}, with: {tiles_per_piece: $tiles_per_piece}, out: [tiles_table, pairs]}
+    - {node: meeg.laplacian_eigenmodes, in: {pairs: pairs},                with: {min_streamlines: $min_streamlines, null_tolerance: $null_tolerance}, out: eigenmodes}
 
 outputs:
   tiles_table: {kind: statistic, name: "{name}_tiles", of: fibers}

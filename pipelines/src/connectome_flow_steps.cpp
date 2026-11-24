@@ -4,12 +4,12 @@
 // are read in the connectome's eigenmodes.
 //
 // THE GRAPH (tile_network). before: fibres --[meeg.fiber_ends, meeg.nearest_vertex, meeg.end_gate]--> each fibre's end vertices (REUSED); fibres --[meeg.fiber_lengths]--> lengths;
-//         end vertices + lengths + the grid's tiles at the stated level + the surface --[connectome.tile_pairs]--> tiles, pairs (count, median length, distance, across);
-//         pairs --[connectome.laplacian_eigenmodes]--> the connectome Laplacian's complete eigenmodes.
-// THE GRAPH (connectome_flow). before: the sensor serving operator (signal.mode_analysis, REUSED) + kernel + tiles --[connectome.tile_operator]--> ONE operator [3T x K];
-//         stored chunk spectra + operator + atoms --[connectome.tile_flow]--> per atom the whole run's tile cross-spectrum (pair sums, tile power);
-//         --[connectome.tile_time_cells]--> the same per time cell of each atom --[stats.sign_flip_consistency, REUSED]--> per pair R1 and its p;
-//         pairs + eigenmodes + tile flow --[connectome.network_flow]--> per atom divergence, graph potential, its eigenmode coefficients, the gradient part's sums.
+//         end vertices + lengths + the grid's tiles at the stated level + the surface --[meeg.tile_pairs]--> tiles, pairs (count, median length, distance, across);
+//         pairs --[meeg.laplacian_eigenmodes]--> the connectome Laplacian's complete eigenmodes.
+// THE GRAPH (connectome_flow). before: the sensor serving operator (signal.mode_analysis, REUSED) + kernel + tiles --[signal.tile_operator]--> ONE operator [3T x K];
+//         stored chunk spectra + operator + atoms --[signal.tile_flow]--> per atom the whole run's tile cross-spectrum (pair sums, tile power);
+//         --[signal.tile_time_cells]--> the same per time cell of each atom --[stats.sign_flip_consistency, REUSED]--> per pair R1 and its p;
+//         pairs + eigenmodes + tile flow --[meeg.network_flow]--> per atom divergence, graph potential, its eigenmode coefficients, the gradient part's sums.
 // Every node is a function of arrays: no file, no subject, no loop over a recording.
 #include "nxr/pipelines/connectome_flow_steps.h"
 
@@ -210,8 +210,8 @@ ng::NodeSpec fiber_lengths() {
   return n;
 }
 
-// ── connectome.tile_pairs ────────────────────────────────────────────────────────────────────────────────────────
-const char* const kPairs = "connectome.tile_pairs";
+// ── meeg.tile_pairs ────────────────────────────────────────────────────────────────────────────────────────
+const char* const kPairs = "meeg.tile_pairs";
 ng::NodeSpec tile_pairs() {
   ng::NodeSpec n;
   n.name = kPairs;
@@ -284,7 +284,7 @@ ng::NodeSpec tile_pairs() {
 struct PairsRead { std::int64_t tiles = 0, pairs = 0; Eigen::VectorXd count, weight; Json codes; };
 PairsRead pairs_read(const ng::Array& pairs, double minStreamlines, const char* who) {
   const Json pr = producer_of(pairs);
-  if (!pr.contains("tiles") || pairs.cols != 6) ng::refuse(std::string(who) + ": pairs is not connectome.tile_pairs' pairs (`nxr-neuro run tile_network` first)");
+  if (!pr.contains("tiles") || pairs.cols != 6) ng::refuse(std::string(who) + ": pairs is not meeg.tile_pairs' pairs (`nxr-neuro run tile_network` first)");
   PairsRead r;
   r.tiles = pr["tiles"]; r.pairs = pairs.rows; r.codes = pr.value("codes", Json::array());
   if (r.pairs != r.tiles * (r.tiles - 1) / 2) ng::refuse(std::string(who) + ": the pairs are not every pair of the tiles");
@@ -293,13 +293,13 @@ PairsRead pairs_read(const ng::Array& pairs, double minStreamlines, const char* 
   return r;
 }
 
-// ── connectome.laplacian_eigenmodes ──────────────────────────────────────────────────────────────────────────────
-const char* const kModes = "connectome.laplacian_eigenmodes";
+// ── meeg.laplacian_eigenmodes ──────────────────────────────────────────────────────────────────────────────
+const char* const kModes = "meeg.laplacian_eigenmodes";
 ng::NodeSpec laplacian_eigenmodes() {
   ng::NodeSpec n;
   n.name = kModes;
   n.kind = ng::Kind::array;
-  n.inputs = {{"pairs", "the tile pairs (connectome.tile_pairs)", false}};
+  n.inputs = {{"pairs", "the tile pairs (meeg.tile_pairs)", false}};
   n.outputs = {{"eigenmodes", "the connectome Laplacian's eigenmodes [T x (1 + T)]: row k mode k, column 0 its eigenvalue, columns 1 .. T its value on each tile", false}};
   n.parameters = {{"min_streamlines", Json(), "a pair is an edge of the network when at least this many streamlines join it (no default; nxr: 10)", "streamlines", {}, false},
                   {"null_tolerance", Json(), "an eigenvalue at most this fraction of the largest is a null mode (one per connected component) (no default)", "-", {}, false}};
@@ -334,8 +334,8 @@ ng::NodeSpec laplacian_eigenmodes() {
   return n;
 }
 
-// ── connectome.tile_operator ─────────────────────────────────────────────────────────────────────────────────────
-const char* const kOperator = "connectome.tile_operator";
+// ── signal.tile_operator ─────────────────────────────────────────────────────────────────────────────────────
+const char* const kOperator = "signal.tile_operator";
 ng::NodeSpec tile_operator() {
   ng::NodeSpec n;
   n.name = kOperator;
@@ -344,7 +344,7 @@ ng::NodeSpec tile_operator() {
               {"tiles", "the surface's dyadic grid (a grid selection)", false},
               {"serving", "the operator the chunk spectra were served with (signal.mode_analysis: rows the field coordinates, columns the recording's channels)", false}};
   n.outputs = {{"operator", "the tile operator [3T x K] (rows 3 t + component of the tiles in code order; columns the served coordinates)", false}};
-  n.parameters = {{"tiles_per_piece", Json(), "the tiles of each piece, a power of two (as connectome.tile_pairs')", "parts", {}, false}};
+  n.parameters = {{"tiles_per_piece", Json(), "the tiles of each piece, a power of two (as meeg.tile_pairs')", "parts", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "made in double, once a run: a change of coordinates composed once");
   n.linear_map = true;
   n.matches = "nxr flownet's Kt (the kernel averaged over each tile's vertices, three components) applied to the channels, here composed with the served coordinates' synthesis; compute nxr::signal::tileOperator, servedSynthesis";
@@ -400,18 +400,18 @@ ng::NodeSpec tile_operator() {
   return n;
 }
 
-// ── connectome.tile_flow ─────────────────────────────────────────────────────────────────────────────────────────
+// ── signal.tile_flow ─────────────────────────────────────────────────────────────────────────────────────────
 struct FlowPrepared { ng::Array spectra, op, frequency; Json p; };
 FlowPrepared prepare_flow(const ng::Arrays& c, const Json& p) {
   return FlowPrepared{handed(c, "spectra", "connectome flow"), handed(c, "operator", "connectome flow"), handed(c, "frequency", "connectome flow"), p};
 }
-const char* const kFlow = "connectome.tile_flow";
+const char* const kFlow = "signal.tile_flow";
 ng::NodeSpec tile_flow() {
   ng::NodeSpec n;
   n.name = kFlow;
   n.kind = ng::Kind::array;
   n.inputs = {{"spectra", "the chunk spectra in the served coordinates (signal.chunk_spectra)", false},
-              {"operator", "the tile operator (connectome.tile_operator)", false},
+              {"operator", "the tile operator (signal.tile_operator)", false},
               {"frequency", "the atoms: a kernel set on the spectra's frequency line", false}};
   n.outputs = {{"flow", "per atom: Re S_ij and Im S_ij per pair i < j, S_ii per tile (the whole run's tile cross-spectrum, the components traced)", false}};
   n.parameters = {{"frequency_normalisation", Json(), "sum_of_squared_gains | none (as signal.spectral_flow's; no default)", "-", {"sum_of_squared_gains", "none"}, false},
@@ -465,17 +465,17 @@ ng::NodeSpec tile_flow() {
   return n;
 }
 
-// ── connectome.tile_time_cells ───────────────────────────────────────────────────────────────────────────────────
-const char* const kCells = "connectome.tile_time_cells";
+// ── signal.tile_time_cells ───────────────────────────────────────────────────────────────────────────────────
+const char* const kCells = "signal.tile_time_cells";
 ng::NodeSpec tile_time_cells() {
   ng::NodeSpec n;
   n.name = kCells;
   n.kind = ng::Kind::array;
   n.inputs = {{"spectra", "the chunk spectra in the served coordinates (signal.chunk_spectra)", false},
-              {"operator", "the tile operator (connectome.tile_operator)", false},
+              {"operator", "the tile operator (signal.tile_operator)", false},
               {"frequency", "the atoms: Gaussians on the spectra's frequency line (their time width sets the cells)", false}};
   n.outputs = {{"cells", "per atom, per time cell of the atom's own width: Σ Im(z_i conj z_j) per pair i < j, then Σ |z_i|² per tile (the format of signal.atom_time_cells: one band)", false}};
-  n.parameters = {{"frequency_normalisation", Json(), "sum_of_squared_gains | none (as connectome.tile_flow's; no default)", "-", {"sum_of_squared_gains", "none"}, false},
+  n.parameters = {{"frequency_normalisation", Json(), "sum_of_squared_gains | none (as signal.tile_flow's; no default)", "-", {"sum_of_squared_gains", "none"}, false},
                   {"support_floor", Json(), "with sum_of_squared_gains (no default)", "-", {}, true},
                   {"cell_width", Json(), "a time cell's width in the atom's time standard deviations (1 / (2 pi sigma_f)), snapped to the nearest power of two of samples (no default; the flow analysis: 2)", "-", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64,
@@ -535,15 +535,15 @@ ng::NodeSpec tile_time_cells() {
   return n;
 }
 
-// ── connectome.network_flow ──────────────────────────────────────────────────────────────────────────────────────
-const char* const kNetwork = "connectome.network_flow";
+// ── meeg.network_flow ──────────────────────────────────────────────────────────────────────────────────────
+const char* const kNetwork = "meeg.network_flow";
 ng::NodeSpec network_flow() {
   ng::NodeSpec n;
   n.name = kNetwork;
   n.kind = ng::Kind::array;
-  n.inputs = {{"pairs", "the tile pairs (connectome.tile_pairs)", false},
-              {"eigenmodes", "the connectome eigenmodes (connectome.laplacian_eigenmodes), made with the same min_streamlines", false},
-              {"flow", "the whole run's tile cross-spectrum per atom (connectome.tile_flow)", false}};
+  n.inputs = {{"pairs", "the tile pairs (meeg.tile_pairs)", false},
+              {"eigenmodes", "the connectome eigenmodes (meeg.laplacian_eigenmodes), made with the same min_streamlines", false},
+              {"flow", "the whole run's tile cross-spectrum per atom (signal.tile_flow)", false}};
   n.outputs = {{"network", "per atom: divergence per tile, graph potential per tile, its coefficient per connectome eigenmode, Σ w (B phi)², Σ w F²", false}};
   n.parameters = {{"min_streamlines", Json(), "a pair is an edge when at least this many streamlines join it (the eigenmodes' own; no default)", "streamlines", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "once: a derived measure of the stored sums (the edge flow, a ratio), then linear algebra on the T tiles");
@@ -587,7 +587,7 @@ ng::NodeSpec network_flow() {
       out.data.push_back(nf.weightedGradientSquares); out.data.push_back(nf.weightedFlowSquares);
     }
     const Json producer = Json{{"tiles", T}, {"atoms", A}, {"min_streamlines", minStreamlines}, {"null_modes", modes.nullModes}, {"codes", r.codes}, {"frequencies_hz", fp.value("frequencies_hz", Json::array())},
-                               {"edge_flow", "Im S_ij / sqrt(S_ii S_jj) of the whole run (connectome.tile_flow)"}, {"weights", "the edges' streamline counts"},
+                               {"edge_flow", "Im S_ij / sqrt(S_ii S_jj) of the whole run (signal.tile_flow)"}, {"weights", "the edges' streamline counts"},
                                {"derived_at_read", Json{{"gradient_share", "Σ w (B phi)² / Σ w F²"}, {"potential_energy_per_mode", "coefficient²"}}}, {"warnings", warnings()}};
     out.meta["shape"] = Json::array({A, 3 * T + 2}); out.meta["producer"] = producer;
     out.meta["describe"] = Json{{"method", "network_flow"}, {"measure", "network_flow"}, {"shape", Json::array({A, 3 * T + 2})},

@@ -22,17 +22,17 @@ B = 3 277 bins of [0, 60) Hz, A = 17 atoms.
 |---|---|---|
 | loading (io) | the fibre bundle (a curve, fibre-major points), the end surface (the kernel's cortex), the dyadic tiles of that surface (a grid selection: `select_dyadic_surface`) | by name |
 | preparation | the level of the tiles from a stated quantity (`parts 32` per hemisphere: level 5); the grid lies on the end surface (one label per vertex) | refused with the reason before any data |
-| graph | `meeg.fiber_ends` → `meeg.nearest_vertex` → `meeg.end_gate` (REUSED, the `connectome` definition's); `meeg.fiber_lengths` (NEW); `connectome.tile_pairs` (NEW); `connectome.laplacian_eigenmodes` (NEW) | fibres, surface, tiles → each tile pair's count and median length, each tile's centroid and piece; the connectome Laplacian's eigenmodes |
+| graph | `meeg.fiber_ends` → `meeg.nearest_vertex` → `meeg.end_gate` (REUSED, the `connectome` definition's); `meeg.fiber_lengths` (NEW); `meeg.tile_pairs` (NEW); `meeg.laplacian_eigenmodes` (NEW) | fibres, surface, tiles → each tile pair's count and median length, each tile's centroid and piece; the connectome Laplacian's eigenmodes |
 | readback | three statistics: `<name>_tiles`, `<name>_pairs`, `<name>_eigenmodes` | |
 
-- **the tiles** (`connectome.tile_pairs`): the grid's finest code of each vertex shifted to the stated level (`code >> (depth - level)`); a tile is a code some vertex
+- **the tiles** (`meeg.tile_pairs`): the grid's finest code of each vertex shifted to the stated level (`code >> (depth - level)`); a tile is a code some vertex
   holds. nxr's `surface_ladder` and the grid maker port the same ladder (equal-mass halving across the geodesic diameter, every tile one piece), so the codes agree:
   2^level x piece + tile.
 - **the pairs**: every pair of tiles (i < j, in code order) is an element; for each, the streamlines whose two ends lie in the two tiles (each end the nearest
   vertex of the end surface; an end outside the tiles, or both ends in one tile, is left out), their count and their median length; the Euclidean distance of the
   tiles' centroids (the mean position of their vertices) and whether they lie on different pieces (across the hemispheres). The EDGES of the network are a
   selection of the pairs: count >= `min_streamlines` (nxr: 10), made at read and by the nodes that need it, never a separate stored array.
-- **the connectome Laplacian** (`connectome.laplacian_eigenmodes`): L = D - W on the tiles, W the edges' streamline counts (symmetric), D its row sums; ALL its
+- **the connectome Laplacian** (`meeg.laplacian_eigenmodes`): L = D - W on the tiles, W the edges' streamline counts (symmetric), D its row sums; ALL its
   eigenmodes by one dense symmetric eigensolve (T x T: the tile graph is small), eigenvalues ascending. Its null space has one mode per connected component of the
   network (stated: eigenvalues below `1e-10 x the largest`). These are the connectome eigenmodes of the reference.
 - **a fibre's length** (`meeg.fiber_lengths`): the sum of its segments' lengths, in the bundle's unit (SCS metres), so a speed is metres per second without a factor.
@@ -42,8 +42,8 @@ B = 3 277 bins of [0, 60) Hz, A = 17 atoms.
 | part | piece | in → out |
 |---|---|---|
 | loading (io) | the stored chunk spectra (`sensor_flow`'s `<name>_chunk_spectra`: the cross-spectrum in its factored form); the atoms (a kernel set); the sensor surface's eigenvectors and channel map (to make the serving operator again); the inverse kernel (by name: the caller's, free orientation); the tiles; the network's `<name>_pairs` and `<name>_eigenmodes` | by name; never the recording |
-| preparation | `signal.mode_analysis` (REUSED, as `sensor_flow` binds it: the serving operator, `exact_and_constant`, `unit_mass`); `connectome.tile_operator` (NEW): the kernel averaged over each tile's vertices, composed with the synthesis of the served coordinates back to the kernel's channels: ONE operator [3T x K], built once | the spectra's coordinates must be the serving operator's rows; the kernel's channels must be the serving operator's channels; the kernel's surface the tiles' |
-| graph | `connectome.tile_flow` (NEW): the whole run's tile cross-spectrum per atom; `connectome.tile_time_cells` (NEW): the same sums per time cell of each atom; `stats.sign_flip_consistency` (REUSED, the sensor chain's); `connectome.network_flow` (NEW): divergence, graph potential, its connectome-eigenmode coefficients, the gradient part's sums | spectra, operator, atoms → per atom: pair sums, tile power; per cell: pair sums; per pair: consistency and p; per tile and mode: divergence, potential, coefficients |
+| preparation | `signal.mode_analysis` (REUSED, as `sensor_flow` binds it: the serving operator, `exact_and_constant`, `unit_mass`); `signal.tile_operator` (NEW): the kernel averaged over each tile's vertices, composed with the synthesis of the served coordinates back to the kernel's channels: ONE operator [3T x K], built once | the spectra's coordinates must be the serving operator's rows; the kernel's channels must be the serving operator's channels; the kernel's surface the tiles' |
+| graph | `signal.tile_flow` (NEW): the whole run's tile cross-spectrum per atom; `signal.tile_time_cells` (NEW): the same sums per time cell of each atom; `stats.sign_flip_consistency` (REUSED, the sensor chain's); `meeg.network_flow` (NEW): divergence, graph potential, its connectome-eigenmode coefficients, the gradient part's sums | spectra, operator, atoms → per atom: pair sums, tile power; per cell: pair sums; per pair: consistency and p; per tile and mode: divergence, potential, coefficients |
 | readback | `<name>_tile_flow`, `<name>_tile_cells`, `<name>_sign_flip`, `<name>_network_flow` (statistics) | derived at read: edge flow, lag, speed, shares, counts over the edges and the control |
 
 ### The maths
@@ -57,14 +57,14 @@ assumed): z_t(k) = M y_t(k).
   Im(conj(z_tail) z_tip) is its negative for the pair's orientation.
 - **the lag and the speed** (derived at read): lag = -arg(S_ij) / (2 pi f_a), f_a the atom's centre; speed = median length / |lag| on the consistent edges. An upper
   bound: leakage pulls lags towards zero.
-- **the time cells** (`connectome.tile_time_cells`): per atom and chunk, the atom's band signal back in time: the tile operator composed with the atom's gains on its
+- **the time cells** (`signal.tile_time_cells`): per atom and chunk, the atom's band signal back in time: the tile operator composed with the atom's gains on its
   bins FIRST (M y g_a: [3T x the atom's bins]), one inverse transform per row, the chunk's own samples kept (the overlap dropped), then per cell of the atom's own
   width (`cell_width` time standard deviations, snapped to a power of two of samples, as `signal.atom_time_cells` does) the sums Σ_c Σ_samples z_i conj(z_j) for every
   pair (Im part) and |z_i|² per tile. The per-cell sums over all pairs are one product of [T x cell] blocks per component (the cheapest order: the pairs are every
   pair, not a sparse set); no matrix of a single sample is formed.
 - **the test**: `stats.sign_flip_consistency` (elements `edges`, one value per pair) on the cells' Im sums: per pair R1 = |Σ_cells sign| / cells, its p against
   random sign patterns over the cells and the family-wise p over all pairs (the null maximum).
-- **the network** (`connectome.network_flow`), per atom, on the edges (count >= `min_streamlines`), weights w = their counts, B the incidence (edge e = (i → j):
+- **the network** (`meeg.network_flow`), per atom, on the edges (count >= `min_streamlines`), weights w = their counts, B the incidence (edge e = (i → j):
   -1 at i, +1 at j):
   - divergence d = Bᵀ F (per tile; the reference's sign: the flow into a tile minus the flow out of it);
   - the graph potential phi: the weighted least-squares fit of F by a gradient, Bᵀ W B phi = Bᵀ W F, i.e. L phi = Bᵀ W F with L the connectome Laplacian above.
