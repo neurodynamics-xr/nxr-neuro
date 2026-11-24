@@ -460,6 +460,8 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run sensor_surface` | The channels as a surface: a triangulated helmet whose vertices are the picked channels, a derived manifold with its vertex-to-channel map. | (new) |
 | `nxr-neuro run spectral_coefficients` | The mode-space Fourier coefficients of a recording per time tile, through a composed spatial operator (a package's modes and a free kernel, or the sensor surface's channel map). | (new) |
 | `nxr-neuro run sensor_flow` | The flow of the field on the sensor surface per atom of the joint frequency x eigenvalue level: chunk spectra with overlap, power, phase currents, Hodge-Dirac flow, band pairs, time cells and their sign-flip test, an optional aperiodic fit. | (new) |
+| `nxr-neuro run sensor_bispectrum` | The bispectrum of the stored chunk spectra in eigenmode coordinates, weighted by the flow's frequency atoms (one gain per axis): phase-amplitude coupling and harmonics (waveform shape from the biphase), with the bicoherence's sums; per coordinate or per vertex (per band). | (new) |
+| `nxr-neuro run sensor_flow_across_frequencies` | Whether the sensor flow moves at the same speed and direction across frequencies: per pair of atoms the cosines of their flows, per vertex the direction consistency and the slope of apparent speed against frequency, from the flow's stored results. | (new) |
 | `nxr-neuro run roll_up` | A measurement rolled up through its grid's hierarchy, or across a group's subjects (scope group). | `run roll_up` |
 | `nxr-neuro run band_analytic`, `cortical_band`, `member_activation`, `band_outer` | Field chains: pointwise fields (a band's analytic signal, the band on the cortex, one filter-bank member's activation, z z^H), run alone or composed into `measure`. | the steps of `pyramid`, `cortical_band_cells`, `opticalflow` |
 | `nxr-neuro run lowpass` | A zero-phase low-pass filter, written as a new recording. | `lowpass` |
@@ -1170,6 +1172,41 @@ two sensor spacings; a whole-run cross-spectrum keeps the net quadrature only; a
 flow depends on the eigenvalue bands (always stated). Memory: the chunk spectra (coordinates x bins x chunks complex float32, about 7 MB a chunk for 268 sensors
 and [0, 60) Hz at 1200 Hz) and, in the time cells, one atom's band signal of one chunk (vertices x transform samples complex). Tests: `test_spectral_flow`,
 `test_sign_flip` (golden: numpy and nxr's flip_test), `test_aperiodic` (golden: nxr), `test_sensor_flow` (the nodes on a synthetic sphere).
+
+## The bispectrum in eigenmode coordinates (`run sensor_bispectrum`; the node `signal.bispectrum`; compute `nxr/signal/bispectrum.h`; spec `docs/specs/2026-11-24-bispectrum.md`)
+
+Why: the relations between frequencies that survive a sum over a run are triple products (a cross-spectrum holds none). One pipeline reads them from the SAME stored chunk
+spectra the sensor flow serves (each chunk's spectrum in the sensor surface's field coordinates; never the recording again). Per triple of frequency atoms (one gain per axis:
+g1 on the first frequency, g2 on the second, g3 on their sum) and per element, B = Σ over the chunks and every pair of bins of g1 x(f1) g2 x(f2) conj(g3 x(f1 + f2)): the direct
+(FFT-based) estimate (Hagihira et al. 2001; Sigl and Chamoun 1994) weighted by atoms. Readings, each with its published reference as the default: `phase_amplitude_coupling`
+(low, high, high) for every pair with the high centre above the low (bispectral phase-amplitude coupling, Zandvoort and Nolte 2021: B = N² Σ over the transform's samples
+of z_low |z_high|², its modulus the coupling and its argument the low phase where the high amplitude peaks), `harmonics` (atom, atom, the atom at twice its frequency: the
+harmonic of a non-sinusoidal waveform; the biphase gives its shape, Bartz et al. 2019: real part > 0 sharp peaks, < 0 sharp troughs; imaginary part > 0 slow rise and fast
+decay, < 0 the reverse). `--normalisation`: `threenorm` (default; Shahbazi Avarvand et al. 2018, used by both references: the cube sums Σ w|x(f1)|³, Σ w|x(f2)|³,
+Σ w|x(f1 + f2)|³, w = g1 g2 g3; bicoherence |B| / cbrt of their product, at most 1), `kim_powers` (Kim and Powers 1979, Hagihira et al. 2001: Σ w|x(f1) x(f2)|² and
+Σ w|x(f1 + f2)|²; bicoherence² |B|² over their product), `none`. Every ratio (bicoherence, biphase, asymmetry) is derived at read from the stored sums. `--space`:
+`coordinates` (each field coordinate with itself; a band is a selection of these rows at read) or `surface` (each vertex: the coordinates' synthesis, composed with each
+eigenvalue band's gains first with `--banded true`, applied to the coefficients). The atoms are the flow's (`--frequency-normalisation`, `--support-floor` as `sensor_flow`'s).
+Cheapest order: never per pair of bins and never a modes³ x bins² object; triples sharing their (second, sum) gains share one correlation along the frequency line (one
+transform of the gains' supports, rows at a time), read with each first gain by a dot product (or (first, second) convolved once, whichever has fewer distinct pairs, stated in
+the producer); the cube sums and the sum power need only the gains' own correlations, made once per triple. Stored: one statistic [elements x triples (x bands) x measures]
+(`bispectrum_real`, `bispectrum_imaginary` and the normalisation's sums) with each triple's atoms, centres and weight. What it cannot resolve: the field on the helmet only; a
+whole-run sum (coupling whose phase drifts cancels; single events are the burst pipelines'); coupling only where the high atom is wider than the low frequency (the weight is
+stored); harmonics above the span are not read; a harmonic and a coupling of f with itself are not told apart; the reflected ends reverse time in the first and last
+overlaps; each element with itself only (no coupling between coordinates or vertices); bicoherence is biased upward by few chunks (compare with a null). Tests:
+`test_bispectrum` (against the direct sums for both groupings; synthetic coupling, sawtooth and waves with sharp peaks; Gaussian noise), `test_sensor_bispectrum` (the node on
+chunk spectra served on a synthetic sphere).
+
+## The flow across frequencies (`run sensor_flow_across_frequencies`; the node `signal.flow_across_frequencies`; compute `nxr/signal/flow_across_frequencies.h`; spec `docs/specs/2026-11-24-bispectrum.md`)
+
+Why: whether a flow moves at the same speed and in the same direction at every frequency is a READOUT of the flow pipeline's own per-atom results, a statistic over the
+members of the atoms' level: it reads the stored `<name>_flow_edges`, `_flow_modes`, `_flow_vertices` of `sensor_flow`, never the recording. Per pair of atoms: the cosine of
+their edge phase currents in the edges' Hodge inner product (star1), of their travel (exact) and of their rotation (coexact) Hodge-Dirac coefficients. Per vertex: the
+direction consistency |Σ_a u_a| / n (u_a the unit vertex phase current of atom a) and the least-squares slope and intercept of log apparent speed (2 pi f power / |vertex
+phase current|, an upper bound) against log frequency: 0 the same speed at every frequency, 1 the same wavelength. Stored: `<name>_atom_pairs` [atoms x atoms x 3],
+`<name>_dispersion` [vertices x 4]. What it cannot resolve: the apparent speed is an upper bound; a whole-run flow keeps the net quadrature only (an event's flow is compared by
+the same node from the atoms' time cells measured over the event: the graph is in the spec); one run gives descriptions, not a test. Tests: `test_bispectrum`,
+`test_sensor_bispectrum` (waves at two frequencies with the same wavelength: slope 1; the same speed: slope 0).
 
 ## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 
