@@ -15,6 +15,8 @@
 
 #include "check.h"
 #include "nxr/io.h"
+#include "nxr/io/catalogue.h"
+#include "nxr/io/migrate.h"
 #include "nxr/io/npy.h"
 #include "nxr/io/task/commands.h"
 #include "nxr/io/task/handle.h"
@@ -622,6 +624,46 @@ int main() {
     whole.created_by = by;
     CHECK(has(thrown([&] { task::delete_subject(whole); }), "refused: --by goes with --node"));      // --by names a node's author: never the whole subject
     CHECK(!read()["manifolds"].empty());                                                               // the subject is still there
+  }
+
+  // ---- `delete subject --node` on a catalogue of subject packages (a package has no datastore: its arrays go through the package's own node store); a used node is still refused
+  {
+    const fs::path pk = face::synthetic_dataset(root, "pk", "S1", "rest", 3, 100.0, 40.0);
+    {
+      auto basep = [&](auto& r, const std::string& name) { r.dataset = pk.string(); r.subject = "S1"; r.name = name; r.created_by = by; };
+      task::AddFieldRequest f;
+      basep(f, "pf1");
+      f.manifold = "sensors";
+      f.values = mem("float64", {3}, std::vector<double>{1, 2, 3});
+      task::add_field(f);
+      task::AddFieldRequest d2 = f;
+      d2.name = "pf2";
+      d2.derived_from = "pf1";
+      task::add_field(d2);
+    }
+    SplitOptions sp;
+    sp.registered_by = "test";
+    split_dataset(pk, sp);
+    auto fields_of = [&]() { task::ListClassRequest q; q.cls = "fields"; q.dataset = pk.string(); q.subject = "S1"; return face::list_class(q).result["rows"]; };
+    // the package's own node store holds a field's arrays: `pf2`'s path, and whether anything is stored under it (the writer is closed again before a command opens the package)
+    auto stored = [&](const std::string& name, std::string& path) {
+      DatasetWriter w = open_subject_package(pk, "S1");
+      SubjectWriter sw = SubjectWriter::open(w, "S1");
+      if (path.empty()) { const auto r = sw.by_name("field", name); if (r) path = text(*r, "path"); }
+      const bool there = !path.empty() && w.node_store().exists_prefix(pk.filename().string() + "/" + text(sw.row(), "path") + "/" + path);   // the package store's key: the dataset folder, the subject's folder, the node's path
+      w.close();
+      return there;
+    };
+    auto delp = [&](const std::string& node) { task::DeleteSubjectRequest q; q.dataset = pk.string(); q.subject = "S1"; q.node = node; q.created_by = by; return task::delete_subject(q); };
+    CHECK(named(fields_of(), "pf1") != nullptr && named(fields_of(), "pf2") != nullptr);
+    CHECK(has(thrown([&] { delp("field:pf1"); }), "delete those first"));                          // used by pf2: refused, nothing deleted
+    CHECK(named(fields_of(), "pf1") != nullptr);
+    std::string pf2_path;
+    CHECK(stored("pf2", pf2_path));                                                                  // its arrays are in the package
+    CHECK_EQ(delp("field:pf2").result["removed"].get<std::string>(), std::string("pf2"));
+    CHECK(named(fields_of(), "pf2") == nullptr);
+    CHECK(!stored("pf2", pf2_path));                                                                 // its arrays are gone from the package
+    CHECK_EQ(delp("field:pf1").result["removed"].get<std::string>(), std::string("pf1"));            // free now
   }
 
   return nxrtest::finish("test_pieces_deletes_jobs");

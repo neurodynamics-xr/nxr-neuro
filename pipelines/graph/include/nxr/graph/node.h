@@ -42,6 +42,11 @@ struct NodeTraits {
   OutputPrecision output = OutputPrecision::undeclared;
   bool uncertain = false;                               // the classification is a judgement the maintainers should confirm
   std::string note;                                     // why, in a sentence
+  /** TYPED AXES (opt in): every output this node's plan gives is `typed`, and each factor of its domain (an operator's target too) is a stored manifold (Form::id), the members of a
+   *  stored selection or of one the run makes (Form::members), a restriction of such a manifold by such a selection or one of its members (`<selection>#<member>`, Form::restricted), or a line
+   *  the node makes FROM a stored line by a transform, which io stores by key (Form::made with made_from). The runner refuses any other axis at preparation, before data flows, and writes the
+   *  axes' links when it stores the output. A selection the run makes is named `<node>.<port>`. */
+  bool typed_axes = false;
   bool declared() const { return time != TimeBehaviour::undeclared && computes_in != Precision::undeclared && output != OutputPrecision::undeclared && (time != TimeBehaviour::windowed || !window_rule.empty()); }
 };
 inline NodeTraits node_traits(TimeBehaviour time, Precision computes_in, OutputPrecision output, std::string note, std::string window_rule = {}, bool uncertain = false) {

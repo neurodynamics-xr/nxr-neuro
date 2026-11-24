@@ -9,6 +9,7 @@
 // Conventions: `find` returns one node or none and throws Error(ambiguous) when several match (the message names them); `require` throws Error(no_such_row) naming
 // what was asked for; only complete nodes are found unless `Want::status` says otherwise; `find_all` is ordered by name, then id.
 #pragma once
+#include <map>
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -234,6 +235,14 @@ struct GridOut {
   std::vector<GridLevelOut> levels;
 };
 // a Selection on a manifold: a partition or set (a code per element), spans (on a time line), or a tiling (a closed-form spans Selection)
+// one KERNEL member of a kernel set: its anchor, a span [start, stop) on the manifold's coordinate (an instant when start == stop: the profile's centre), and its profile
+struct KernelOut {
+  double start = 0, stop = 0;
+  std::int64_t code = 0;
+  std::string family, chart;                       // gaussian | box ...; log2 | linear | log10
+  double gain = 1;
+  std::map<std::string, double> params;            // the family's parameters (gaussian: fwhm, in the chart's units)
+};
 struct SelectionOut {
   std::string name, output, type, manifold_id;     // type: partition · set · indices · spans · tiling · cells (a closed-form set: codes by a rule, no element stored) · grid (a dyadic grid with levels, or a line's time grid: `grid`) · product (`factor_ids`)
   std::optional<GridOut> grid;                     // grid
@@ -247,11 +256,15 @@ struct SelectionOut {
   std::vector<std::string> factor_ids;             // product (the Studio's D100, mixed radix, first factor fastest): the factors' stored selections, in order (>= 2)
   std::vector<int> factor_levels;                  // product (schema 53): the LEVEL of each factor that is a grid (`ladder`), -1 for a factor as it is; empty: all -1. A coupled level (a band's) is named here, never made a row of its own
   std::vector<std::int64_t> radices;               // product: each factor's radix; required for a factor that is a level of a grid (its member count there); empty: the factors' member counts
-  std::vector<std::string> entries;                // the codes' names (a dictionary of the selection's own), when any
+  std::vector<std::string> entries;                // the codes' names (a dictionary of the selection's own), when any: entry k names code k
+  // the codes' names with their own codes and colours (a labelling carried from another one: an atlas's dictionary and one more entry); when given, it is the dictionary and `entries` is not used
+  struct LookupEntry { std::int64_t code = 0; std::string name; std::optional<std::array<int, 3>> colour; };
+  std::vector<LookupEntry> lookup;
   std::optional<std::string> of_field_id, description, label, acquisition;
   Json params;                                     // the selection's parameters (null: none)
   Json producer;
   Values weights;                                  // one weight a member, float32 or float64 (empty: none): stored beside the selection and named in its parameters (`weights`)
+  std::vector<KernelOut> kernels;                  // kernels: one member a kernel (type `kernels`): stored as a set whose members are kernel selections
 };
 // a closed-form line (a frequency axis, a bin axis): n points of `spacing` from `origin`, in `unit`; found by name and reused when it fits
 struct LineOut {
@@ -274,6 +287,8 @@ struct SurfaceOut {
   std::optional<std::string> derived_from_id, acquisition_id, description;
   Values vertices;                                 // [n x 3], float64
   std::vector<std::int32_t> faces;                 // [m x 3], counter-clockwise seen from outside
+  std::optional<std::int64_t> n_edges;             // its edge count, when the maker knows it (the glue: a sphere's, V + F - 2); the face count is always the faces'
+  std::optional<bool> closed;                      // whether the maker checked it closed (every edge on two faces) and consistently oriented (the glue does)
   Json producer;
 };
 // a manifold of POINTS with ONE coordinate each (an operator's mode axis: the eigenvalues): found by path and REPLACED when asked, its coordinates [n] in float64
@@ -293,8 +308,10 @@ struct ComplexOut {
   std::optional<std::string> path;                 // default: `source/<name>`
   std::string cs_key = "scs";
   std::optional<std::string> derived_from_id, description, acquisition_id;
-  Values vertices;                                 // [n x 3], float64
+  Values vertices;                                 // [n x 3], float64 (empty with `geometry_of`)
   std::vector<std::int32_t> edges, faces;          // [nE x 2], [nF x 3]
+  // the manifold whose GEOMETRY it shares (same positions, no copy): an intrinsic triangulation is the surface's geometry with its own topology (its own edges and faces)
+  std::optional<std::string> geometry_of;
   Json producer;
 };
 // a product of MANIFOLDS (a sensor × time line, a surface × frequency): its factors in axis order, existing or made in the same unit. (A product of SELECTIONS, with factor levels, is `SelectionOut` type "product".)
@@ -402,6 +419,8 @@ class Subject {
   std::optional<Node> by_id_or_name(Cls, const std::string& key) const;   // the complete node with that id or that name (an id match first)
   std::optional<std::string> line_named(const std::string& name) const;   // the id of the manifold of type line with that name (any status)
   std::optional<std::string> manifold_named(const std::string& name) const;   // the id of the manifold with that name (the subject's, any status)
+  // the one-sided frequency line of a span of n samples at fs on a time line, found by its key (its analytic `fft` operator row); none when it was never made (Unit::frequency_line makes it)
+  std::optional<std::string> frequency_line_of(const std::string& time_line_id, std::int64_t n, double fs) const;
   // the time lines a complete recording lies on (the line factors of its product manifold): every recording's, first seen first; or the named recording's first
   std::vector<std::string> recording_time_lines() const;
   std::optional<std::string> recording_time_line(const std::string& recording) const;
@@ -472,6 +491,9 @@ class Unit {
   std::int64_t measurements(const MeasurementOut&);   // the rows written (one a measure); a measure already there for the field is replaced
   // MANIFOLDS (the sixth kind): made first, so the other results of the unit can lie on them; each found and reused when identical, never replaced
   std::string line(const LineOut&);
+  // the one-sided frequency line of a span of n samples at fs on a time line of this subject (origin 0, spacing fs / n, n / 2 + 1 bins): found by (time line, n, fs) through its analytic `fft` operator
+  // row, else a line of the same grid under `legacy_name` (the old per-recording name), else made with that operator row. Named `<time line>_freq_L<k>` for n = 2^k, else `_freq_n<n>`.
+  std::string frequency_line(const std::string& time_line_id, std::int64_t n, double fs, const std::string& legacy_name = "");
   std::string surface(const SurfaceOut&);
   std::string product(const ProductOut&);
   std::string points(const PointsOut&);            // found by path and kept when it holds the same coordinates; another one's is replaced by `replace` first
@@ -480,6 +502,9 @@ class Unit {
   // EDITS of what is stored (each inside the unit, a node's description only, never its arrays): a manifold's label, description and primary flag (making a surface primary clears the one before it,
   // in the same unit); a dictionary's entry or its whole entry list
   void edit_manifold(const std::string& manifold_id, const std::optional<bool>& primary, const std::optional<std::string>& label, const std::optional<std::string>& description);
+  // one entry of a manifold's provenance record (`producer_json[key]`) set to `value`, with an edit entry appended (`producer_json.edits`: the key, who, when, the note): what a migration adds to a
+  // record made by an earlier version (the glue's relation); the manifold's arrays are not touched
+  void edit_manifold_producer(const std::string& manifold_id, const std::string& key, const Json& value, const std::string& note);
   struct EntryEdit { std::optional<std::string> name, label, description; std::optional<std::array<int, 3>> colour; Json params; };
   void edit_dictionary_entry(const std::string& dictionary_id, std::int64_t code, const EntryEdit& edit);
   void replace_dictionary_entries(const std::string& dictionary_id, const std::vector<DictionaryOut::Entry>& entries);

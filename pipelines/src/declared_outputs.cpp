@@ -12,6 +12,8 @@
 #include "nxr/pipelines/input.h"
 #include "nxr/io/hash.h"
 #include "nxr/pipelines/bound.h"
+#include "nxr/graph/node.h"
+#include "nxr/graph/type_json.h"
 
 namespace nxr::pipelines::graph {
 
@@ -170,10 +172,12 @@ const Value* base_input(const Plan& P, const std::string& ref) {
 task::Values values_of(const ng::Array& a, const std::vector<std::int64_t>& shape, bool single, const std::string& o) {
   std::int64_t n = 1;
   for (const auto d : shape) n *= d;
-  if (n != static_cast<std::int64_t>(a.data.size())) bad(o, std::to_string(a.data.size()) + " values for the shape the node describes (" + std::to_string(n) + ")");
+  if (n != static_cast<std::int64_t>(a.size())) bad(o, std::to_string(a.size()) + " values for the shape the node describes (" + std::to_string(n) + ")");
   task::Values v;
   v.shape = shape;
-  if (single) v.f32.assign(a.data.begin(), a.data.end());
+  if (a.is_single()) {                                                      // a node that held its values in single precision (precision follows the input): no double copy
+    if (single) v.f32 = a.single; else v.f64.assign(a.single.begin(), a.single.end());
+  } else if (single) v.f32.assign(a.data.begin(), a.data.end());
   else v.f64 = a.data;
   return v;
 }
@@ -284,6 +288,127 @@ std::string acquisition_of(const Plan& P, const std::string& input) {
   if (!P.found.count(input) || !P.found.at(input).row) return {};
   return nxr::io::opt_text(*P.found.at(input).row, "acquisition_id").value_or("");
 }
+
+// ── THE TYPED AXES (NodeTraits::typed_axes): a node that opts in declares every axis of its outputs as a stored thing; the runner refuses any other at preparation (before data flows) and
+// writes the links when it stores. The forms that resolve: a stored manifold (id), the members of a selection (found, or one this run stores), a restriction of a resolvable manifold by such a
+// selection or one of its members (`<selection>#<member>`), and a line made from a stored line by a transform (io's frequency line, keyed by the time line, the samples and the rate).
+const Planned* maker_of(const Plan& P, const std::string& o) {
+  for (const Planned& p : P.steps) for (const auto& [port, name] : p.outs) { (void)port; if (name == o) return &p; }
+  return nullptr;
+}
+bool typed_axes_of(const Plan& P, const std::string& o) {
+  const Planned* p = maker_of(P, o);
+  if (!p || !p->step) return false;
+  if (const ng::NodeSpec* n = ng::registry().find(p->step->name)) return n->traits.typed_axes;
+  return p->step->traits.typed_axes;
+}
+// a selection a domain names: found (its id), or made by this run as the output `<node>.<port>` names (a declared selection); `#member` names one of its members
+struct SelectionRef { std::string found_id, output, member; };
+std::optional<SelectionRef> selection_ref(const Plan& P, const std::string& by) {
+  SelectionRef r;
+  std::string s = by;
+  if (const auto h = s.find('#'); h != std::string::npos) { r.member = s.substr(h + 1); s = s.substr(0, h); }
+  for (const auto& [k, v] : P.found) {
+    (void)k;
+    if (v.row && (v.cls == "selection" || v.cls == "spans" || v.cls == "labelling") && text(*v.row, "id") == s) { r.found_id = s; return r; }
+  }
+  const auto dot = s.rfind('.');
+  if (dot == std::string::npos) return std::nullopt;
+  const std::string node = s.substr(0, dot), port = s.substr(dot + 1);
+  for (const Planned& p : P.steps)
+    if (p.step && p.step->name == node && p.outs.count(port)) {
+      const std::string out = p.outs.at(port);
+      if (P.definition.outputs.contains(out) && kind_of(P.definition.outputs[out]) == "selection") { r.output = out; return r; }
+    }
+  return std::nullopt;
+}
+bool input_manifold(const Plan& P, const std::string& id) {
+  for (const auto& [k, v] : P.found) { (void)k; for (const auto& m : v.manifolds) if (m == id) return true; }
+  return false;
+}
+const char* form_name(ng::Manifold::Form f) {
+  switch (f) {
+    case ng::Manifold::Form::id: return "a stored manifold";
+    case ng::Manifold::Form::anonymous: return "an anonymous manifold";
+    case ng::Manifold::Form::variable: return "a variable";
+    case ng::Manifold::Form::made: return "a made manifold";
+    case ng::Manifold::Form::restricted: return "a restriction";
+    case ng::Manifold::Form::members: return "a member set";
+    case ng::Manifold::Form::derived: return "a derived manifold";
+  }
+  return "?";
+}
+// why the factor does not resolve to something stored (empty: it does)
+std::string unresolved(const Plan& P, const ng::ManifoldRef& f) {
+  if (!f) return "an empty factor";
+  using F = ng::Manifold::Form;
+  switch (f->form) {
+    case F::id: return !f->key.empty() && input_manifold(P, f->key) ? std::string() : ng::print(f) + " is not a stored manifold the run's inputs lie on";
+    case F::members: return selection_ref(P, f->by) ? std::string() : ng::print(f) + ": '" + f->by + "' is neither a selection found nor one this run stores (a declared selection output)";
+    case F::restricted: {
+      const std::string w = unresolved(P, f->of);
+      if (!w.empty()) return w;
+      return selection_ref(P, f->by) ? std::string() : ng::print(f) + ": '" + f->by + "' is neither a selection found nor one this run stores (a declared selection output)";
+    }
+    case F::made:
+      if (!f->made_from || f->made_from->relation != "transform" || !f->made_from->of) return ng::print(f) + " is made here from no stored line (only a transform of a stored line is stored by key)";
+      if (f->made_from->of->form != F::id || !input_manifold(P, f->made_from->of->key)) return ng::print(f) + " is made from " + ng::print(f->made_from->of) + ", which is not a stored line of the run's inputs";
+      if (!f->rate || !(*f->rate > 0) || !f->spacing || !(*f->spacing > 0)) return ng::print(f) + " states no rate and spacing (the samples it is the transform of)";
+      return std::string();
+    default: return ng::print(f) + " is " + form_name(f->form) + ", not a stored thing";
+  }
+}
+void check_typed_axes(const Plan& P, const std::string& o) {
+  const Value& v = P.values.at(o);
+  if (!v.facts.contains("domain")) bad(o, "typed axes: its node declares typed axes but its plan gives this output no typed domain (declare every axis as a stored manifold, a selection's members, a restriction or a transform of a stored line)");
+  for (const char* key : {"domain", "target"}) {
+    if (!v.facts.contains(key)) continue;
+    const ng::Domain d = ng::domain_from_json(v.facts[key]);
+    if (d.empty()) bad(o, std::string("typed axes: its ") + key + " has no axis");
+    for (std::size_t i = 0; i < d.factors.size(); ++i)
+      if (const std::string w = unresolved(P, d.factors[i]); !w.empty()) bad(o, std::string("typed axes: axis ") + std::to_string(i) + " of its " + key + " is undeclared: " + w);
+  }
+}
+std::string selection_id_of(const Plan& P, const SelectionRef& r, const MadeIds& made, const std::string& o) {
+  if (!r.found_id.empty()) return r.found_id;
+  if (!made.count(r.output)) bad(o, "typed axes: the selection '" + r.output + "' is not stored before it");
+  return made.at(r.output);
+}
+// one axis's record, in the statistic table's axes_json form: {name, manifold_id | selection_id (both for a restriction), member?, unit?}
+Json axis_record(task::Unit& unit, const Plan& P, const MadeIds& made, const ng::ManifoldRef& f, const std::string& o) {
+  using F = ng::Manifold::Form;
+  Json r = Json::object();
+  r["name"] = f->label.empty() ? std::string(f->form == F::members ? "members" : "axis") : f->label;
+  if (f->form == F::id) r["manifold_id"] = f->key;
+  else if (f->form == F::made) r["manifold_id"] = unit.frequency_line(f->made_from->of->key, std::llround(*f->rate / *f->spacing), *f->rate);
+  else if (f->form == F::members || f->form == F::restricted) {
+    const auto ref = selection_ref(P, f->by);
+    if (!ref) bad(o, "typed axes: '" + f->by + "' does not resolve");
+    if (f->form == F::restricted) {
+      const Json of = axis_record(unit, P, made, f->of, o);
+      if (of.contains("manifold_id")) r["manifold_id"] = of["manifold_id"];
+      if (f->label.empty()) r["name"] = of["name"];
+    }
+    r["selection_id"] = selection_id_of(P, *ref, made, o);
+    if (!ref->member.empty()) r["member"] = ref->member;
+  } else {
+    bad(o, "typed axes: " + ng::print(f) + " is not a stored thing");
+  }
+  if (const std::string u = ng::coordinate_unit(*f); !u.empty()) r["unit"] = u;
+  return r;
+}
+// the records of a typed output's axes: each factor's, with its size (from the stored array's shape) and what the node adds about it (`describe.axes[i]`: the elements it covers)
+Json axis_records(task::Unit& unit, const Plan& P, const MadeIds& made, const std::string& o, const char* key, const std::vector<std::int64_t>& sizes, const Json& hints) {
+  const ng::Domain d = ng::domain_from_json(P.values.at(o).facts.at(key));
+  Json out = Json::array();
+  for (std::size_t i = 0; i < d.factors.size(); ++i) {
+    Json r = axis_record(unit, P, made, d.factors[i], o);
+    if (i < sizes.size()) r["size"] = sizes[i];
+    if (hints.is_array() && i < hints.size() && hints[i].is_object()) for (const auto& [k, v] : hints[i].items()) if (!r.contains(k)) r[k] = v;
+    out.push_back(std::move(r));
+  }
+  return out;
+}
 }  // namespace
 
 bool is_declared(const Json& spec) {
@@ -327,6 +452,8 @@ void check_declared(const Plan& P, const std::string& o) {
   if (v.cls != want && !array_output) bad(o, "declared " + k + " but its steps make a " + v.cls);
   if (v.chunked) bad(o, "a value inside the chunk loop is not stored: only what leaves it");
   if (declared_name(P, o).empty()) bad(o, "its name is empty");
+  const bool typed = typed_axes_of(P, o);
+  if (typed) check_typed_axes(P, o);                                        // every axis a stored thing, refused here, before any data flows
   if (k == "field") {
     if (spec.contains("on") && spec["on"].is_string() && !product_factors(spec["on"].get<std::string>()).empty()) {
       for (const auto& f : product_factors(spec["on"].get<std::string>())) link(P, f, nullptr, o);
@@ -368,16 +495,20 @@ void check_declared(const Plan& P, const std::string& o) {
       if (!P.found.count(r) && !P.definition.outputs.contains(r) && !optional_absent) bad(o, std::string(key) + ": '" + r + "' is neither a found input nor an output of this definition");
     }
   } else if (k == "operator") {
-    link_of(P, spec, "from", nullptr, o);
-    link_of(P, spec, "to", nullptr, o);
+    if (!typed || spec.contains("from")) link_of(P, spec, "from", nullptr, o);   // a typed operator's ends may come from its domain and target
+    if (!typed || spec.contains("to")) link_of(P, spec, "to", nullptr, o);
   } else if (k == "selection") {
     const std::string t = spec.value("type", std::string());
-    if (t != "partition" && t != "set" && t != "indices" && t != "spans" && t != "tiling" && t != "ladder" && t != "cells" && t != "grid" && t != "product") bad(o, "type: partition, set, indices, spans, tiling, ladder, cells, grid or product");
+    if (t != "partition" && t != "set" && t != "indices" && t != "spans" && t != "kernels" && t != "tiling" && t != "ladder" && t != "cells" && t != "grid" && t != "product") bad(o, "type: partition, set, indices, spans, kernels, tiling, ladder, cells, grid or product");
     if (t == "product") {                                                   // a product of selections (a grid when every factor is): its factors, each a link and, for a grid, the level it is at
       if (!spec.contains("factors") || !spec["factors"].is_array() || spec["factors"].size() < 2) bad(o, "a product selection's factors: a list of two or more {selection: LINK, level: N} (or LINK)");
       for (const auto& f : spec["factors"]) link(P, f.is_object() ? f.value("selection", std::string()) : f.get<std::string>(), nullptr, o);
     }
-    link_of(P, spec, "on", nullptr, o);
+    if (typed && !spec.contains("on")) {                                    // a typed selection lies on its domain's one factor
+      if (ng::domain_from_json(v.facts["domain"]).factors.size() != 1) bad(o, "a selection without `on` lies on its domain, which must have one axis");
+    } else {
+      link_of(P, spec, "on", nullptr, o);
+    }
   } else {
     const std::string t = spec.value("type", std::string());
     if (t != "line" && t != "surface" && t != "product" && t != "points" && t != "complex") bad(o, "type: line, surface, product, points or complex");
@@ -386,6 +517,7 @@ void check_declared(const Plan& P, const std::string& o) {
       for (const auto& f : spec["factors"]) link(P, f.get<std::string>(), nullptr, o);
     }
     if ((t == "surface" || t == "points" || t == "complex") && spec.contains("derived_from")) link_of(P, spec, "derived_from", nullptr, o);
+    if (t == "complex" && spec.contains("geometry_of")) link_of(P, spec, "geometry_of", nullptr, o);   // the manifold whose positions it shares (an intrinsic triangulation: the surface's)
   }
 }
 
@@ -400,6 +532,19 @@ std::string statistic_of(const Plan& P, const Json& spec, const std::string& o, 
   }
   return of;
 }
+
+namespace {
+// a typed output's axis as it is stored now (reading only): its manifold's id, or empty when it is not stored yet (a frequency line no run has made)
+std::string stored_factor(const Plan& P, const task::Subject& ts, const ng::ManifoldRef& f) {
+  using F = ng::Manifold::Form;
+  if (!f) return {};
+  if (f->form == F::id) return f->key;
+  if (f->form == F::restricted) return stored_factor(P, ts, f->of);
+  if (f->form == F::made && f->made_from && f->made_from->of && f->rate && f->spacing && *f->spacing > 0)
+    return ts.frequency_line_of(f->made_from->of->key, std::llround(*f->rate / *f->spacing), *f->rate).value_or("");
+  return {};
+}
+}  // namespace
 
 std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, const std::string& o, nxr::io::SubjectWriter& sub) {
   const Json& spec = P.definition.outputs[o];
@@ -426,7 +571,11 @@ std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, co
     out.emplace_back(task::Cls::statistic, path);
     if (spec.contains("partition")) out.emplace_back(task::Cls::selection, ts.node_path(link_of(P, spec["partition"], "on", nullptr, o), nxr::io::safe_name(fill(P, spec["partition"]["tiling"].get<std::string>()))));
   } else if (k == "operator") {
-    out.emplace_back(task::Cls::operator_, nxr::io::safe_name(name));
+    // an ANALYTIC operator (layout analytic, D93) has no bytes and no path: it is found or made with the manifold it lies on (the run's other outputs decide a hit), never a place of its own
+    if (spec.value("layout", std::string()) != "analytic") out.emplace_back(task::Cls::operator_, nxr::io::safe_name(name));
+  } else if (k == "selection" && !spec.contains("on") && typed_axes_of(P, o) && P.values.at(o).facts.contains("domain")) {
+    // a typed selection lies on its domain's one axis: its place is known when that manifold is stored (a frequency line found by its key); before, there is none
+    if (const std::string mid = stored_factor(P, ts, ng::domain_from_json(P.values.at(o).facts["domain"]).factors.at(0)); !mid.empty()) out.emplace_back(task::Cls::selection, ts.node_path(mid, name));
   } else if (k == "selection") {
     // on a manifold this run makes (a frequency line made with it): it has no place before that manifold is stored, and the store order puts the
     // manifold first, so it is checked there (a new manifold has no node to collide with)
@@ -493,7 +642,15 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       s.vertices = values_of(a, {a.rows, a.cols}, false, o);
       if (a.cols != 3) bad(o, "a surface's vertices are [n x 3]");
       for (const auto& f : d.value("faces", Json::array())) s.faces.push_back(f.get<std::int32_t>());
+      if (d.contains("edges_count") && d["edges_count"].is_number_integer()) s.n_edges = d["edges_count"].get<std::int64_t>();   // the maker's edge count, when it knows it (the glue: a sphere's)
+      if (d.contains("closed") && d["closed"].is_boolean()) s.closed = d["closed"].get<bool>();
       if (d.contains("producer") && d["producer"].is_object()) s.producer = d["producer"];
+      // a glued surface's relation names its hemispheres labelling by the output that stores it ({output: PORT}): its stored name
+      if (s.producer.is_object() && s.producer.contains("glue") && s.producer["glue"].is_object() && s.producer["glue"].contains("hemispheres") && s.producer["glue"]["hemispheres"].is_object()) {
+        const std::string port = s.producer["glue"]["hemispheres"].value("output", std::string());
+        if (!P.definition.outputs.contains(port)) bad(o, "its glue record names the output '" + port + "', which the definition does not declare");
+        s.producer["glue"]["hemispheres"] = declared_name(P, port);
+      }
       if (d.contains("description") && d["description"].is_string()) s.description = d["description"].get<std::string>();
       id = unit.surface(s);
     } else if (t == "points") {
@@ -518,8 +675,12 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       if (spec.contains("derived_from")) c.derived_from_id = link_of(P, spec, "derived_from", &made, o);
       if (d.contains("description") && d["description"].is_string()) c.description = d["description"].get<std::string>();
       if (d.contains("producer") && d["producer"].is_object()) c.producer = d["producer"];
-      if (a.cols != 3) bad(o, "a complex's vertices are [n x 3]");
-      c.vertices = values_of(a, {a.rows, a.cols}, false, o);
+      if (spec.contains("geometry_of")) {                                   // the same positions as the manifold it is made from (one geometry, its own topology): no vertices of its own
+        c.geometry_of = link_of(P, spec, "geometry_of", &made, o);
+      } else {
+        if (a.cols != 3) bad(o, "a complex's vertices are [n x 3]");
+        c.vertices = values_of(a, {a.rows, a.cols}, false, o);
+      }
       for (const auto& e : d.value("edges", Json::array())) c.edges.push_back(e.get<std::int32_t>());
       for (const auto& f : d.value("faces", Json::array())) c.faces.push_back(f.get<std::int32_t>());
       if (replace) clear(task::Cls::manifold, unit.path_of(c));
@@ -720,6 +881,10 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     }
     if (d.contains("band")) m.band = d["band"];                             // ONE band: the band's own, or the member of a band set (`within`)
     if (d.contains("attributes") && d["attributes"].is_object()) m.attributes = d["attributes"];   // the array describes its own axes
+    if (typed_axes_of(P, o)) {                                              // a typed node's axes: the links to what each one is (the statistic table's axes_json form)
+      if (!m.attributes.is_object()) m.attributes = Json::object();
+      m.attributes["axes"] = axis_records(unit, P, made, o, "domain", vshape, d.value("axes", Json()));
+    }
     // A VALUE THAT IS NOT A SCALAR (a window's z zH, a tile's crossing counts): the value's type and its components' names, from the declaration or the node (consolidation spec 6.1); and the statistic it
     // is of, and the level it is at when it is one level of a grid (the product's factor levels are in the product itself)
     if (spec.contains("value_type") && spec["value_type"].is_string()) m.value_type = spec["value_type"].get<std::string>();
@@ -750,8 +915,14 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   if (k == "operator") {
     task::OperatorOut op;
     op.name = name; op.output = o; op.kind = spec["operator_kind"].get<std::string>();
-    op.from_manifold_id = link_of(P, spec, "from", &made, o);
-    op.to_manifold_id = link_of(P, spec, "to", &made, o);
+    const bool typed_op = typed_axes_of(P, o);
+    Json from_axes, to_axes;
+    if (typed_op) {                                                         // a typed operator: its source and target as stored things (a target restricted to a selection names it)
+      from_axes = axis_records(unit, P, made, o, "domain", {}, Json());
+      if (P.values.at(o).facts.contains("target")) to_axes = axis_records(unit, P, made, o, "target", {}, Json());
+    }
+    op.from_manifold_id = typed_op && !spec.contains("from") ? from_axes.at(0).value("manifold_id", std::string()) : link_of(P, spec, "from", &made, o);
+    op.to_manifold_id = typed_op && !spec.contains("to") && to_axes.is_array() && !to_axes.empty() ? to_axes.at(0).value("manifold_id", std::string()) : link_of(P, spec, "to", &made, o);
     op.from_value_type = d.value("from_value_type", std::string("scalar"));
     op.to_value_type = d.value("to_value_type", std::string("scalar"));
     if (d.contains("description")) op.description = d["description"].get<std::string>();
@@ -767,6 +938,12 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       bad(o, std::string(key) + ": '" + r + "' is neither an output stored before it nor an input found");
     };
     op.from_selection_id = id_of("from_selection"); op.to_selection_id = id_of("to_selection");
+    if (typed_op) {                                                         // the axes' links, and a restriction's selection as the end's pick when the definition names none
+      if (!op.params.is_object()) op.params = Json::object();
+      op.params["axes"] = Json{{"from", from_axes}, {"to", to_axes}};
+      if (!op.from_selection_id && from_axes.at(0).contains("selection_id")) op.from_selection_id = from_axes.at(0)["selection_id"].get<std::string>();
+      if (!op.to_selection_id && to_axes.is_array() && !to_axes.empty() && to_axes.at(0).contains("selection_id")) op.to_selection_id = to_axes.at(0)["selection_id"].get<std::string>();
+    }
     op.of_statistic_id = id_of("of_statistic"); op.derived_from_id = id_of("derived_from");
     if (const auto inv = id_of("inverts")) {
       if (d.value("inverts", true)) { op.inverts_id = inv; op.inverse_kind = spec.value("inverse_kind", std::string("regularized")); }
@@ -777,7 +954,19 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (d.contains("to_cell") && d["to_cell"].is_string()) op.to_cell = d["to_cell"].get<std::string>();
     if (d.contains("chunks")) op.chunk_shape = ints(d["chunks"]);
     if (d.contains("shards")) op.shard_shape = ints(d["shards"]);
-    if (d.contains("sparse") && d["sparse"].is_object()) {
+    if (d.contains("analytic") && d["analytic"].is_object()) {
+      // an ANALYTIC operator (D93): no bytes, evaluated by its method from the geometry; its shape in cells of the two ends, its parameters in `params`
+      const Json& an = d["analytic"];
+      task::OperatorOut::Analytic x;
+      x.method = an.value("method", std::string());
+      x.n_rows = an.value("rows", std::int64_t(0)); x.n_cols = an.value("cols", std::int64_t(0));
+      if (x.method.empty() || x.n_rows < 1 || x.n_cols < 1) bad(o, "an analytic operator's description: {method, rows, cols}");
+      op.analytic = std::move(x);
+      // the one of its name already on that manifold (the run made again on a manifold found, not replaced) gives its place to the new one: an analytic row holds nothing of its own
+      task::Want same{.cls = task::Cls::operator_};
+      same.name = op.name; same.from_manifold_id = op.from_manifold_id;
+      for (const auto& n : task::Subject::of(sub).find_all(same)) if (!n.path) unit.remove_unstored(task::Cls::operator_, n.id);
+    } else if (d.contains("sparse") && d["sparse"].is_object()) {
       // a SPARSE operator: the node's array holds the nnz values, its description the structure (csr: indptr [rows + 1], indices [nnz])
       const Json& sp = d["sparse"];
       task::OperatorOut::Sparse x;
@@ -801,7 +990,13 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     task::SelectionOut s;
     const std::string t = spec["type"].get<std::string>();
     s.name = name; s.output = o; s.type = t == "ladder" ? "tiling" : t;
-    s.manifold_id = link_of(P, spec, "on", &made, o);
+    if (!spec.contains("on") && typed_axes_of(P, o)) {                      // a typed selection lies on its domain's one axis (a frequency line made by its key)
+      const Json ax = axis_records(unit, P, made, o, "domain", {}, Json());
+      s.manifold_id = ax.at(0).value("manifold_id", std::string());
+      if (s.manifold_id.empty()) bad(o, "typed axes: the selection's axis is not a manifold");
+    } else {
+      s.manifold_id = link_of(P, spec, "on", &made, o);
+    }
     if (d.contains("params")) s.params = d["params"];
     if (d.contains("description")) s.description = d["description"].get<std::string>();
     for (const auto& e : d.value("entries", Json::array())) s.entries.push_back(e.get<std::string>());
@@ -810,12 +1005,42 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       std::vector<std::int32_t> labels;
       for (const double c : a.data) labels.push_back(static_cast<std::int32_t>(c));
       nxr::selection::Lookup names;
-      for (std::size_t k = 0; k < s.entries.size(); ++k) names.push_back(nxr::selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});
+      if (d.contains("lookup") && d["lookup"].is_array()) {                // the codes with their own names and colours (a labelling carried from another: its dictionary and more)
+        for (const auto& e : d["lookup"]) {
+          task::SelectionOut::LookupEntry x;
+          x.code = e.at("code").get<std::int64_t>(); x.name = e.at("name").get<std::string>();
+          if (e.contains("colour") && e["colour"].is_array() && e["colour"].size() == 3) x.colour = std::array<int, 3>{e["colour"][0].get<int>(), e["colour"][1].get<int>(), e["colour"][2].get<int>()};
+          names.push_back(nxr::selection::Entry{x.code, x.name, x.colour});
+          s.lookup.push_back(std::move(x));
+        }
+      } else
+        for (std::size_t k = 0; k < s.entries.size(); ++k) names.push_back(nxr::selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});
       try {
-        const nxr::selection::Selection set = nxr::selection::from_labels(labels, names);
-        s.member_of = set.member_of;
-        s.member_codes = set.member_codes;
+        if (!d.contains("lookup") && !s.entries.empty()) {
+          // a labelling with its own DICTIONARY (entry k names code k): one member per entry, the member number the code itself, so the stored elements hold the codes the dictionary names
+          // (an entry no element carries is an empty member: the kinds' `harmonic` on a closed surface)
+          std::vector<std::int64_t> codes;
+          for (std::size_t k = 0; k < s.entries.size(); ++k) codes.push_back(static_cast<std::int64_t>(k));
+          for (const std::int32_t c : labels) if (c < -1 || c >= static_cast<std::int32_t>(codes.size())) bad(o, "label " + std::to_string(c) + " is not a code of its dictionary (0.." + std::to_string(codes.size() - 1) + ")");
+          const nxr::selection::Selection set = nxr::selection::set_of_members(labels, codes, names);
+          s.member_of = set.member_of;
+          s.member_codes = set.member_codes;
+        } else {
+          const nxr::selection::Selection set = nxr::selection::from_labels(labels, names);
+          s.member_of = set.member_of;
+          s.member_codes = set.member_codes;
+        }
       } catch (const std::invalid_argument& e) { bad(o, e.what()); }
+    }
+    else if (t == "kernels") {                     // a KERNEL SET: the node describes each member's anchor and profile
+      for (const auto& k : d.value("kernels", Json::array())) {
+        task::KernelOut x;
+        x.start = k.at("start").get<double>(); x.stop = k.at("stop").get<double>(); x.code = k.at("code").get<std::int64_t>();
+        x.family = k.at("family").get<std::string>(); x.chart = k.at("chart").get<std::string>(); x.gain = k.value("gain", 1.0);
+        for (const auto& [pk, pv] : k.value("params", Json::object()).items()) x.params[pk] = pv.get<double>();
+        s.kernels.push_back(std::move(x));
+      }
+      if (s.kernels.empty()) bad(o, "a kernel set needs its node's kernels (describe.kernels)");
     }
     else if (t == "grid") s.grid = grid_of(a, d, o);
     else if (t == "product") {
@@ -918,6 +1143,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   else if (of_field) st.of_field_id = of_id;
   else st.of_statistic_id = of_id;
   const std::string acq = of_members ? std::string() : acquisition_of(P, of);
+  const bool typed_st = typed_axes_of(P, o) && !spec.contains("axes") && !d.contains("axes");   // a typed node's axes are its domain's
   const Json axes_desc = d.value("axes", Json::array());
   Json axes_decl = spec.value("axes", Json::array());
   if (!spec.contains("axes")) for (const auto& ax : axes_desc) axes_decl.push_back(Json{{"name", ax.value("name", std::string())}});   // none declared: the node's own axes, as it describes them
@@ -947,10 +1173,21 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       } else {
         out["manifold_id"] = axis_manifold;
       }
+      if (ax.contains("members")) out["members"] = ax["members"];        // a part of the manifold (the modes a selection keeps): its elements, by index
       if (decl.contains("parts")) out["parts"] = decl["parts"];
+      else if (ax.contains("parts")) out["parts"] = ax["parts"];
     } else if (decl.contains("line")) {
       if (!ax.contains("line")) bad(o, "axis " + decl["name"].get<std::string>() + " declares a line; its node describes none");
       const Json& l = ax["line"];
+      if (decl.contains("of_time") && l.contains("fft")) {              // the frequency line of a span of this time line (the node says it is the full one-sided line of n samples at fs): keyed by (time line, n, fs), made by the FFT operator (io's frequency_line); `line` is the old name, still found
+        const std::string time_line = link(P, decl["of_time"].get<std::string>(), &made, o);
+        out["manifold_id"] = unit.frequency_line(time_line, l["fft"].value("n", std::int64_t(0)), l["fft"].value("fs", 0.0), nxr::io::safe_name(fill(P, decl["line"].get<std::string>())));
+        out["unit"] = l.value("unit", std::string("Hz"));
+        if (ax.contains("members")) out["members"] = ax["members"];      // a part of the line (the bins a span keeps): its elements, by index
+        axes.push_back(out);
+        shape.push_back(size);
+        continue;
+      }
       task::LineOut lo;
       lo.name = nxr::io::safe_name(fill(P, decl["line"].get<std::string>())); lo.alt = lo.name + "_alt";
       lo.n = size; lo.spacing = l.value("spacing", 1.0); lo.origin = l.value("origin", 0.0);
@@ -965,6 +1202,13 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     }
     axes.push_back(out);
     shape.push_back(size);
+  }
+  if (typed_st) {                                                          // sizes from the node's shape (axes first, then the value's components), else the array's
+    const std::vector<std::int64_t> sizes = d.contains("shape") ? ints(d["shape"]) : (a.cols > 1 ? std::vector<std::int64_t>{a.rows, a.cols} : std::vector<std::int64_t>{a.rows});
+    axes = axis_records(unit, P, made, o, "domain", sizes, Json());
+    shape = sizes;
+    for (const auto& ax : axes)                                             // the partition it is computed from: its members' axis
+      if (!st.partition_selection_id && ax.contains("selection_id") && !ax.contains("manifold_id")) { st.partition_selection_id = ax["selection_id"].get<std::string>(); if (ax.contains("size")) st.n_members = ax["size"].get<std::int64_t>(); }
   }
   st.axes = axes;
   if (spec.contains("over")) {                                              // a statistic over the members of a found selection (a summary of measurements over it)

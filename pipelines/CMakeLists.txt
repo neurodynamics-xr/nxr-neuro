@@ -44,6 +44,8 @@ add_library(nxr_pipelines
   src/fingerprint_steps.cpp
   src/flow_steps.cpp
   src/form_steps.cpp
+  src/sensor_flow_steps.cpp
+  src/spectral_steps.cpp
   src/verb_steps.cpp
   src/steps_measure.cpp
   src/scale_inputs.cpp
@@ -56,6 +58,7 @@ add_library(nxr_pipelines
   src/crossings_steps.cpp
   src/connectome_steps.cpp
   src/montage_steps.cpp
+  src/sensor_surface_steps.cpp
   src/select_nodes.cpp
   src/measurement_nodes.cpp
   src/tiles_steps.cpp
@@ -69,6 +72,7 @@ add_library(nxr_pipelines
   src/declared_outputs.cpp
   src/input.cpp
   src/eigen.cpp
+  src/eigen_migrate.cpp
   src/eigen_steps.cpp
   src/frames.cpp
   src/registration.cpp
@@ -325,6 +329,14 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_select_makers PRIVATE nxr_pipelines)
   target_include_directories(test_select_makers PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_select_makers COMMAND test_select_makers)
+  add_executable(test_glue_onto test/test_glue_onto.cpp)
+  target_link_libraries(test_glue_onto PRIVATE nxr_pipelines)
+  target_include_directories(test_glue_onto PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_glue_onto COMMAND test_glue_onto)
+  add_executable(test_derived_origin test/test_derived_origin.cpp)
+  target_link_libraries(test_derived_origin PRIVATE nxr_pipelines)
+  target_include_directories(test_derived_origin PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_derived_origin COMMAND test_derived_origin)
   add_executable(test_rollup_parity test/test_rollup_parity.cpp)
   target_link_libraries(test_rollup_parity PRIVATE nxr_pipelines)
   target_include_directories(test_rollup_parity PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
@@ -419,6 +431,18 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_phase_split PRIVATE nxr_pipelines)
   target_include_directories(test_phase_split PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_phase_split COMMAND test_phase_split)
+  add_executable(test_spectral_coefficients test/test_spectral_coefficients.cpp)   # the mode-space Fourier coefficients per tile, synthetic
+  target_link_libraries(test_spectral_coefficients PRIVATE nxr_pipelines)
+  target_include_directories(test_spectral_coefficients PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_spectral_coefficients COMMAND test_spectral_coefficients)
+add_executable(test_flow_map test/test_flow_map.cpp)   # the flow maps of the cells of a joint filterbank, synthetic
+  target_link_libraries(test_flow_map PRIVATE nxr_pipelines)
+  target_include_directories(test_flow_map PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_flow_map COMMAND test_flow_map)
+add_executable(test_sensor_flow test/test_sensor_flow.cpp)   # the sensor-space flow nodes: serving with overlap, chunk spectra, spectral flow, time cells, sign flip, aperiodic; synthetic
+  target_link_libraries(test_sensor_flow PRIVATE nxr_pipelines)
+  target_include_directories(test_sensor_flow PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_sensor_flow COMMAND test_sensor_flow)
   add_executable(test_connectome_nodes test/test_connectome_nodes.cpp)
   target_link_libraries(test_connectome_nodes PRIVATE nxr_pipelines)
   target_include_directories(test_connectome_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
@@ -457,6 +481,14 @@ if(NXR_NEURO_BUILD_TESTS)
     target_compile_definitions(test_filter_pipeline PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_filter_pipeline COMMAND test_filter_pipeline)
+  add_executable(test_migrate_eigensolve test/test_migrate_eigensolve.cpp)   # migrate eigensolve: the earlier form converted in place, synthetic
+  target_link_libraries(test_migrate_eigensolve PRIVATE nxr_pipelines)
+  target_include_directories(test_migrate_eigensolve PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_migrate_eigensolve COMMAND test_migrate_eigensolve)
+  add_executable(test_sensor_surface test/test_sensor_surface.cpp)   # the sensor surface (a derived manifold of the channels) and its Hodge-Dirac modes, synthetic
+  target_link_libraries(test_sensor_surface PRIVATE nxr_pipelines)
+  target_include_directories(test_sensor_surface PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_sensor_surface COMMAND test_sensor_surface)
   add_executable(test_headmodel test/test_headmodel.cpp)
   target_link_libraries(test_headmodel PRIVATE nxr_pipelines)
   target_include_directories(test_headmodel PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test)

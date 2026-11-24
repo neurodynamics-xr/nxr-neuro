@@ -9,6 +9,7 @@
 //   nxr-neuro convert resample|badsegments|events ...
 //   nxr-neuro convert templates <references-fsaverage-ico7 dir> --dataset D [--subject fsaverage] [--trk hcp1065.trk] [--surface NODE]
 //   nxr-neuro convert surface --dataset D --subject S --file tess_*.mat ... [--bst-root P]
+//   nxr-neuro convert covariance --protocol P --dataset D --subject S --condition C [--kind noise|data] [--name N] [--replace]
 //   nxr-neuro convert inverse --dataset D --subject S --file results_*KERNEL*.mat --acquisition C --bst-root P [--channels-id ..] [--surface-id ..] [--forward-id ..] [--name N] [--channel-file F]
 //   nxr-neuro convert map --dataset D --subject S --file results_*.mat|matrix_*.mat ... --bst-root P [--acquisition C] [--replace] [--provenance FILE]
 //
@@ -151,6 +152,25 @@ int inverse_command(const std::vector<std::string>& rest) {
   return 0;
 }
 
+// nxr convert covariance: a study's own noise or data covariance (noisecov_*.mat, ndatacov_*.mat) as a statistic of the condition's channels
+int covariance_command(const std::vector<std::string>& rest) {
+  const std::string prog = "nxr-neuro convert covariance";
+  const Args a = parse(prog, rest, {"--protocol", "--dataset", "--subject", "--condition", "--kind", "--name"}, {"--replace"}, {"--protocol", "--dataset", "--subject", "--condition"});
+  task::ImportCovarianceRequest rq;
+  rq.protocol = a.get("--protocol");
+  rq.dataset = a.get("--dataset");
+  rq.subject = a.get("--subject");
+  rq.condition = a.get("--condition");
+  if (const auto k = a.maybe("--kind")) rq.kind = *k;
+  if (rq.kind != "noise" && rq.kind != "data") throw Usage(prog + ": error: argument --kind: invalid choice: '" + rq.kind + "' (choose from 'noise', 'data')");
+  rq.name = a.maybe("--name");
+  rq.replace = a.flag.count("--replace") > 0;
+  rq.templates = values_of(a, "--templates");
+  rq.created_by = stamp();
+  emit_result(call(prog, [&] { return task::import_covariance(rq, progress()); }).result);
+  return 0;
+}
+
 // nxr convert map: static maps into a subject, a source map (results_*.mat, one value per vertex of its SurfaceFile) or a region map (matrix_*.mat, one value per region of its Atlas)
 int map_command(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro convert map";
@@ -205,12 +225,13 @@ int convert_main(const std::vector<std::string>& argv) {
   if (cmd == "mri") return mri_command(rest);
   if (cmd == "convert") return convert_condition_command(rest);
   if (cmd == "inverse") return inverse_command(rest);
+  if (cmd == "covariance") return covariance_command(rest);
   if (cmd == "map") return map_command(rest);
   if (cmd == "resample") return resample_command(rest);
   if (cmd == "badsegments" || cmd == "events") return events_command(cmd, rest);
   static const std::set<std::string> later = {"qc", "migrate", "fragment", "merge", "mne-meg", "mne-eeg", "bids-ieeg", "atlas"};
   if (later.count(cmd)) {
-    emit(Json{{"stage", "error"}, {"message", "NotImplementedError: nxr-neuro convert " + cmd + " is not ported yet (ported: list, scan, subject, convert, template, group, templates [the atlas/nibabel readers excepted], surface, mri, inverse, map, resample, badsegments, events)"}});
+    emit(Json{{"stage", "error"}, {"message", "NotImplementedError: nxr-neuro convert " + cmd + " is not ported yet (ported: list, scan, subject, convert, template, group, templates [the atlas/nibabel readers excepted], surface, mri, inverse, covariance, map, resample, badsegments, events)"}});
     return 1;
   }
   throw Usage("nxr-neuro convert: error: argument cmd: invalid choice: '" + cmd + "' (choose from 'list', 'scan', 'subject', 'convert', 'template', 'group', 'templates', 'surface', 'mri', 'inverse', 'map', 'resample', 'badsegments', 'events')");

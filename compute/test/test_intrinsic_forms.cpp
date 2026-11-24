@@ -200,6 +200,23 @@ int main() {
             }
         }
         EXPECT(J.rows() == c2.nE && J.cols() == 2 && eJ < 1e-12, "phaseCurrent = |z_tail||z_tip| sin(phase step), one column a frame (" << eJ << ")");
+        {   // the modes' 1-form parts: made by oneFormParts = the solve's own 1-form block; the readings with the stored (float32) parts = the readings that make them
+            const Eigen::MatrixXd X1 = nxr::signal::oneFormParts(c2, md);
+            const Eigen::MatrixXd block = r.eigenvectors.middleRows(h.nV, h.nE);
+            const double scale = block.cwiseAbs().maxCoeff();
+            EXPECT(X1.rows() == c2.nE && X1.cols() == K && (X1 - block).cwiseAbs().maxCoeff() < 1e-8 * scale, "oneFormParts = the solve's 1-form block (" << (X1 - block).cwiseAbs().maxCoeff() << ")");
+            nxr::signal::Modes stored = md;
+            stored.X1 = X1.cast<float>();
+            EXPECT(stored.hasOneFormParts() && !md.hasOneFormParts(), "the stored parts are seen");
+            const Eigen::MatrixXd w2 = nxr::signal::synthesizeOneForm(c2, md, coef);
+            const double eS = (nxr::signal::synthesizeOneForm(c2, stored, coef) - w2).cwiseAbs().maxCoeff() / w2.cwiseAbs().maxCoeff();
+            const double eC = (nxr::signal::projectOneForm(c2, stored, w2) - nxr::signal::projectOneForm(c2, md, w2)).cwiseAbs().maxCoeff() / coef.cwiseAbs().maxCoeff();
+            EXPECT(eS < 1e-5 && eC < 1e-5, "projectOneForm and synthesizeOneForm with the stored parts = those that make them (" << eS << ", " << eC << ")");
+            stored.X1.conservativeResize(c2.nE - 1, K);
+            bool badParts = false;
+            try { (void)nxr::signal::projectOneForm(c2, stored, w2); } catch (const std::invalid_argument&) { badParts = true; }
+            EXPECT(badParts, "stored parts of another triangulation are refused");
+        }
         bool refused = false;
         try { (void)nxr::signal::modesOf(nxr::operators::hodgeDiracModes(h, 40, true, o), h.nV, h.nE, h.nF); } catch (const std::invalid_argument&) { refused = true; }
         EXPECT(refused, "modesOf refuses a both-signs solve (negative mu)");

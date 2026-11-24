@@ -11,6 +11,8 @@
 #include "nxr/graph/node.h"
 #include "nxr/pipelines/flow_steps.h"
 #include "nxr/pipelines/form_steps.h"
+#include "nxr/pipelines/sensor_flow_steps.h"
+#include "nxr/pipelines/spectral_steps.h"
 #include "nxr/pipelines/identification_steps.h"
 #include "nxr/pipelines/pca_steps.h"
 #include "nxr/selection/selection.h"
@@ -82,6 +84,8 @@ void register_partition_nodes() {
   register_identification_nodes();
   register_flow_nodes();
   register_form_nodes();
+  register_sensor_flow_nodes();
+  register_spectral_nodes();
 }
 
 }  // namespace nxr::pipelines::graph

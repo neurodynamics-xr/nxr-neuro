@@ -495,3 +495,19 @@ Json query_measurements(const Database& db, const Store& store, const Json& q) {
 }
 
 }  // namespace nxr::io
+
+namespace nxr::io {
+MeasurementValues member_measure_values(SubjectWriter& sub, const std::string& selection_id, const std::string& measure) {
+  const auto spec = measure_spec(measure);
+  const bool derived = spec && !(*spec)["derived_from"].is_null();
+  const std::string probe = derived ? (*spec)["derived_from"][0].get<std::string>() : measure;
+  const auto rows = sub.db().all("SELECT DISTINCT of_field_id, of_statistic_id FROM selection_measurement WHERE selection_id = ? AND measure = ? AND array_path IS NOT NULL", {Value(selection_id), Value(probe)});
+  if (rows.empty()) throw Error(code::no_such_row, "measurements: the selection holds no '" + probe + "'" + (derived ? " (an ingredient of '" + measure + "')" : std::string()));
+  if (rows.size() > 1) throw Error(code::invalid_argument, "measurements: the selection holds '" + probe + "' of several fields or statistics: name the one");
+  const std::optional<std::string> of_field = is_null(rows[0], "of_field_id") ? std::nullopt : std::optional<std::string>(text(rows[0], "of_field_id"));
+  const std::optional<std::string> of_stat = is_null(rows[0], "of_statistic_id") ? std::nullopt : std::optional<std::string>(text(rows[0], "of_statistic_id"));
+  const std::optional<std::int64_t> of_index = of_stat ? std::optional<std::int64_t>(0) : std::nullopt;
+  return derived ? derived_measurement_values(sub, selection_id, of_field, of_stat, of_index, measure) : measurement_values(sub, selection_id, of_field, of_stat, of_index, measure);
+}
+
+}  // namespace nxr::io

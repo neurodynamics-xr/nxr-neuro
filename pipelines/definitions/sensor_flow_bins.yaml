@@ -1,0 +1,60 @@
+# THE WHOLE-RECORDING SENSOR-SPACE FLOW, NO WAVELETS (spec docs/specs/2026-11-24-sensor-flow.md, "A second pipeline from the same nodes"): the flow of the field on the sensor surface per
+# frequency bin of the whole recording (the net quadrature), from the same serving and readout nodes as `sensor_flow`.
+#
+# THE GRAPH. before: --[signal.mode_analysis, exact_and_constant, unit_mass]--> the serving operator. chunks: --[signal.overlapped_spectrum]--> --[signal.chunk_spectra]--> the cross-spectrum
+# in its factored form. after: --[signal.spectral_flow, frequency_weighting every_bin]--> per bin (C_k = the sum over the chunks of each chunk's spectrum times its conjugate) the whole field's
+# power, phase current per edge and per vertex, Hodge-Dirac flow coefficients, potential and stream; with --bands, every band pair's too. No atoms, no time cells.
+# Bins grouped: name a SHARP kernel set (select_kernels --profile box --chart linear) as --groups and set
+# each group is then the sum over its bins, weight 1 (no normalisation).
+#
+# What it cannot resolve: the net quadrature only (motion that cancels over the run appears as standing); the field on the helmet only; an incomplete eigensolve leaves
+# coordinates and flow modes out (stated).
+#
+#   nxr-neuro run sensor_flow_bins --dataset D --subject S --recording REC --all --package hodgeDirac__SURFACE --channel-map SURFACE_map [--bands BANDS]
+pipeline: sensor_flow_bins
+version: 1
+description: the whole-recording flow of the field on the sensor surface per frequency bin (or per sharp group of bins) - power, phase currents, Hodge-Dirac flow, optionally band pairs; no wavelets
+scope: subject
+
+inputs:
+  recording:   {field: recording, each: true, where: {name: $recording}}
+  package:     {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, hint: "the sensor surface's Hodge-Dirac solve (`nxr-neuro run eigenmodes --surface SURFACE` first)"}
+  channel_map: {field: any, where: {name: $channel_map}, hint: "the sensor surface's vertex-to-channel map (`nxr-neuro run sensor_surface` first)"}
+  groups:      {selection: any, where: {name: $groups}, when: $grouped, hint: "sharp groups of bins: a kernel set of boxes on the frequency line (`nxr-neuro run select_kernels --profile box --chart linear`)"}
+  bands:       {selection: any, where: {name: $bands}, when: $banded, hint: "the eigenvalue bands, a kernel set (`nxr-neuro run select_kernels --profile cos2_partition`)"}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  package: {default: null, meaning: "the Hodge-Dirac solve's stem", unit: "-"}
+  channel_map: {default: null, meaning: "the sensor surface's vertex-to-channel map's name", unit: "-"}
+  groups: {default: null, meaning: "sharp groups of bins by name (with frequency_weighting kernels); null: every bin alone", unit: "-"}
+  bands: {default: null, meaning: "the eigenvalue bands by name; null: the whole field only", unit: "-"}
+  grouped: {default: false, meaning: "true: the bins grouped by the sharp kernel set named in groups", unit: "-"}
+  banded: {default: false, meaning: "true: also every pair of the eigenvalue bands named in bands", unit: "-"}
+  overlap_samples: {default: 16384, meaning: "the overlap on each side of a chunk: half a chunk", unit: samples}
+  transform_samples: {default: 65536, meaning: "each chunk's one transform: the chunk and its two overlaps", unit: samples}
+  frequency_span: {default: [0, 60], meaning: "[lo, hi) the bins kept", unit: Hz}
+  name: {default: "{recording}_{package}_bins", meaning: "the stem of the stored names", unit: "-"}
+
+steps:
+  before:
+    - {node: signal.mode_analysis, in: {package: package, channel_map: channel_map}, with: {modes: exact_and_constant, normalisation: unit_mass}, out: operator}
+  chunks:
+    over: recording
+    do:
+      - {node: signal.overlapped_spectrum, in: {x: recording, operator: operator}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectrum}
+      - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: operator}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectra}
+  after:
+    - {node: signal.spectral_flow, in: {spectra: spectra, package: package}, with: {frequency_weighting: every_bin}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: false, banded: false}}
+    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, scale: bands}, with: {frequency_weighting: every_bin}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: false, banded: true}}
+    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: groups}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: true, banded: false}}
+    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: groups, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: true, banded: true}}
+
+outputs:
+  spectra:        {kind: statistic, name: "{name}_chunk_spectra", of: recording, axes: [{name: chunk, on: recording.time}, {name: frequency, line: "{recording}_freq_overlapped", of_time: recording.time}, {name: coordinate, on: package.from}]}
+  whole_vertices: {kind: statistic, name: "{name}_flow_vertices", of: recording}
+  whole_edges:    {kind: statistic, name: "{name}_flow_edges", of: recording}
+  whole_modes:    {kind: statistic, name: "{name}_flow_modes", of: recording}
+  pair_vertices:  {kind: statistic, name: "{name}_band_pair_vertices", of: recording, when: $banded}
+  pair_edges:     {kind: statistic, name: "{name}_band_pair_edges", of: recording, when: $banded}
+  pair_modes:     {kind: statistic, name: "{name}_band_pair_modes", of: recording, when: $banded}

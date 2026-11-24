@@ -10,6 +10,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <string>
 
 namespace nxr::signal {
 
@@ -215,28 +216,69 @@ void checkModes(const IntrinsicComplex& c, const Modes& m) {
     if (m.P.rows() != c.nV || m.X2.rows() != c.nF || m.P.cols() != m.mu.size() || m.X2.cols() != m.mu.size() || static_cast<Eigen::Index>(m.kind.size()) != m.mu.size())
         throw std::invalid_argument("the modes do not match the intrinsic complex (" + std::to_string(c.nV) + " vertices, " + std::to_string(c.nF) +
                                     " faces): the modes and the complex must come from the same triangulation");
+    if (m.X1.cols() > 0 && (m.X1.rows() != c.nE || m.X1.cols() != m.mu.size()))
+        throw std::invalid_argument("the modes' stored 1-form parts are not [" + std::to_string(c.nE) + " edges x " + std::to_string(m.mu.size()) + " modes]: the modes and the complex must come from the same triangulation");
 }
 }  // namespace
+
+namespace {
+constexpr Eigen::Index kBlock = 256;   // modes at a time when a [nE x K] matrix is read or made: the temporaries stay [nE x kBlock]
+}
+
+MatrixXd oneFormFromParts(const Eigen::SparseMatrix<double>& d0, const Eigen::SparseMatrix<double>& d1, const VectorXd& star1, const VectorXd& star2, const MatrixXd& zeroFormPart, const MatrixXd& twoFormPart) {
+    return d0 * zeroFormPart + star1.cwiseInverse().asDiagonal() * (d1.transpose() * (star2.asDiagonal() * twoFormPart));
+}
+
+MatrixXd oneFormParts(const IntrinsicComplex& c, const Modes& m) {
+    checkModes(c, m);
+    const Eigen::Index K = m.mu.size();
+    MatrixXd out(c.nE, K);
+    for (Eigen::Index k0 = 0; k0 < K; k0 += kBlock) {
+        const Eigen::Index n = std::min(kBlock, K - k0);
+        MatrixXd a = MatrixXd::Zero(c.nV, n), b = MatrixXd::Zero(c.nF, n);
+        for (Eigen::Index j = 0; j < n; ++j) {
+            const Eigen::Index k = k0 + j;
+            if (m.kind[static_cast<std::size_t>(k)] == 0) a.col(j) = m.P.col(k) / m.mu(k); else b.col(j) = m.X2.col(k) / m.mu(k);
+        }
+        out.middleCols(k0, n) = oneFormFromParts(c.d0, c.d1, c.star1, c.star2, a, b);
+    }
+    return out;
+}
 
 MatrixXd projectOneForm(const IntrinsicComplex& c, const Modes& m, const MatrixXd& w) {
     checkModes(c, m); if (w.rows() != c.nE) throw std::invalid_argument("projectOneForm: the 1-form has one row an intrinsic edge (the modes and the complex must come from the same triangulation)");
     const MatrixXd s1w = c.star1.asDiagonal() * w;                       // ⋆1 ω
+    MatrixXd out(m.mu.size(), w.cols());
+    if (m.hasOneFormParts()) {                                           // the stored parts: c_k = 2 ⟨φ_k, ω⟩⋆1
+        for (Eigen::Index k0 = 0; k0 < m.mu.size(); k0 += kBlock) {
+            const Eigen::Index n = std::min(kBlock, m.mu.size() - k0);
+            out.middleRows(k0, n) = 2.0 * (m.X1.middleCols(k0, n).cast<double>().transpose() * s1w);
+        }
+        return out;
+    }
     const MatrixXd ex = m.P.transpose() * (c.d0.transpose() * s1w);       // ⟨dP_k, ω⟩⋆1
     const MatrixXd co = m.X2.transpose() * (c.star2.asDiagonal() * (c.d1 * w));   // ⟨⋆1⁻¹ d1ᵀ ⋆2 X2_k, ω⟩⋆1 = X2_kᵀ ⋆2 d1 ω
-    MatrixXd out(m.mu.size(), w.cols());
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) out.row(k) = 2.0 * (m.kind[static_cast<std::size_t>(k)] == 0 ? ex.row(k) : co.row(k)) / m.mu(k);
     return out;
 }
 
 MatrixXd synthesizeOneForm(const IntrinsicComplex& c, const Modes& m, const MatrixXd& coef) {
     checkModes(c, m); if (coef.rows() != m.mu.size()) throw std::invalid_argument("synthesizeOneForm: one coefficient row a mode");
+    if (m.hasOneFormParts()) {                                           // the stored parts: Σ c_k φ_k
+        MatrixXd out = MatrixXd::Zero(c.nE, coef.cols());
+        for (Eigen::Index k0 = 0; k0 < m.mu.size(); k0 += kBlock) {
+            const Eigen::Index n = std::min(kBlock, m.mu.size() - k0);
+            out += m.X1.middleCols(k0, n).cast<double>() * coef.middleRows(k0, n);
+        }
+        return out;
+    }
     MatrixXd ce = coef, cc = coef;
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) {
         const bool exact = m.kind[static_cast<std::size_t>(k)] == 0;
         ce.row(k) = exact ? MatrixXd(coef.row(k) / m.mu(k)) : MatrixXd::Zero(1, coef.cols());
         cc.row(k) = exact ? MatrixXd::Zero(1, coef.cols()) : MatrixXd(coef.row(k) / m.mu(k));
     }
-    return c.d0 * (m.P * ce) + c.star1.cwiseInverse().asDiagonal() * (c.d1.transpose() * (c.star2.asDiagonal() * (m.X2 * cc)));
+    return oneFormFromParts(c.d0, c.d1, c.star1, c.star2, m.P * ce, m.X2 * cc);
 }
 
 MatrixXd projectTwoForm(const IntrinsicComplex& c, const Modes& m, const MatrixXd& sigma) {
@@ -267,6 +309,23 @@ MatrixXd coexactStream(const IntrinsicComplex& c, const Modes& m, const MatrixXd
     MatrixXd cs = MatrixXd::Zero(coef.rows(), coef.cols());
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (m.kind[static_cast<std::size_t>(k)] == 2) cs.row(k) = coef.row(k) / m.mu(k);
     return vertexDensity(c, m.X2 * cs);
+}
+
+MatrixXd streamFunctionAtVertices(int nV, const std::vector<std::int32_t>& faces, const VectorXd& star2, const MatrixXd& twoForm) {
+    const Eigen::Index nF = static_cast<Eigen::Index>(faces.size() / 3);
+    if (nV < 0 || faces.size() % 3 != 0 || star2.size() != nF || twoForm.rows() != nF)
+        throw std::invalid_argument("streamFunctionAtVertices: faces [3 nF], star2 [nF] and the 2-form [nF x m] disagree in nF");
+    MatrixXd out = MatrixXd::Zero(nV, twoForm.cols());
+    std::vector<int> count(static_cast<std::size_t>(nV), 0);
+    for (Eigen::Index f = 0; f < nF; ++f)
+        for (int k = 0; k < 3; ++k) {
+            const std::int32_t v = faces[static_cast<std::size_t>(3 * f + k)];
+            if (v < 0 || v >= nV) throw std::invalid_argument("streamFunctionAtVertices: face " + std::to_string(f) + " names a vertex outside 0.." + std::to_string(nV - 1));
+            out.row(v) += star2(f) * twoForm.row(f);
+            ++count[static_cast<std::size_t>(v)];
+        }
+    for (int v = 0; v < nV; ++v) if (count[static_cast<std::size_t>(v)] > 0) out.row(v) /= static_cast<double>(count[static_cast<std::size_t>(v)]);
+    return out;
 }
 
 Modes modesOf(const nxr::operators::EigenResult& r, int nV, int nE, int nF) {

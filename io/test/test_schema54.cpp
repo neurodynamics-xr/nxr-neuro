@@ -28,7 +28,7 @@ int main() {
   const fs::path root = fs::path(tmp ? tmp : fs::temp_directory_path().string()) / ("nxr_test_schema54_" + std::to_string(::getpid()));
   fs::remove_all(root);
   struct Cleanup { fs::path p; ~Cleanup() { fs::remove_all(p); } } cleanup{root};
-  CHECK_EQ(schema_version(), 54);
+  CHECK_EQ(schema_version(), 55);
 
   fs::path file;
   std::string fid, sid, sel;
@@ -64,7 +64,7 @@ int main() {
       sel = sub.selection(ps);
     });
     Database& db = sub.db();
-    CHECK_EQ(integer(*db.one("PRAGMA user_version"), "user_version"), 54);
+    CHECK_EQ(integer(*db.one("PRAGMA user_version"), "user_version"), 55);
     // the model's CHECK: an array of a field, or of a statistic; never of neither, never with a code
     CHECK(inserts(db, sel, fid, std::nullopt, std::nullopt, "a_field"));
     CHECK(inserts(db, sel, std::nullopt, sid, std::nullopt, "a_statistic"));
@@ -81,10 +81,11 @@ int main() {
     static const std::string kNew = "CHECK (array_path IS NULL OR (code IS NULL AND (of_field_id IS NOT NULL OR of_statistic_id IS NOT NULL)))", kOld = "CHECK (array_path IS NULL OR (code IS NULL AND of_field_id IS NOT NULL))";
     d.with_writable_schema([&] {
       d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'table' AND name = 'selection_measurement'", {V(kNew), V(kOld)});
-      d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'view'", {V("'schema_version', 54"), V("'schema_version', 53")});
+      d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'view'", {V("'schema_version', 55"), V("'schema_version', 53")});
       d.execute("PRAGMA schema_version = " + std::to_string(integer(*d.one("PRAGMA schema_version"), "schema_version") + 1));
     });
     d.execute("DELETE FROM meta WHERE key = 'schema_migrated:53->54'");
+    d.execute("DELETE FROM meta WHERE key = 'schema_migrated:54->55'");
     d.execute("PRAGMA user_version = 53");
     d.close();
   }
@@ -95,28 +96,28 @@ int main() {
     const Dataset old = Dataset::open(file.parent_path());
     CHECK_EQ(integer(old.query("SELECT count(*) AS n FROM subject").at(0), "n"), 1);
   }
-  {   // opened to write: migrated in place, the rows kept, the statistic's array now accepted
+  {   // opened to write: migrated in place (through 54 to 55), the rows kept, the statistic's array now accepted
     Database d = Database::open(file);
-    CHECK_EQ(integer(*d.one("PRAGMA user_version"), "user_version"), 54);
+    CHECK_EQ(integer(*d.one("PRAGMA user_version"), "user_version"), 55);
     CHECK(d.one("SELECT 1 FROM meta WHERE key = 'schema_migrated:53->54'").has_value());
     CHECK_EQ(text(*d.one("PRAGMA quick_check"), "quick_check"), std::string("ok"));
     CHECK_EQ(integer(*d.one("SELECT count(*) AS n FROM selection_measurement WHERE measure = 'a_field'"), "n"), 1);
     CHECK(inserts(d, sel, std::nullopt, sid, std::nullopt, "a_statistic"));
     CHECK(!inserts(d, sel, std::nullopt, std::nullopt, std::nullopt, "of_nothing"));
     CHECK(!inserts(d, sel, std::nullopt, sid, std::int64_t(0), "with_a_code"));
-    CHECK(text(*d.one("SELECT attributes FROM subject_attributes LIMIT 1"), "attributes").find("\"schema_version\":54") != std::string::npos);
+    CHECK(text(*d.one("SELECT attributes FROM subject_attributes LIMIT 1"), "attributes").find("\"schema_version\":55") != std::string::npos);
   }
   {   // a second open changes nothing
     const std::string before = text(*Database::open(file).one("SELECT value FROM meta WHERE key = 'schema_migrated:53->54'"), "value");
     CHECK_EQ(text(*Database::open(file).one("SELECT value FROM meta WHERE key = 'schema_migrated:53->54'"), "value"), before);
   }
-  // a database at 52 goes through 53 to 54 in one open
+  // a database at 52 goes through 53 and 54 to 55 in one open
   {
     Database d = Database::open(file);
     d.execute("PRAGMA user_version = 52");   // (its migration to 53 is idempotent: the column and the views are there)
     d.close();
     Database m = Database::open(file);
-    CHECK_EQ(integer(*m.one("PRAGMA user_version"), "user_version"), 54);
+    CHECK_EQ(integer(*m.one("PRAGMA user_version"), "user_version"), 55);
   }
   return nxrtest::finish("test_schema54");
 }

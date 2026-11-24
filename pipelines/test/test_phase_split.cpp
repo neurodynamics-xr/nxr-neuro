@@ -4,6 +4,7 @@
 //   - the outputs are pointwise: the result does not depend on how the samples are cut into blocks, and the halo kept is the caller's;
 //   - the shares are measurements: the energies summed over the members of a partition (two hemispheres) give, through the registry's derived measures, the ratios of the sums; over the
 //     whole sphere a travelling (exact) phase is nearly all timing;
+//   - the node `operators.hodge_one_form_parts` makes the package's 1-form parts (= compute's `oneFormParts`); a package WITH stored `forms1` is read by the node without rebuilding them (same outputs);
 //   - refusals: a real x, a field on another surface, a package without its 2-form parts, 2-form parts of another triangulation.
 #include <cmath>
 #include <complex>
@@ -192,6 +193,64 @@ int main() {
     CHECK(worst_j < 1e-5 && apart > 1e-6);
     Json bad_form = Json::object(); bad_form["one_form"] = "phase_lag";
     CHECK(refused([&] { ng::NodeCall p = ng::NodeCall::prepare(in, constants, bad_form, shared); ng::dispatch(node, p); }));
+  }
+
+  // the node `operators.hodge_one_form_parts`: the package's 1-form parts from its stored 0- and 2-form parts = compute's oneFormParts (to float32), for all modes and for the first few
+  const Eigen::MatrixXd X1 = nxr::signal::oneFormParts(cx, m32);
+  {
+    const ng::NodeSpec& pn = ng::registry().at("operators.hodge_one_form_parts");
+    CHECK(pn.traits.declared() && pn.reads_package_forms);
+    ng::Types pin; pin["package"] = pk;
+    CHECK(pn.plan(pin, Json::object()).out.count("forms1") == 1);
+    for (const std::int64_t use : {std::int64_t(0), std::int64_t(7)}) {
+      Json pp = Json::object(); pp["modes"] = use > 0 ? Json(use) : Json();
+      ng::NodeCall pprep = ng::NodeCall::prepare(pin, constants, pp, shared);
+      ng::dispatch(pn, pprep);
+      ng::NodeCall pcall = ng::NodeCall::run(pprep.made, ng::Arrays{});
+      ng::dispatch(pn, pcall);
+      const ng::Array& A = pcall.made_arrays.at("forms1");
+      const int Ku = use > 0 ? static_cast<int>(use) : K;
+      CHECK(A.rows == cx.nE && A.cols == Ku && A.meta["describe"]["to_cell"] == "1" && A.meta["describe"]["from_cell"] == "0");
+      double e = 0;
+      for (int ed = 0; ed < cx.nE; ++ed) for (int k = 0; k < Ku; ++k) e = std::max(e, std::abs(A.data[static_cast<std::size_t>(ed * Ku + k)] - X1(ed, k)));
+      std::printf("  hodge_one_form_parts (%d modes) vs compute: %.2e\n", Ku, e);
+      CHECK(e < 1e-12 * std::max(1.0, X1.cwiseAbs().maxCoeff()));
+    }
+  }
+  // the package WITH stored 1-form parts: the node reads them (a scaled copy changes the outputs: they are the ones used), and the true ones give the outputs the rebuilding path gives
+  {
+    auto with_forms1 = [&](double scale) {
+      ng::Array H = package(md, cx.nF);
+      std::vector<float> x1(static_cast<std::size_t>(cx.nE * K));
+      for (int e = 0; e < cx.nE; ++e) for (int k = 0; k < K; ++k) x1[static_cast<std::size_t>(e * K + k)] = static_cast<float>(scale * X1(e, k));
+      const auto* bytes = reinterpret_cast<const std::uint8_t*>(x1.data());
+      H.meta["forms1"] = Json::binary(std::vector<std::uint8_t>(bytes, bytes + x1.size() * sizeof(float)));
+      H.meta["forms1_shape"] = Json::array({cx.nE, K});
+      return H;
+    };
+    ng::Block bz; bz.rows = nV; bz.width = T; bz.re.resize(static_cast<std::size_t>(nV * T)); bz.im.resize(bz.re.size());
+    for (int v = 0; v < nV; ++v) for (int c = 0; c < T; ++c) { bz.re[static_cast<std::size_t>(v * T + c)] = static_cast<float>(Z(v, c).real()); bz.im[static_cast<std::size_t>(v * T + c)] = static_cast<float>(Z(v, c).imag()); }
+    const ng::Blocks bl{{"x", bz}};
+    const ng::Place pl{0, T, nullptr};
+    auto energy = [&](double scale) {
+      ng::Arrays cs{{"package", with_forms1(scale)}};
+      ng::NodeCall p = ng::NodeCall::prepare(in, cs, no_params, shared);
+      ng::dispatch(node, p);
+      ng::NodeCall c = ng::NodeCall::chunk(p.made, bl, 0, pl);
+      ng::dispatch(node, c);
+      return c.made_blocks.at("exact_energy");
+    };
+    const ng::Block yt = energy(1.0), ys = energy(1.5);
+    double same = 0, differs = 0, peak = 1e-12;
+    for (int v = 0; v < nV; ++v) for (int t = 0; t < T; ++t) {
+      const std::size_t at = static_cast<std::size_t>(v * yt.width + yt.left + t);
+      same = std::max(same, std::abs(yt.re[at] - whole[4](v, t))); differs = std::max(differs, std::abs(ys.re[at] - whole[4](v, t))); peak = std::max(peak, std::abs(whole[4](v, t)));
+    }
+    std::printf("  stored 1-form parts: outputs vs the rebuilt ones %.2e; with the parts scaled 1.5 they differ by %.2e (relative to the peak)\n", same / peak, differs / peak);
+    CHECK(same < 1e-5 * peak && differs > 1e-2 * peak);
+    ng::Arrays wrong{{"package", with_forms1(1.0)}};
+    wrong["package"].meta["forms1_shape"] = Json::array({cx.nE + 1, K});
+    CHECK(refused([&] { ng::NodeCall p = ng::NodeCall::prepare(in, wrong, no_params, shared); ng::dispatch(node, p); }));
   }
 
   // refusals

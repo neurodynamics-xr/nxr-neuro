@@ -10,11 +10,15 @@
 #include <map>
 #include <set>
 
+#include "nxr/io/array_reader.h"
 #include "nxr/io/catalogue.h"
+#include "nxr/io/chunk_loop.h"
 #include "nxr/io/errors.h"
 #include "nxr/io/finder.h"
+#include "nxr/io/layout.h"
 #include "nxr/io/statistic.h"
 #include "nxr/io/task/dataset.h"
+#include "nxr/io/writer.h"
 
 namespace nxr::io::task {
 
@@ -61,7 +65,8 @@ struct Ctx {
   std::string subject_id, subject_name;
   mutable std::map<std::string, std::string> cache;
   const NodeTyper* typer = nullptr;
-  Ctx(const Database& d, std::string id, std::string name, const NodeTyper* t = nullptr) : db(d), subject_id(std::move(id)), subject_name(std::move(name)), typer(t) {}
+  const Store* store = nullptr;   // the subject's keys, for the counts a row leaves unset and its stored arrays hold (an array's shape only, never its values); null: not opened
+  Ctx(const Database& d, std::string id, std::string name, const NodeTyper* t = nullptr, const Store* st = nullptr) : db(d), subject_id(std::move(id)), subject_name(std::move(name)), typer(t), store(st) {}
   // the node's TYPE in the type system's JSON, from io's description of the row. Null: no typer (a build without the pipelines). A node the type system refuses to type
   // (e.g. a tangent field with no gauge record) is not dropped and does not fail the read: its type is {"refused": the type system's message}, never a silent null.
   Json typed(const char* cls, const Row& r) const {
@@ -113,6 +118,33 @@ Json axes_of(const Ctx& c, const Row& m) {
     axes.push_back(Json{{"name", Jt(d, "name")}, {"size", Jt(d, "n")}, {"spacing", Jt(d, "spacing")}, {"origin", Jt(d, "origin")}, {"unit", Jt(d, "unit")}, {"factor", c.ref("manifold", d, "factor")}});
   return axes;
 }
+// the rows of an array a manifold's stored cells hold (its shape's first entry, read from the array's metadata, no values), or null when it cannot be read
+Json rows_of_array(const Ctx& c, const std::string& path) {
+  if (!c.store) return Json();
+  try {
+    const ArrayReader a = ArrayReader::open(*c.store, path);
+    return a.shape().empty() ? Json() : Json(a.shape()[0]);
+  } catch (const std::exception&) { return Json(); }
+}
+// the manifold whose positions array this one reads (the intrinsic triangulation reads its surface's; a hemisphere its cortex's): up the manifolds it is made from or a component of,
+// while they read the same array; null: its own (or none stored)
+Json positions_owner(const Ctx& c, const Row& m) {
+  if (is_null(m, "geometry_id")) return Json();
+  const auto g = c.db.one("SELECT positions_path FROM geometry WHERE id = ?", {V(text(m, "geometry_id"))});
+  if (!g || is_null(*g, "positions_path")) return Json();
+  const std::string path = text(*g, "positions_path");
+  std::optional<std::string> owner;
+  Row at = m;
+  for (int hop = 0; hop < 16; ++hop) {
+    const char* up = !is_null(at, "derived_from_id") ? "derived_from_id" : !is_null(at, "component_of_id") ? "component_of_id" : nullptr;
+    if (!up) break;
+    const auto parent = c.db.one("SELECT m.*, g.positions_path AS positions_path FROM manifold m LEFT JOIN geometry g ON g.id = m.geometry_id WHERE m.id = ?", {V(text(at, up))});
+    if (!parent || is_null(*parent, "positions_path") || text(*parent, "positions_path") != path) break;
+    owner = text(*parent, "id");
+    at = *parent;
+  }
+  return owner ? c.ref("manifold", Row{{"x", V(*owner)}}, "x") : Json();
+}
 Json describe_manifold(const Ctx& c, const Row& m) {
   Json factors = Json::array();
   for (const auto& a : axes_of(c, m)) if (!a["factor"].is_null()) factors.push_back(a["factor"]);
@@ -130,9 +162,28 @@ Json describe_manifold(const Ctx& c, const Row& m) {
                          {"axes", closed}};
     }
   }
+  // ITS SIZE, a count per cell rank (the f-vector), and THE ARRAYS `read manifold` gives (positions, cells_<rank>: edges, faces, volumes), each with its rows. A count the row leaves
+  // unset is the stored cells' array's rows (its metadata, no values); a component reads its union's cells (sliced by its range), so only its own counts are used.
+  static const char* const rank_word[] = {"vertices", "edges", "faces", "volumes"};
+  static const char* const rank_column[] = {"n_vertices", "n_edges", "n_faces", "n_volumes"};
+  Json size = Json::object();
+  for (int k = 0; k < 4; ++k) size[rank_word[k]] = Jt(m, rank_column[k]);
+  Json arrays = Json::array();
+  if (!is_null(m, "geometry_id"))
+    if (const auto g = c.db.one("SELECT positions_path FROM geometry WHERE id = ?", {V(text(m, "geometry_id"))}); g && !is_null(*g, "positions_path"))
+      arrays.push_back(Json{{"name", "positions"}, {"holds", "vertices"}, {"rows", size["vertices"]}});
+  const bool component = !is_null(m, "component_of_id");
+  for (const Row& cell : c.db.all("SELECT rank, path FROM topology_cell WHERE topology_id = ? ORDER BY rank", {V(text(m, "topology_id"))})) {
+    const std::int64_t k = integer(cell, "rank");
+    if (k < 1 || k > 3) continue;
+    if (size[rank_word[k]].is_null() && !component) size[rank_word[k]] = rows_of_array(c, text(cell, "path"));
+    arrays.push_back(Json{{"name", "cells_" + std::to_string(k)}, {"holds", rank_word[k]}, {"rows", size[rank_word[k]]}});
+  }
   return Json{{"id", Jt(m, "id")}, {"name", Jt(m, "name")}, {"kind", Jt(m, "type")}, {"type", c.typed("manifold", m)}, {"label", Jt(m, "label")}, {"description", Jt(m, "comment")}, {"primary", flag(m, "is_primary")}, {"acquisition", acquisition_of(c, m)},
               {"coordinates", coordinates},
-              {"size", Json{{"vertices", Jt(m, "n_vertices")}, {"edges", Jt(m, "n_edges")}, {"faces", Jt(m, "n_faces")}, {"volumes", Jt(m, "n_volumes")}}},
+              {"size", size},
+              {"arrays", arrays},
+              {"positions_of", positions_owner(c, m)},
               {"factors", factors},
               {"component_of", c.ref("manifold", m, "component_of_id")}, {"component_ordinal", Jt(m, "component_ordinal")}, {"from_index", Jt(m, "from_index")},
               {"derived_from", c.ref("manifold", m, "derived_from_id")}, {"derived_by", Jt(m, "operator")}, {"stored", !is_null(m, "path")}, {"provenance", provenance(m)}};
@@ -143,8 +194,15 @@ Json describe_field(const Ctx& c, const Row& f) {
   Json contributions = Json::array();
   for (const Row& k : c.db.all("SELECT fc.source_field_id AS source, fc.weight AS weight FROM field_contribution fc WHERE fc.field_id = ? ORDER BY fc.ordinal", {V(text(f, "id"))}))
     contributions.push_back(Json{{"field", c.ref("field", k, "source")}, {"weight", Jt(k, "weight")}});
+  // a time-resolved field is read a CHUNK at a time: the samples a chunk holds (the chunk service's width: its stored chunk along time, at most 2^15); null for any other field
+  Json chunk_samples;
+  if (!is_null(f, "path") && !is_null(f, "manifold_id")) {
+    const auto t = c.db.one("SELECT tm.id AS line FROM manifold pm JOIN geometry_dimension d ON d.geometry_id = pm.geometry_id AND d.ordinal = 1 JOIN manifold tm ON tm.id = d.manifold_id "
+                            "WHERE pm.id = ? AND pm.type = 'product' AND tm.type = 'line' AND (SELECT count(*) FROM geometry_dimension x WHERE x.geometry_id = pm.geometry_id) = 2", {V(text(f, "manifold_id"))});
+    if (t && line_role(c.db, text(*t, "line")) == "time") chunk_samples = chunk_width(f);
+  }
   return Json{{"id", Jt(f, "id")}, {"name", Jt(f, "name")}, {"kind", Jt(f, "kind")}, {"type", c.typed("field", f)}, {"label", Jt(f, "label")}, {"acquisition", acquisition_of(c, f)},
-              {"description", Jt(f, "description")}, {"stored", !is_null(f, "path")},
+              {"description", Jt(f, "description")}, {"stored", !is_null(f, "path")}, {"chunk_samples", chunk_samples},
               {"lineage", Json{{"derived_from", c.ref("field", f, "derived_from_id")}, {"of_field", c.ref("field", f, "of_field_id")}, {"of_operator", c.ref("operator", f, "of_operator_id")},
                                {"by_operator", c.ref("operator", f, "by_operator_id")}, {"function", Jt(f, "function")}, {"contributions", contributions}}},
               {"provenance", provenance(f)}};
@@ -185,8 +243,15 @@ Json describe_selection(const Ctx& c, const Row& s) {
     const std::string n = c.name_of("dictionary", text(s, "dictionary_id"));
     if (!n.empty()) dictionary = n;
   }
+  // THE MEASUREMENTS it holds (what `read selection --measure M` reads): each measure, the field or statistic it is of, the selection it is within, its unit, and its rows (an array-backed
+  // measure, a value per member per row of its field: one row naming the array, `array` true)
+  Json measures = Json::array();
+  for (const Row& x : c.db.all("SELECT measure, of_field_id, of_statistic_id, within_selection_id, unit, array_path IS NOT NULL AS array, count(*) AS n FROM selection_measurement WHERE selection_id = ? "
+                               "GROUP BY measure, of_field_id, of_statistic_id, within_selection_id, unit, array_path IS NOT NULL ORDER BY measure", {V(text(s, "id"))}))
+    measures.push_back(Json{{"measure", Jt(x, "measure")}, {"of_field", c.ref("field", x, "of_field_id")}, {"of_statistic", c.ref("statistic", x, "of_statistic_id")},
+                            {"within", c.ref("selection", x, "within_selection_id")}, {"unit", Jt(x, "unit")}, {"array", flag(x, "array")}, {"rows", Jt(x, "n")}});
   return Json{{"id", Jt(s, "id")}, {"name", Jt(s, "name")}, {"kind", Jt(s, "type")}, {"type", c.typed("selection", s)}, {"label", Jt(s, "label")}, {"acquisition", acquisition_of(c, s)},
-              {"description", Jt(s, "description")}, {"elements", Jt(s, "n_elements")}, {"members", Jt(s, "n_members")},
+              {"description", Jt(s, "description")}, {"elements", Jt(s, "n_elements")}, {"members", Jt(s, "n_members")}, {"measures", measures},
               // a member of a set is a selection of its own (an atlas of the set of a surface's parcellations, a level of a grid): the set it belongs to, its place there and its code
               {"member_of", c.ref("selection", s, "member_of_id")}, {"member_ordinal", Jt(s, "member_ordinal")}, {"code", Jt(s, "code")},
               {"of_field", c.ref("field", s, "of_field_id")},
@@ -199,6 +264,8 @@ Json describe_operator(const Ctx& c, const Row& o) {
   auto end = [&](const char* manifold, const char* selection) { return Json{{"manifold", c.ref("manifold", o, manifold)}, {"selection", c.ref("selection", o, selection)}}; };
   return Json{{"id", Jt(o, "id")}, {"name", Jt(o, "name")}, {"kind", Jt(o, "kind")}, {"type", c.typed("operator", o)}, {"label", Jt(o, "label")}, {"acquisition", acquisition_of(c, o)},
               {"description", Jt(o, "description")}, {"from", end("from_manifold_id", "from_selection_id")}, {"to", end("to_manifold_id", "to_selection_id")},
+              // how its values are read (D93): dense (one array), csr / csc (data, indices, indptr), or analytic (no values: evaluated from its method and parameters)
+              {"layout", Jt(o, "layout")},
               {"method", Jt(o, "method")}, {"parameters", Jj(o, "params_json")}, {"shape", Json{{"rows", Jt(o, "n_rows")}, {"columns", Jt(o, "n_cols")}, {"nonzeros", Jt(o, "nnz")}}},
               {"stored", !is_null(o, "path")},
               {"lineage", Json{{"derived_from", c.ref("operator", o, "derived_from_id")}, {"of_statistic", c.ref("statistic", o, "of_statistic_id")}, {"inverts", c.ref("operator", o, "inverts_id")},
@@ -242,8 +309,13 @@ Json describe_space(const Ctx& c, const Row& s) {
   return Json{{"id", Jt(s, "id")}, {"name", Jt(s, "name")}, {"geometry", Jt(s, "geometry")}, {"rank", Jt(s, "rank")}, {"parameters", Jj(s, "parameters_json")}, {"description", Jt(s, "description")},
               {"coordinate_systems", systems}};
 }
-Json describe_acquisition(const Ctx&, const Row& a) {
-  return Json{{"id", Jt(a, "id")}, {"name", Jt(a, "label")}, {"session", Jt(a, "ses")}, {"task", Jt(a, "task")}, {"run", Jt(a, "run")}, {"acq", Jt(a, "acq")}, {"processing", Jt(a, "proc")}, {"split", Jt(a, "split")}};
+// an acquisition's recordings and the seconds they hold (each recording's time line: samples x spacing)
+Json describe_acquisition(const Ctx& c, const Row& a) {
+  const auto rec = c.db.one("SELECT count(*) AS n, coalesce(sum(tm.n_vertices * td.spacing), 0) AS seconds FROM field f JOIN manifold pm ON pm.id = f.manifold_id AND pm.type = 'product' "
+                            "JOIN geometry_dimension d1 ON d1.geometry_id = pm.geometry_id AND d1.ordinal = 1 JOIN manifold tm ON tm.id = d1.manifold_id "
+                            "JOIN geometry_dimension td ON td.geometry_id = tm.geometry_id AND td.ordinal = 0 WHERE f.acquisition_id = ? AND f.kind = 'recording' AND f.status = 'complete'", {V(text(a, "id"))});
+  return Json{{"id", Jt(a, "id")}, {"name", Jt(a, "label")}, {"session", Jt(a, "ses")}, {"task", Jt(a, "task")}, {"run", Jt(a, "run")}, {"acq", Jt(a, "acq")}, {"processing", Jt(a, "proc")}, {"split", Jt(a, "split")},
+              {"recordings", rec ? Jt(*rec, "n") : Json(0)}, {"seconds", rec ? Jt(*rec, "seconds") : Json(0.0)}};
 }
 Json describe_job(const Ctx&, const Row& j) {
   return Json{{"id", Jt(j, "id")}, {"kind", Jt(j, "kind")}, {"host", Jt(j, "host")}, {"status", Jt(j, "status")}, {"subject", Jt(j, "subject_name")}, {"inputs", Jj(j, "inputs_json")}, {"parameters", Jj(j, "params_json")},
@@ -413,8 +485,11 @@ CommandResult read_subject(const ReadSubjectRequest& rq, const Progress& progres
   const auto subject = find_subject_ref(db, rq.subject);
   if (!subject) throw Error(code::no_such_row, "dataset " + rq.dataset + " holds no subject named '" + rq.subject + "'");
 
+  // the subject's keys, opened for reading the shapes of the arrays its rows leave uncounted (a related subject's are not opened)
+  std::optional<SubjectWriter> keys;
+  try { keys.emplace(SubjectWriter::open(*lease, subject->name)); } catch (const std::exception&) {}
   auto describe = [&](const SubjectRef& s) {
-    const Ctx c(db, s.id, s.name, &rq.typer);
+    const Ctx c(db, s.id, s.name, &rq.typer, keys && s.id == subject->id ? &keys->store() : nullptr);
     Json out = Json{{"schema", kSubjectSchema}, {"subject", Json{{"id", s.id}, {"name", s.name}, {"kind", s.kind}, {"template", Json()}}}};
     if (s.template_id) {
       if (const auto t = db.one("SELECT name FROM subject WHERE id = ?", {V(*s.template_id)})) out["subject"]["template"] = text(*t, "name");
@@ -497,7 +572,9 @@ CommandResult list_class(const ListClassRequest& rq, const Progress& progress) {
   const std::int64_t want = rq.limit.value_or(0);
   bool more = false;
   auto take = [&](const SubjectRef* s, bool scoped) {
-    const Ctx c(db, s ? s->id : "", s ? s->name : "", &rq.typer);
+    std::optional<SubjectWriter> keys;   // the subject's keys, for the shapes of the arrays its rows leave uncounted
+    if (s && noun == "manifolds") try { keys.emplace(SubjectWriter::open(*lease, s->name)); } catch (const std::exception&) {}
+    const Ctx c(db, s ? s->id : "", s ? s->name : "", &rq.typer, keys ? &keys->store() : nullptr);
     Filter f = base;
     if (rq.on) {
       const auto m = db.one("SELECT id FROM manifold WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(c.subject_id), V(*rq.on)});
@@ -537,14 +614,14 @@ CommandResult list_class(const ListClassRequest& rq, const Progress& progress) {
     // the columns of the class: from the first row, or, with no row, from an empty description of the class (a name no node can have)
     if (known.empty()) {
       static const std::map<std::string, std::vector<std::string>> by_class = {
-          {"manifolds", {"subject", "id", "name", "kind", "type", "label", "description", "primary", "acquisition", "coordinates", "size", "factors", "component_of", "component_ordinal", "from_index", "derived_from", "derived_by", "stored", "provenance"}},
-          {"fields", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "stored", "lineage", "provenance"}},
-          {"selections", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "elements", "members", "member_of", "member_ordinal", "code", "of_field", "weights", "stored", "dictionary", "entries", "provenance"}},
-          {"operators", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "from", "to", "method", "parameters", "shape", "stored", "lineage", "provenance"}},
+          {"manifolds", {"subject", "id", "name", "kind", "type", "label", "description", "primary", "acquisition", "coordinates", "size", "arrays", "positions_of", "factors", "component_of", "component_ordinal", "from_index", "derived_from", "derived_by", "stored", "provenance"}},
+          {"fields", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "stored", "chunk_samples", "lineage", "provenance"}},
+          {"selections", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "elements", "members", "measures", "member_of", "member_ordinal", "code", "of_field", "weights", "stored", "dictionary", "entries", "provenance"}},
+          {"operators", {"subject", "id", "name", "kind", "type", "label", "acquisition", "description", "from", "to", "layout", "method", "parameters", "shape", "stored", "lineage", "provenance"}},
           {"statistics", {"subject", "id", "name", "measure", "method", "type", "label", "acquisition", "description", "of_field", "of_statistic", "partition", "members", "members_skipped", "dof", "axes", "stored", "provenance"}},
           {"dictionaries", {"subject", "id", "name", "scope", "description", "entries", "provenance"}},
           {"spaces", {"subject", "id", "name", "geometry", "rank", "parameters", "description", "coordinate_systems"}},
-          {"acquisitions", {"subject", "id", "name", "session", "task", "run", "acq", "processing", "split"}},
+          {"acquisitions", {"subject", "id", "name", "session", "task", "run", "acq", "processing", "split", "recordings", "seconds"}},
           {"jobs", {"subject", "id", "kind", "host", "status", "inputs", "parameters", "result", "progress", "error", "requested_by", "created_utc", "started_utc", "finished_utc"}}};
       known = by_class.at(noun);
     }

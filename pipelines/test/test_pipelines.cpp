@@ -15,9 +15,18 @@
 #include <Eigen/Sparse>
 
 #include "check.h"
+#include "hemispheres.h"
+#include "run_definition.h"
 #include "nxr/io/task/task.h"
+#include "nxr/io/selection_store.h"
+#include "nxr/io/subject_api.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/surface_maps.h"
 #include "nxr/pipelines/eigen.h"
+#include "nxr/pipelines/input.h"
+#include "nxr/pipelines/face.h"
+#include "nxr/io/task/commands.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -123,10 +132,24 @@ int main() {
     SubjectWriter s3 = SubjectWriter::create(ds, "S3");     // the Desikan-Killiany atlas with its wall
     SurfaceOptions so{.name = "cortex"};
     so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
+    so.atlases.push_back(nxrtest::structures_of(W, G));   // the hemispheres, as Brainstorm's Structures (the glue reads them)
     s3.compose([&] { add_surface(s3, so, W, G); });
   }
   SubjectWriter s2 = SubjectWriter::open(ds, "S2");
-  CHECK_EQ(([&] { try { eigen_solve(ds, s2, opt); } catch (const Error& e) { return e.code(); } return std::string(); })(), std::string(code::no_such_row));
+  CHECK(!([&] { try { eigen_solve(ds, s2, opt); } catch (const Error& e) { return e.code(); } return std::string(); })().empty());   // no hemisphere labelling, no atlas: refused
+  {   // a hemisphere labelling that does not follow the pieces (a cap of the first sphere labelled right): the glue is refused, with the reason
+    SubjectWriter s4 = SubjectWriter::create(ds, "S4");
+    SurfaceOptions so{.name = "cortex"};
+    so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
+    AtlasMember bad = nxrtest::structures_of(W, G);
+    for (std::int32_t i = 0; i < n1; ++i) if (W[3 * i + 2] > 0.06) bad.codes[static_cast<std::size_t>(i)] = 1;
+    so.atlases.push_back(bad);
+    s4.compose([&] { add_surface(s4, so, W, G); });
+    const std::string why = [&] { try { nxrtest::run_definition(ds, s4, "glue", Json{{"surface", "cortex"}}); } catch (const std::exception& e) { return std::string(e.what()); } return std::string(); }();
+    std::printf("  a hemisphere labelling that disagrees: %s\n", why.substr(0, 160).c_str());
+    CHECK(why.find("Structures") != std::string::npos);
+    CHECK(!s4.find("manifold", "source/cortex_glued"));
+  }
   SubjectWriter s3 = SubjectWriter::open(ds, "S3");
   opt.replace = false;
   // two identical spheres make exactly cocircular quads: flipped to Delaunay their cotan weights are 0 up to rounding (about -1e-17), which the 2-form ladder inverts: the named *1 floor keeps it defined, and the
@@ -147,17 +170,59 @@ int main() {
   CHECK(g.modes.n_exact > 0 && g.modes.n_coexact > 0);
   {
     const auto gs = s3.find("manifold", "source/cortex_glued");
-    const auto br = s3.find("selection", "source/cortex_glued_bridge");
+    // the glue's result is ONE SELECTION: the hemispheres labelling of the glued cortex (the input's entries and `bridge`); the correspondence derived from it and the original's medial wall (no kept vertices stored)
+    nxr::io::task::Want wl{.cls = nxr::io::task::Cls::selection}; wl.name = std::string("cortex_glued_hemispheres");
+    const auto hl = nxr::io::task::Subject::of(s3).find(wl);
+    const auto br = hl;
+    CHECK(hl.has_value() && !s3.find("field", "source/cortex_glued/cortex_glued_map") && !s3.find("selection", "source/cortex_glued_bridge"));
+    { nxr::io::task::Want wk{.cls = nxr::io::task::Cls::selection}; wk.name = std::string("cortex_glued_kept"); CHECK(!nxr::io::task::Subject::of(s3).find(wk)); }
+    { std::vector<std::int32_t> off_wall; for (std::size_t v = 0; v < wall.size(); ++v) if (!wall[v]) off_wall.push_back(static_cast<std::int32_t>(v));
+      CHECK(std::vector<std::int32_t>(gm.keep.begin(), gm.keep.begin() + kept) == off_wall); }   // exactly the medial wall removed
+    if (hl) {
+      const StoredLabelling H = stored_labelling(s3, hl->id);
+      const auto L = H.code_of("Cortex L"), R = H.code_of("Cortex R"), B = H.code_of("bridge");
+      CHECK(L && R && B && static_cast<std::int64_t>(H.labels.size()) == Vg);
+      bool order = true;
+      std::int64_t left = 0, right = 0;
+      for (std::int64_t i = 0; i < Vg; ++i) {
+        const auto l = H.labels[static_cast<std::size_t>(i)];
+        order = order && ((l == *B) == (i >= kept));
+        if (i < kept) order = order && l == (gm.keep[static_cast<std::size_t>(i)] < n1 ? *L : *R);   // each kept vertex its hemisphere's label
+        left += l == *L; right += l == *R;
+      }
+      std::printf("  glued labelling: %lld left, %lld right, %lld bridge\n", (long long)left, (long long)right, (long long)(Vg - kept));
+      CHECK(order && left > 0 && right > 0);
+      const auto gmap = glue_map_of(s3, text(*s3.find("manifold", "source/cortex_glued"), "id"));   // the correspondence, carried
+      CHECK(gmap && gmap->original_of == gm.keep);
+    }
     const auto op = s3.find("operator", "hodgeDirac__cortex_glued_eigenvectors");
-    CHECK(gs && br && op);
-    CHECK_EQ(text(*op, "to_manifold_id"), text(*gs, "id"));
+    const auto tri = s3.find("manifold", "source/cortex_glued_intrinsic");
+    CHECK(gs && br && op && tri);
+    // ONE operator from the eigenvalue line to the intrinsic triangulation (made from the glued surface, its positions shared), cell key 0+1+2: rows V + E + F
+    CHECK_EQ(text(*op, "to_manifold_id"), text(*tri, "id"));
+    CHECK_EQ(text(*tri, "derived_from_id"), text(*gs, "id"));
+    CHECK(opt_text(*op, "to_cell") == std::optional<std::string>("0+1+2") && opt_text(*op, "from_cell") == std::optional<std::string>("0"));
     CHECK_EQ(integer(*gs, "n_vertices"), Vg);
-    CHECK_EQ(integer(*op, "n_rows"), Vg);
+    CHECK_EQ(integer(*gs, "n_faces"), static_cast<std::int64_t>(gm.faces.size() / 3));                 // the glue fills its f-vector: a sphere's edges, V + F - 2
+    CHECK_EQ(integer(*gs, "n_edges"), Vg + static_cast<std::int64_t>(gm.faces.size() / 3) - 2);
+    CHECK_EQ(integer(*op, "n_rows"), Vg + integer(*tri, "n_edges") + integer(*tri, "n_faces"));
+    {   // the triangulation reads the glued surface's positions (the same array, not copied), through a geometry of its own
+      const auto gg = nxr::io::manifold_row_named(s3, "cortex_glued"), tg = nxr::io::manifold_row_named(s3, "cortex_glued_intrinsic");
+      CHECK(gg && tg && text(*gg, "pp") == text(*tg, "pp") && text(*gs, "geometry_id") != text(*tri, "geometry_id"));
+    }
+    // d0, d1 and the stars are ANALYTIC operators on the triangulation (method dec, no bytes), their shapes in its cells
+    for (const char* nm : {"cortex_glued_intrinsic_d0", "cortex_glued_intrinsic_d1", "cortex_glued_intrinsic_star0", "cortex_glued_intrinsic_star1", "cortex_glued_intrinsic_star2"}) {
+      nxr::io::task::Want w{.cls = nxr::io::task::Cls::operator_}; w.name = std::string(nm);
+      const auto a = nxr::io::task::Subject::of(s3).find(w);
+      CHECK(a && a->row.value("layout", std::string()) == "analytic" && a->method == std::optional<std::string>("dec") && !a->path && a->from_manifold_id == std::optional<std::string>(text(*tri, "id")));
+    }
+    CHECK(!s3.find("operator", "hodgeDirac__cortex_glued_forms1") && !s3.find("operator", "hodgeDirac__cortex_glued_forms2"));
     const std::vector<std::uint8_t> raw = ArrayReader::open(s3.store(), ("source/cortex_glued/faces")).read();
     CHECK(raw.size() == gm.faces.size() * sizeof(std::int32_t) && std::memcmp(raw.data(), gm.faces.data(), raw.size()) == 0);   // the glued faces, as glueMesh gives them
-    const std::vector<std::uint8_t> sup = ArrayReader::open(s3.store(), (text(*s3.find("selection", "source/hodgeDirac__cortex_glued_support"), "array_path"))).read();
-    // the support: the glued vertices that are cortex (the bridge is not), as original vertex numbers, in order
-    CHECK(sup.size() == static_cast<std::size_t>(kept) * sizeof(std::int32_t) && std::memcmp(sup.data(), gm.keep.data(), sup.size()) == 0);
+    // no support stored: the glued vertices that are cortex, as original vertex numbers, are the glue's correspondence (its hemispheres labelling and the medial wall)
+    CHECK(!s3.find("selection", "source/hodgeDirac__cortex_glued_support"));
+    const auto map = nxr::pipelines::glue_map_of(s3, text(*gs, "id"));
+    CHECK(map && std::equal(gm.keep.begin(), gm.keep.begin() + static_cast<long>(kept), map->original_of.begin()));
   }
   // THE FULL FORMS: the intrinsic complex (d0, d1, the stars) and the 2-forms, read back; built from them alone, every mode's 1-form part has energy
   // λ/2 in ⋆1 and the 1-form parts are mutually orthogonal (the Dirac eigenvectors' orthonormality): reading a 1-form into the modes is inner products
@@ -180,24 +245,34 @@ int main() {
     CHECK(im.has_value());
     const std::int64_t nE = integer(*im, "n_edges"), nF = integer(*im, "n_faces");
     CHECK_EQ(2 * nE, 3 * nF);
-    auto csr = [&](const std::string& name, std::int64_t rows, std::int64_t cols) {
-      const auto r = s3.find("operator", name);
-      const std::string at = text(*r, "path");
-      const auto ip = as_d(at + "/indptr"), ix = as_d(at + "/indices"), dv = as_d(at + "/data");
-      Eigen::SparseMatrix<double> M(rows, cols);
-      std::vector<Eigen::Triplet<double>> t;
-      for (std::int64_t i = 0; i < rows; ++i) for (auto k = static_cast<std::int64_t>(ip[i]); k < static_cast<std::int64_t>(ip[i + 1]); ++k) t.emplace_back(i, static_cast<int>(ix[k]), dv[k]);
-      M.setFromTriplets(t.begin(), t.end());
-      return M;
-    };
-    const auto d0 = csr("cortex_glued_intrinsic_d0", nE, Vg), d1 = csr("cortex_glued_intrinsic_d1", nF, nE);
+    // the analytic operators evaluated as their method says (the construction on the glued surface, the solve's floor): d0, d1 and the stars
+    const SurfaceInput glued = read_surface(s3, std::string("cortex_glued"));
+    nxr::geometry::DelaunayOptions dopt;
+    const nxr::geometry::SurfaceArrays sa = nxr::geometry::surfaceArrays(glued.vertices.data(), static_cast<int>(Vg), glued.faces.data(), static_cast<int>(glued.n_faces()), nxr::geometry::intrinsicOptions(true, dopt));
+    const nxr::operators::hodgedirac::HodgeDirac hd = nxr::operators::hodgedirac::assemble(sa, 1e-9, 1e-6, 1e-6);
+    CHECK(hd.nE == nE && hd.nF == nF);
+    {
+      const std::vector<std::uint8_t> raw = ArrayReader::open(s3.store(), text(*im, "path") + "/faces").read();   // its stored faces are the construction's
+      std::vector<std::int32_t> fs(raw.size() / 4); std::memcpy(fs.data(), raw.data(), raw.size());
+      CHECK(fs == hd.complex.faces);
+    }
+    const Eigen::SparseMatrix<double> d0 = hd.d0, d1 = hd.d1;
     CHECK(Eigen::SparseMatrix<double>(d1 * d0).norm() == 0.0);
-    auto fieldv = [&](const std::string& name) { return as_d(text(*s3.find("field", "source/" + name), "path")); };
-    const auto st0 = fieldv("cortex_glued_intrinsic_star0"), st1 = fieldv("cortex_glued_intrinsic_star1"), st2 = fieldv("cortex_glued_intrinsic_star2");
+    const std::vector<double> st0(hd.star0.data(), hd.star0.data() + Vg), st1(hd.star1.data(), hd.star1.data() + nE), st2(hd.star2.data(), hd.star2.data() + nF);
     CHECK(*std::min_element(st1.begin(), st1.end()) >= 0);                     // Delaunay: every cotan weight non-negative (after the floor)
     const auto mu = as_d(text(*s3.find("manifold", "eigenvalue/hodgeDirac__cortex_glued"), "path"));
-    const auto kind = [&] { const auto [raw, dt] = arr(text(*s3.find("field", "eigenvalue/hodgeDirac__cortex_glued_kind"), "path")); return std::vector<std::uint8_t>(raw.begin(), raw.end()); }();
-    const auto P = as_d(text(*s3.find("operator", "hodgeDirac__cortex_glued_eigenvectors"), "path")), X2 = as_d(text(*s3.find("operator", "hodgeDirac__cortex_glued_forms2"), "path"));
+    // the kinds: a labelling of the eigenvalue line (label 0 exact, 2 coexact)
+    const auto ks = nxr::io::selection::named_row(s3, "hodgeDirac__cortex_glued_kinds");
+    CHECK(ks.has_value());
+    const nxr::io::selection::ElementMembers em = nxr::io::selection::read_element_members(s3, text(*ks, "id"));
+    std::vector<std::uint8_t> kind(em.member_of.size());
+    for (std::size_t k = 0; k < kind.size(); ++k) kind[k] = static_cast<std::uint8_t>(em.member_codes.empty() ? em.member_of[k] : em.member_codes[static_cast<std::size_t>(em.member_of[k])]);
+    CHECK(kind.size() == mu.size());
+    // the mixed forms: rows 0-forms [0, V) · 1-forms [V, V+E) · 2-forms [V+E, V+E+F)
+    const auto ALL = as_d(text(*s3.find("operator", "hodgeDirac__cortex_glued_eigenvectors"), "path"));
+    const std::int64_t Kall = static_cast<std::int64_t>(mu.size());
+    CHECK(static_cast<std::int64_t>(ALL.size()) == (Vg + nE + nF) * Kall);
+    const std::vector<double> P(ALL.begin(), ALL.begin() + Vg * Kall), X1(ALL.begin() + Vg * Kall, ALL.begin() + (Vg + nE) * Kall), X2(ALL.begin() + (Vg + nE) * Kall, ALL.end());
     const std::int64_t K = static_cast<std::int64_t>(mu.size()), Kc = std::min<std::int64_t>(K, 24);
     Eigen::Map<const Eigen::VectorXd> s0(st0.data(), Vg), s1(st1.data(), nE), s2(st2.data(), nF);
     Eigen::MatrixXd W(nE, Kc);                                                   // the first Kc modes' 1-form parts
@@ -221,6 +296,22 @@ int main() {
     CHECK(norm02 < 1e-4);
     CHECK(diagErr < 1e-4);
     CHECK(off < 1e-4);
+    {   // the stored 1-form rows (the solve's own) are the parts rebuilt here from the 0- and 2-form rows
+      CHECK(static_cast<std::int64_t>(X1.size()) == nE * K);
+      // A coexact part is ⋆1⁻¹ d1ᵀ ⋆2 χ: on an edge whose ⋆1 is ~0 (the glued bridge) the sum cancels to the same order as ⋆1, so rebuilding it from the float32 2-form parts and ⋆1 loses it;
+      // the solve's own double values (stored) are the accurate ones. Compared on the edges with a ⋆1 of at least 1e-3 of the mean (every edge for an exact mode); the others are counted.
+      const double s1mean = s1.mean();
+      std::int64_t ill = 0;
+      for (std::int64_t e = 0; e < nE; ++e) ill += s1(e) < 1e-3 * s1mean;
+      double e1 = 0, sc = 0;
+      for (std::int64_t k = 0; k < Kc; ++k) for (std::int64_t e = 0; e < nE; ++e) {
+        sc = std::max(sc, std::abs(W(e, k)));
+        if (kind[k] == 0 || s1(e) >= 1e-3 * s1mean) e1 = std::max(e1, std::abs(X1[e * K + k] - W(e, k)));
+      }
+      std::printf("  edges with a star1 under 1e-3 of the mean (a coexact part rebuilt from float32 parts is lost there): %lld of %lld\n", (long long)ill, (long long)nE);
+      std::printf("  stored 1-form parts vs rebuilt: max |difference| %.1e (scale %.1e)\n", e1, sc);
+      CHECK(e1 < 1e-5 * sc);
+    }
   }
   CHECK(eigen_solve(ds, s3, opt).hit);
   // a re-solve with --replace whose glue is the same surface KEEPS the glued surface: a field another run stored on it stays
@@ -236,7 +327,7 @@ int main() {
     CHECK(!r2.hit && r2.info["replaced"].get<bool>());
     CHECK_EQ(text(*s3.find("manifold", "source/cortex_glued"), "id"), gid);
     CHECK(s3.find("field", nxr::io::task::Subject::of(s3).node_path(gid, "other_run")).has_value());
-    CHECK(s3.find("operator", "hodgeDirac__cortex_glued_forms2").has_value());
+    CHECK(opt_text(*s3.find("operator", "hodgeDirac__cortex_glued_eigenvectors"), "to_cell") == std::optional<std::string>("0+1+2"));
   }
   // the glued sphere pair is ONE closed surface of genus 0: two zero modes dropped, the first exact mode non-constant across the bridge
   CHECK(g.modes.mu.front() > 0);
@@ -252,12 +343,43 @@ int main() {
     const EigenSolveResult r = eigen_solve(dd, dsub, eo);
     CHECK(!r.hit && r.modes.n_exact > 0 && r.modes.n_coexact > 0);
     CHECK(dsub.find("operator", "hodgeDirac_eigenvectors").has_value());
-    CHECK(dsub.find("operator", "hodgeDirac_forms2").has_value());
+    CHECK(dsub.find("manifold", "source/cortex_pial_intrinsic").has_value());
+    CHECK(opt_text(*dsub.find("operator", "hodgeDirac_eigenvectors"), "to_cell") == std::optional<std::string>("0+1+2"));
     CHECK(dsub.find("manifold", "eigenvalue/hodgeDirac").has_value());
     dd.close();
   }
 
   ds.close();
+  // THE DESCRIPTIONS a client builds its ports from (`read subject`): the operators' cells in their types, the analytic layouts, the triangulation reading the glued cortex's positions, the glued
+  // cortex's counts and its cell arrays
+  {
+    nxr::io::task::ReadSubjectRequest q;
+    q.dataset = (root / "demo").string(); q.subject = "S3";
+    const Json d = nxr::pipelines::face::read_subject(q).result;
+    auto named = [](const Json& rows, const std::string& n) -> const Json* { for (const auto& r : rows) if (r["name"] == n) return &r; return nullptr; };
+    const Json* ev = named(d["operators"], "hodgeDirac__cortex_glued_eigenvectors");
+    const Json* d0 = named(d["operators"], "cortex_glued_intrinsic_d0");
+    const Json* glued = named(d["manifolds"], "cortex_glued");
+    const Json* tri = named(d["manifolds"], "cortex_glued_intrinsic");
+    CHECK(ev && d0 && glued && tri);
+    if (ev && d0 && glued && tri) {
+      CHECK_EQ((*ev)["type"]["domain"]["cells"].get<std::string>(), std::string("0"));
+      CHECK_EQ((*ev)["type"]["target"]["cells"].get<std::string>(), std::string("0+1+2"));
+      CHECK_EQ((*ev)["layout"].get<std::string>(), std::string("dense"));
+      CHECK_EQ((*d0)["type"]["domain"]["cells"].get<std::string>(), std::string("0"));
+      CHECK_EQ((*d0)["type"]["target"]["cells"].get<std::string>(), std::string("1"));
+      CHECK_EQ((*d0)["layout"].get<std::string>(), std::string("analytic"));
+      CHECK_EQ((*d0)["method"].get<std::string>(), std::string("dec"));
+      CHECK_EQ((*tri)["positions_of"].get<std::string>(), std::string("cortex_glued"));
+      CHECK((*glued)["positions_of"].is_null());
+      CHECK_EQ((*glued)["size"]["faces"].get<std::int64_t>(), static_cast<std::int64_t>(gm.faces.size() / 3));
+      CHECK_EQ((*tri)["size"]["edges"].get<std::int64_t>(), (*tri)["arrays"][1]["rows"].get<std::int64_t>());
+      std::vector<std::string> arrays;
+      for (const auto& a : (*tri)["arrays"]) arrays.push_back(a["name"].get<std::string>() + ":" + a["holds"].get<std::string>());
+      CHECK(arrays == (std::vector<std::string>{"positions:vertices", "cells_1:edges", "cells_2:faces"}));
+      CHECK(!named(d["selections"], "hodgeDirac__cortex_glued_support"));
+    }
+  }
   fs::remove_all(root);
   std::cout << "test_pipelines: ok\n";
   return 0;

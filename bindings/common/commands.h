@@ -708,12 +708,14 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
       for (const auto& n : *p) q.projectors += (q.projectors.empty() ? "" : ",") + n;
     }
     q.shape_only = o.flag("shape_only");
+    q.onto = o.maybe("onto");
     call([&] { return face::read_field(q); });
   } else if (c == "read statistic") {
     face::ReadNodeRequest q = node();
     call([&] { return face::read_statistic(q); });
   } else if (c == "read operator") {
     face::ReadNodeRequest q = node();
+    q.onto = o.maybe("onto");
     call([&] { return face::read_operator(q); });
   } else if (c == "read selection") {
     face::ReadNodeRequest q = node();

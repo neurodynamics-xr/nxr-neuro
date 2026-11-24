@@ -309,7 +309,7 @@ the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subcl
 | `compute.select.detectBursts(amplitude, step, enter_sd=1.5, exit_sd=1.0, merge_s=0.1, min_s=0.4, max_s=inf, baseline=None)` | `nxr::select::detectBursts` | the bursts of an amplitude series: robust baseline, hysteresis, merge, length; the spans with the baseline, levels and durations used |
 | `compute.select.risefall(amplitude, sfreq, t0, t1, model="linear", margin=1.0, smooth=0.1, tau_max=1.0, min_r2=None)`, `stagesOf(t_on, t_off, tau_rise, tau_fall)` | `nxr::select::risefall`, `stagesOf` | the double-sigmoid fit of an episode's switch-on and switch-off (`kept` is the fit gate when `min_r2` is given), and its onset, plateau and offset stages |
 | `compute.signal.bandAnalytic(x, sfreq, bands, shape="morlet", half_width=1/3)`, `bandEnvelope(...)` | `nxr::signal::bandAnalytic`, `bandEnvelope` | the analytic signal (complex) and the envelope (real) of bands, `[bands, channels, samples]`, designed on the window given |
-| `compute.signal.timeBank(sfreq, n, family, sides="analytic", gain=1.0, ...)` | `nxr::signal::timefilterbank::timeBank` | a time filterbank for inspection: bins, gains `[members, bins]`, centre frequencies, frame bounds |
+| `compute.signal.timeBank(sfreq, n, family, sides, gain, ...)` | `nxr::signal::timefilterbank::timeBank` | a time filterbank for inspection (family, sides and gain are required, no default): bins, gains `[members, bins]`, centre frequencies, frame bounds |
 | `compute.signal.wt(x, sfreq, bank)`, `iwt(W, sfreq, n, bank, synthesis="dual")` | `nxr::signal::wt`, `iwt` | the wavelet transform of a signal by a time bank (a dict of the design fields, designed on x's own n samples) and its inverse; complex `[members, channels, samples]` |
 | `compute.signal.graphBank(family, eigenvalues=None, lmax=None, ...)` | `nxr::signal::graphfilterbank::graphBank` | a graph filterbank (mexhat, heat, itersine, logitersine, meyer, weyl, rank) for inspection: gains at the eigenvalues, roles, scales, centre wavenumbers, frame bounds |
 | `compute.signal.gwt(F, bank, eigenvalues=, eigenvectors=, mass=)` or `(F, bank, laplacian=, mass=, order=40, lmax=0)`, `igwt(...)` | `nxr::signal::gwt`, `igwt` | the wavelet transform of a field on a graph, exact through the operator's modes or by a Chebyshev series; `[members, vertices, samples]` |
@@ -447,13 +447,19 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run fingerprint_features` | A person's two features over a span (steps 18 and 19): the bands' region spectra cut to their bands side by side (68 x 301 by default), and their envelope correlations on a band axis. | (the definition) |
 | `nxr-neuro run headmodel` | The sphere head model (gain matrix) for a subject's cortex, MEG and EEG. | `headmodel compute` |
 | `nxr-neuro run pointspread` | The instrument's blur: unit currents at sample vertices through the head model and inverse kernel. | `pointspread compute` |
-| `nxr-neuro run eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface, with the intrinsic complex and the modes' full forms (cached); `--glued` for a cortex of two hemispheres. | `eigen solve` |
+| `nxr-neuro run eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface on its intrinsic triangulation (made first when missing): the eigenvalue line, the kinds, and each mode's mixed form as one operator (cached). | `eigen solve` |
+| `nxr-neuro run intrinsic` | The intrinsic Delaunay triangulation of a stored surface: its own cells on the surface's positions, d0, d1 and the Hodge stars as analytic operators, the lengths and signposts as fields. | - |
+| `nxr-neuro migrate eigensolve` | A stored eigensolve of the earlier form (`_eigenvectors`, `_forms1`, `_forms2`, a kind field) converted in place to the four classes, with no solve. | `package migrate-eigensolve` |
 | `nxr-neuro run surface_frames` | The canonical (north, west) and anatomical frames of a surface. | `frames compute`, `run surface_frames` |
 | `nxr-neuro run select_dyadic_surface` | The dyadic equal-area tiles of a surface as one grid with closed-form levels, from a stated finest tile (subject, group tree or transfer). | `tiles compute`, `run select_dyadic_surface`, `run select_dyadic_surface --rule group`, `run group_tiles` |
 | `nxr-neuro run select_time_grid` | The dyadic time grid of a recording's line: tiles, band, frames (density and origin are options), constant-Q, segments, windows, chunks. | `constantq compute`, `run select_time_grid --rule frames` |
 | `nxr-neuro run select_bands` | A band set on the Frequency or Eigenvalue line, each band a quantity. | `run pyramid_bands`, `run spatial_bands` |
 | `nxr-neuro run select_product` | A product of grids and band sets (a box, cells, the joint partition), levels coupled to a band. | `joint compute`, `run select_product` |
-| `nxr-neuro run glue` | The two hemispheres of a cortex glued by a bridge: a derived manifold with its map and bridge selection. | `--glued` of `run eigenmodes` |
+| `nxr-neuro run glue` | The two hemispheres of a cortex (read from the caller's hemisphere labelling) glued by a bridge after exactly their medial walls are cut: a derived manifold with its hemispheres labelling. | `--glued` of `run eigenmodes` |
+| `nxr-neuro migrate glue` | A glued cortex of an earlier form (a map field and a bridge selection, or kept vertices beside the labelling) converted in place to the hemispheres labelling alone; a glue that removed more than the medial wall is refused (re-run glue). | `package migrate-glue` |
+| `nxr-neuro run sensor_surface` | The channels as a surface: a triangulated helmet whose vertices are the picked channels, a derived manifold with its vertex-to-channel map. | (new) |
+| `nxr-neuro run spectral_coefficients` | The mode-space Fourier coefficients of a recording per time tile, through a composed spatial operator (a package's modes and a free kernel, or the sensor surface's channel map). | (new) |
+| `nxr-neuro run sensor_flow` | The flow of the field on the sensor surface per atom of the joint frequency x eigenvalue level: chunk spectra with overlap, power, phase currents, Hodge-Dirac flow, band pairs, time cells and their sign-flip test, an optional aperiodic fit. | (new) |
 | `nxr-neuro run roll_up` | A measurement rolled up through its grid's hierarchy, or across a group's subjects (scope group). | `run roll_up` |
 | `nxr-neuro run band_analytic`, `cortical_band`, `member_activation`, `band_outer` | Field chains: pointwise fields (a band's analytic signal, the band on the cortex, one filter-bank member's activation, z z^H), run alone or composed into `measure`. | the steps of `pyramid`, `cortical_band_cells`, `opticalflow` |
 | `nxr-neuro run lowpass` | A zero-phase low-pass filter, written as a new recording. | `lowpass` |
@@ -527,7 +533,7 @@ A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<val
 | command | what it does | old spelling |
 |---|---|---|
 | `nxr-neuro list datasets` | List the dataset folders in a folder (`--datastore`): every dataset of either form (`form`: `one-database`, or `catalogue` as `create dataset --dataset` makes it), with its id, name, path, database and subject count; an empty folder is an empty list, a folder that does not exist is `not_found`. | `dataset list` |
-| `nxr-neuro list subjects` | List the subjects of a dataset. | `subject list` |
+| `nxr-neuro list subjects` | List the subjects of a dataset, each with its `counts` (as `show subject`; read from its package in a catalogue, null when it cannot be opened). | `subject list` |
 | `nxr-neuro list recordings` | List the recordings of a subject. |  |
 | `nxr-neuro list kernels` | List the inverse kernels of a subject. |  |
 | `nxr-neuro list results` | List the fields and statistics the computations stored for a subject. |  |
@@ -539,7 +545,7 @@ A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<val
 | command | what it does | old spelling |
 |---|---|---|
 | `nxr-neuro show dataset` | Show a dataset: its subjects by kind, its source and its creation date, and the count of each class of node (`nodes`). | `dataset show` |
-| `nxr-neuro show subject` | Show how many manifolds, fields, operators and selections a subject holds. | `subject show` |
+| `nxr-neuro show subject` | Show how many manifolds, fields, operators and selections a subject holds, and `counts`: its acquisitions, manifolds, surfaces, volumes, fields, recordings, selections, operators, statistics and the seconds its recordings hold. | `subject show` |
 
 ### `read`: Read stored arrays and derived readings
 
@@ -550,7 +556,7 @@ A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<val
 | `nxr-neuro read crossspectrum` | Read coherency, phase, delay or phase-slope index from a stored band-resolved cross-spectrum. | `crossspectrum read` |
 | `nxr-neuro read field` | A stored field by name: its values (a time-resolved field over a stated time range), its manifold and cells. | |
 | `nxr-neuro read statistic` | A stored statistic by name: its values on its axes. | |
-| `nxr-neuro read operator` | A stored operator by name: dense values, or a sparse operator's `data`, `indices`, `indptr`. | |
+| `nxr-neuro read operator` | A stored operator by name: dense values, or a sparse operator's `data`, `indices`, `indptr`; with `--onto GLUED` its rows carried onto a glued cortex. | |
 | `nxr-neuro read selection` | A stored selection by name: its per-element array, its spans and dictionary, or (`--measure M [--field F]`) its measurement table. | |
 | `nxr-neuro read manifold` | A stored manifold by name: positions, cells, axes, element names, coordinate system; or (`--family NAME`) one labelling. | |
 
@@ -593,19 +599,21 @@ and typed: a node is named, never numbered; what it refers to is named by its na
 (`*_id`, `*_json`). Only complete nodes are described. `id` is the node's identity (stable across calls). **Every typed node carries `type`: the JSON `compile` gives a value** (the type
 system's: `class`, `domain` with its factor manifolds (`kind`, `topology`, `coordinate_system` {space, name, unit}, `n`, `origin`, `spacing`, `unit`), `value` (real, complex, ...), `components`, `unit`,
 `quantity`, `sfreq` for a stream); a manifold's `type` is its manifold term. It is built the way the runner types a stored input, so a client reads a stored node and a compiled graph's value in one
-vocabulary, and the same stored field has the same `type` in `read subject` and in `compile`. The storage words (`value_type`, `cells`, `data_type`, `layout`, and a domain, unit or components of
-their own) are not keys: `type` says them. `kind` is the stored kind (a field's, an operator's, a selection's type, a manifold's type); `type.quantity` is the typed quantity. The other keys:
+vocabulary, and the same stored field has the same `type` in `read subject` and in `compile`. The storage words (`value_type`, `cells`, `data_type`, and a domain, unit or components of
+their own) are not keys: `type` says them; an operator's cells at each end are its type's `domain.cells` and `target.cells` (d0 `0` to `1`; the Hodge-Dirac eigenvectors the line's `0` to the
+triangulation's `0+1+2`). An operator's `layout` is a key: it says how its values are read (`dense`: one array; `csr` or `csc`: data, indices, indptr; `analytic`: no values, evaluated from its
+`method` and `parameters`, D93). `kind` is the stored kind (a field's, an operator's, a selection's type, a manifold's type); `type.quantity` is the typed quantity. The other keys:
 
 | class | description (besides `id`, `name`, `kind`, `type`) |
 |---|---|
-| manifold | `label`, `description`, `primary`, `acquisition`, `coordinates` {system, unit, kinds, axes} (the coordinate system its points are in; `kinds` when each point of a line carries a code; `axes` [{name, size, origin, spacing, unit}], the coordinate of a closed-form geometry along each axis, a line's one: its first point, the step between points and the unit), `size` {vertices, edges, faces, volumes}, `factors` (a product's, by name), `component_of`, `component_ordinal`, `from_index` (a component's first vertex in the whole's vertex order), `derived_from`, `derived_by`, `stored`, `provenance` |
-| field | `label`, `acquisition`, `description`, `stored`, `lineage` {derived_from, of_field, of_operator, by_operator, function, contributions [{field, weight}]}, `provenance` |
-| selection | `label`, `acquisition`, `description`, `elements`, `members` (their count), `member_of`, `member_ordinal`, `code` (a member of a set, such as each atlas of the set of a surface's parcellations or each level of a grid, is a selection of its own, described like any other: the set it belongs to by name, its place in it and its code; null for a selection that is no member), `of_field`, `weights` (one weight a member is stored), `stored`, `dictionary` (its name), `entries` [{code, name, colour, label, description}], `provenance` |
-| operator | `label`, `acquisition`, `description`, `from` and `to` {manifold, selection}, `method`, `parameters`, `shape` {rows, columns, nonzeros}, `stored`, `lineage` {derived_from, of_statistic, inverts, inverse_kind}, `provenance` |
+| manifold | `label`, `description`, `primary`, `acquisition`, `coordinates` {system, unit, kinds, axes} (the coordinate system its points are in; `kinds` when each point of a line carries a code; `axes` [{name, size, origin, spacing, unit}], the coordinate of a closed-form geometry along each axis, a line's one: its first point, the step between points and the unit), `size` {vertices, edges, faces, volumes} (a count the row leaves unset is the rows of its stored cells' array, read from the array's metadata), `arrays` [{name, holds, rows}] (the arrays `read manifold` gives: `positions` and `cells_<rank>`, holding the vertices, edges, faces or volumes), `positions_of` (the manifold whose positions array it reads, such as the glued cortex for its intrinsic triangulation or the whole cortex for a hemisphere; null: its own), `factors` (a product's, by name), `component_of`, `component_ordinal`, `from_index` (a component's first vertex in the whole's vertex order), `derived_from`, `derived_by`, `stored`, `provenance` |
+| field | `label`, `acquisition`, `description`, `stored`, `chunk_samples` (a time-resolved field: the samples a chunk of it holds, as the chunk service reads it; null otherwise), `lineage` {derived_from, of_field, of_operator, by_operator, function, contributions [{field, weight}]}, `provenance` |
+| selection | `label`, `acquisition`, `description`, `elements`, `members` (their count), `measures` [{measure, of_field, of_statistic, within, unit, array, rows}] (the measurements it holds, as `read selection --measure` reads them; `array`: one array of a value per member per row of its field, such as a recording's envelope `min` and `max`), `member_of`, `member_ordinal`, `code` (a member of a set, such as each atlas of the set of a surface's parcellations or each level of a grid, is a selection of its own, described like any other: the set it belongs to by name, its place in it and its code; null for a selection that is no member), `of_field`, `weights` (one weight a member is stored), `stored`, `dictionary` (its name), `entries` [{code, name, colour, label, description}], `provenance` |
+| operator | `label`, `acquisition`, `description`, `from` and `to` {manifold, selection}, `layout`, `method`, `parameters`, `shape` {rows, columns, nonzeros}, `stored`, `lineage` {derived_from, of_statistic, inverts, inverse_kind}, `provenance` |
 | statistic | `measure`, `method`, `label`, `acquisition`, `description`, `of_field`, `of_statistic`, `partition`, `members`, `members_skipped`, `dof`, `axes` [{name, manifold, selection, size, unit}], `stored`, `provenance` (its `type` is untyped past its class, value and unit: its domain is typed by the node that made it) |
 | dictionary | `name`, `scope`, `description`, `entries` [{code, name, colour (#rrggbb), label, description, measurement, unit, function, params}], `provenance` (every dictionary the subject sees, each with its `scope`: the subject's own, the dataset's, and every app-scope one, whether or not a selection of the subject reads it); no `type` |
 | space | `name`, `geometry`, `rank`, `parameters`, `description`, `coordinate_systems` [{name, unit, reference, transition, description}]; no `type` |
-| acquisition | `name` (its label), `session`, `task`, `run`, `acq`, `processing`, `split`; no `type` |
+| acquisition | `name` (its label), `session`, `task`, `run`, `acq`, `processing`, `split`, `recordings` (how many), `seconds` (what they hold); no `type` |
 
 `provenance` is {source, comment, created_utc, created_by, modified_utc, modified_by, producer}: `producer` is the node's producer record as `read <class>` gives it (the command or pipeline that made it, the program, its inputs, and what the maker gave with `--producer`; null when none; a selection's is kept in its parameters, a statistic's provenance has no source or comment). `type` is built by the pipelines' face (`face::read_subject`, `face::list_class`); io reads and pages
 the rows (a build without the pipelines gives `"type": null`; a node the type system refuses to type, such as a tangent field with no gauge record, gives `"type": {"refused": "<why>"}`).
@@ -664,6 +672,7 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
 | `nxr-neuro create recording --synthetic` | Make a small synthetic recording in a subject package: sine waves (`--frequency`, repeatable) plus white noise from a `--seed`, with `--channels`, `--sfreq` and `--duration` as options. Stored as an imported recording is stored, with an origin record saying it is synthetic (CC0-1.0, redistributable); the same seed and options give the same samples. Used by the release smoke test. | - |
 | `nxr-neuro import condition PROTOCOL` | Import a Brainstorm condition (its recordings, channels and head models) into a dataset. | `convert convert` |
 | `nxr-neuro import inverse` | Import a Brainstorm inverse kernel as an operator of a subject. | `convert inverse` |
+| `nxr-neuro import covariance` | Import a Brainstorm study's own noise covariance (`noisecov_*.mat`, `--kind noise`) or data covariance (`ndatacov_*.mat`, `--kind data`) as a statistic `<condition>_noise_covariance` / `<condition>_data_covariance` (measure covariance, method empirical), on the pick of the condition's channels that have non-zero rows (a Selection `<name>_channels` on the condition's channel manifold, in the channel file's order), so `run inverse --noise-cov NAME` reads it. The file is the study's `NoiseCov` record, else the first `noisecov_*.mat` / `ndatacov_*.mat` in the study folder; one with no such file is refused with its reason. Its source file, comment, history, the recording it was computed from (named, not imported) and its sample count are in the statistic's options; `FourthMoment` is not imported. An existing statistic of that name is refused unless `--replace`. | `convert covariance` |
 | `nxr-neuro import map` | Import Brainstorm source or matrix maps as fields of a subject. | `convert map` |
 | `nxr-neuro import resample` | Resample a recording to a new sampling rate, as a new recording. | `convert resample` |
 | `nxr-neuro import badsegments` | Import a recording's bad segments from a file. | `convert badsegments` |
@@ -1068,17 +1077,99 @@ name such as `band power`) are stored as before. A `node:` use (grouped names su
 A statistic's `describe` may carry `producer`, what its readers ask of the provenance beside the run's own record (a spectrum's `frequency_resolution_hz` and `sfreq`, its segments, the share of samples left out, the scaling
 record). A native node that applies a stored dense Operator (`signal.linear_map`) is handed its matrix and the channels it lies over by the runner (`meta.channels`); it reads no store.
 
-## The Hodge-Dirac eigenmodes (`run eigenmodes`, the step `hodge_dirac`; spec `docs/specs/2026-11-17-eigenmodes-as-definition.md`)
+## The Hodge-Dirac eigenmodes (`run eigenmodes`, the step `hodge_dirac`; `run intrinsic`, the step `geometry.intrinsic`; spec `docs/specs/2026-11-17-eigenmodes-as-definition.md`)
 
-`run eigenmodes --surface NAME [--modes K] [--glued]` solves the Hodge-Dirac modes of a stored surface on its intrinsic Delaunay complex (the split solve: the Laplace-Beltrami ladder gives the exact modes, the 2-form
-ladder the coexact modes; one lambda cut, the constants out) and stores them with their full forms. Default: the reference method of nxr and Rheome; the other methods are named options (`--shift`, `--sigma`, `--slice`,
-`--normalize`, `--star1-floor`, `--mollify`, `--flip-eps`), all in the provenance and the cache key. `--glued` is for a cortex of TWO pieces (its hemispheres): each medial wall cut, a bridge grown, solved on the glued
-surface; a surface of two pieces without it, or of one piece with it, is refused with the reason; three or more pieces are refused. Eigenmodes come first: a spatial band that needs modes that are not stored has the runner
-make them with this run, said in a message. What it cannot resolve: a mode above the mesh's resolution is not a property of the cortex, and the bridge is not cortex.
-Stored (stem `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not the primary one; the layout is unchanged from `eigen solve`): the mode axis `<stem>` (points, coordinate mu = sqrt(lambda), ascending), the field
-`<stem>_kind` (0 exact, 2 coexact; of the eigenvectors operator), the operators `<stem>_eigenvectors` (axis to surface, [V x K] float32) and `<stem>_forms2` (axis to the complex's faces, cell 2), the selection `<stem>_support`; the
-glued surface `<surface>_glued` with its bridge `<surface>_glued_bridge`; and the cell complex `<solved>_intrinsic` (vertices, edges, faces) with the sparse operators `_d0` (cell 0 to 1) and `_d1` (cell 1 to 2) and the fields
-`_length`, `_star0`, `_star1`, `_star2`, `_angle_tail`, `_angle_tip`, `_angle_sum`, `_reference` on its cells. The library's `eigen_solve` (`pipelines/eigen.h`) is a thin caller of this definition.
+`run eigenmodes --surface NAME [--modes K]` solves the Hodge-Dirac modes of a stored surface of one closed piece on its INTRINSIC TRIANGULATION (the split solve: the Laplace-Beltrami ladder gives the exact
+modes, the 2-form ladder the coexact modes; one lambda cut, the constants out). Default: the reference method of nxr and Rheome; the other methods are named options (`--shift`, `--sigma`, `--slice`, `--normalize`,
+`--star1-floor`), all in the provenance and the cache key. A cortex of two hemispheres is glued first (`run glue`) and the glued surface named. Eigenmodes come first: a spatial band that needs modes that are not
+stored has the runner make them with this run, said in a message. What it cannot resolve: a mode above the mesh's resolution is not a property of the cortex, and the bridge is not cortex.
+
+The intrinsic triangulation is made by its own definition, `run intrinsic --surface NAME [--mollify 1e-6] [--flip-eps 1e-6]` (the Studio's intrinsicDelaunay.ts; the runner makes it first, with its defaults, when an
+eigensolve reads it and none is stored: the input's `made_by`). It is a manifold with the surface's geometry (the same positions array) and its OWN topology (the flipped edges and faces are its cells, D92):
+`source/<surface>_intrinsic`; d0, d1 and the stars ⋆0, ⋆1, ⋆2 are ANALYTIC operators on it (`_d0` cell 0 to 1, `_d1` 1 to 2, `_star<k>` k to k*; layout analytic, method `dec`, no bytes: D93, evaluated
+from the triangulation as the Studio's `hodgeDirac.ts dec(m)` builds them); the edge lengths and signposts are fields on its cells, each with its quantity (the field's kind) and unit: `_length` the
+edge length (rank 1, the surface's unit: metres for a cortex), `_angle_tail` and `_angle_tip` the signpost angle at each end of an edge (rank 1, rad), `_angle_sum` the cone angle (rank 0, rad), `_reference`
+the reference neighbour (rank 0, a vertex index). `migrate eigensolve` states the quantity and unit of a triangulation's fields stored by an earlier version (the kind `intrinsic triangulation`, no unit).
+
+Stored by the eigensolve (stem `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not the primary one), in the four classes: the EIGENVALUE LINE `<stem>` (a manifold of points, coordinate
+mu = sqrt(lambda), ascending), the field `<stem>_eigenvalues` (lambda; of the eigenvectors operator), the selection `<stem>_kinds` (a labelling of the line: exact, label 0; coexact, label 2),
+and ONE operator `<stem>_eigenvectors` from the line (cell 0) to the intrinsic triangulation (cell key `0+1+2`, schema 55): [(V + E + F) x K] float32, each column a mode's MIXED FORM, rows
+stacked 0-forms [0, V) (ψ/√2; 0 for a coexact mode) · 1-forms [V, V+E) (dψ/(μ√2), or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2)) · 2-forms [V+E, V+E+F) (χ/√2; 0 for an exact mode), the Studio's Hodge-Dirac order,
+orthonormal under the stars ⋆0, ⋆1, ⋆2 (the identity Gram matrix). One mode a chunk of V rows. A coexact mode's STREAM FUNCTION at the vertices (how it is drawn on the vertices) is not a part of the mode and
+is not stored: a vertex reader derives it from the 2-form part with the reference solve's face-to-vertex operator, each vertex the mean over its faces of ⋆2 χ/√2 (`streamFunctionAtVertices`;
+`stored_vertex_potentials` in `pipelines/input.h`, what the bases and bands read). It is the synthesis (line to triangulation); the analysis is its D106 pair, never stored twice. The library's `eigen_solve` (`pipelines/eigen.h`) is a thin caller
+of the two definitions. A solve stored in the earlier form (three operators `_eigenvectors` to the surface, `_forms1`, `_forms2`; a kind field; stored d0, d1 and stars) is refused by the readers, naming
+`nxr-neuro migrate eigensolve --dataset D --subject S [--name STEM]`: it converts it in place with no solve (absent 1-form parts are made from the stored parts and operators by `signal::oneFormFromParts`),
+moves the replaced items aside, records `migrated_from` in the new items, is idempotent and refuses a form it does not know. A solve stored in the four classes by an earlier version holds a coexact
+mode's stream function in its vertex rows: `migrate eigensolve` sets those rows to 0 (the mode's 0-form part; no solve). Its kinds labelling held each mode's member number (exact 0, coexact 1)
+under the dictionary {0 exact, 1 harmonic, 2 coexact}: `migrate eigensolve` stores the codes instead (coexact 2), each mode's kind read from its parts (a mode with a non-zero 2-form part is coexact,
+one whose 2-form part is zero exact), the old labelling checked against them. A labelling a definition stores with its own dictionary (`entries`) holds the codes the dictionary names, one member
+per entry. No support is stored: the input's vertex under each solved vertex is the
+glue's correspondence (the glued cortex's hemispheres labelling and the input's medial wall), or every vertex when the input itself was solved; `migrate eigensolve` moves a stored `<stem>_support` aside.
+
+## The sensor surface (`run sensor_surface`; the nodes `meeg.channel_positions`, `geometry.point_set_mesh`, `geometry.surface_from_parts`)
+
+Why: a cross-spectrum between channels holds the lags between sensors but gives them no place; read on a surface whose vertices ARE the sensors, a field on the
+channels gets the geometric toolbox (the intrinsic complex, the Hodge-Dirac modes, distances, neighbourhoods), so patterns can be measured in sensor space before
+any inverse model. `run sensor_surface --channels NAME --pick SELECTION [--name NAME]` makes a surface DERIVED from the channels manifold (as `run glue` makes the
+glued cortex): vertex i is channel `<name>_map`[i] (an integer field on the surface), in the order of the pick (an indices selection of the channels; both are
+required: which channels is the caller's choice). Positions (`nxr::meeg::channelPositions`, `--position-rule`): `brainstorm` (default; Brainstorm's
+GetChannelPositions: the mean of a channel's first `--coil-points` 4 coil points when coils are stored, its stored point otherwise) or `stored`. Triangles
+(`nxr::geometry::pointset::pointSetMesh`, the reference nxr's sensor mesh): the points projected about `--pole` (default +z) by the azimuthal equidistant map
+from their centroid, the planar Delaunay, triangles with an edge of `--cut` (2) x the median edge or longer removed, pinched rim vertices and inner holes repaired
+(at most `--repair-passes` 20), every triangle turned outward (`--orientation outward | as_triangulated`); a point in no triangle is refused. The producer records
+the pick, the rule and the mesher's options and report (boundary loops, Euler characteristic, triangles cut and added). The Hodge-Dirac modes of the helmet are
+`run eigenmodes --surface <name> --modes K --star1-floor F`: the helmet is an open disc, whose rim triangles usually have obtuse angles opposite boundary edges
+(negative cotan weights), refused unless a floor is named. What it cannot resolve: the surface is a triangulation of the sensors' layout, not a physical
+surface; its resolution is the sensor spacing (no pattern shorter than about two spacings), a field on it is the sensors' measurement (lead fields, not cortical
+currents), and on ragged layouts the repair's choices (which fan is dropped at a pinch) can depend on ties. Tests: `test_point_set_mesh`, `test_channel_positions`,
+`test_sensor_surface` (synthetic).
+
+## The mode-space Fourier coefficients (`run spectral_coefficients`; the nodes `signal.mode_analysis`, `signal.spectral_coefficients`; compute `nxr/signal/mode_spectrum.h`)
+
+Why: the flow analysis reads power, in-phase and quadrature coupling, flow maps and their Hodge split on the cells of a joint (frequency x spatial scale) grid, at
+the whole run or tile by tile. All of them are measurements of ONE stored ingredient: the coefficients of each time tile's Fourier transform in a surface's
+Hodge-Dirac modes, A[tile, bin, row]. `run spectral_coefficients` makes it in one pass over the caller's span: `signal.mode_analysis` composes the spatial operator once
+(the selected modes' 0-form parts, `--modes exact | coexact | all`, normalised `--normalisation unit_mass | as_stored`, times the vertex mass; with `--kernel` a
+free-orientation inverse kernel carried onto the package's surface, each Cartesian component expanded on the same modes, component-major rows; with
+`--channel-map` the sensor surface's vertex-to-channel map, no inverse), then `signal.spectral_coefficients` transforms each tile of `--tile-samples` (one-sided,
+unscaled, no window: numpy's rfft) and applies the operator at the bins `lo <= f < hi` of `--frequency-span`. The two maps are linear and commute, so vertex x time is
+never formed. Stored: a complex measurement of the recording over its tile grid (`<recording>_chunks`), values [tiles x bins x rows], with the tiles kept, those
+left out (`--bad-segments exclude`: a tile touching a bad segment), the tile's frequency line and the operator's description in its attributes. No choice has a
+default; the preset `flow_reference` is the nxr flow scripts' expansion (exact modes, unit vertex-mass norm). Glued or per-hemisphere modes are the package named
+(a hemisphere's package needs a kernel on that hemisphere: refused otherwise). The readings (compute, `mode_spectrum.h`): `modeCrossSpectrum` (the weighted sum
+over tiles and bins: the cell's statistic), `contractComponents`, `flowMap` (power per vertex, phase current per intrinsic edge; with the forward transform a
+pattern travelling tail to tip gives a negative current), `cellMeasures` (power, in-phase and quadrature energies and the quadrature's noise ingredient per pair of
+scale members), `effectiveDegreesOfFreedom`. What it cannot resolve: a tile's bins are its own line (spacing fs / tile), so a span must hold whole tiles; motion
+that reverses within the tiles summed cancels in the quadrature (the whole-run view is net motion only); on sensors the coefficients describe the field on the
+helmet, nothing about its sources. Memory: the coefficients are held until the run ends (tiles x bins x rows complex). Tests: `test_mode_spectrum`,
+`test_spectral_coefficients` (synthetic).
+
+## The sensor-space flow analysis (`run sensor_flow`; the nodes `signal.overlapped_spectrum`, `signal.chunk_spectra`, `signal.spectral_flow`, `signal.atom_time_cells`, `stats.sign_flip_consistency`, `signal.sensor_power`, `stats.aperiodic_fit`; compute `nxr/signal/spectral_flow.h`, `nxr/signal/aperiodic.h`, `nxr/stats/sign_flip.h`; spec `docs/specs/2026-11-24-sensor-flow.md`)
+
+Why: the cross-spectrum of the MEG channels holds their lags but no spatial meaning; read on the sensor surface with its Hodge-Dirac eigenmodes the lags become a
+phase current on a surface, split into travel (exact) and rotation (coexact). Graph: `signal.mode_analysis` (`modes exact_and_constant`: the constant and the exact
+modes, the field's coordinates) composed with the channel map once; per chunk, `signal.overlapped_spectrum` reads the chunk with `--overlap-samples` on each side from
+its neighbours (reflected about the recording's first or last sample where it ends, numpy `reflect`), applies the operator and transforms once (`--transform-samples`,
+no window, no taper, no zero padding), keeping the bins of `--frequency-span`; `signal.chunk_spectra` stores them [chunks x bins x coordinates] (the cross-spectrum in
+its exact factored form: a bin's cross-spectrum is the sum over the chunks of each spectrum times its conjugate; with an overlap of half a chunk each sample is counted
+twice). After the loop, `signal.spectral_flow` weights the cross-spectrum by each frequency member (the atoms, a kernel set: Gaussians made by `select_kernels --profile
+gaussian --chart linear --width-rule proportional`, normalised by the square root of their squared gains' sum, `--frequency-normalisation`; or `every_bin`), forming
+per member the weighted sum C = Y Yᴴ once, and reads per member the whole field and every pair of eigenvalue bands (a kernel set on the solve's eigenvalue line,
+`select_kernels --profile cos2_partition`: an amplitude partition, so the pairs add back to the whole): power per vertex, phase current per intrinsic edge
+J = Im(conj(z_tail) z_tip) (travel tail to tip gives J < 0), phase current per vertex Im(conj(z) grad z), the edge current's Hodge-Dirac coefficients
+(`projectOneForm`), the exact potential (Neumann on an open surface) and the coexact stream (Dirichlet). `signal.atom_time_cells` reads each atom and band back in time
+per chunk (the synthesis composed on the atom's bins, one inverse transform) and sums the same quantities over cells of the atom's own width (the power of two of
+samples nearest `--cell-width` time standard deviations); `stats.sign_flip_consistency` tests the direction's consistency over those cells (nxr's flow analysis's R1 with
+numpy's `default_rng(--seed)`, `--patterns`, a family-wise maximum, `--cells-per-flip`; the measured correlation of neighbouring cells is stored as the check).
+With `--aperiodic true`: `signal.sensor_power` (each sensor's power per bin, the mean over chunks) and `stats.aperiodic_fit` (nxr's specparam port, `--aperiodic-knee`,
+`--aperiodic-range`). Derived at read, never stored: travel and rotation shares (squared flow coefficients by kind), band-pair shares, the apparent speed
+2 pi f power / |vertex phase current| (an upper bound), the power-weighted phase gradient, the periodic share 1 - background / power. Every value is a stated
+parameter of the definition; the nodes default none. What it cannot resolve: the field on the helmet only (no source, no field spread); patterns shorter than about
+two sensor spacings; a whole-run cross-spectrum keeps the net quadrature only; an incomplete eigensolve leaves coordinates and flow modes out (issue #219); the
+flow depends on the eigenvalue bands (always stated). Memory: the chunk spectra (coordinates x bins x chunks complex float32, about 7 MB a chunk for 268 sensors
+and [0, 60) Hz at 1200 Hz) and, in the time cells, one atom's band signal of one chunk (vertices x transform samples complex). Tests: `test_spectral_flow`,
+`test_sign_flip` (golden: numpy and nxr's flip_test), `test_aperiodic` (golden: nxr), `test_sensor_flow` (the nodes on a synthetic sphere).
 
 ## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 
@@ -1105,7 +1196,7 @@ span's start) · `scipy` · `nxr-chain`. Segments still cross chunk edges at ½ 
 a STATISTIC (2026-11-13, `docs/specs/2026-11-13-statistics.md`; until then a Field on channels × frequency, which stays readable): `<recording>_psd_welch`,
 measure `power_density` (`power` for the spectrum and chain scalings), method `welch`, OF the recording, computed from its segment partition
 `<name>_segments` (Welch's segments as a closed-form spans Selection on the time line: width, hop, count) and resting on `n_members` segments
-(`members_skipped` left out for a bad sample), axes channel × the frequency line `<recording>_freq`, float32, unit `<unit>^2/Hz`, the span, every Welch
+(`members_skipped` left out for a bad sample), axes channel × the frequency line of the segment length (the one-sided line of n samples at the rate, keyed by the time line, n and the rate and made by an analytic `fft` operator row from the time line; named `<recording>_freq_L<k>` for n = 2^k, else `<recording>_freq_n<n>`; a line an older run stored as `<recording>_freq` with the same grid is still found), float32, unit `<unit>^2/Hz`, the span, every Welch
 option in `options_json`, the spectral scaling record, and in `producer_json` the cache key, the share of samples excluded and the
 projectors applied on load (`run.projectors`). All channels are kept, the bad ones too.
 
@@ -1553,7 +1644,7 @@ Hodge–Dirac package holds that spectrum (its exact modes); the series only app
     vertices, then the bridge, the corpus callosum included), not only on the kernel's kept vertices. The form is zero on the cut medial wall and on the bridge BEFORE the band; the band, taken through the glued
     surface's modes, fills them (exactly nxr `Cortex.coords` → the gain → `P.T`, read at every glued vertex, where nxr's `hat_operator` reads only the kept ones). Still ONE linear operator bound in preparation, now
     [glued vertices × channels]. The output's surface is the glued one (a cortex of two hemispheres; the surface itself for one closed piece). **Eigenmode first, Chebyshev second, announced:** the stored glued
-    eigenmodes (`hodgeDirac_eigenvectors`, `hodgeDirac_support` maps them to the kept vertices) when they reach where the hat's gain falls under 1e-3; else the Chebyshev series of the GLUED mesh (never the native mesh: it
+    eigenmodes (`hodgeDirac_eigenvectors`, mapped to the kept vertices by the glue's correspondence) when they reach where the hat's gain falls under 1e-3; else the Chebyshev series of the GLUED mesh (never the native mesh: it
     has no bridge), with a warning in the progress and the provenance; `exact` is the dense modes of the glued mesh. The glued surface must be stored (`nxr-neuro run eigenmodes`; the run is refused, saying so, when it is not).
     Without `tiles` there is no band and the form stays on the kernel's own vertices. The Riesz part is not built on the glued surface.
 - **`levels` and `glued` (; spatial-events spec, piece 3): the scale space as ONE operator.** `levels: [4, 5, 6, 7, 8]` (instead of `level`) binds one operator a hat level in preparation and stacks them: the output is
@@ -2066,10 +2157,24 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
   - `run select_bands --rule frequency|eigenvalue|wavelength|parts|levels`: a band set on the dataset's Frequency or Eigenvalue line (was `pyramid_bands`, `spatial_bands`);
   - `run select_product`: a product of grids and band sets (a box, a grid of cells, the joint partition), levels coupled to a band in closed form (was `joint`);
   - `select.events.spans|regions|cores|tracks`: irregular selections made by detection (nodes inside `band_bursts`, `global_bursts`, `patches`, `spatial_events`, `vortex_cores`).
-- **The glued cortex is made by its own definition** (2026-11-17): `run glue --surface cortex_pial` stores the glued surface as a manifold, its map (glued vertex to
-  original, -1 on the bridge) and the bridge as a labelled irregular selection. The imported two-hemisphere mesh stays the manifold of record (atlases, kernels, exports,
+- **The glued cortex is made by its own definition** (2026-11-17; its result as selections, 2026-11-23): `run glue --surface cortex_pial [--hemispheres Structures] [--left "Cortex L"] [--right "Cortex R"]`
+  READS the hemispheres from the caller's labelling of the original (Brainstorm's `Structures` by default; a left or right member that is not one connected piece, cortex outside its own `unassigned`,
+  or a face in both is refused) and stores the glued surface as a manifold and ONE labelling of it `<glued>_hemispheres` (the input's entries, names, codes and colours, and `bridge`). The cut
+  removes EXACTLY the medial wall (its vertices and the faces touching them, nothing more): the glued vertices are the original's vertices off the wall, ascending, then the bridge's, so the
+  correspondence is derived from the labelling and the original's wall, with no index field and no kept-vertex selection. The rim the exact cut leaves is stitched as it is, a vertex it passes
+  twice included (a pinch: a cortex vertex whose faces all touched the wall is kept, reached along its one edge); a wall of several pieces, a rim of several loops (cortex enclosed by the wall) or a
+  cortex vertex enclosed by it is refused with the reason, naming the hemisphere: the glue never removes cortex nor keeps wall. A glue stored before (the field `<glued>_map` and the selection
+  `<glued>_bridge`, or the selection `<glued>_kept`) is refused by the readers, naming `nxr-neuro migrate glue`, which converts it in place (the map checked against the glue's rule, the
+  labelling against the original surface) and refuses one whose kept vertices are not exactly those off the medial wall (an earlier glue widened its cut: re-run glue). The imported two-hemisphere mesh stays the manifold of record (atlases, kernels, exports,
   figures); the glued surface is the default computational manifold for spatiotemporal patterns, results are restricted back to the original hemispheres, and orientations are
   also reported in the anatomical frame as a check of the bridge's transport. `eigenmodes` and `meeg.apply_kernel` take the glued surface by name; `--glued` is gone.
+- **The glued cortex states its relation** (its description, the producer record's `glue`): `original` and `original_name` (also the manifold's `derived_from`), `hemispheres` (the name of its
+  labelling on the glued cortex) and `bridge_entry`, `medial_wall` (the selection on the original that defines the wall: `labelling` `<original>_atlases`, `member` `Desikan-Killiany`, its `id`, the `entry`
+  `unassigned` and its `code`), `cortex_vertices`, `bridge_vertices` and the `rule` in words: glued vertex i < `cortex_vertices` is the i-th vertex of the original outside the wall, in ascending index; the rest
+  is the bridge. `migrate glue` states it for a glue whose record names only the original. So no reader has to re-implement the rule, nxr-neuro carries a node itself: **`read operator --name K --onto <glued>`**
+  and **`read field --name F --onto <glued>`** (`nxr.read.operator({..., onto})` in JavaScript) give the node's rows SELECTED onto the glued cortex: each glued vertex the rows of its original vertex
+  (k consecutive rows a vertex: 3 for a free orientation), a bridge vertex's rows zero. A selection of rows, never an interpolation; the node's rows must be the original's vertices (an operator's
+  target), a dense operator or field only, not with `--region` or `--rows`. Test: `test_glue_onto`.
 - **The four measurement operations**, one implementation each (`compute/include/nxr/measurement/`):
   - `reduce`: a field (or a measurement) over any selection's members, by the measures of the registry (the only move that removes a factor);
   - `measurement.roll_up`: through a grid's closed-form hierarchy, or across a group's subjects (`run roll_up`, `scope: group`; was `pyramid reduce`);
@@ -2344,20 +2449,22 @@ nxr-neuro solves the Hodge–Dirac modes **exactly as nxr and Rheome do** (`nxr.
 - the package: ψ/√2 (exact), W·χ/√2 (coexact; W = the ⋆2-weighted mean of χ over the faces round the vertex), stored as float32.
 
 **A cortex is glued by anatomy first**, as nxr's `solve` and the Studio glue one. A surface of two closed pieces
-(the hemispheres) has each MEDIAL WALL (the vertices its stored Desikan-Killiany atlas codes `unassigned`) cut out as a disk, and a BRIDGE of new vertices grown between the two rims
-(nxr-compute's `glueMesh`, a line port of the Studio's `glue.ts`, bit-exact with its golden). The solve runs on the glued surface, and the package is stored as nxr stores one:
+(the hemispheres, read from the caller's hemisphere labelling) has each MEDIAL WALL (the vertices its stored Desikan-Killiany atlas codes `unassigned`) cut out exactly (nothing more), and a BRIDGE of new vertices grown between the two rims
+(nxr-compute's `glueMesh`, a line port of the Studio's `glue.ts`, bit-exact with its golden where the exact cut is one simple loop; the reference widens a cut that is not, nxr refuses or stitches it as it is). The solve runs on the glued surface, and the package is stored as nxr stores one:
 
-- `source/<surface>_glued`: the glued surface; vertex i < n_kept is `<stem>_support[i]` (the kept vertices, ascending), the rest the bridge;
-- `source/<surface>_glued_bridge`: the bridge's vertices (not cortex: no sources, a forward zero there);
-- `<stem>_eigenvectors`: [glued vertices × K], onto the glued surface; `<stem>_support`: the input's kept vertices.
+- `source/<surface>_glued`: the glued surface; vertex i < n_kept is the i-th vertex off the medial wall (ascending), the rest the bridge. It is checked to be a SPHERE (closed: every edge on
+  exactly two faces; consistently oriented; connected; V - E + F = 2) and refused otherwise, naming the property that failed; its face and edge counts are stored;
+- `<surface>_glued_hemispheres`: the labelling of the glued vertices: the original's hemisphere entries and `bridge` (not cortex: no sources, a forward zero there);
+- `<stem>_eigenvectors`: [glued vertices × K], onto the glued surface.
 
-**The full forms are stored with the package**. The modes are solved on the intrinsic Delaunay triangulation: the same vertices, its own
+**The full forms are stored with the eigensolve**. The modes are solved on the intrinsic Delaunay triangulation: the same vertices, its own
 edges (lengths along the surface) and faces, and on the cortex some pairs of vertices are joined by two different edges, so it is not a mesh of vertex
-triples. Stored as its own manifold `source/<surface>[_glued]_intrinsic` (edges and faces as its cells), with d0 and d1 as sparse operators between its
-cells, the edge lengths, the stars ⋆0, ⋆1, ⋆2 and the signposts as fields on its cells, and each mode's 2-form part χ/√2 on its faces
-(`hodgeDirac_forms2`, axis → faces). With the 0-form parts (the eigenvectors, ψ/√2) both 1-form parts follow exactly, and they are orthonormal in ⋆1:
-reading a 1-form on the intrinsic edges into the modes is a set of inner products (tested: the 1-form Gram matrix is I/2 to 1e-7). **Why:** the modes
-live on that complex; reading or synthesising fields with the input mesh's operators mixes two triangulations (the readings it gave were not
+triples. Stored as its own manifold `source/<surface>[_glued]_intrinsic` (edges and faces as its cells, the surface's positions), with d0, d1 and the stars as analytic operators on it, the edge lengths
+and the signposts as fields on its cells; each mode's 2-form part χ/√2 and its 1-form part, dψ/(μ√2) (exact) or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2) (coexact), are the 2-form and 1-form rows of the one
+eigenvectors operator (about 4 bytes × (V + E + F) a mode). The 1-form parts are orthonormal in ⋆1:
+reading a 1-form on the intrinsic edges into the modes is a set of inner products (tested: the 1-form Gram matrix is I/2 to 1e-7). The readings (`signal.phase_split`, `projectOneForm`, `synthesizeOneForm`) take the stored
+rows. **Why:** the modes
+live on that triangulation; reading or synthesising fields with the input mesh's operators mixes two triangulations (the readings it gave were not
 orthonormal and, on rough fields, not projections).
 
 The medial wall is part of the cache key (another atlas, another glued surface). A surface with no Desikan-Killiany atlas is refused by name; a surface of one piece (a mesh, a sphere) is solved as

@@ -14,6 +14,7 @@
 #include <sstream>
 
 #include "check.h"
+#include "hemispheres.h"
 #include "mesh_helpers.h"
 #include "nxr/signal/forms.h"
 #include "nxr/io.h"
@@ -80,6 +81,7 @@ int main() {
     SurfaceOptions so{.name = "cortex"};
     so.sphere = UU;
     so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
+    so.atlases.push_back(nxrtest::structures_of(pos, faces));   // the hemispheres, as Brainstorm's Structures (the glue reads them)
     a.compose([&] { add_surface(a, so, pos, faces); });
     SubjectWriter b = SubjectWriter::create(ds, "G2");       // one closed piece
     b.compose([&] { SurfaceOptions o2; o2.name = "cortex"; o2.sphere = U; std::vector<double> p1(pos.begin(), pos.begin() + static_cast<std::ptrdiff_t>(3 * U.size() / 3)); add_surface(b, o2, p1, F0); });

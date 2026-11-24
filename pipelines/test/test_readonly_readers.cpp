@@ -118,7 +118,7 @@ int main() {
     DatasetWriter ds = open_writer(folder);
     CHECK(ds.locked());
     ds.close();
-    CHECK_EQ(version_of(file), 54);
+    CHECK_EQ(version_of(file), 55);
   }
 
   // a subject package made before the table `origin`: a reader reads it, and leaves it byte for byte

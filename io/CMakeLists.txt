@@ -115,7 +115,7 @@ if(NXR_IO_WASM)
     src/dataset.cpp src/array_reader.cpp src/json_text.cpp src/database.cpp src/records.cpp src/selection.cpp src/selection_store.cpp src/selection_measurement.cpp src/task.cpp src/task_dataset.cpp src/named_paths.cpp src/layout.cpp src/writer_lock.cpp src/array_writer.cpp src/compact.cpp
     src/writer.cpp src/subject_writer.cpp src/mesh.cpp src/surface.cpp src/npy.cpp src/default_subject.cpp src/bundle.cpp src/cells.cpp src/measures.cpp src/selection_measurement_rows.cpp src/selection_reads.cpp src/subject_reads.cpp src/subject_api.cpp src/spatial_bands.cpp src/rollup.cpp src/measurement_query.cpp src/statistic.cpp src/yaml.cpp src/finder.cpp src/hash.cpp
     src/bst_mat.cpp src/bst_protocol.cpp src/bst_subject.cpp src/bst_entities.cpp src/bst_sensors.cpp src/bst_projectors.cpp src/bst_mri.cpp src/bst_naming.cpp
-    src/bst_session.cpp src/bst_recording.cpp src/bst_events.cpp src/bst_resample.cpp src/bst_frequency.cpp src/bst_inverse.cpp src/bst_maps.cpp src/bst_timefreq.cpp
+    src/bst_session.cpp src/bst_recording.cpp src/bst_events.cpp src/bst_resample.cpp src/bst_frequency.cpp src/bst_inverse.cpp src/bst_covariance.cpp src/bst_maps.cpp src/bst_timefreq.cpp
     src/bst_fibers.cpp src/fibers.cpp src/bst_templates.cpp src/chunk_loop.cpp src/constant_q.cpp src/store.cpp src/small_file_store.cpp
     src/subject_package.cpp src/subject_filter.cpp src/catalogue.cpp src/participants.cpp src/dataset_index.cpp src/migrate.cpp src/migrate_selection.cpp src/migrate_measurement.cpp src/templates.cpp
     src/commands.cpp src/commands_add.cpp src/commands_pieces.cpp src/commands_delete.cpp src/jobs.cpp src/commands_edit.cpp src/commands_query.cpp src/commands_import.cpp src/commands_export.cpp src/handle.cpp   # the commands (nxr/io/task/commands.h), which the JavaScript face calls
@@ -316,6 +316,7 @@ add_library(nxr_io
   src/bst_resample.cpp
   src/bst_frequency.cpp
   src/bst_inverse.cpp
+  src/bst_covariance.cpp
   src/bst_maps.cpp
   src/bst_timefreq.cpp
   src/bst_fibers.cpp
@@ -373,7 +374,7 @@ target_link_libraries(nxr-neuro-bst-compare PRIVATE nxr_io)
 
 # --- tests (hand-written + ctest) ---
 if(NXR_IO_BUILD_TESTS)
-  set(NXR_IO_TESTS export_gifti export_tsv export_fif export_bids import_recording import_fif_objects import_nifti import_surfaces import_cifti import_bids synthetic records task codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup measurement_query schema53 schema54 migrate_measurement chunk_separator compact format52 subject_package subject_filter catalogue migrate templates template_import import_skip_v73 import_catalogue fibers schema51 split_groups task_dataset bst_binary)
+  set(NXR_IO_TESTS import_covariance export_gifti export_tsv export_fif export_bids import_recording import_fif_objects import_nifti import_surfaces import_cifti import_bids synthetic records task codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup measurement_query schema53 schema54 schema55 migrate_measurement chunk_separator compact format52 subject_package subject_filter catalogue migrate templates template_import import_skip_v73 import_catalogue fibers schema51 split_groups task_dataset bst_binary)
   foreach(t ${NXR_IO_TESTS})
     add_executable(test_${t} test/test_${t}.cpp)
     target_link_libraries(test_${t} PRIVATE nxr_io nxr_io_testing)
@@ -404,6 +405,7 @@ if(NXR_IO_BUILD_TESTS)
   target_link_libraries(test_template_import PRIVATE matio)
   target_link_libraries(test_import_skip_v73 PRIVATE matio)   # writes its v5 and v7.3 .mat files with matio
   target_link_libraries(test_import_catalogue PRIVATE matio)   # writes its synthetic protocol with matio
+  target_link_libraries(test_import_covariance PRIVATE matio)   # writes its synthetic protocol with matio
   target_link_libraries(test_statistic PRIVATE matio)
 
   # Optional Eigen interop (header-only). The core library never needs Eigen.

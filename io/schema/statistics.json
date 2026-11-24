@@ -8,6 +8,7 @@
   {"name": "cross_spectral_density", "unit_rule": "(the field's unit)^2/Hz", "description": "the cross-spectrum of the rows, Hermitian [rows x rows] per frequency or band (components re, im)"},
   {"name": "cross_spectrum", "unit_rule": "(the field's unit)^2", "description": "the cross-spectrum of the rows per bin (Welch's spectrum or chain scaling), Hermitian [rows x rows] (components re, im)"},
   {"name": "cross_spectrum_sum", "unit_rule": "(the field's unit)^2, summed", "description": "per member of a partition (a window), the sum over its samples of z z^H of a band's analytic signal: Hermitian [rows x rows] (complex); the mean is sum / count at read"},
+  {"name": "fourier_coefficient", "unit_rule": "(the operator output's unit) x samples", "description": "the one-sided Fourier coefficient (unscaled, no window) of each time tile at the bins of a frequency span, read through a spatial operator (a mode basis, a kernel): [tiles x bins x rows] (complex); every second-order quantity (a cross-spectrum, power, phase current) is a quadratic form of it"},
   {"name": "amplitude", "unit_rule": "the field's unit", "description": "the mean |z| of a band's analytic signal"},
   {"name": "scale_event", "unit_rule": null, "description": "the cross-pair event (its ordinal) that a pair's event belongs to, NaN beyond the pair's events: unitless"},
   {"name": "stokes", "unit_rule": "(the field's unit)^2", "description": "the tangential Stokes parameters of a current's band cross-spectral tensor in the canonical frames: [S0, S1, S2, S3] (a quaternion)"},
@@ -43,7 +44,11 @@
   {"name": "identification_accuracy", "unit_rule": null, "description": "the share of members identified: target from database (the largest r of a row on the diagonal), database from target (of a column), and chance 1/n (unitless)"},
   {"name": "edgewise_reliability", "unit_rule": null, "description": "per feature, on the z-scored feature vectors: ICC(1,1) of the two measurements, Finn's differential power and the group consistency (unitless)"},
   {"name": "amplitude_envelope_correlation", "unit_rule": null, "description": "Pearson's correlation of the amplitude envelopes |z| of every pair of rows over a span, [rows x rows] (a band's connectome; MEG fingerprinting, Brainstorm's AEC without orthogonalisation; a [rows x rows x bands] stack for a person's connectome feature): unitless"},
-  {"name": "identification_curve", "unit_rule": null, "description": "per number of principal components: the identification of the PCA reconstructions of the stacked target and database, accuracy both ways and the mean self-identifiability"}
+  {"name": "identification_curve", "unit_rule": null, "description": "per number of principal components: the identification of the PCA reconstructions of the stacked target and database, accuracy both ways and the mean self-identifiability"},
+  {"name": "flow", "unit_rule": null, "description": "the flow of a weighted cross-spectrum per frequency member and band pair: power, phase current per edge and per vertex, Hodge-Dirac flow coefficients, potential and stream"},
+  {"name": "time_cell_flow", "unit_rule": null, "description": "the sums over an atom's time cells of the edge and vertex phase currents and the power"},
+  {"name": "consistency", "unit_rule": null, "description": "the resultant length R1 of a direction's unit vectors over time cells, with its sign-flip p values"},
+  {"name": "aperiodic", "unit_rule": null, "description": "the aperiodic background's parameters of a spectrum: offset, exponent, knee, r2, points used"}
  ],
  "methods": [
   {"name": "sample", "description": "the sample covariance: the products of the samples (the mean of each block removed unless the options say otherwise), summed over the span's blocks and divided by dof (Brainstorm bst_noisecov, MNE compute_raw_covariance)"},
@@ -55,6 +60,7 @@
   {"name": "mean", "description": "the mean over the partition's members"},
   {"name": "occupancy", "description": "per element, the number of good frames in which it lies inside an event and the number of good frames: the fraction is derived at read (a home map; nxr-neuro, spatial events)"},
   {"name": "phase_split", "description": "a 1-form on the intrinsic edges split into its exact (curl-free) part, its coexact (divergence-free) part and the rest, by inner products with the modes' 1-forms or a weighted fit (a global fit: no additive form)"},
+  {"name": "spectral_coefficients", "description": "each time tile's one-sided transform (unscaled, no window) at the bins of a frequency span, read through a composed spatial operator (a mode basis with a kernel or a channel map): one value per tile, bin and row, nothing summed"},
   {"name": "eigendecomposition", "description": "the leading eigenvectors of a statistic read through a linear map (a decomposition of a statistic, never of a field: the cycle patterns of a windowed cross-spectrum sum)"},
   {"name": "summary", "description": "summaries of a measurement over its partition's members, per row, pooled or of the mean over rows: mean, sd, median, mad, percentile, peak, kurtosis, skewness, min, max (nxr::stats; spec docs/specs/2026-11-13-statistic-summaries.md); the measure is the measurement's"},
   {"name": "run_repeat", "description": "the agreement of two runs' tile crossings of the vortex cores (nxr vortex_cores.repeat, tile_dot): a statistic over two runs' measurements, never a recording; its p-value comes from the lag-free null (nxr-neuro, spec piece 8)"},
@@ -70,6 +76,12 @@
   {"name": "fingerprint", "description": "the identification of a cohort's members from two measurements each (da Silva Castanheira et al. 2021, Nat Commun 12:5713; after Finn et al. 2015 and Amico & Goni 2018): z-scored feature vectors, their Pearson correlation, accuracy both ways, self-identifiability, edgewise reliability and the PCA reconstruction curve (nxr::stats identification.h)"},
   {"name": "pca", "description": "the principal components across the members of a table of measurements (members x features), by the thin SVD of the centred table: components, singular values and explained variance, scores, the centring; reconstruction at k components is derived at read (nxr::pca; `compute pca`)"},
   {"name": "scale_selection", "description": "the links of a scale selection: for each pair's event (a labelling's member) the cross-pair event it belongs to, events matched across (spatial level, time level) pairs by the ladders' nesting in space and overlap in time (nxr-neuro `scaleselection`; Rheome detect.blobscale)"},
-  {"name": "point_source", "description": "unit point sources planted at vertices and read back through a stored forward model and inverse kernel (the resolution matrix's columns): the instrument's blur, a reference measurement (nxr-neuro `pointspread compute`)"}
+  {"name": "point_source", "description": "unit point sources planted at vertices and read back through a stored forward model and inverse kernel (the resolution matrix's columns): the instrument's blur, a reference measurement (nxr-neuro `pointspread compute`)"},
+  {"name": "chunk_spectra", "description": "each chunk's spectrum in a surface's field coordinates, the chunk taken in with an overlap on each side (reflected at the recording's ends), one transform, no window, no taper, no zero padding: the cross-spectrum in its exact factored form (nxr-neuro `sensor_flow`)"},
+  {"name": "spectral_flow", "description": "the flow of a weighted cross-spectrum in a surface's field coordinates per frequency member (an atom or a bin), whole field and band pairs: power, phase current per edge and per vertex, Hodge-Dirac flow coefficients, potential and stream (nxr-neuro `sensor_flow`)"},
+  {"name": "atom_time_cells", "description": "the sums over each atom's own time cells (a dyadic level of the time line) of the edge and vertex phase currents and the power, per atom and band (nxr-neuro `sensor_flow`)"},
+  {"name": "sign_flip_consistency", "description": "the sign-flip (time-reversal) test of a direction's consistency over time cells: R1 per element, per-element and family-wise p, the median and its null (nxr's flow maps flip_test; numpy default_rng)"},
+  {"name": "sensor_power", "description": "each vertex's power per bin from chunk spectra in field coordinates: the mean over the chunks of the synthesised field's squared magnitude"},
+  {"name": "aperiodic_fit", "description": "the aperiodic background of each spectrum: specparam's aperiodic model without or with a knee (nxr's nxr.spectral.aperiodic)"}
  ]
 }

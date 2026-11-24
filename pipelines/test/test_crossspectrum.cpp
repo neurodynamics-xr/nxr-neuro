@@ -225,6 +225,11 @@ int main() {
   bool absent = false;
   try { cs("rest", "rest_crossspectrum_bad", Json{{"channels_of", "nothing"}}); } catch (const std::exception&) { absent = true; }
   CHECK(absent);
+  {   // no band set is assumed: a run without bands is refused, naming how to pass them
+    std::string why;
+    try { cs("rest", "rest_crossspectrum_nobands", Json{{"bands", nullptr}}); } catch (const std::exception& e) { why = e.what(); }
+    CHECK(why.find("`bands` is required") != std::string::npos && why.find("--bands") != std::string::npos);
+  }
   // ── --resolve bins (spec 2026-11-15-band-resolved-cross-spectrum.md): the band's cross-spectrum bin by bin, from the same pass ──
   {
     const Json bins = Json{{"resolve", "bins"}};

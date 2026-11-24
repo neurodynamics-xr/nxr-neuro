@@ -24,6 +24,7 @@
 #include "nxr/io/array_reader.h"
 #include "nxr/io/chunk_loop.h"
 #include "nxr/io/hash.h"
+#include "nxr/io/subject_api.h"
 #include "nxr/io/layout.h"
 #include "nxr/pipelines/cache.h"
 #include "nxr/pipelines/declared_outputs.h"
@@ -931,6 +932,39 @@ nxr::graph::Array operator_constant(const Bound& bound, nxr::io::SubjectWriter& 
   return a;
 }
 
+// THE ORIGIN OF A DERIVED ITEM: an item a run makes from inputs that carry ORIGIN records (a template's surfaces) gets one too, so a package of derived items (a template's
+// eigenmodes, its glued surface) is released with every item's terms. Its source names the run and its inputs; its licence and attribution are the inputs'; it is
+// redistributable only when every input is. An input with no record makes the terms unknown, so the item is then not redistributable. Inputs without any record
+// (a subject's own data): nothing is written.
+struct DerivedOrigin {
+  bool any = false;
+  nxr::io::OriginRecord record;
+};
+DerivedOrigin derived_origin(nxr::io::SubjectWriter& sub, const Plan& P, const std::string& pipeline) {
+  static const std::set<std::string> tables = {"manifold", "field", "operator", "selection", "statistic"};
+  DerivedOrigin out;
+  std::vector<std::string> from, licences, attributions;
+  bool redistributable = true;
+  auto add_unique = [](std::vector<std::string>& v, const std::string& x) { if (!x.empty() && std::find(v.begin(), v.end(), x) == v.end()) v.push_back(x); };
+  for (const auto& [port, v] : P.found) {
+    if (!v.row || !tables.count(v.cls)) continue;
+    const std::string id = nxr::io::text(*v.row, "id"), name = nxr::io::text(*v.row, "name");
+    from.push_back(v.cls + " " + name);
+    const auto o = nxr::io::origin_of(sub, v.cls, id);
+    if (!o) { redistributable = false; add_unique(licences, "unknown (" + v.cls + " " + name + " has no origin record)"); continue; }
+    out.any = true;
+    add_unique(licences, o->licence);
+    add_unique(attributions, o->attribution);
+    redistributable = redistributable && o->redistributable;
+  }
+  auto join = [](const std::vector<std::string>& v) { std::string s; for (const auto& x : v) s += (s.empty() ? "" : "; ") + x; return s; };
+  out.record.source = "computed by nxr-neuro " + std::string(NXR_NEURO_VERSION) + " (pipeline " + pipeline + ") from " + join(from);
+  out.record.licence = join(licences);
+  out.record.attribution = join(attributions);
+  out.record.redistributable = redistributable;
+  return out;
+}
+
 Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan& P, const RunOptions& opt, const std::function<void(const Json&)>& progress, const GroupInputs* group) {
   auto say = [&](const Json& j) { if (progress) progress(j); };
   const Definition& d = P.definition;
@@ -1077,7 +1111,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         stored.push_back(one);
         continue;
       }
-      if (places.empty() && ospec["kind"] != "manifold" && !ospec.value("optional", false)) { hit = false; break; }
+      if (places.empty() && ospec["kind"] != "manifold" && ospec.value("layout", std::string()) != "analytic" && !ospec.value("optional", false)) { hit = false; break; }   // (an analytic operator is found or made with its manifold)
       for (const auto& [cls, path] : places) {
         const auto row = nxr::pipelines::find_cached(sub.db(), sub.id(), task::to_string(cls), key, path);
         if (!row && ospec.value("optional", false) && !sub.find(task::to_string(cls), path)) continue;   // an optional output this very run did not make (nothing stored there): not a miss
@@ -1230,11 +1264,15 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         constants[name] = std::move(a);
       } else if (v.cls == "statistic") {                                 // its values, its axes; a first axis over a pick of channels: those channels and their types
         std::vector<std::int64_t> shape;
-        const std::vector<double> f = bound.array_double(text(row, "path"), &shape);
         nxr::graph::Array a;
+        // the mode-space Fourier coefficients (the flow analysis's one heavy array) stay in their stored float32 (no double copy); every other statistic is handed in double as before
+        // (the nodes that read them index `data`: a general move to `single` waits for the audit of those readers)
+        const bool stored_single = nxr::io::opt_text(row, "measure").value_or("") == "fourier_coefficient" && !nxr::io::is_null(row, "path") &&
+                                   nxr::io::ArrayReader::open(sub.store(), text(row, "path")).dtype() == nxr::io::DType::Float32;
+        if (stored_single) a.single = bound.array_float(text(row, "path"), &shape);
+        else a.data = bound.array_double(text(row, "path"), &shape);
         a.rows = shape.empty() ? 0 : shape[0];
-        a.cols = a.rows > 0 ? static_cast<std::int64_t>(f.size()) / a.rows : 0;
-        a.data.assign(f.begin(), f.end());
+        a.cols = a.rows > 0 ? static_cast<std::int64_t>(a.size()) / a.rows : 0;
         a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["shape"] = shape;
         a.meta["value_type"] = nxr::io::opt_text(row, "value_type").value_or("scalar");
         if (const auto u = nxr::io::opt_text(row, "unit"); u && !u->empty()) a.meta["unit"] = *u;
@@ -1358,6 +1396,11 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
           const auto* bytes = reinterpret_cast<const std::uint8_t*>(f.forms2.data());
           a.meta["forms2"] = Json::binary(std::vector<std::uint8_t>(bytes, bytes + f.forms2.size() * sizeof(float)));
           a.meta["forms2_shape"] = Json::array({f.nF, f.K});
+          if (!f.forms1.empty()) {                                          // the stored 1-form parts, when the package has them
+            const auto* b1 = reinterpret_cast<const std::uint8_t*>(f.forms1.data());
+            a.meta["forms1"] = Json::binary(std::vector<std::uint8_t>(b1, b1 + f.forms1.size() * sizeof(float)));
+            a.meta["forms1_shape"] = Json::array({f.nE, f.K});
+          }
           a.meta["complex"] = Json{{"mollify", f.mollify}, {"flip_eps", f.flip_eps}, {"star1_floor", f.star1_floor}};
         }
         constants[name] = std::move(a);
@@ -1522,6 +1565,9 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   if (!recording_report.is_null()) stored.push_back(recording_report);
   bool replaced = false;
   // ONE UNIT for the whole result (io's task API): the nodes, their arrays, the measurement rows, the recipe and the cache key (in each producer record) are stored together, or nothing is
+  const DerivedOrigin inherited = derived_origin(sub, P, d.name);   // the terms of what this run makes, when its inputs carry origin records
+  std::set<std::string> no_origin_before;
+  if (inherited.any) for (const auto& it : nxr::io::items_without_origin(sub)) no_origin_before.insert(it.table + ":" + it.id);
   nxr::pipelines::task::Subject subject = nxr::pipelines::task::Subject::of(sub);
   nxr::pipelines::task::Unit unit = subject.unit(nxr::pipelines::task::By{made_by(key), producer});
   {
@@ -1664,6 +1710,9 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     stored.push_back(Json{{"output", oo.name}, {"kind", "operator"}, {"stored", true}, {"cache_key", op.key}});
   }
   unit.commit();
+  if (inherited.any)                                                        // every item this run made (its components and derived manifolds too) carries the inputs' terms
+    for (const auto& it : nxr::io::items_without_origin(sub))
+      if (!no_origin_before.count(it.table + ":" + it.id)) nxr::io::set_origin(sub, it.table, it.id, inherited.record);
   report["hit"] = false;
   report["replaced"] = replaced;
   report["run"] = facts;
@@ -1719,6 +1768,28 @@ class JobCapture {
 std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Definition& d, const Json& set, const RunOptions& opt, bool dry_run,
                       const std::function<void(const Json&)>& progress) {
   if (d.outputs.empty()) refuse("run " + d.name + ": the definition stores nothing (its steps end in sink nodes): compile it instead; run has nothing to store");
+  // AN INPUT MADE FIRST (`made_by`: the eigensolve's intrinsic triangulation, made by its own definition on the surface): when nothing matches, the runner runs that shipped definition as its OWN
+  // run (its own provenance and cache key), says what it made and why, and finds again. Nothing is made hidden inside this run.
+  Json made_first_inputs = Json::array();
+  if (!dry_run && d.inputs.is_object())
+    for (const auto& [port, spec] : d.inputs.items()) {
+      if (!spec.is_object() || !spec.contains("made_by")) continue;
+      const Json params = parameters_of(d, set, opt.preset);
+      Json one = Json::object();
+      one[port] = spec;
+      bool found = true;
+      try { found = !nxr::io::finder::resolve(sub.db(), sub.id(), one, params).empty(); } catch (const nxr::io::Error&) { found = false; }
+      if (found) continue;
+      const std::string pipeline = spec["made_by"]["pipeline"].get<std::string>();
+      const Json with = spec["made_by"].contains("with") ? with_value(spec["made_by"]["with"], params) : Json::object();
+      const std::string why = "the pipeline " + d.name + " reads its input `" + port + "` and none is stored";
+      if (progress) progress(Json{{"stage", "make"}, {"made", pipeline}, {"input", port}, {"with", with}, {"why", why}});
+      const Definition md = load(pipeline);
+      RunOptions mo;
+      mo.requested_by = opt.requested_by;
+      const std::vector<Json> reps = run(ds, sub, md, with, mo, false, progress);
+      made_first_inputs.push_back(Json{{"input", port}, {"pipeline", pipeline}, {"with", with}, {"why", why}, {"runs", static_cast<std::int64_t>(reps.size())}});
+    }
   const auto plans = plan_runs(d, sub.db(), sub.id(), set, opt.preset, [&sub](const std::string& recording) { return nxr::pipelines::channel_facts(sub, recording); });     // every run planned before any is executed
   std::vector<Json> out;
   for (const auto& P : plans) {
@@ -1730,6 +1801,7 @@ std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, c
       JobCapture job(sub, d, P, opt, progress);
       try {
         out.push_back(execute(ds, sub, P, opt, progress));
+        if (!made_first_inputs.empty()) out.back()["made_first_inputs"] = made_first_inputs;   // said in the report: what was made first, as its own run, and why
         job.done(out.back());
       }
       catch (const std::invalid_argument& e) { job.failed(e.what()); refuse(e.what()); }       // a node's refusal (compute throws std::invalid_argument) is the run's: an io error with its code

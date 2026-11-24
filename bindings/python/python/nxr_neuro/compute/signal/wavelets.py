@@ -54,8 +54,8 @@ def timeBank(
     sfreq: float,
     n: int,
     family: str,
-    sides: str = "analytic",
-    gain: float = 1.0,
+    sides: str | None = None,
+    gain: float | None = None,
     *,
     centres: Sequence[float] | None = None,
     cycles: float | None = None,
@@ -72,8 +72,13 @@ def timeBank(
 ) -> TimeBank:
     """A time filterbank designed on n samples at sfreq, for inspection (`nxr::signal::timefilterbank::design`): the grid, the gains and the frame bounds.
 
-    Every field not given keeps the library's default. `edge_bins` ("single" or "drop") says what DC and Nyquist get; `gain` is the peak in-band response of each member.
+    `family`, `sides` and `gain` are required (the library's design has no default for them; `None` here only lets the error name the valid values): `sides` is "analytic" (a real
+    signal, bins f >= 0) or "two_sided" (a complex signal, signed f), `gain` a number > 0. Every other field not given keeps the library's default. `edge_bins` ("single" or "drop") says what DC and Nyquist get; `gain` is the peak in-band response of each member.
     """
+    if sides is None or sides not in ("analytic", "two_sided"):
+        raise ValueError(f"timeBank: sides is required, one of 'analytic' or 'two_sided' (got {sides!r})")
+    if gain is None or not float(gain) > 0:
+        raise ValueError(f"timeBank: gain is required, the peak in-band response of each member, a number > 0 (got {gain!r})")
     bank = dict(family=family, sides=sides, gain=gain, centres=centres, cycles=cycles, bands=bands, edges=edges, half_width=half_width, voices=voices, anchor=anchor,
                 limits=limits, min_bins=min_bins, gamma=gamma, time_bandwidth=time_bandwidth, edge_bins=edge_bins)
     f, g, c, a, b = _core.signal_timeBank(float(sfreq), int(n), _banks.plain(bank))

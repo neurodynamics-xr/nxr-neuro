@@ -18,7 +18,9 @@
 #include "nxr/io/errors.h"
 #include "nxr/io/migrate.h"
 #include "nxr/io/npy.h"
+#include "nxr/io/bundle.h"
 #include "nxr/io/small_file_store.h"
+#include "nxr/io/statistic.h"
 #include "nxr/io/store.h"
 #include "nxr/io/subject_package.h"
 #include "nxr/io/surface.h"
@@ -221,6 +223,28 @@ CommandResult create_subject(const CreateSubjectRequest& rq, const Progress& pro
   return r;
 }
 
+namespace {
+// HOW MUCH A SUBJECT HOLDS, for the listings (the Subjects table, a subject's page): the nodes of each class, the volumes, surfaces and recordings among them, its acquisitions and the
+// seconds its recordings hold
+Json subject_counts(const Database& db, const std::string& subject_id) {
+  auto count = [&](const std::string& sql) { const auto r = db.one(sql, {V(subject_id)}); return r ? integer(*r, "n") : std::int64_t(0); };
+  Json out = Json{{"acquisitions", count("SELECT count(*) AS n FROM acquisition WHERE subject_id = ?")},
+                  {"manifolds", count("SELECT count(*) AS n FROM manifold WHERE subject_id = ? AND status = 'complete'")},
+                  {"surfaces", count("SELECT count(*) AS n FROM manifold WHERE subject_id = ? AND status = 'complete' AND type = 'surface' AND component_of_id IS NULL")},
+                  {"volumes", count("SELECT count(*) AS n FROM manifold WHERE subject_id = ? AND status = 'complete' AND type = 'volume'")},
+                  {"fields", count("SELECT count(*) AS n FROM field WHERE subject_id = ? AND status = 'complete'")},
+                  {"recordings", count("SELECT count(*) AS n FROM field WHERE subject_id = ? AND status = 'complete' AND kind = 'recording'")},
+                  {"selections", count("SELECT count(*) AS n FROM selection WHERE subject_id = ? AND status = 'complete'")},
+                  {"operators", count("SELECT count(*) AS n FROM operator WHERE subject_id = ? AND status = 'complete'")},
+                  {"statistics", has_table(db, "statistic") ? count("SELECT count(*) AS n FROM statistic WHERE subject_id = ? AND status = 'complete'") : std::int64_t(0)}};
+  const auto sec = db.one("SELECT coalesce(sum(tm.n_vertices * td.spacing), 0) AS seconds FROM field f JOIN manifold pm ON pm.id = f.manifold_id AND pm.type = 'product' "
+                          "JOIN geometry_dimension d1 ON d1.geometry_id = pm.geometry_id AND d1.ordinal = 1 JOIN manifold tm ON tm.id = d1.manifold_id "
+                          "JOIN geometry_dimension td ON td.geometry_id = tm.geometry_id AND td.ordinal = 0 WHERE f.subject_id = ? AND f.kind = 'recording' AND f.status = 'complete'", {V(subject_id)});
+  out["seconds"] = sec ? row_json(*sec)["seconds"] : Json(0.0);
+  return out;
+}
+}  // namespace
+
 CommandResult list_subjects(const ListSubjectsRequest& rq, const Progress& progress) {
   CommandResult r;
   if (fs::exists(fs::path(rq.dataset) / kCatalogueFile)) {   // a catalogue of subject packages: by name, or by a filter over the participants
@@ -237,6 +261,13 @@ CommandResult list_subjects(const ListSubjectsRequest& rq, const Progress& progr
       for (const auto& e : cat.entries()) rows.push_back(e.to_json());
       r.result = Json{{"dataset", text(cat.dataset_row(), "name")}, {"subjects", rows}};
     }
+    // each member's counts, read from its package (the catalogue records only some); a package that cannot be opened has none (null)
+    for (auto& row : r.result["subjects"]) {
+      row["counts"] = Json();
+      if (!row.contains("path") || !row["path"].is_string() || !row.contains("subject_id") || !row["subject_id"].is_string()) continue;
+      const fs::path pkg = fs::path(row["path"].get<std::string>()).is_absolute() ? fs::path(row["path"].get<std::string>()) : fs::path(rq.dataset) / row["path"].get<std::string>();
+      try { const SubjectPackage p = SubjectPackage::open(pkg); row["counts"] = subject_counts(p.db(), row["subject_id"].get<std::string>()); } catch (const std::exception&) {}
+    }
     return r;
   }
   if (rq.subjects || rq.where)
@@ -244,7 +275,7 @@ CommandResult list_subjects(const ListSubjectsRequest& rq, const Progress& progr
   Lease lease = open_reader(rq.dataset, std::nullopt, {}, progress);
   DatasetWriter& ds = *lease;
   Json rows = Json::array();
-  for (const auto& s : Dataset::of(ds).subjects()) rows.push_back(Json{{"name", s.name}, {"kind", s.kind}, {"status", s.status}, {"path", s.path}});
+  for (const auto& s : Dataset::of(ds).subjects()) rows.push_back(Json{{"name", s.name}, {"kind", s.kind}, {"status", s.status}, {"path", s.path}, {"counts", subject_counts(ds.db(), s.id)}});
   r.result = Json{{"dataset", text(ds.row(), "name")}, {"subjects", rows}};
   return r;
 }
@@ -256,7 +287,7 @@ CommandResult show_subject(const ShowSubjectRequest& rq, const Progress& progres
   const NodeCounts n = Subject::of(s).node_counts();
   CommandResult r;
   r.result = Json{{"subject", s.name()}, {"kind", text(s.row(), "kind")}, {"path", text(s.row(), "path")}, {"manifolds", n.manifolds},
-                  {"fields", n.fields}, {"operators", n.operators}, {"selections", n.selections}};
+                  {"fields", n.fields}, {"operators", n.operators}, {"selections", n.selections}, {"counts", subject_counts(s.db(), s.id())}};
   return r;
 }
 

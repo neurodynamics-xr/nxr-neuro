@@ -487,6 +487,16 @@ struct ImportInverseRequest {
   std::string created_by;
 };
 CommandResult import_inverse(const ImportInverseRequest& request, const Progress& progress = {});
+/** `import covariance`: a Brainstorm study's own noise (noisecov_*.mat) or data (ndatacov_*.mat) covariance as a statistic of the condition's channels; the empty-room recording is not imported */
+struct ImportCovarianceRequest {
+  std::string protocol, dataset, subject, condition;
+  std::string kind = "noise";                // noise | data
+  std::optional<std::string> name;           // default <condition>_noise_covariance | <condition>_data_covariance
+  bool replace = false;
+  std::vector<std::string> templates;
+  std::string created_by;
+};
+CommandResult import_covariance(const ImportCovarianceRequest& request, const Progress& progress = {});
 struct ImportMapRequest {
   std::string dataset, subject, bst_root;
   std::vector<std::string> file;

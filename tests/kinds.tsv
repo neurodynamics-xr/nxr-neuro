@@ -133,6 +133,8 @@ test_geometry_bundle	unit
 test_geometry_central_extras	unit
 test_global_bursts	integration
 test_glue	golden
+test_point_set_mesh	unit
+test_channel_positions	unit
 test_glued_form	golden
 test_graph	unit
 test_graph_agnostic	unit
@@ -145,6 +147,7 @@ test_group_tree	golden
 test_groups	unit
 test_hat	golden
 test_headmodel	integration
+test_sensor_surface	integration
 test_histogram	golden
 test_hodge_dirac	unit
 test_hodge_power	integration
@@ -160,6 +163,10 @@ test_integrals	golden
 test_intervals	unit
 test_intrinsic_delaunay	unit
 test_intrinsic_forms	unit
+test_mode_spectrum	unit
+test_spectral_flow	unit
+test_sign_flip	golden
+test_aperiodic	golden
 test_intrinsic_surface	unit
 test_inverse_projectors	golden
 test_io_eigen	unit
@@ -179,6 +186,7 @@ test_projector_choice	integration
 test_channels_by_name	integration
 test_member_analytic	integration
 test_phase_split	integration
+test_spectral_coefficients	integration
 test_mesh_bundles	unit
 test_migrate	unit
 test_migrate_measurement	unit
@@ -251,6 +259,7 @@ test_schema	unit
 test_schema51	unit
 test_schema53	unit
 test_schema54	unit
+test_schema55	unit
 test_select_makers	integration
 test_signal_design	golden
 test_signal_grid	golden
@@ -303,3 +312,9 @@ test_writer	unit
 test_wt_at	unit
 test_bst_binary	unit
 test_component_surface	unit
+test_derived_origin	integration
+test_glue_onto	integration
+test_import_covariance	integration
+test_flow_map	integration
+test_sensor_flow	integration
+test_migrate_eigensolve	integration

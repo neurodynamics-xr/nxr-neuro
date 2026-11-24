@@ -181,7 +181,8 @@ int main() {
       for (const auto& f : sub["fields"]) CHECK(!f.contains(k));
       for (const auto& m : sub["manifolds"]) CHECK(!m.contains(k));
     }
-    for (const auto& o : sub["operators"]) CHECK(!o.contains("layout") && !o.contains("data_type") && !o["from"].contains("value_type") && !o["from"].contains("cells"));
+    // an operator says how its values are read (its layout: dense, csr, csc, analytic); its cells are in its type
+    for (const auto& o : sub["operators"]) CHECK(o.contains("layout") && !o.contains("data_type") && !o["from"].contains("value_type") && !o["from"].contains("cells"));
     for (const auto& st : sub["statistics"]) CHECK(!st.contains("value_type") && !st.contains("components") && !st.contains("unit"));
     const Json* w = named(sub["fields"], "w");
     CHECK(w != nullptr);
@@ -228,6 +229,34 @@ int main() {
       CHECK_EQ((*mix)["to"]["manifold"].get<std::string>(), std::string("sensors"));
       CHECK_EQ((*mix)["shape"]["rows"].get<std::int64_t>(), std::int64_t(3));
       CHECK_EQ((*mix)["kind"].get<std::string>(), std::string("added"));
+      CHECK_EQ((*mix)["layout"].get<std::string>(), std::string("dense"));
+      CHECK_EQ((*mix)["type"]["domain"]["cells"].get<std::string>(), std::string("0"));   // the cells at each end, in its type
+      CHECK_EQ((*mix)["type"]["target"]["cells"].get<std::string>(), std::string("0"));
+    }
+    // a time-resolved field says the samples a chunk holds; a map has none
+    if (rest) CHECK((*rest)["chunk_samples"].is_number_integer() && (*rest)["chunk_samples"].get<std::int64_t>() > 0 && (*rest)["chunk_samples"].get<std::int64_t>() <= 32768);
+    if (w) CHECK((*w)["chunk_samples"].is_null());
+    // a selection lists the measurements it holds; a manifold the arrays `read manifold` gives, and whose positions it reads (its own: null)
+    for (const auto& x : sub["selections"]) CHECK(x["measures"].is_array());
+    {
+      const Json* sensors = named(sub["manifolds"], "sensors");
+      CHECK(sensors && (*sensors)["arrays"].is_array() && (*sensors)["positions_of"].is_null());
+      if (sensors && !(*sensors)["arrays"].empty()) CHECK_EQ((*sensors)["arrays"][0]["name"].get<std::string>(), std::string("positions"));
+    }
+    // an acquisition, its recordings and the seconds they hold
+    for (const auto& a : sub["acquisitions"]) CHECK(a["recordings"].is_number_integer() && a["seconds"].is_number());
+    // the subject's counts, in `show subject` and `list subjects`
+    {
+      task::ShowSubjectRequest q; q.dataset = D; q.subject = "S1";
+      const Json c = task::show_subject(q).result["counts"];
+      CHECK_EQ(c["statistics"].get<std::int64_t>(), std::int64_t(1));
+      CHECK_EQ(c["recordings"].get<std::int64_t>(), std::int64_t(1));
+      CHECK_EQ(c["volumes"].get<std::int64_t>(), std::int64_t(0));
+      CHECK_EQ(c["selections"].get<std::int64_t>(), static_cast<std::int64_t>(sub["selections"].size()));
+      CHECK(c["seconds"].get<double>() > 0);
+      task::ListSubjectsRequest l; l.dataset = D;
+      const Json ls = task::list_subjects(l).result["subjects"];
+      for (const auto& x : ls) if (x["name"] == "S1") CHECK(x["counts"] == c);
     }
     const Json* psd = named(sub["statistics"], "psd");
     CHECK(psd != nullptr);

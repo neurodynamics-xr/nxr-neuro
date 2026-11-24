@@ -19,6 +19,8 @@
 //   projectTwoForm        a 2-form → the coefficients a [K x m] in the coexact 2-form parts (⋆2-orthonormal to 1/2): a_k = 2 ⟨σ, χ_k/√2⟩⋆2; synthesizeTwoForm: back
 //   exactPotential  the exact part's potential: Σ_exact c_k P_k / μ_k, whose d0 IS the exact part of Σ c_k φ_k 
 //   coexactStream   the coexact part's stream function: the 2-form potential Σ_coexact c_k X2_k / μ_k at the vertices (vertexDensity)
+//   streamFunctionAtVertices  a 2-form part brought to the vertices as the solve's reference does (nxr.pipelines.hodge._W): each vertex the mean, over the faces round it, of
+//                the dual 0-form ⋆2 X2 (one face one vote). How a coexact mode is drawn on the vertices: the mode's own 0-form part is 0
 //   modesOf      the Hodge–Dirac mode solve's result (operators::hodgeDiracModes: rows 0-forms · 1-forms · 2-forms) as Modes
 //   phaseCurrent  the phase current Im(z̄ dz) on the edges, J_e = Im(conj(z_tail) z_tip); phaseGradient: the phase step dφ on the edges. The same quantities as
 //                 phase_gradient.h's (vectors at the vertices, by a vertex gradient): the discretisation is the operator the caller passes, never the function's
@@ -93,7 +95,19 @@ struct Modes {
     Eigen::MatrixXd X2;                        // [F x K] the 2-form parts χ/√2 (0 on an exact mode)
     Eigen::VectorXd mu;                        // [K]
     std::vector<int> kind;                     // [K] 0 exact · 2 coexact
+    // OPTIONAL: each mode's 1-form part φ_k = dψ/(μ√2) (exact) or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2) (coexact) on the intrinsic edges, [nE x K], float32 as the package stores it
+    // (`<stem>_forms1`). Empty (no columns): the readings below make it from P, X2, μ and the complex, the same numbers to float precision.
+    Eigen::MatrixXf X1;
+    bool hasOneFormParts() const { return X1.cols() > 0 && X1.cols() == mu.size(); }
 };
+
+/** The 1-form d0 A + ⋆1⁻¹ d1ᵀ ⋆2 B made by a 0-form part A [nV x m] and a 2-form part B [nF x m] (what the 1-form of a mixed form is: the exact part's d0 and the coexact part's codifferential).
+ *  The one expression both `synthesizeOneForm` and `oneFormParts` use; a solve that has its modes' 0- and 2-form parts as plain arrays calls it with its own operators. */
+Eigen::MatrixXd oneFormFromParts(const Eigen::SparseMatrix<double>& d0, const Eigen::SparseMatrix<double>& d1, const Eigen::VectorXd& star1, const Eigen::VectorXd& star2,
+                                 const Eigen::MatrixXd& zeroFormPart, const Eigen::MatrixXd& twoFormPart);
+/** THE MODES' 1-FORM PARTS [nE x K]: column k is φ_k = dP_k/μ_k (an exact mode) or ⋆1⁻¹ d1ᵀ ⋆2 X2_k/μ_k (a coexact one), the 1-form part of the mixed Hodge–Dirac mode, orthonormal in ⋆1 to 1/2.
+ *  What `projectOneForm` and `synthesizeOneForm` read the modes by; the eigensolve stores it (`<stem>_forms1`) so a reading need not rebuild it. Made in blocks of columns (no [nE x K x anything] temporary). */
+Eigen::MatrixXd oneFormParts(const IntrinsicComplex& c, const Modes& m);
 
 Eigen::MatrixXd projectOneForm(const IntrinsicComplex& c, const Modes& m, const Eigen::MatrixXd& w);       // [K x m]; 0 on nothing (every mode has a 1-form part)
 Eigen::MatrixXd synthesizeOneForm(const IntrinsicComplex& c, const Modes& m, const Eigen::MatrixXd& coef);   // [nE x m]
@@ -101,6 +115,10 @@ Eigen::MatrixXd projectTwoForm(const IntrinsicComplex& c, const Modes& m, const 
 Eigen::MatrixXd synthesizeTwoForm(const IntrinsicComplex& c, const Modes& m, const Eigen::MatrixXd& coef);   // [nF x m]
 Eigen::MatrixXd exactPotential(const Modes& m, const Eigen::MatrixXd& coef);                  // [V x m] Σ_exact c_k P_k / μ_k
 Eigen::MatrixXd coexactStream(const IntrinsicComplex& c, const Modes& m, const Eigen::MatrixXd& coef);  // [V x m] vertexDensity(Σ_coexact c_k X2_k / μ_k)
+/** THE STREAM FUNCTION AT THE VERTICES of 2-form parts `twoForm` [nF x m] on a triangulation of `nV` vertices (`faces` [3 nF] its faces' corners, `star2` [nF] its ⋆2 = 1 / area):
+ *  S_v = (1 / n_v) Σ_{f ∋ v} ⋆2_f X2_f, n_v the faces round v (a vertex in no face: 0). The face-to-vertex operator of the reference solve (nxr.pipelines.hodge._W), by which a
+ *  coexact Hodge–Dirac mode is drawn on the vertices; not a part of the mode (its 0-form part is 0). Throws std::invalid_argument on sizes that disagree or a corner outside [0, nV). */
+Eigen::MatrixXd streamFunctionAtVertices(int nV, const std::vector<std::int32_t>& faces, const Eigen::VectorXd& star2, const Eigen::MatrixXd& twoForm);
 /** The modes of a Hodge–Dirac solve (positive μ, kinds 0 exact and 2 coexact; nV, nE, nF the pencil's): P the 0-form rows, X2 the 2-form rows.
  *  Throws std::invalid_argument on a result whose rows are not nV + nE + nF, a negative μ (a `bothSigns` solve) or a harmonic mode. */
 Modes modesOf(const nxr::operators::EigenResult& r, int nV, int nE, int nF);

@@ -157,6 +157,15 @@ Eigen::MatrixXd own_real(const ng::Block& b) {
 Json tiling_of(const nw::WelchOptions& wo, std::int64_t first, std::int64_t samples, std::int64_t segments, std::int64_t skipped) {
   return Json{{"unit", "samples"}, {"origin", first}, {"width", static_cast<std::int64_t>(wo.segmentSamples)}, {"hop", hop_of(wo)}, {"count", segments}, {"skipped", skipped}, {"end", first + samples}};
 }
+// the frequency line a one-sided Welch spectrum lies on: origin 0, spacing fs / n, n / 2 + 1 bins. When it IS the full line of a span of n = the segment's samples, it says so (`fft` {n, fs}), and the output declares it
+// on its time line (the line is keyed by (time line, n, fs), made by the FFT operator: io's frequency_line)
+Json fft_line(const nw::WelchOptions& wo, double df, std::int64_t bins) {
+  Json l = Json{{"spacing", df}, {"origin", 0.0}, {"unit", "Hz"}, {"dimension", "frequency"}};
+  const std::int64_t n = static_cast<std::int64_t>(wo.segmentSamples);
+  if (n >= 2 && bins == n / 2 + 1) l["fft"] = Json{{"n", n}, {"fs", wo.sfreq}};
+  return l;
+}
+
 Json options_of(const Resolved& r) {
   return Json{{"segment_rule", r.rule}, {"segment_samples", static_cast<std::int64_t>(r.wo.segmentSamples)}, {"hop_samples", hop_of(r.wo)}, {"overlap", r.wo.overlap},
               {"window", window_name(r.wo.window)}, {"window_form", r.wo.periodic ? "periodic" : "symmetric"}, {"detrend", detrend_name(r.wo.detrend)},
@@ -282,7 +291,7 @@ static ng::NodeSpec real_psd() {
     a.meta["describe"] = Json{
         {"measure", density ? "power_density" : "power"}, {"method", "welch"}, {"label", "welch"}, {"precision", "float32"},
         {"unit", density ? base + "/Hz" : base},
-        {"axes", Json::array({row_axis(pr.row_axis, C, pr.regions), Json{{"name", "frequency"}, {"size", bins}, {"line", Json{{"spacing", df}, {"origin", 0.0}, {"unit", "Hz"}, {"dimension", "frequency"}}}}})},
+        {"axes", Json::array({row_axis(pr.row_axis, C, pr.regions), Json{{"name", "frequency"}, {"size", bins}, {"line", fft_line(pr.r.wo, df, bins)}}})},
         {"tiling", tiling_of(pr.r.wo, s.first, s.samples, res.segments, res.segmentsSkipped)},
         {"n_members", res.segments}, {"members_skipped", res.segmentsSkipped},
         {"scaling", welch_scaling_record(pr.r.wo, df, base)},

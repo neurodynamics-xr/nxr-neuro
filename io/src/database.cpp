@@ -14,6 +14,7 @@
 #include <sstream>
 
 #include "named_paths.h"
+#include "reader_vfs.h"
 
 namespace fs = std::filesystem;
 
@@ -289,7 +290,136 @@ void migrate_53_to_54(Database& d) {
   const auto ok = d.one("PRAGMA quick_check");
   if (!ok || text(*ok, "quick_check") != "ok") throw Error(code::schema_version, "the database failed its check after it was migrated from schema 53 to 54");
 }
+// SCHEMA 54 -> 55, in place: the operator's two cell CHECKs admit '+' (a key of ranks joined by '+', '0+1+2': the whole complex of one manifold, its rows stacked rank by rank; D92 amended
+// for the Hodge–Dirac eigenvectors, ONE operator from the eigenvalue line to the intrinsic triangulation's cells 0, 1 and 2). SQLite cannot alter a CHECK: its text in sqlite_master is replaced
+// under writable_schema, `schema_version` bumped, the database checked (the new CHECK admits every key the old one did). The two attribute views that name the schema version are made
+// again, `user_version` 55. Idempotent: a database whose CHECKs are already the new ones is not rewritten. Written and tested on synthetic databases (test_schema55).
+void migrate_54_to_55(Database& d) {
+  const std::string model = model_sql();
+  const auto cut = [&](const std::string& from, const std::string& to) {
+    const auto a = model.find(from);
+    const auto b = a == std::string::npos ? a : model.find(to, a);
+    if (b == std::string::npos) throw Error(code::not_a_database, "model.sql: no `" + from + "` in the schema, so a database at 54 cannot be migrated");
+    return model.substr(a, b - a);
+  };
+  static const std::string kFromBefore = "from_cell NOT GLOB '*[^0-3,*]*'", kFromAfter = "from_cell NOT GLOB '*[^0-3,*+]*'";
+  static const std::string kToBefore = "to_cell NOT GLOB '*[^0-3,*]*'", kToAfter = "to_cell NOT GLOB '*[^0-3,*+]*'";
+  const auto tbl = d.one("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'operator'");
+  const std::string sql = tbl ? text(*tbl, "sql") : std::string();
+  const bool before = sql.find(kFromBefore) != std::string::npos && sql.find(kToBefore) != std::string::npos;
+  const bool after = sql.find(kFromAfter) != std::string::npos && sql.find(kToAfter) != std::string::npos;
+  if (!before && !after) throw Error(code::schema_version, "table operator: its cell CHECKs are not the schema 54's; the database cannot be migrated to 55 in place");
+  const std::string subject_view = cut("CREATE VIEW subject_attributes AS", ";\n") + ";\n";
+  const std::string dataset_view = cut("CREATE VIEW dataset_attributes AS", ";\n") + ";\n";
+  if (!after) {
+    const std::int64_t sv = integer(*d.one("PRAGMA schema_version"), "schema_version");
+    d.with_writable_schema([&] {
+      d.execute("UPDATE sqlite_master SET sql = replace(replace(sql, ?, ?), ?, ?) WHERE type = 'table' AND name = 'operator'", {V(kFromBefore), V(kFromAfter), V(kToBefore), V(kToAfter)});
+      d.execute("PRAGMA schema_version = " + std::to_string(sv + 1));
+    });
+  }
+  d.exec_script("BEGIN;\nDROP VIEW IF EXISTS subject_attributes;\n" + subject_view + "DROP VIEW IF EXISTS dataset_attributes;\n" + dataset_view +
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_migrated:54->55', '" + now_utc() + "');\nPRAGMA user_version = 55;\nCOMMIT;");
+  const auto ok = d.one("PRAGMA quick_check");
+  if (!ok || text(*ok, "quick_check") != "ok") throw Error(code::schema_version, "the database failed its check after it was migrated from schema 54 to 55");
+}
 }  // namespace
+
+namespace detail {
+#ifdef __EMSCRIPTEN__
+namespace {
+// THE READER VFS (reader_vfs.h): the default VFS, its main-database files wrapped so that the shared lock waits while the rollback journal beside them is hot, and the reserved lock reads as
+// held while one exists. Everything else is the default VFS's.
+sqlite3_vfs* base_vfs() { return sqlite3_vfs_find(nullptr); }
+struct ReaderFile {
+  sqlite3_file file;                 // pMethods: the reader's methods
+  sqlite3_file* real;                // the default VFS's file, in the memory after this struct
+  char journal[1024];                // `<database>-journal` (empty: not a main database)
+};
+sqlite3_file* real_of(sqlite3_file* f) { return reinterpret_cast<ReaderFile*>(f)->real; }
+// the journal exists, and is hot when its first byte is not zero (SQLite's own test: a header is written by a writer that committed or spilled, never by one that has only begun)
+bool journal_exists(const ReaderFile* f) { if (!f->journal[0]) return false; FILE* j = std::fopen(f->journal, "rb"); if (!j) return false; std::fclose(j); return true; }
+bool journal_hot(const ReaderFile* f) {
+  if (!f->journal[0]) return false;
+  FILE* j = std::fopen(f->journal, "rb");
+  if (!j) return false;
+  const int c = std::fgetc(j);
+  std::fclose(j);
+  return c != EOF && c != 0;
+}
+int x_close(sqlite3_file* f) { sqlite3_file* r = real_of(f); const int rc = r->pMethods ? r->pMethods->xClose(r) : SQLITE_OK; f->pMethods = nullptr; return rc; }
+int x_read(sqlite3_file* f, void* b, int n, sqlite3_int64 o) { sqlite3_file* r = real_of(f); return r->pMethods->xRead(r, b, n, o); }
+int x_write(sqlite3_file* f, const void* b, int n, sqlite3_int64 o) { sqlite3_file* r = real_of(f); return r->pMethods->xWrite(r, b, n, o); }
+int x_truncate(sqlite3_file* f, sqlite3_int64 n) { sqlite3_file* r = real_of(f); return r->pMethods->xTruncate(r, n); }
+int x_sync(sqlite3_file* f, int flags) { sqlite3_file* r = real_of(f); return r->pMethods->xSync(r, flags); }
+int x_size(sqlite3_file* f, sqlite3_int64* n) { sqlite3_file* r = real_of(f); return r->pMethods->xFileSize(r, n); }
+int x_lock(sqlite3_file* f, int level) {
+  if (level == SQLITE_LOCK_SHARED && journal_hot(reinterpret_cast<ReaderFile*>(f))) return SQLITE_BUSY;   // a writer is committing: wait (the busy timeout), as a native reader does
+  sqlite3_file* r = real_of(f);
+  return r->pMethods->xLock(r, level);
+}
+int x_unlock(sqlite3_file* f, int level) { sqlite3_file* r = real_of(f); return r->pMethods->xUnlock(r, level); }
+int x_reserved(sqlite3_file* f, int* out) {
+  sqlite3_file* r = real_of(f);
+  const int rc = r->pMethods->xCheckReservedLock(r, out);
+  if (rc == SQLITE_OK && !*out && journal_exists(reinterpret_cast<ReaderFile*>(f))) *out = 1;   // the journal is a writer's: never rolled back by a reader
+  return rc;
+}
+int x_control(sqlite3_file* f, int op, void* arg) { sqlite3_file* r = real_of(f); return r->pMethods->xFileControl(r, op, arg); }
+int x_sector(sqlite3_file* f) { sqlite3_file* r = real_of(f); return r->pMethods->xSectorSize(r); }
+int x_device(sqlite3_file* f) { sqlite3_file* r = real_of(f); return r->pMethods->xDeviceCharacteristics(r); }
+const sqlite3_io_methods kReaderMethods = {1, x_close, x_read, x_write, x_truncate, x_sync, x_size, x_lock, x_unlock, x_reserved, x_control, x_sector, x_device,
+                                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+int v_open(sqlite3_vfs*, sqlite3_filename name, sqlite3_file* f, int flags, int* out_flags) {
+  ReaderFile* rf = reinterpret_cast<ReaderFile*>(f);
+  rf->file.pMethods = nullptr;
+  rf->real = reinterpret_cast<sqlite3_file*>(rf + 1);
+  rf->journal[0] = 0;
+  const int rc = base_vfs()->xOpen(base_vfs(), name, rf->real, flags, out_flags);
+  if (rc != SQLITE_OK) return rc;
+  if ((flags & SQLITE_OPEN_MAIN_DB) && name) std::snprintf(rf->journal, sizeof rf->journal, "%s-journal", name);
+  rf->file.pMethods = &kReaderMethods;
+  return SQLITE_OK;
+}
+int v_delete(sqlite3_vfs*, const char* n, int sync) { return base_vfs()->xDelete(base_vfs(), n, sync); }
+int v_access(sqlite3_vfs*, const char* n, int flags, int* out) { return base_vfs()->xAccess(base_vfs(), n, flags, out); }
+int v_full(sqlite3_vfs*, const char* n, int size, char* out) { return base_vfs()->xFullPathname(base_vfs(), n, size, out); }
+void* v_dlopen(sqlite3_vfs*, const char* n) { return base_vfs()->xDlOpen ? base_vfs()->xDlOpen(base_vfs(), n) : nullptr; }
+void v_dlerror(sqlite3_vfs*, int n, char* m) { if (base_vfs()->xDlError) base_vfs()->xDlError(base_vfs(), n, m); }
+void (*v_dlsym(sqlite3_vfs*, void* h, const char* s))(void) { return base_vfs()->xDlSym ? base_vfs()->xDlSym(base_vfs(), h, s) : nullptr; }
+void v_dlclose(sqlite3_vfs*, void* h) { if (base_vfs()->xDlClose) base_vfs()->xDlClose(base_vfs(), h); }
+int v_random(sqlite3_vfs*, int n, char* out) { return base_vfs()->xRandomness(base_vfs(), n, out); }
+int v_sleep(sqlite3_vfs*, int us) { return base_vfs()->xSleep(base_vfs(), us); }
+int v_time(sqlite3_vfs*, double* t) { return base_vfs()->xCurrentTime(base_vfs(), t); }
+int v_error(sqlite3_vfs*, int n, char* m) { return base_vfs()->xGetLastError ? base_vfs()->xGetLastError(base_vfs(), n, m) : 0; }
+int v_time64(sqlite3_vfs*, sqlite3_int64* t) {
+  if (base_vfs()->iVersion >= 2 && base_vfs()->xCurrentTimeInt64) return base_vfs()->xCurrentTimeInt64(base_vfs(), t);
+  double d = 0;
+  const int rc = base_vfs()->xCurrentTime(base_vfs(), &d);
+  *t = static_cast<sqlite3_int64>(d * 86400000.0);
+  return rc;
+}
+}  // namespace
+const char* reader_vfs() {
+  static sqlite3_vfs vfs = [] {
+    sqlite3_vfs* b = base_vfs();
+    sqlite3_vfs v{};
+    v.iVersion = 2;
+    v.szOsFile = static_cast<int>(sizeof(ReaderFile)) + b->szOsFile;
+    v.mxPathname = b->mxPathname;
+    v.zName = "nxr-reader";
+    v.xOpen = v_open; v.xDelete = v_delete; v.xAccess = v_access; v.xFullPathname = v_full;
+    v.xDlOpen = v_dlopen; v.xDlError = v_dlerror; v.xDlSym = v_dlsym; v.xDlClose = v_dlclose;
+    v.xRandomness = v_random; v.xSleep = v_sleep; v.xCurrentTime = v_time; v.xGetLastError = v_error; v.xCurrentTimeInt64 = v_time64;
+    return v;
+  }();
+  static const bool registered = sqlite3_vfs_register(&vfs, 0) == SQLITE_OK;   // SQLite keeps the pointer: the static, once
+  return registered ? "nxr-reader" : nullptr;
+}
+#else
+const char* reader_vfs() { return nullptr; }
+#endif
+}  // namespace detail
 
 Database Database::open(const fs::path& file, bool create, const std::string& built_by, bool read_only) {
   const std::string p = file.string();
@@ -302,7 +432,7 @@ Database Database::open(const fs::path& file, bool create, const std::string& bu
   auto connect = [&]() {
     sqlite3* h = nullptr;
     const int flags = read_only ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
-    if (sqlite3_open_v2(p.c_str(), &h, flags, nullptr) != SQLITE_OK) {
+    if (sqlite3_open_v2(p.c_str(), &h, flags, read_only ? detail::reader_vfs() : nullptr) != SQLITE_OK) {   // a read-only open writes nothing (reader_vfs.h)
       const std::string m = h ? sqlite3_errmsg(h) : "cannot open";
       if (h) sqlite3_close(h);
       throw Error(code::sqlite, p + ": " + m);
@@ -329,18 +459,19 @@ Database Database::open(const fs::path& file, bool create, const std::string& bu
     }
     const std::int64_t v = integer(*d.one("PRAGMA user_version"), "user_version");
     const int want = schema_version();
-    if ((v == 50 || v == 51 || v == 52 || v == 53) && want == 54) {
-      // a database at 50 to 53 is a database at 54 without the additions: opened to write, it is migrated in place (additive, step by step); opened to read, it is read as it is
+    if (v >= 50 && v <= 54 && want == 55) {
+      // a database at 50 to 54 is a database at 55 without the additions: opened to write, it is migrated in place (additive, step by step); opened to read, it is read as it is
       // (the query reads the columns it needs by asking the database whether it has them)
       if (!read_only) {
         if (v == 50) migrate_50_to_51(d);
         if (v <= 51) migrate_51_to_52(d);
         if (v <= 52) migrate_52_to_53(d);
-        migrate_53_to_54(d);
+        if (v <= 53) migrate_53_to_54(d);
+        migrate_54_to_55(d);
       }
     } else if (v != want) {
       const std::string how =
-          v == 49 ? "run `nxr migrate --dataset <dataset folder>` (49 to 50; this build then migrates 50 to 54 when it opens the dataset to write; it keeps the old database and the arrays; add `--dry-run` to see what it will do first)"
+          v == 49 ? "run `nxr migrate --dataset <dataset folder>` (49 to 50; this build then migrates 50 to 55 when it opens the dataset to write; it keeps the old database and the arrays; add `--dry-run` to see what it will do first)"
                         : "re-convert it from its source (D139/D144)";
       throw Error(code::schema_version, p + ": user_version " + std::to_string(v) + ", this build reads " + std::to_string(want) + " — " + how);
     }
@@ -359,7 +490,7 @@ Database Database::open_plain(const fs::path& file, bool create, bool read_only)
   d.read_only_ = read_only;
   sqlite3* h = nullptr;
   const int flags = read_only ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_READWRITE | (create ? SQLITE_OPEN_CREATE : 0));
-  if (sqlite3_open_v2(p.c_str(), &h, flags, nullptr) != SQLITE_OK) {
+  if (sqlite3_open_v2(p.c_str(), &h, flags, read_only ? detail::reader_vfs() : nullptr) != SQLITE_OK) {   // a read-only open writes nothing (reader_vfs.h)
     const std::string m = h ? sqlite3_errmsg(h) : "cannot open";
     if (h) sqlite3_close(h);
     throw Error(code::sqlite, p + ": " + m);

@@ -124,6 +124,25 @@ export interface MigrateMeasurementsOptions {
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
+export interface MigrateEigensolveOptions {
+  dataset: string | number;
+  name?: string | number;
+  subject: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
+export interface MigrateGlueOptions {
+  dataset: string | number;
+  hemispheres?: string | number;
+  left?: string | number;
+  name?: string | number;
+  right?: string | number;
+  subject: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
 export interface JoinDatasetOptions {
   dataset: string | number;
   /** receives each progress line the command prints, as an object */
@@ -539,6 +558,18 @@ export interface ImportInverseOptions {
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
+export interface ImportCovarianceOptions {
+  condition: string | number;
+  dataset: string | number;
+  kind?: string | number;
+  name?: string | number;
+  protocol: string | number;
+  replace?: boolean;
+  subject: string | number;
+  templates?: string[] | string;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
 export interface ImportMapOptions {
   acquisition?: string | number;
   bst_root: string | number;
@@ -653,6 +684,7 @@ export interface ReadFieldOptions {
   dataset: string | number;
   from?: string | number;
   name: string | number;
+  onto?: string | number;
   out?: string | number;
   projectors?: string | number;
   region?: string | number;
@@ -679,6 +711,7 @@ export interface ReadOperatorOptions {
   budget?: string | number;
   dataset: string | number;
   name: string | number;
+  onto?: string | number;
   out?: string | number;
   region?: string | number;
   subject: string | number;
@@ -1100,6 +1133,7 @@ export interface Verbs {
     recording: (options: ImportRecordingOptions) => Promise<Result>;
     condition: { (protocol: string, options: Omit<ImportConditionOptions, 'protocol'>): Promise<Result>; (options: ImportConditionOptions): Promise<Result> };
     inverse: (options: ImportInverseOptions) => Promise<Result>;
+    covariance: (options: ImportCovarianceOptions) => Promise<Result>;
     map: (options: ImportMapOptions) => Promise<Result>;
     resample: (options: ImportResampleOptions) => Promise<Result>;
     badsegments: (options: ImportBadsegmentsOptions) => Promise<Result>;
@@ -1119,6 +1153,8 @@ export interface Verbs {
   migrate: {
     selections: (options: MigrateSelectionsOptions) => Promise<Result>;
     measurements: (options: MigrateMeasurementsOptions) => Promise<Result>;
+    eigensolve: (options: MigrateEigensolveOptions) => Promise<Result>;
+    glue: (options: MigrateGlueOptions) => Promise<Result>;
   };
   join: {
     dataset: (options: JoinDatasetOptions) => Promise<Result>;

@@ -54,3 +54,12 @@ which every reader (spatial bands, kernels in the full forms) reads; the kind fi
    3000 modes that is about 11 GB for the two; if that is too much, a float32 `Array` (or a streamed readback) is the change, in the executor, not here.
 4. **Stored eigenvalues as a field of the operator.** The schema offers `field.of_operator_id` (kind `eigenvalues`) on the mode axis; today the values are the axis's coordinates. Adding the field duplicates them;
    say if the Studio reads one rather than the other.
+
+## Amendment (2026-11-23): the eigensolve in the four classes, on the schema's chain-complex design (D92, D93)
+
+The layout above is superseded. The intrinsic triangulation is made by its own definition (`intrinsic`, the step `geometry.intrinsic`): a manifold with the surface's geometry (the same positions) and its
+own topology, d0, d1 and the stars as analytic operators on it (method `dec`), the lengths and signposts as fields. The eigensolve (`eigenmodes` version 2) reads it (the runner makes it first when it is
+missing: the input's `made_by`) and stores the eigenvalue line, the eigenvalues (a field), the kinds (a labelling selection of the line), the support, and ONE eigenvectors operator from the line to the
+triangulation's cells `0+1+2` (schema 55), rows stacked 0-forms · 1-forms · 2-forms. `_forms1`, `_forms2`, the kind field and the stored d0/d1/stars are gone; `hodgeforms1` is retired (the 1-form parts
+are always rows of the one operator). A solve stored in the earlier form is converted in place by `nxr-neuro migrate eigensolve`. The words: "eigenvalue line" (not "mode axis"), "intrinsic triangulation".
+The details: `docs/reference.md`, *The Hodge-Dirac eigenmodes*.

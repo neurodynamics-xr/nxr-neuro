@@ -1,0 +1,60 @@
+# THE MODE-SPACE FOURIER COEFFICIENTS OF A RECORDING, PER TIME TILE: the one heavy step of the flow analysis. Every reading after it (power and coupling per frequency x scale cell, flow maps,
+# their Hodge split, degrees of freedom) is a measurement of these coefficients over selections, nothing recomputed from the recording.
+#
+# THE GRAPH. before: package (+ a free-orientation kernel: the cortex; or the sensor surface's vertex-to-channel map: the sensors) --[signal.mode_analysis]--> the composed spatial operator
+# (the selected modes' analysis rows, normalised as stated, times the vertex mass; composed with the kernel carried onto the package's surface, one block of rows per Cartesian component, or with
+# the channel map), bound once. chunks: recording --[signal.spectral_coefficients: per tile of tile_samples, the one-sided transform (unscaled, no window) at the bins of frequency_span, then the
+# operator's rows]--> the coefficients [tiles x bins x rows], complex, one value per member of the recording's tile grid. The transform and the operator commute: vertex x time is never formed.
+#
+# What it does not decide: which modes (exact, coexact, all), their normalisation, the tile, the frequency span and the bad-segment rule are the caller's (the preset flow_reference states the
+# nxr flow scripts' expansion); glued or per-hemisphere modes = the package named; no orientation prior (each Cartesian component on the same modes). A tile touching a bad segment is left out and
+# listed (bad_segments exclude). A span that ends inside a tile is refused (a part tile lies on another frequency line).
+# Memory: the coefficients are held until the run ends: tiles x bins x rows x 8 bytes (sensors, 9 tiles x 1639 bins x ~265 rows: 31 MB; a cortex's exact modes x 3 components: ~0.5 GB).
+#
+#   nxr-neuro run spectral_coefficients --dataset <folder> --subject sub-01 --recording rest --from 27.3 --to 273 --package hodgeDirac__helmet --channel-map helmet_map --preset flow_reference --tile-samples 32768 --frequency-span "[0, 60]" --bad-segments exclude
+pipeline: spectral_coefficients
+version: 1
+description: the mode-space Fourier coefficients of a recording per time tile, through a composed spatial operator (the modes' analysis rows and a kernel or the sensor surface's channel map)
+scope: subject
+one_of: [kernel, channel_map]
+
+inputs:
+  recording:   {field: recording, each: true, where: {name: $recording}}
+  package:     {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, hint: "a Hodge-Dirac package (`nxr-neuro run eigenmodes` first): of the kernel's surface (glued or a hemisphere), or of the sensor surface"}
+  kernel:      {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel}, when: $kernel, hint: "a free-orientation inverse kernel (`nxr-neuro run inverse` first)"}
+  channel_map: {field: any, where: {name: $channel_map}, when: $channel_map, hint: "the sensor surface's vertex-to-channel map (`nxr-neuro run sensor_surface` first)"}
+  tiles:       {selection: spans, manifold: recording.time, where: {name: "{recording}_chunks"}, hint: "the recording's tile grid (its chunks), made by the import"}
+  bad:         {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  package: {default: null, meaning: "the Hodge-Dirac package's stem (its eigenvectors are <package>_eigenvectors)", unit: "-"}
+  kernel: {default: null, meaning: "a free-orientation inverse kernel's name (the cortex). Exactly one of kernel, channel_map", unit: "-"}
+  channel_map: {default: null, meaning: "the sensor surface's vertex-to-channel map's name (the sensors). Exactly one of kernel, channel_map", unit: "-"}
+  modes: {default: null, meaning: "which modes: exact | coexact | all | exact_and_constant (the constant then the exact modes) (no default)", unit: "-", choices: [exact, coexact, all, exact_and_constant]}
+  normalisation: {default: null, meaning: "unit_mass (each mode rescaled to unit vertex-mass norm) | as_stored (no default)", unit: "-", choices: [unit_mass, as_stored]}
+  mode_count: {default: null, meaning: "the first modes of the package read; null: all", unit: "-"}
+  tile_samples: {default: null, meaning: "the time tile in samples, a power of two: the recording's tile grid (the chunks: 32768) (no default)", unit: samples}
+  frequency_span: {default: null, meaning: "[lo, hi): the bins with lo <= f < hi of each tile's frequency line (no default)", unit: Hz}
+  bad_segments: {default: null, meaning: "exclude = a tile touching a bad segment is left out (listed) | ignore = every tile is kept (no default)", unit: "-", choices: [exclude, ignore]}
+  name: {default: "{recording}_{package}_spectral_coefficients", meaning: "the stored measurement's name", unit: "-"}
+
+presets:
+  # the nxr flow scripts' expansion: each component on the exact modes, the modes at unit vertex-mass norm (the reference); the rest is still the caller's
+  flow_reference: {modes: exact, normalisation: unit_mass}
+
+steps:
+  before:
+    - {node: signal.mode_analysis, in: {package: package, kernel: kernel}, with: {modes: $modes, normalisation: $normalisation, mode_count: $mode_count}, out: operator, when: $kernel}
+    - {node: signal.mode_analysis, in: {package: package, channel_map: channel_map}, with: {modes: $modes, normalisation: $normalisation, mode_count: $mode_count}, out: operator, when: $channel_map}
+  chunks:
+    over: recording
+    do:
+      - {node: signal.spectral_coefficients, in: {x: recording, operator: operator, exclude: bad}, with: {tile_samples: $tile_samples, frequency_span: $frequency_span, bad_segments: $bad_segments}, out: coefficients}
+
+outputs:
+  coefficients:
+    kind: statistic
+    name: $name
+    of: recording
+    axes: [{name: tile, on: recording.time}, {name: frequency, line: "{recording}_freq", of_time: recording.time}, {name: mode, on: package.from}]

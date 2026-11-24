@@ -1,6 +1,7 @@
 // The registered steps as the executor's nodes (include/nxr/pipelines/step_nodes.h). A node here is a thin shell: its functions are the step's own, called with the
 // description of the inputs a step plans on and the runner's `Bound`. The executor calls these shells through ITS dispatch point; no step is called from anywhere else.
 #include "nxr/pipelines/step_nodes.h"
+#include "nxr/graph/type_json.h"
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/pipelines/welch_steps.h"
 #include "nxr/pipelines/meeg_steps.h"
@@ -212,6 +213,8 @@ void typed_from_rows(ng::PortType& t, const Value& v) {
     const auto from = domain({v.manifolds.at(0)}), to = domain({v.manifolds.at(1)});
     if (!from || !to) return;
     t.domain = *from; t.target = *to;
+    t.domain.cells = nxr::io::opt_text(r, "from_cell").value_or("0");   // the cells at each end (D92): d0 maps '0' -> '1'; the Hodge-Dirac eigenvectors the line's '0' -> the triangulation's '0+1+2'
+    t.target.cells = nxr::io::opt_text(r, "to_cell").value_or("0");
     t.quantity = nxr::io::opt_text(r, "kind").value_or("");
     if (v.facts.contains("transition") && v.facts["transition"].contains("from") && v.facts["transition"].contains("to")) {   // T5: a transition's two systems
       auto cs_of = [](const Json& c) { return ng::CoordinateSystem{c.value("space", std::string()), c.value("name", std::string()), c.value("unit", std::string())}; };
@@ -281,12 +284,18 @@ Value value_of(const ng::PortType& t) {
     v.cls = t.facts.contains("cls") && t.facts["cls"].is_string() ? t.facts["cls"].get<std::string>()
             : t.cls == ng::PortClass::field ? "field" : t.cls == ng::PortClass::operator_ ? "operator" : t.cls == ng::PortClass::constant ? "statistic"
             : t.cls == ng::PortClass::manifold ? "manifold" : "selection";
-    v.complex = t.value == ng::ValueType::complex;
+    v.complex = t.value == ng::ValueType::complex || t.complex_parts;
     v.value_type = t.value == ng::ValueType::vector3 ? "vector3" : t.value == ng::ValueType::quaternion ? "quaternion" : t.value == ng::ValueType::hermitian3 ? "hermitian3" : "scalar";
     v.chunked = t.streamed();
     v.rate = t.sfreq.value_or(0.0);
     if (!t.unit.empty()) v.unit = t.unit;
     v.facts = t.facts;
+    // THE AXES a typed node declared (NodeTraits::typed_axes): its domain (an operator's target too) rides with the value, so the runner checks it at preparation and writes its links at the store
+    if (t.typed && !t.domain.empty()) {
+      v.facts["domain"] = ng::to_json(t.domain);
+      if (!t.target.empty()) v.facts["target"] = ng::to_json(t.target);
+      v.facts["components"] = t.components;
+    }
     return v;
   }
   const Json& d = t.facts.at("value");

@@ -73,11 +73,12 @@ SpaceSpec space_spec(const std::string& key) {
   if (key == "freesurfer-sphere")
     return {"sphere", "volume", "the R³ FreeSurfer's registration sphere sits in (its positions are stored as three numbers each)",
             {{key, "freesurfer", std::nullopt, true, "identity", std::nullopt, std::string("radius 100")}}};
-  // the dataset's Frequency line (bst::ensure_frequency, schema 53): its two charts, `linear` (the reference, Hz) and `log10` (log10 Hz); a band set is spans on it in either
-  if (key == "frequency:line" || key == "frequency:log10") {
-    SpaceSpec s{"frequency line", "line", "the dataset's frequency line, R\xc2\xb9: linear in hertz (the reference chart) and log10 of the frequency", {}};
+  // the dataset's Frequency line (bst::ensure_frequency, schema 53): its charts, `linear` (the reference, Hz), `log10` (log10 Hz) and `log2` (octaves); a band set is spans on it in any
+  if (key == "frequency:line" || key == "frequency:log10" || key == "frequency:log2") {
+    SpaceSpec s{"frequency line", "line", "the dataset's frequency line, R\xc2\xb9: linear in hertz (the reference chart), log10 and log2 (octaves) of the frequency", {}};
     s.systems.push_back({"frequency:line", "linear", std::string("Hz"), true, "identity", std::nullopt, std::string("cycles per second")});
     s.systems.push_back({"frequency:log10", "log10", std::string("log10 Hz"), false, "log", Json{{"base", 10}}, std::string("log10 of the frequency in hertz")});
+    s.systems.push_back({"frequency:log2", "log2", std::string("log2 Hz"), false, "log", Json{{"base", 2}}, std::string("log2 of the frequency in hertz (octaves)")});
     return s;
   }
   if (key == "frequency" || key == "octave") {
@@ -443,7 +444,9 @@ Row SubjectWriter::prov(const std::optional<std::string>& created_utc) const {
 
 std::string SubjectWriter::topology(const TopologySpec& spec) {
   const std::string tid = uuid7();
-  db_->insert("topology", {{"id", tid}, {"subject_id", id_}, {"kind", spec.kind}, {"rank", V(spec.rank)}, {"n_components", V(spec.n_components)}, {"winding", V(spec.winding)}});
+  auto flag = [](const std::optional<bool>& b) { return b ? V(*b ? 1 : 0) : V(nullptr); };   // measured by the maker, or null
+  db_->insert("topology", {{"id", tid}, {"subject_id", id_}, {"kind", spec.kind}, {"rank", V(spec.rank)}, {"n_components", V(spec.n_components)}, {"winding", V(spec.winding)},
+                           {"closed", flag(spec.closed)}, {"orientable", flag(spec.orientable)}});
   for (const auto& c : spec.cells) db_->insert("topology_cell", {{"topology_id", tid}, {"rank", V(c.rank)}, {"path", c.path}});
   return tid;
 }

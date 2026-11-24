@@ -40,6 +40,8 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("compact", "dataset", "", "dataset* dry_run! no_shard! no_small_files! subject"),
     ("split", "dataset", "", "dataset* dry_run! registered_by*"),
     ("join", "dataset", "", "dataset*"),
+    ("migrate", "eigensolve", "", "dataset* name subject* templates+"),
+    ("migrate", "glue", "", "dataset* hemispheres left name right subject* templates+"),
     ("migrate", "measurements", "", "dataset* dry_run! remove_statistics!"),
     ("migrate", "selections", "", "dataset* dry_run!"),
     # subject packages and the catalogue
@@ -78,9 +80,9 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     # reading and querying
     ("read", "dataset", "folder", "array+ out region"),
     ("read", "crossspectrum", "", "dataset* name* pair reading seed subject* weights templates+"),
-    ("read", "field", "", "all! budget dataset* from name* out projectors region rows shape_only! subject* to templates+"),
+    ("read", "field", "", "all! budget dataset* from name* onto out projectors region rows shape_only! subject* to templates+"),
     ("read", "statistic", "", "budget dataset* name* out region subject* templates+"),
-    ("read", "operator", "", "budget dataset* name* out region subject* templates+"),
+    ("read", "operator", "", "budget dataset* name* onto out region subject* templates+"),
     ("read", "selection", "", "budget dataset* field measure name* out region subject* templates+"),
     ("read", "manifold", "", "budget dataset* family name* out region subject* templates+"),
     ("query", "measurements", "", "band dataset* factor field limit max_value measure* min_value order selection* spatial_scale subject* subjects tile templates+ where"),
@@ -109,6 +111,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("import", "condition", "protocol", "all_surfaces! channel_file condition* dataset* extra_surface+ include_imported! no_gain! no_raw! recording resample subject* surface templates+"),
     ("import", "surface", "", "bst_root dataset* file+ subject* templates+"),
     ("import", "mri", "", "anat* dataset* only+ subject* templates+"),
+    ("import", "covariance", "", "condition* dataset* kind name protocol* replace! subject* templates+"),
     ("import", "inverse", "", "acquisition* bst_root* channel_file channels_id dataset* file* forward_id name subject* surface_id templates+"),
     ("import", "map", "", "acquisition bst_root* dataset* file*+ provenance replace! subject* templates+"),
     ("import", "resample", "", "dataset* name recording* subject* to* templates+"),

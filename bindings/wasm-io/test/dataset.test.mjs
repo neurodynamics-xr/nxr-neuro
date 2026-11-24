@@ -3,8 +3,8 @@
 // lock of a handle refuses another process's write until it is closed. Mirrors bindings/python/tests/test_dataset_api.py. Synthetic data only.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -250,5 +250,36 @@ test('a write handle holds the lock across processes, module instances and worke
     held.close();
     assert.equal(await inWorker(), 'granted');
     nxr.open(D, 'write').close();                                                                      // the worker's close released it
+  } finally { done(); }
+});
+
+test('a read-only open writes nothing while another process writes: a hot rollback journal is waited for (as a native reader waits for the lock), never rolled back', { skip }, async () => {
+  const { nxr, demo: D, done } = await demo();
+  try {
+    const db = join(D, 'dataset.sqlite'), journal = db + '-journal';
+    const before = readFileSync(db);
+    // a journal whose header a writer has written (it is committing): WebAssembly has no file locks, so the reader cannot see that writer; before, it took the journal for one left by a
+    // dead writer and tried to roll it back ("attempt to write a readonly database")
+    const header = Buffer.alloc(512);
+    Buffer.from('d9d505f920a163d7', 'hex').copy(header, 0);
+    header.writeUInt32BE(1, 8); header.writeUInt32BE(1, 12); header.writeUInt32BE(before.readUInt32BE(28), 16); header.writeUInt32BE(512, 20); header.writeUInt32BE(before.readUInt16BE(16), 24);
+    writeFileSync(journal, header);
+    // another process ends the commit (removes its journal) a second later: the read waits for it, then reads
+    const writer = spawn(process.execPath, ['-e', `setTimeout(() => require('node:fs').rmSync(${JSON.stringify(journal)}), 1000)`], { stdio: 'ignore' });
+    const t0 = Date.now();
+    assert.equal((await nxr.read.manifold({ dataset: D, subject: 'S1', name: 'sensors' })).class, 'manifold');
+    assert.ok(Date.now() - t0 >= 800, 'the read waited for the commit');
+    await new Promise((resolve) => (writer.exitCode !== null ? resolve() : writer.on('exit', resolve)));
+    assert.equal(existsSync(journal), false);
+    assert.ok(readFileSync(db).equals(before), 'the database is unchanged');
+    // a journal that stays hot (a writer that died): the read is refused as busy after the busy timeout, and nothing is written (the journal and the database as they were)
+    writeFileSync(journal, header);
+    await assert.rejects(nxr.read.manifold({ dataset: D, subject: 'S1', name: 'sensors' }), (e) => /locked/.test(e.message) && !/readonly/.test(e.message));
+    assert.ok(readFileSync(journal).equals(header) && readFileSync(db).equals(before), 'nothing written');
+    // a journal a writer has only begun (its header not yet written, all zero): read at once
+    writeFileSync(journal, Buffer.alloc(512));
+    assert.equal((await nxr.read.manifold({ dataset: D, subject: 'S1', name: 'sensors' })).class, 'manifold');
+    assert.ok(readFileSync(db).equals(before));
+    rmSync(journal);
   } finally { done(); }
 });

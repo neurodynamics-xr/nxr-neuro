@@ -115,7 +115,7 @@ int main() {
   const std::int64_t Kn = h.n_modes();
   nxr::operators::Basis b;
   b.P.resize(Kn, N);
-  for (std::int64_t v = 0; v < N; ++v) for (std::int64_t k = 0; k < Kn; ++k) b.P(k, v) = h.eigenvectors[static_cast<std::size_t>(v * Kn + k)];
+  for (std::int64_t v = 0; v < N; ++v) for (std::int64_t k = 0; k < Kn; ++k) b.P(k, v) = pk.vertex_potentials[static_cast<std::size_t>(v * Kn + k)];
   b.mu = Eigen::Map<const Eigen::VectorXd>(h.mu.data(), Kn);
   for (auto k : h.kind) b.kind.push_back(k);
   b.positions = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(surf.vertices.data(), N, 3);

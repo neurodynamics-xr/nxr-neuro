@@ -199,11 +199,44 @@ int main() {
       r.commit();
       CHECK(t.at_path(Cls::field, "source/toy_map"));
     }
+    {   // THE FREQUENCY LINE OF A SPAN, keyed by (time line, n, fs) and made by the FFT operator: two lengths are two lines, the same length again is the same line, an old per-recording line of the grid is found
+      Unit u = t.unit(By{"unit test", Json::object()});
+      LineOut tl;
+      tl.name = "rec_time"; tl.alt = "rec_time_alt"; tl.n = 4096; tl.spacing = 0.01; tl.unit = "s"; tl.dimension = "time"; tl.folder = "time"; tl.cs_key = "clock";
+      const std::string time_id = u.line(tl);
+      const std::string l256 = u.frequency_line(time_id, 256, 100.0), l128 = u.frequency_line(time_id, 128, 100.0);
+      CHECK(!l256.empty() && !l128.empty() && l256 != l128);
+      CHECK_EQ(u.frequency_line(time_id, 256, 100.0), l256);                 // the same span length: the same line, no second operator
+      CHECK_EQ(u.frequency_line(time_id, 128, 100.0), l128);
+      const std::string l200 = u.frequency_line(time_id, 200, 100.0);        // not a power of two: named by n
+      CHECK(l200 != l256 && l200 != l128);
+      LineOut old;                                                           // a line an older run stored under the recording's name, of the grid of n = 64 at 100 Hz
+      old.name = "rec_freq"; old.alt = "rec_freq_alt"; old.n = 33; old.spacing = 100.0 / 64.0;
+      const std::string old_id = u.line(old);
+      CHECK_EQ(u.frequency_line(time_id, 64, 100.0, "rec_freq"), old_id);    // found by its old name: nothing renamed, no operator made
+      CHECK(u.frequency_line(time_id, 32, 100.0, "rec_freq") != old_id);     // another grid is not that line
+      CHECK_EQ(code_of([&] { u.frequency_line(time_id, 1, 100.0); }), std::string(code::invalid_argument));
+      u.commit();
+    }
     sub.complete();
   }
   SubjectPackage pkg = SubjectPackage::open(root / "S.nxr.zarr");
   const Subject s = Subject::of(pkg);
   CHECK_EQ(s.id(), sid);
+
+  {   // the frequency lines made above: each with an analytic fft operator row from the time line, params {n, fs, sides, window}; the old line has none
+    auto line_of = [&](const std::string& name) { return s.require({.cls = Cls::manifold, .name = name}, "the line"); };
+    const Node time = line_of("rec_time");
+    for (const auto& [name, n] : std::vector<std::pair<std::string, int>>{{"rec_time_freq_L8", 256}, {"rec_time_freq_L7", 128}, {"rec_time_freq_n200", 200}, {"rec_time_freq_L5", 32}}) {
+      const Node line = line_of(name);
+      CHECK_EQ(*line.n_vertices, static_cast<std::int64_t>(n / 2 + 1));
+      const std::string stem = name.substr(std::string("rec_time_freq_").size());
+      const Node op = s.require({.cls = Cls::operator_, .name = "rec_time_fft_" + stem}, "the fft operator");
+      CHECK(op.from_manifold_id && *op.from_manifold_id == time.id && op.to_manifold_id && *op.to_manifold_id == line.id);
+      CHECK(op.params["n"] == Json(n) && op.params["fs"] == Json(100.0) && op.params["sides"] == Json("one-sided") && op.params["window"] == Json("none"));
+    }
+    CHECK(!s.find({.cls = Cls::operator_, .name = "rec_time_fft_L6"}));      // the old line of n = 64 got no operator row
+  }
 
   // find: one, none, several; the Want's class decides what it may filter on
   const Node cortex = s.require({.cls = Cls::manifold, .name = "cortex"}, "the surface");

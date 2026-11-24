@@ -12,6 +12,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "hemispheres.h"
 #include "make_grids.h"
 #include "nxr/bst/frequency.h"
 #include "nxr/io/spatial_bands.h"
@@ -47,6 +48,7 @@ int main() {
     sub.compose([&] {
       SurfaceOptions so; so.name = "cortex"; so.sphere = b.Sph;
       so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
+      so.atlases.push_back(nxrtest::structures_of(b.P, b.F));   // the hemispheres, as Brainstorm's Structures (the glue reads them)
       add_surface(sub, so, b.P, b.F);
     });
   }

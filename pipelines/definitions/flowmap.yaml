@@ -1,0 +1,43 @@
+# THE WHOLE-RUN FLOW MAPS of the cells of a joint filterbank, read from the stored mode-space Fourier coefficients (`run spectral_coefficients`): the cells are the members of the PRODUCT
+# of two STORED kernel sets (`run select_kernels`): frequency members on the coefficients' frequency line x scale members on the package's mode axis. For every cell, in one run:
+#   the cell's cross-spectrum over the tiles (g^2 of its frequency member; the free kernel's components each), synthesised on the package's surface with its scale member's amplitudes:
+#   power per vertex (0-form), phase current per intrinsic edge (1-form), and its Hodge split by the package's modes (exact potential: travel; coexact stream: rotation; the *1 energies).
+# Per cell and per REGION of a partition the caller names (a reduction across space is a measurement over a partition): the sums of power and of the three energies and the vertex count,
+# measured over the product frequency x scale x regions (one value a member), so the travel and rotation shares are derived at read. Each value is a MEASUREMENT over the product's members (a cell is found by its member: its frequency member and its scale member), of the coefficients. Every map is a sum over the
+# coefficients' tiles and the member's bins: the mean is sum / tiles; shares and ratios are derived at read.
+#
+#   nxr-neuro run flowmap --dataset D --subject S --coefficients NAME --package STEM --frequency "FREQUENCY KERNEL SET" --scale "SCALE KERNEL SET" --name NAME
+pipeline: flowmap
+version: 1
+description: the whole-run flow maps of every cell of a frequency kernel set x a scale kernel set, from stored mode-space Fourier coefficients - power, phase current and its Hodge split, as measurements over the cells
+scope: subject
+
+inputs:
+  coefficients: {statistic: any, where: {name: $coefficients}, hint: "the stored mode-space Fourier coefficients (`nxr-neuro run spectral_coefficients` first)"}
+  package: {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, hint: "the Hodge-Dirac package the coefficients are on"}
+  frequency: {selection: any, where: {name: $frequency}, hint: "a frequency kernel set on the coefficients' frequency line (`nxr-neuro run select_kernels` first)"}
+  scale: {selection: any, where: {name: $scale}, hint: "a scale kernel set on the package's mode axis (`nxr-neuro run select_kernels` first)"}
+  regions: {selection: any, where: {name: $regions}, hint: "a stored partition of the package's surface: the regions each cell's totals are summed over (the whole surface as one member, lobes, an atlas)"}
+
+parameters:
+  coefficients: {default: null, meaning: "the stored coefficients' name", unit: "-"}
+  package: {default: null, meaning: "the Hodge-Dirac package's stem", unit: "-"}
+  frequency: {default: null, meaning: "the frequency kernel set's name", unit: "-"}
+  scale: {default: null, meaning: "the scale kernel set's name", unit: "-"}
+  regions: {default: null, meaning: "the regions partition's name (no default: the caller names the spatial selection, the whole surface included)", unit: "-"}
+  name: {default: "{coefficients} flow cells", meaning: "the name of the cells (the product selection) the maps are measured over", unit: "-"}
+
+steps:
+  before:
+    - {node: select.product, in: {first: frequency, second: scale}, with: {layout: product}, out: [product_space, cells]}
+    - {node: select.product, in: {first: frequency, second: scale, third: regions}, with: {layout: product}, out: [region_space, region_cells]}
+    - {node: signal.flow_map, in: {coefficients: coefficients, package: package, frequency: frequency, scale: scale, regions: regions}, out: [totals, maps, edges]}
+
+outputs:
+  product_space: {kind: manifold, type: product, name: "{name} space", factors: [frequency.manifold.0, scale.manifold.0]}
+  cells: {kind: selection, type: product, name: $name, on: product_space, factors: [frequency, scale]}
+  region_space: {kind: manifold, type: product, name: "{name} by region space", factors: [frequency.manifold.0, scale.manifold.0, regions.manifold.0]}
+  region_cells: {kind: selection, type: product, name: "{name} by region", on: region_space, factors: [frequency, scale, regions]}
+  totals: {kind: measurement, over: region_cells, of_statistic: coefficients}
+  maps: {kind: measurement, over: cells, of_statistic: coefficients}
+  edges: {kind: measurement, over: cells, of_statistic: coefficients}

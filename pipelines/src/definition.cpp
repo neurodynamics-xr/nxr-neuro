@@ -28,12 +28,13 @@ const Shipped kShipped[] = {
 
 const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw", "kind", "plans", "one_of"}, kSections = {"inputs", "parameters", "presets", "steps", "outputs"};
 const std::vector<std::string> kInputClasses = {"field", "operator", "selection", "measurement", "statistic", "manifold"};
-const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint", "read", "per_subject", "of", "over", "within"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
+const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint", "read", "per_subject", "of", "over", "within", "made_by"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
                             kOutputKeys = {"kind", "unit", "description", "types",   // types: a span set's event type (outputs of kind spans)
                                            // DECLARED OUTPUTS (docs/specs/2026-11-17-definition-outputs.md, section 3): where and of what; what the values are, the node says
                                            "name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors",
                                            "from_selection", "to_selection", "of_statistic", "inverts", "inverse_kind", "acquisition_of", "of_operator", "within", "by_operator",
-                                           "codes", "carry_origin", "optional", "get_or_create", "value_type", "components", "level", "detected_over"};   // detected_over: the grid input an irregular selection was detected over (provenance)
+                                           "codes", "carry_origin", "optional", "get_or_create", "value_type", "components", "level", "detected_over",
+                                           "geometry_of", "layout"};   // geometry_of: the manifold whose positions a complex shares · layout: analytic (an operator with no bytes, D93: found or made with the manifold it lies on)   // detected_over: the grid input an irregular selection was detected over (provenance)
   //    // get_or_create: a maker's selection stored by its maker key (found when there)  // codes: 2 = two codes a row (a sparse matrix over a selection's members) · carry_origin: the input whose origin and licence the result carries  // optional: the node makes it only when the data asks for it; a link may name alternatives `a|b`
 const std::regex kPresetName("^[a-z][a-z0-9_-]*$");
 const std::regex kName("^[a-z][a-z0-9_]*$");
@@ -448,6 +449,13 @@ Definition parse(const Json& written, const std::string& source, const std::stri
       }
     }
     if (spec.contains("where")) params_used(spec["where"], w, params);
+    // `made_by: {pipeline: NAME, with: {...}}`: when nothing matches, the runner runs that shipped definition first, as its OWN run (its own provenance and cache key), says so, and finds again
+    if (spec.contains("made_by")) {
+      const Json& mb = spec["made_by"];
+      if (!mb.is_object() || !mb.contains("pipeline") || !mb["pipeline"].is_string() || (mb.contains("with") && !mb["with"].is_object()))
+        err(w, "made_by: {pipeline: NAME, with: {parameter: value | $parameter}} (the definition the runner runs first when nothing matches)");
+      if (mb.contains("with")) params_used(mb["with"], w, params);
+    }
     // `read: shape` (spec docs/specs/2026-11-17-surrogates.md, section 6): a streamed recording whose SHAPE only the run reads (its channels, rate, span, chunk grid), never a sample
     if (spec.contains("read") && !(spec["read"] == "samples" || (spec["read"] == "shape" && spec.contains("field"))))
       err(w, "read: samples (the default) or shape (a recording's shape only: no sample is read; a field only)");

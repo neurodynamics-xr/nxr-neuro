@@ -239,6 +239,10 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@create dataset	NAME	Name of the new dataset.	the folder's name (required with --datastore)	-
 --name@create subject	NAME	Name of the new subject in the dataset.	required	-
 --name@delete dataset	NAME	Name of the dataset's folder to delete, inside the folder given by --datastore	required	-
+--name@import covariance	NAME	Name of the stored statistic.	<condition>_noise_covariance or <condition>_data_covariance	-
+--kind@import covariance	noise|data	Which covariance of the study: its noise covariance (noisecov_*.mat) or its data covariance (ndatacov_*.mat).	noise	-
+--protocol@import covariance	PATH	The Brainstorm protocol's folder (the one holding data/ and anat/).	required	-
+--condition@import covariance	NAME	The condition (study) whose covariance is imported; its channels must be imported already (`import condition`); the statistic is stored under that acquisition.	required	-
 --name@import inverse	NAME	Name of the stored kernel.	Brainstorm's file stem, session-qualified if already taken	-
 --name@import resample	NAME	Name of the resampled recording that is created	<recording>_<rate>Hz (e.g. meg_250Hz)	-
 --name@read crossspectrum	NAME	The stored band-resolved cross-spectrum to read, named <stem>_<band>_bins (made by run crossspectrum --resolve bins).	required	-
@@ -452,6 +456,7 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --templates@import mri	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@import condition	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@import inverse	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@import covariance	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@import map	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@import resample	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@import badsegments	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -480,6 +485,13 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --tsv@export participants	FILE	The file to write the participants table to as BIDS participants.tsv; nothing else is written.	required	-
 --sidecar@export participants	FILE	Also write the participants.json sidecar to this file.	none	-
 --registered-by@split dataset	WHO	Who runs the split: recorded with each catalogue entry.	required	-
+--templates@migrate eigensolve	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; the migration reads no template array.	none (the environment variable and the user setting only)	-
+--templates@migrate glue	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; the migration reads no template array.	none (the environment variable and the user setting only)	-
+--name@migrate glue	NAME	The glued cortex to convert, by name.	every glued cortex of the subject	-
+--hemispheres@migrate glue	NAME	The original cortex's hemisphere labelling, by name: carried onto the glued cortex.	Structures (Brainstorm's scout atlas)	-
+--left@migrate glue	NAME	The hemisphere labelling's entry that is the left hemisphere.	Cortex L (Brainstorm's)	-
+--right@migrate glue	NAME	The hemisphere labelling's entry that is the right hemisphere.	Cortex R (Brainstorm's)	-
+--name@migrate eigensolve	STEM	The stem of the stored eigensolve to convert (hodgeDirac, hodgeDirac__<surface>).	every stored eigensolve of the subject	-
 --dry-run@migrate selections		Report, per subject, the selections that would be converted to the member form, without changing anything.	off	-
 --dry-run@migrate measurements		Report, per subject, the statistics that would become measurements, the products and tilings that would be rewritten, and the conflicts, without changing anything.	off	-
 --remove-statistics@migrate measurements		The explicit second step, taken only when asked for explicitly: remove each migrated statistic whose measurement is verified (and its array). Never the default: the old statistics are kept.	off	-
@@ -816,6 +828,20 @@ alias: no
 summary: Make every value over a selection's members one measurement (schema 53): per-member statistics become array-backed measurements, verified byte for byte; a product that only coupled a level names the grid and the level; day-anchored tower tilings are marked read-only. In place, subject by subject, resumable; the old statistics are kept.
 opts: --dataset* --dry-run --remove-statistics
 )TBL",
+R"TBL(@ migrate eigensolve
+old: package migrate-eigensolve
+alias: no
+summary: Convert a subject's stored Hodge-Dirac eigensolve of the earlier form (three operators _eigenvectors, _forms1, _forms2; a kind field; stored d0, d1 and stars) in place to the four classes: one eigenvectors operator to the intrinsic triangulation's cells 0+1+2, the kinds a labelling, d0, d1 and the stars analytic. No solve; idempotent; an unknown form refused; the replaced items moved aside.
+opts: --dataset* --subject* --name --templates+
+example: nxr-neuro migrate eigensolve --dataset D --subject sub-01 --name hodgeDirac__cortex_pial_glued
+)TBL",
+R"TBL(@ migrate glue
+old: package migrate-glue
+alias: no
+summary: Convert a subject's stored glued cortex of the earlier form (the field <glued>_map and the selection <glued>_bridge) in place to selections: the original's hemisphere labelling carried onto the glued cortex with one more entry, bridge, and the original's kept vertices. The map is checked against the glue's rule and the labelling against the original surface before the map and the bridge are moved aside; idempotent; an unknown form refused.
+opts: --dataset* --subject* --name --hemispheres --left --right --templates+
+example: nxr-neuro migrate glue --dataset D --subject sub-01 --name cortex_pial_glued --hemispheres Structures
+)TBL",
 R"TBL(@ join dataset
 old: package join
 alias: no
@@ -1059,6 +1085,12 @@ alias: refused
 summary: Import a Brainstorm inverse kernel as an operator of a subject.
 opts: --acquisition* --bst-root* --channel-file --channels-id --dataset* --file* --forward-id --name --subject* --surface-id --templates+
 )TBL",
+R"TBL(@ import covariance
+old: convert covariance
+alias: refused
+summary: Import a Brainstorm study's own noise covariance (noisecov_*.mat) or data covariance (ndatacov_*.mat) as a statistic of the condition's channels, the one `run inverse --noise-cov` reads.
+opts: --condition* --dataset* --kind --name --protocol* --replace --subject* --templates+
+)TBL",
 R"TBL(@ import map
 old: convert map
 alias: refused
@@ -1135,6 +1167,7 @@ R"TBL(--name@read field	NAME	The stored field to read, by name or id.	required	-
 --rows@read field	I,J,...	The rows (channels) of a time-resolved field to read, by index, in the order given.	every row	-
 --projectors@read field	active|none|NAME,...	A recording's projectors when it is read: active applies its active projectors to every block loaded (as a run reads it), none reads the samples as stored, NAME,... applies exactly the projectors named, whatever their stored status (an unknown name is refused, listing the valid ones).	active	-
 --shape-only@read field		Print the description of a time-resolved field (rate, origin, samples, channels, unit, projection) and read no sample.	off	-
+--onto@read field	GLUED	Carry the field onto a glued cortex: its rows (the vertices of the two-hemisphere surface it lies on, k rows a vertex) selected onto the glued cortex GLUED by the glue's rule, each glued vertex the rows of its original vertex, a bridge vertex's rows zero. Not with --rows or --region.	none (the rows as stored)	-
 )TBL",
 R"TBL(--name@read statistic	NAME	The stored statistic to read, by name or id.	required	-
 --templates@read statistic	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1143,6 +1176,7 @@ R"TBL(--name@read statistic	NAME	The stored statistic to read, by name or id.	re
 R"TBL(--name@read operator	NAME	The stored operator to read, by name or id.	required	-
 --templates@read operator	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
 --out@read operator	FILE.npy	Write the operator as .npy files: a dense one to FILE itself, a sparse one as <stem>.data.npy, <stem>.indices.npy and <stem>.indptr.npy (scipy.sparse.csr_matrix's arrays).	none (the result only, as JSON)	-
+--onto@read operator	GLUED	Carry the operator onto a glued cortex: its rows (the vertices of the two-hemisphere surface it maps to, k rows a vertex: 3 for a free orientation) selected onto the glued cortex GLUED by the glue's rule, each glued vertex the rows of its original vertex, a bridge vertex's rows zero. A dense operator only; not with --region.	none (the rows as stored)	-
 )TBL",
 R"TBL(--name@read selection	NAME	The stored selection to read, by name or id.	required	-
 --templates@read selection	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1227,7 +1261,7 @@ R"TBL(@ read field
 old: __read field
 summary: Read a stored field by name: its values (a time-resolved field over a stated time range, read one chunk at a time), its manifold and cells, as JSON or .npy.
 example: nxr-neuro read field --dataset /data/study --subject sub-01 --name rest --from 0 --to 10 --out rest.npy
-opts: --all --budget --dataset* --from --name* --out --projectors --region --rows --shape-only --subject* --to --templates+
+opts: --all --budget --dataset* --from --name* --onto --out --projectors --region --rows --shape-only --subject* --to --templates+
 )TBL",
 R"TBL(@ read statistic
 old: __read statistic
@@ -1237,9 +1271,9 @@ opts: --budget --dataset* --name* --out --region --subject* --templates+
 )TBL",
 R"TBL(@ read operator
 old: __read operator
-summary: Read a stored operator by name: dense values, or a sparse operator's data, indices and indptr, as JSON or .npy files.
+summary: Read a stored operator by name: dense values, or a sparse operator's data, indices and indptr, as JSON or .npy files; with --onto, its rows carried onto a glued cortex.
 example: nxr-neuro read operator --dataset /data/study --subject sub-01 --name kernel --out kernel.npy
-opts: --budget --dataset* --name* --out --region --subject* --templates+
+opts: --budget --dataset* --name* --onto --out --region --subject* --templates+
 )TBL",
 R"TBL(@ read selection
 old: __read selection

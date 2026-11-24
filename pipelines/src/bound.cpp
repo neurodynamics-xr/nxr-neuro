@@ -137,6 +137,7 @@ std::optional<io::Row> Bound::default_subject_manifold(const std::string& name) 
 std::optional<io::Row> Bound::frequency_line() const { return default_subject_manifold("Frequency"); }
 std::optional<io::Row> Bound::eigenvalue_line() const { return default_subject_manifold("Eigenvalue"); }
 std::optional<GlueMap> Bound::glue_of(const std::string& manifold_id) const { return glue_map_of(writer(), manifold_id); }
+StoredLabelling Bound::labelling(const std::string& selection_id) const { return stored_labelling(writer(), selection_id); }
 SurfaceInput Bound::surface(const std::optional<std::string>& name, bool as_stored) const { return read_surface(writer(), name, as_stored); }
 SurfaceLevel Bound::surface_level(const SurfaceInput& s, int level) const { return read_surface_level(writer(), s, level); }
 StoredFrames Bound::stored_frames(const std::string& surface_name, std::int64_t n_vertices) const { return read_stored_frames(writer(), surface_name, n_vertices); }
@@ -148,6 +149,7 @@ std::string Bound::coordinate_system_key(const std::string& manifold_id) const {
   return io::coordinate_system_name_of_geometry(writer(), io::text(*m, "geometry_id")).value_or(std::string());
 }
 std::vector<std::uint8_t> Bound::medial_wall(const SurfaceInput& surface) const { return nxr::pipelines::medial_wall(writer(), surface); }
+nxr::io::Json Bound::medial_wall_record(const SurfaceInput& surface) const { return nxr::pipelines::medial_wall_record(writer(), surface.id, surface.name); }
 GroupTemplate Bound::group_template(const std::string& surface_name) const {
   if (!ds_) throw io::Error(io::code::invalid_argument, "the group tree is carried from the dataset's default subject: the binding holds no dataset");
   return read_group_template(*ds_, writer(), surface_name);

@@ -2,6 +2,7 @@
 # Paths are relative to compute/.
 
 target_sources(nxr_compute PRIVATE
+  src/meeg/channels.cpp
   src/meeg/connectome.cpp
   src/meeg/montage.cpp
 )
@@ -11,6 +12,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   target_link_libraries(test_montage PRIVATE nxr_compute)
   target_compile_definitions(test_montage PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
   add_test(NAME test_montage COMMAND test_montage)
+  add_executable(test_channel_positions test/test_channel_positions.cpp)   # Brainstorm's channel positions from the coils
+  target_link_libraries(test_channel_positions PRIVATE nxr_compute)
+  add_test(NAME test_channel_positions COMMAND test_channel_positions)
   add_executable(test_connectome test/test_connectome.cpp)
   target_link_libraries(test_connectome PRIVATE nxr_compute)
   add_test(NAME test_connectome COMMAND test_connectome)

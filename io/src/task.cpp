@@ -448,6 +448,16 @@ std::optional<std::string> Subject::line_named(const std::string& name) const {
   return text(*r, "id");
 }
 
+std::optional<std::string> Subject::frequency_line_of(const std::string& time_line_id, std::int64_t n, double fs) const {
+  auto near = [](double a, double b) { return std::abs(a - b) <= 1e-12 * std::max(1.0, std::abs(b)); };
+  for (const auto& r : impl_->db->all("SELECT to_manifold_id, params_json FROM operator WHERE subject_id = ? AND from_manifold_id = ? AND layout = 'analytic' AND method = 'fft' AND status <> 'deleting'", {V(impl_->id), V(time_line_id)})) {
+    if (is_null(r, "to_manifold_id") || is_null(r, "params_json")) continue;
+    const Json p = Json::parse(text(r, "params_json"), nullptr, false);
+    if (p.is_object() && p.value("n", std::int64_t(0)) == n && near(p.value("fs", 0.0), fs) && p.value("sides", std::string()) == "one-sided") return text(r, "to_manifold_id");
+  }
+  return std::nullopt;
+}
+
 std::optional<std::string> Subject::manifold_named(const std::string& name) const {
   const auto r = impl_->db->one("SELECT id FROM manifold WHERE subject_id = ? AND name = ?", {V(impl_->id), V(name)});
   if (!r) return std::nullopt;
@@ -957,6 +967,17 @@ std::string Unit::selection(const SelectionOut& s) {
       m.extents.push_back(selection::Extent{0, x.start, x.stop});
       d.members.push_back(std::move(m));
     }
+  } else if (s.type == "kernels") {                 // a KERNEL SET: each member an anchor (a span or an instant on the manifold's coordinate) with a profile and a chart, stored as a kernel selection
+    if (s.kernels.empty()) throw Error(code::invalid_argument, "selection " + s.name + ": a kernel set has one member or more (kernels)");
+    d.type = selection::Type::set;
+    for (const auto& k : s.kernels) {
+      selection::Description m;
+      m.type = selection::Type::span;
+      m.code = k.code;
+      m.extents.push_back(selection::Extent{0, k.start, k.stop});
+      m.profile = selection::Profile{k.family, k.params, k.chart, k.gain};
+      d.members.push_back(std::move(m));
+    }
   } else if (s.type == "tiling") {
     if (!s.tiling) throw Error(code::invalid_argument, "selection " + s.name + ": a tiling needs its origin, width, hop and count");
     const Tiling& t = *s.tiling;
@@ -966,9 +987,10 @@ std::string Unit::selection(const SelectionOut& s) {
     params["end"] = t.end;
     params["segments_skipped"] = t.skipped;
   } else {
-    throw Error(code::invalid_argument, "selection " + s.name + ": type " + s.type + " (partition, set, indices, spans, tiling, cells, grid or product)");
+    throw Error(code::invalid_argument, "selection " + s.name + ": type " + s.type + " (partition, set, indices, spans, kernels, tiling, cells, grid or product)");
   }
-  for (std::size_t k = 0; k < s.entries.size(); ++k) d.lookup.push_back(selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});   // the codes' names
+  if (!s.lookup.empty()) for (const auto& e : s.lookup) d.lookup.push_back(selection::Entry{e.code, e.name, e.colour});   // the codes' names, codes and colours as given
+  else for (std::size_t k = 0; k < s.entries.size(); ++k) d.lookup.push_back(selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});   // the codes' names
   if (!s.weights.shape.empty()) {   // one weight a member, beside the selection's array and named in its parameters (as a kernel's `weights` array is)
     const std::string wpath = at.path.value_or(std::string()) + ".weights";
     sub.write_array(wpath, view_of(s.weights, "selection " + s.name + " weights"));
@@ -1030,17 +1052,22 @@ std::string stored_line(SubjectWriter& sub, Database& db, const LineOut& l, cons
 }
 }  // namespace
 
+namespace {
+// whether the closed-form line `line_id` has n points of `spacing` from `origin`
+bool closed_form_line_fits(Database& db, const std::string& line_id, std::int64_t n, double spacing, double origin) {
+  const auto d = db.one("SELECT d.spacing AS spacing, d.n_vertices AS n, d.origin AS origin FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? AND d.ordinal = 0", {V(line_id)});
+  return d && integer(*d, "n") == n && std::abs(std::stod(text(*d, "spacing")) - spacing) <= 1e-12 * std::max(1.0, std::abs(spacing)) &&
+         std::abs(std::stod(text(*d, "origin")) - origin) <= 1e-12 * std::max(1.0, std::abs(origin));
+}
+}  // namespace
+
 std::string Unit::line(const LineOut& l) {
   need_open(open_);
   SubjectWriter& sub = *impl_->writer;
   Database& db = *impl_->db;
   if (!l.coordinates.empty()) return stored_line(sub, db, l, by_);
   auto named = [&](const std::string& n) { return db.one("SELECT m.id AS id FROM manifold m WHERE m.subject_id = ? AND m.name = ? AND m.type = 'line'", {V(impl_->id), V(n)}); };
-  auto fits = [&](const std::string& lid) {
-    const auto d = db.one("SELECT d.spacing AS spacing, d.n_vertices AS n, d.origin AS origin FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? AND d.ordinal = 0", {V(lid)});
-    return d && integer(*d, "n") == l.n && std::abs(std::stod(text(*d, "spacing")) - l.spacing) <= 1e-12 * std::max(1.0, std::abs(l.spacing)) &&
-           std::abs(std::stod(text(*d, "origin")) - l.origin) <= 1e-12 * std::max(1.0, std::abs(l.origin));
-  };
+  auto fits = [&](const std::string& lid) { return closed_form_line_fits(db, lid, l.n, l.spacing, l.origin); };
   std::string name = l.name;
   if (const auto r = named(name)) {
     if (fits(text(*r, "id"))) return text(*r, "id");
@@ -1075,6 +1102,50 @@ std::string Unit::line(const LineOut& l) {
 }
 
 
+// THE FREQUENCY LINE OF A SPAN: a span of n samples at fs (a member of a time line's grid) has one one-sided frequency line, origin 0, spacing fs / n, n / 2 + 1 bins. It is keyed by what makes it
+// (the time line, n, fs), never by a name: the FFT is an analytic operator row from the time line to the frequency line, its params {n, fs, sides, window}, and the line is found through that row.
+// A line a dataset already holds under the old per-recording name (`legacy_name`) with the same grid is that line (nothing renamed, nothing added).
+std::string Unit::frequency_line(const std::string& time_line_id, std::int64_t n, double fs, const std::string& legacy_name) {
+  need_open(open_);
+  SubjectWriter& sub = *impl_->writer;
+  Database& db = *impl_->db;
+  if (n < 2 || !(fs > 0) || !std::isfinite(fs)) throw Error(code::invalid_argument, "frequency line: a span of n >= 2 samples at a rate fs > 0 (n " + std::to_string(n) + ", fs " + std::to_string(fs) + ")");
+  const auto tl = db.one("SELECT name FROM manifold WHERE id = ? AND subject_id = ? AND type = 'line'", {V(time_line_id), V(impl_->id)});
+  if (!tl) throw Error(code::no_such_row, "frequency line: the time line " + time_line_id + " is not a line of this subject");
+  const std::int64_t bins = n / 2 + 1;
+  const double spacing = fs / static_cast<double>(n);
+  auto near = [](double a, double b) { return std::abs(a - b) <= 1e-12 * std::max(1.0, std::abs(b)); };
+  // 1. by its key: an analytic fft operator of this time line whose parameters are these
+  for (const auto& r : db.all("SELECT to_manifold_id, params_json FROM operator WHERE subject_id = ? AND from_manifold_id = ? AND layout = 'analytic' AND method = 'fft' AND status <> 'deleting'", {V(impl_->id), V(time_line_id)})) {
+    if (is_null(r, "to_manifold_id") || is_null(r, "params_json")) continue;
+    const Json p = Json::parse(text(r, "params_json"), nullptr, false);
+    if (p.is_object() && p.value("n", std::int64_t(0)) == n && near(p.value("fs", 0.0), fs) && p.value("sides", std::string()) == "one-sided") return text(r, "to_manifold_id");
+  }
+  // 2. a line an older run made under the recording's name, with the same grid: that line
+  if (!legacy_name.empty())
+    if (const auto old = db.one("SELECT m.id AS id FROM manifold m WHERE m.subject_id = ? AND m.name = ? AND m.type = 'line'", {V(impl_->id), V(legacy_name)}))
+      if (closed_form_line_fits(db, text(*old, "id"), bins, spacing, 0.0)) return text(*old, "id");
+  // 3. made: the line, named for its time line and its level (n = 2^k: `_freq_L<k>`; any other n: `_freq_n<n>`), and the operator that makes it
+  std::string level;
+  if ((n & (n - 1)) == 0) { int k = 0; while ((std::int64_t(1) << k) < n) ++k; level = "L" + std::to_string(k); } else level = "n" + std::to_string(n);
+  LineOut l;
+  l.name = text(*tl, "name") + "_freq_" + level; l.alt = l.name + "_alt";
+  l.n = bins; l.spacing = spacing; l.origin = 0.0; l.unit = "Hz"; l.dimension = "frequency"; l.folder = "spectral"; l.cs_key = "hz";
+  const auto fa = db.one("SELECT acquisition_id FROM manifold WHERE id = ?", {V(time_line_id)});
+  if (fa && !is_null(*fa, "acquisition_id")) l.acquisition_id = text(*fa, "acquisition_id");
+  const std::string line_id = line(l);
+  OperatorOut op;
+  op.name = text(*tl, "name") + "_fft_" + level; op.output = "frequency_line"; op.kind = "transform";
+  op.from_manifold_id = time_line_id; op.to_manifold_id = line_id; op.from_cell = "0"; op.to_cell = "0";
+  op.from_value_type = "scalar"; op.to_value_type = "complex";
+  op.analytic = OperatorOut::Analytic{"fft", bins, n};
+  op.params = Json{{"n", n}, {"fs", fs}, {"sides", "one-sided"}, {"window", "none"}};
+  op.description = "the one-sided FFT of a span of " + std::to_string(n) + " samples at " + std::to_string(fs) + " Hz: its frequency line";
+  op.acquisition = l.acquisition_id;
+  operator_(op);
+  return line_id;
+}
+
 std::string Unit::surface(const SurfaceOut& o) {
   need_open(open_);
   SubjectWriter& sub = *impl_->writer;
@@ -1095,11 +1166,14 @@ std::string Unit::surface(const SurfaceOut& o) {
   ms.type = "surface";
   ms.n_vertices = n;
   ms.topology = {"simplicial", 2, 1, std::string("ccw-outward"), {{2, path + "/faces"}}};
+  if (o.closed) { ms.topology.closed = *o.closed; ms.topology.orientable = *o.closed; }   // the maker's check: closed and consistently oriented together
   GeometrySpec g;
   g.form = "stored";
   g.cs_key = o.cs_key;
   g.positions_path = path + "/vertices";
   ms.geometry = g;
+  ms.cols.set("n_faces", m);                                              // the f-vector: the faces it stores, and the edges when the maker counted them
+  if (o.n_edges) ms.cols.set("n_edges", *o.n_edges);
   if (o.acquisition_id) ms.cols.set("acquisition_id", *o.acquisition_id);
   if (o.derived_from_id) ms.cols.set("derived_from_id", *o.derived_from_id);
   if (o.description) ms.cols.set("comment", *o.description);
@@ -1152,9 +1226,23 @@ std::string Unit::points(const PointsOut& p) {
 std::string Unit::cell_complex(const ComplexOut& o) {
   need_open(open_);
   SubjectWriter& sub = *impl_->writer;
-  if (o.vertices.shape.size() != 2 || o.vertices.shape[1] != 3 || o.vertices.f64.empty() || o.vertices.size() != o.vertices.shape[0] * 3) throw Error(code::invalid_argument, "complex " + o.name + ": vertices [n x 3] in float64");
+  // `geometry_of`: the positions of another manifold (an intrinsic triangulation is its surface's geometry with its own topology). A geometry constructs ONE manifold (UNIQUE geometry_id),
+  // so it gets its own geometry row reading the SAME positions array (no copy)
+  std::optional<std::string> shared_positions;
+  std::int64_t n = 0;
+  if (o.geometry_of) {
+    const auto m = sub.db().read("manifold", *o.geometry_of);
+    const auto g = m && !is_null(*m, "geometry_id") ? sub.db().read("geometry", text(*m, "geometry_id")) : std::nullopt;
+    if (!g || is_null(*g, "positions_path")) throw Error(code::no_such_row, "complex " + o.name + ": the manifold whose positions it shares (" + *o.geometry_of + ") is not stored or has no stored positions");
+    if (!o.vertices.shape.empty()) throw Error(code::invalid_argument, "complex " + o.name + ": it shares the positions of another manifold, so it holds no vertices of its own");
+    shared_positions = text(*g, "positions_path");
+    n = integer(*m, "n_vertices");
+  } else {
+    if (o.vertices.shape.size() != 2 || o.vertices.shape[1] != 3 || o.vertices.f64.empty() || o.vertices.size() != o.vertices.shape[0] * 3) throw Error(code::invalid_argument, "complex " + o.name + ": vertices [n x 3] in float64");
+    n = o.vertices.shape[0];
+  }
   if (o.edges.empty() || o.edges.size() % 2 || o.faces.empty() || o.faces.size() % 3) throw Error(code::invalid_argument, "complex " + o.name + ": edges [nE x 2] and faces [nF x 3]");
-  const std::int64_t n = o.vertices.shape[0], nE = static_cast<std::int64_t>(o.edges.size() / 2), nF = static_cast<std::int64_t>(o.faces.size() / 3);
+  const std::int64_t nE = static_cast<std::int64_t>(o.edges.size() / 2), nF = static_cast<std::int64_t>(o.faces.size() / 3);
   for (const auto e : o.edges) if (e < 0 || e >= n) throw Error(code::invalid_argument, "complex " + o.name + ": an edge names vertex " + std::to_string(e) + " of " + std::to_string(n));
   for (const auto f : o.faces) if (f < 0 || f >= n) throw Error(code::invalid_argument, "complex " + o.name + ": a face names vertex " + std::to_string(f) + " of " + std::to_string(n));
   const std::string path = path_of(o);
@@ -1169,11 +1257,13 @@ std::string Unit::cell_complex(const ComplexOut& o) {
   ms.type = "surface";
   ms.n_vertices = n;
   ms.topology = {"simplicial", 2, 1, std::string("ccw-outward"), {{1, path + "/edges"}, {2, path + "/faces"}}};
-  GeometrySpec g;
-  g.form = "stored";
-  g.cs_key = o.cs_key;
-  g.positions_path = path + "/vertices";
-  ms.geometry = g;
+  {
+    GeometrySpec g;
+    g.form = "stored";
+    g.cs_key = o.cs_key;
+    g.positions_path = shared_positions ? *shared_positions : path + "/vertices";   // shared: the same positions array as the manifold it is made from
+    ms.geometry = g;
+  }
   if (o.acquisition_id) ms.cols.set("acquisition_id", *o.acquisition_id);
   if (o.derived_from_id) ms.cols.set("derived_from_id", *o.derived_from_id);
   if (o.description) ms.cols.set("comment", *o.description);
@@ -1182,8 +1272,9 @@ std::string Unit::cell_complex(const ComplexOut& o) {
   const Values& v = o.vertices;
   const std::vector<std::int32_t>& e = o.edges;
   const std::vector<std::int32_t>& f = o.faces;
-  ms.populate = [&sub, &v, &e, &f, path, n, nE, nF](Store&, const std::string&) {
-    sub.write_array(path + "/vertices", view(v.f64, {n, 3}));
+  const bool own_vertices = !shared_positions;
+  ms.populate = [&sub, &v, &e, &f, path, n, nE, nF, own_vertices](Store&, const std::string&) {
+    if (own_vertices) sub.write_array(path + "/vertices", view(v.f64, {n, 3}));
     sub.write_array(path + "/edges", view(e, {nE, 2}));
     sub.write_array(path + "/faces", view(f, {nF, 3}));
   };
@@ -1247,6 +1338,21 @@ void Unit::edit_manifold(const std::string& manifold_id, const std::optional<boo
   if (label) db.execute("UPDATE manifold SET label = ? WHERE id = ?", {label->empty() ? V(nullptr) : V(*label), V(manifold_id)});
   if (description) db.execute("UPDATE manifold SET comment = ? WHERE id = ?", {description->empty() ? V(nullptr) : V(*description), V(manifold_id)});
   db.execute("UPDATE manifold SET modified_utc = ?, modified_by = ? WHERE id = ?", {V(now_utc(false)), V(by_.tool), V(manifold_id)});
+}
+
+void Unit::edit_manifold_producer(const std::string& manifold_id, const std::string& key, const Json& value, const std::string& note) {
+  need_open(open_);
+  Database& db = *impl_->db;
+  const auto m = db.one("SELECT producer_json FROM manifold WHERE id = ?", {V(manifold_id)});
+  if (!m) throw Error(code::no_such_row, "manifold " + manifold_id + ": no such row");
+  if (key.empty() || key == "edits") throw Error(code::invalid_argument, "a manifold's provenance entry is named (not 'edits', the record of edits)");
+  Json producer = Json::parse(opt_text(*m, "producer_json").value_or("{}"), nullptr, false);
+  if (!producer.is_object()) producer = Json::object();
+  producer[key] = value;
+  if (!producer.contains("edits") || !producer["edits"].is_array()) producer["edits"] = Json::array();
+  const std::string now = now_utc(false);
+  producer["edits"].push_back(Json{{"edit", key}, {"utc", now}, {"tool", by_.tool}, {"note", note}});
+  db.execute("UPDATE manifold SET producer_json = ?, modified_utc = ?, modified_by = ? WHERE id = ?", {V(jdump(producer)), V(now), V(by_.tool), V(manifold_id)});
 }
 
 Json Unit::edit_projector_status(const std::string& operator_id, int status, const std::optional<std::string>& note, const std::optional<std::string>& by) {
