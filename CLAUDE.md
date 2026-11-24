@@ -9,6 +9,17 @@ Before changing anything, read:
 - `docs/reference.md`: every verb and method; `docs/specs/`: the designs behind them.
 - `docs/vocabulary.md`: one meaning per word (manifold, cell, rank, level, the four classes, reduction and expansion); the target vocabulary every change adopts.
 
+## Find what exists before building or answering
+
+nxr-neuro already has most of what a new piece needs (121 compute headers, the registered nodes, the definitions). Duplicating one is a defect,
+however well the copy works. Before writing a compute function, a node, a node option or a pipeline, and before answering a question about how the
+code does something:
+1. Run `tools/what_exists.py <what you are about to build, in words>` (and its synonyms: `mexican hat`, `hat`, `bank`), and read the entries it
+   finds, in the code, not in a commit's diff.
+2. Use what exists: call it, offer it as a node's option, or name it in the definition. Extend it only if it lacks something, in its own place.
+3. Write a new one only when nothing fits, and say so: the commit (or the brief) names the searches run and why what they found does not fit.
+A commit that adds a compute function, a node or a node option without that line is sent back.
+
 ## Before designing a node or a pipeline
 
 Write it as its graph first (nodes, typed ports, the inputs it is handed, the outputs it gives back), each piece in its part (loading · preparation ·
