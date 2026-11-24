@@ -9,6 +9,7 @@
 #include <string>
 
 #include "nxr/graph/node.h"
+#include "nxr/pipelines/bispectrum_steps.h"
 #include "nxr/pipelines/flow_steps.h"
 #include "nxr/pipelines/form_steps.h"
 #include "nxr/pipelines/sensor_flow_steps.h"
@@ -86,6 +87,7 @@ void register_partition_nodes() {
   register_form_nodes();
   register_sensor_flow_nodes();
   register_spectral_nodes();
+  register_bispectrum_nodes();
 }
 
 }  // namespace nxr::pipelines::graph
