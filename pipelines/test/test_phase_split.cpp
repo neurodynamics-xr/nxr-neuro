@@ -5,7 +5,7 @@
 //   - the shares are measurements: the energies summed over the members of a partition (two hemispheres) give, through the registry's derived measures, the ratios of the sums; over the
 //     whole sphere a travelling (exact) phase is nearly all timing;
 //   - the node `operators.hodge_one_form_parts` makes the package's 1-form parts (= compute's `oneFormParts`); a package WITH stored `forms1` is read by the node without rebuilding them (same outputs);
-//   - refusals: a real x, a field on another surface, a package without its 2-form parts, 2-form parts of another triangulation.
+//   - refusals: no `one_form` (the definition states it), a real x, a field on another surface, a package without its 2-form parts, 2-form parts of another triangulation.
 #include <cmath>
 #include <complex>
 #include <cstdio>
@@ -76,7 +76,13 @@ int main() {
   CHECK(planned.out.size() == 7 && planned.out.at("propagation").value == ng::ValueType::vector3 && planned.out.at("exact_energy").value == ng::ValueType::real);
   ng::Arrays constants{{"package", package(md, cx.nF)}};
   ng::Shared shared;
-  const Json no_params = Json::object();   // the call holds pointers: named values outlive it
+  const Json no_params = Json{{"one_form", "phase_gradient"}};   // the call holds pointers: named values outlive it. The definition states the 1-form (no default)
+  {   // the 1-form is never defaulted: without `one_form` the node is refused, naming it
+    const Json unstated = Json::object();
+    std::string why;
+    try { ng::NodeCall p = ng::NodeCall::prepare(in, constants, unstated, shared); ng::dispatch(node, p); } catch (const std::exception& e) { why = e.what(); }
+    CHECK(why.find("one_form") != std::string::npos);
+  }
   ng::NodeCall prep = ng::NodeCall::prepare(in, constants, no_params, shared);
   ng::dispatch(node, prep);
 

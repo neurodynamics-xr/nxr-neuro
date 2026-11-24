@@ -410,18 +410,27 @@ PatternFields patternFields(const IntrinsicComplex& c, const Modes& m, const std
   return out;
 }
 
+PhaseSplits splitPhases(const IntrinsicComplex& c, const Modes& m, const Eigen::MatrixXd& oneForms, const Eigen::SparseMatrix<double>& sharpWeights) {
+  if (oneForms.rows() != c.nE) throw std::invalid_argument("splitPhases: the 1-forms have one row an intrinsic edge");
+  if (sharpWeights.rows() != 3 * c.nV || sharpWeights.cols() != c.nE) throw std::invalid_argument("splitPhases: the sharp operator is [3V x nE] (sharpOperator)");
+  PhaseSplits out;
+  out.coefficients = projectOneForm(c, m, oneForms);
+  MatrixXd exactCoefficients = out.coefficients, coexactCoefficients = out.coefficients;
+  for (Eigen::Index k = 0; k < m.mu.size(); ++k) (m.kind[static_cast<std::size_t>(k)] == 0 ? coexactCoefficients : exactCoefficients).row(k).setZero();
+  out.exact = synthesizeOneForm(c, m, exactCoefficients);
+  out.coexact = synthesizeOneForm(c, m, coexactCoefficients);
+  out.potential = exactPotential(m, exactCoefficients);
+  out.stream = coexactStream(c, m, coexactCoefficients);
+  out.propagation = -(sharpWeights * out.exact);
+  return out;
+}
+
 PhaseSplit splitPhase(const IntrinsicComplex& c, const Modes& m, const Eigen::VectorXd& w) {
   if (w.size() != c.nE) throw std::invalid_argument("splitPhase: w has one value an intrinsic edge");
-  const Eigen::Index K = m.mu.size();
+  const PhaseSplits batch = splitPhases(c, m, w, sharpOperator(c));
   PhaseSplit out;
-  out.coef = projectOneForm(c, m, w).col(0);
-  Eigen::VectorXd ce = out.coef, cc = out.coef;
-  for (Eigen::Index k = 0; k < K; ++k) (m.kind[static_cast<std::size_t>(k)] == 0 ? cc : ce)(k) = 0;
-  out.exact = synthesizeOneForm(c, m, ce).col(0);
-  out.coexact = synthesizeOneForm(c, m, cc).col(0);
-  out.potential = exactPotential(m, ce).col(0);
-  out.propagation = sharp(c, -out.exact);
-  out.stream = coexactStream(c, m, cc).col(0);
+  out.coef = batch.coefficients.col(0); out.exact = batch.exact.col(0); out.coexact = batch.coexact.col(0);
+  out.potential = batch.potential.col(0); out.stream = batch.stream.col(0); out.propagation = batch.propagation;
   return out;
 }
 

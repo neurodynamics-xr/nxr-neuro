@@ -16,9 +16,6 @@
 //                               The order of the products is the cheaper of conj(C) U_qᵀ (dense) and conj(Y) (Yᵀ U_qᵀ) (factored: when Y has fewer columns than C)
 //   readoutTimeCellFlow         one chunk's weighted spectrum (in the readout's columns) back in time ON THE COLUMNS' SIDE (one inverse transform of `columns` rows), then per time
 //                               cell z = U Y_cell and its sums: the edge phase current, the vertex phase current and the power (the per-sample products never held beyond one cell)
-//   OneFormRemainderSplit       the part of a 1-form beyond the kept modes (the remainder, w minus its synthesis from its mode coefficients) split by sparse Poisson solves:
-//                               its potential (d0ᵀ ⋆1 d0 alpha = d0ᵀ ⋆1 r: Neumann on an open surface) and its stream (the 2-form potential beta with
-//                               d1 ⋆1⁻¹ d1ᵀ ⋆2 beta = d1 r: Dirichlet on an open surface), drawn at the vertices as `coexactStream` draws a mode's
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <cstdint>
@@ -55,17 +52,5 @@ BandPairFlow readoutPairFlow(const Eigen::MatrixXcd& weightedColumns, const std:
 CellFlow readoutTimeCellFlow(const Eigen::MatrixXcd& weightedSpectrum, std::int64_t firstBin, std::int64_t transformSamples, std::int64_t ownFirst, std::int64_t ownSamples,
                              std::int64_t cellSamples, const Eigen::MatrixXd& readout, int components, const std::vector<std::int32_t>& edges,
                              const Eigen::SparseMatrix<double>& sharpWeights);
-
-/** The remainder's split, the two sparse systems factored once. `split` takes a 1-form remainder [E] and returns its potential and stream at the vertices, each with its
- *  mass-weighted mean removed. */
-class OneFormRemainderSplit {
-public:
-  explicit OneFormRemainderSplit(const IntrinsicComplex& complex);
-  struct Parts { Eigen::VectorXd potential, stream; };
-  Parts split(const Eigen::VectorXd& remainder) const;
-private:
-  const IntrinsicComplex* complex_;
-  Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> vertexLaplacian_, faceLaplacian_;
-};
 
 }  // namespace nxr::signal

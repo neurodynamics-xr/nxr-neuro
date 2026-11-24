@@ -27,6 +27,7 @@
 #include "nxr/graph/node.h"
 #include "nxr/pipelines/form_steps.h"
 #include "nxr/signal/intrinsic_forms.h"
+#include "nxr/signal/flow_readout.h"
 #include "nxr/signal/source_flow.h"
 #include "nxr/signal/spectral_flow.h"
 #include "source_flow_readers.h"

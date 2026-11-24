@@ -5,7 +5,6 @@
 //     last band's gain zero on them, the last band is the kernel's content outside the modes, zero for a complete basis;
 //   readoutPairFlow: with one component and the readouts Psi diag(h_q), it equals bandPairFlow (dense and factored orders); three components sum their single-component values;
 //   readoutTimeCellFlow: with the readout Psi diag(h) it equals timeCellFlow;
-//   OneFormRemainderSplit: an exact 1-form d0 phi gives back phi and no stream; a coexact 1-form gives back its stream and no potential.
 #include <cmath>
 #include <complex>
 #include <iostream>
@@ -132,23 +131,6 @@ int main() {
     const double e = std::max({relative(got.power, want.power), relative(got.edgeCurrent, want.edgeCurrent), relative(got.vertexCurrent, want.vertexCurrent)});
     std::printf("  readoutTimeCellFlow vs timeCellFlow: %.2e\n", e);
     EXPECT(e < 1e-9, "readoutTimeCellFlow = timeCellFlow (the inverse transform on the coordinates' side)");
-  }
-
-  // ── OneFormRemainderSplit ──
-  {
-    const ns::OneFormRemainderSplit splitter(c);
-    Eigen::VectorXd phi = randn(nV, 1);
-    phi = phi.array() - phi.dot(c.star0) / c.star0.sum();
-    const ns::OneFormRemainderSplit::Parts exactParts = splitter.split(c.d0 * phi);
-    EXPECT(relative(exactParts.potential, phi) < 1e-6 && exactParts.stream.cwiseAbs().maxCoeff() < 1e-6 * phi.cwiseAbs().maxCoeff(), "an exact 1-form: its potential back, no stream");
-    Eigen::VectorXd starredBeta = randn(c.nF, 1);
-    starredBeta = starredBeta.array() - starredBeta.mean();                // orthogonal to the face Laplacian's constant
-    const Eigen::VectorXd beta = starredBeta.cwiseQuotient(c.star2);
-    const Eigen::VectorXd coexact = c.star1.cwiseInverse().cwiseProduct(c.d1.transpose() * starredBeta);
-    const ns::OneFormRemainderSplit::Parts coexactParts = splitter.split(coexact);
-    Eigen::VectorXd streamWant = ns::vertexDensity(c, beta);
-    streamWant = streamWant.array() - streamWant.dot(c.star0) / c.star0.sum();
-    EXPECT(relative(coexactParts.stream, streamWant) < 1e-6 && coexactParts.potential.cwiseAbs().maxCoeff() < 1e-6 * coexact.cwiseAbs().maxCoeff(), "a coexact 1-form: its stream back, no potential");
   }
 
   std::cout << (failures ? "FAILED " : "OK ") << failures << "\n";

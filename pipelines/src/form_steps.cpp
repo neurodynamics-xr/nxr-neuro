@@ -39,8 +39,9 @@ const char* const kScalarOutputs[] = {"potential", "stream", "one_form_energy", 
 struct SplitPrepared {
   std::shared_ptr<const nxr::signal::IntrinsicComplex> complex;
   std::shared_ptr<const nxr::signal::Modes> modes;
-  bool phase_current = false;   // the parameter `one_form`: phase_current (else phase_gradient)
+  bool phase_current = false;   // the parameter `one_form`: phase_current (else phase_gradient); stated by the definition, never defaulted
   std::string boundary;         // a fact of the method: none (a closed surface) | neumann_potential_dirichlet_stream (an open one)
+  std::shared_ptr<const Eigen::SparseMatrix<double>> sharp_weights;   // the complex's sharp operator, built once (sharpOperator)
 };
 
 // the package constant as the runner binds it (runner.cpp: the eigenvectors [K x V] mode-major, mu, kind, the glued surface's positions and faces; with `reads_package_forms`
@@ -120,7 +121,7 @@ ng::NodeSpec phase_split() {
                {"exact_energy", "the ⋆1 energy of its exact part at the vertices (rad²)", false},
                {"coexact_energy", "the ⋆1 energy of its coexact part at the vertices (rad²)", false},
                {"exact_misfit_energy", "the ⋆1 energy of w − the exact part at the vertices (rad²)", false}};
-  n.parameters = {{"one_form", Json("phase_gradient"), "the 1-form that is split: phase_gradient (the reference: the phase step arg(x_tip conj(x_tail)) on the intrinsic edges) | phase_current (Im(conj(x_tail) x_tip), the amplitude-weighted phase step)", "-", {"phase_gradient", "phase_current"}, false}};
+  n.parameters = {{"one_form", Json(), "the 1-form that is split (no default: the definition states it): phase_gradient (the phase step arg(x_tip conj(x_tail)) on the intrinsic edges, nxr's reference) | phase_current (Im(conj(x_tail) x_tip), the amplitude-weighted phase step: what the Hodge-Dirac edge rows act on)", "-", {"phase_gradient", "phase_current"}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input,
                              "each sample on its own: the 1-form on the intrinsic edges (the phase step or the phase current), their split by inner products with the modes, the pointwise parts and energies; double, float32 result for float32 input");
   n.matches = "compute nxr::signal::phaseGradient(complex, x) or phaseCurrent(complex, x), splitPhase, vertexEnergy (the intrinsic forms; the Hodge-Dirac modes' full forms)";
@@ -153,12 +154,15 @@ ng::NodeSpec phase_split() {
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& params, ng::Shared&) {
-    const std::string form = params.value("one_form", std::string("phase_gradient"));
+    if (!params.contains("one_form") || !params["one_form"].is_string())
+      ng::refuse(std::string(kWho) + ": one_form is not given: the definition states the 1-form that is split (phase_gradient or phase_current; no default)");
+    const std::string form = params["one_form"].get<std::string>();
     if (form != "phase_gradient" && form != "phase_current") ng::refuse(std::string(kWho) + ": one_form is phase_gradient (the reference) or phase_current, not '" + form + "'");
     const auto it = c.find("package");
     if (it == c.end() || it->second.meta.value("placeholder", false)) ng::refuse(std::string(kWho) + ": package was not handed over");
     SplitPrepared s = bind_package(it->second);
     s.phase_current = form == "phase_current";
+    s.sharp_weights = std::make_shared<const Eigen::SparseMatrix<double>>(nxr::signal::sharpOperator(*s.complex));
     return std::any(s);
   };
   n.record = [](const std::any& prepared) {
@@ -178,12 +182,10 @@ ng::NodeSpec phase_split() {
         X(r, t) = std::complex<double>(b.re[at], b.complex() ? b.im[at] : 0.0);
       }
     const Eigen::MatrixXd W = s.phase_current ? nxr::signal::phaseCurrent(c, X) : nxr::signal::phaseGradient(c, X);   // the 1-form on the intrinsic edges [nE x m]: inside the node only
-    Eigen::MatrixXd pot(c.nV, m), str(c.nV, m), prop(3 * c.nV, m), parts(c.nE, 4 * m);
-    for (std::int64_t t = 0; t < m; ++t) {
-      const nxr::signal::PhaseSplit sp = nxr::signal::splitPhase(c, *s.modes, W.col(t));
-      pot.col(t) = sp.potential; str.col(t) = sp.stream; prop.col(t) = sp.propagation.col(0);
-      parts.col(t) = W.col(t); parts.col(m + t) = sp.exact; parts.col(2 * m + t) = sp.coexact; parts.col(3 * m + t) = W.col(t) - sp.exact;
-    }
+    const nxr::signal::PhaseSplits split = nxr::signal::splitPhases(c, *s.modes, W, *s.sharp_weights);   // every sample at once: matrix products
+    const Eigen::MatrixXd& pot = split.potential; const Eigen::MatrixXd& str = split.stream; const Eigen::MatrixXd& prop = split.propagation;
+    Eigen::MatrixXd parts(c.nE, 4 * m);
+    parts << W, split.exact, split.coexact, W - split.exact;
     const Eigen::MatrixXd E = nxr::signal::vertexEnergy(c, parts);       // [V x 4m]: w, exact, coexact, w - exact
     ng::Blocks out;
     out["potential"] = block_rows(pot, L, R);

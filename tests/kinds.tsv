@@ -170,6 +170,7 @@ test_bispectrum	unit
 test_tile_flow	unit
 test_tile_network	unit
 test_network_flip	golden
+test_flow_readout	unit
 test_source_flow	unit
 test_sign_flip	golden
 test_aperiodic	golden

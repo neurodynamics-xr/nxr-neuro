@@ -28,6 +28,7 @@ target_sources(nxr_compute PRIVATE
   src/signal/spectral_flow.cpp
   src/signal/kernel_gains.cpp
   src/signal/source_flow.cpp
+  src/signal/flow_readout.cpp
   src/signal/aperiodic.cpp
   src/signal/bispectrum.cpp
   src/signal/tile_flow.cpp
@@ -75,6 +76,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_kernel_gains test/test_kernel_gains.cpp)   # kernelGains: the one evaluator of a kernel set; the flow's old gains bit for bit, the banks' own shapes
   target_link_libraries(test_kernel_gains PRIVATE nxr_compute)
   add_test(NAME test_kernel_gains COMMAND test_kernel_gains)
+  add_executable(test_flow_readout test/test_flow_readout.cpp)   # the one flow readout, time cells and split (sensor, source, tiles); synthetic
+  target_link_libraries(test_flow_readout PRIVATE nxr_compute)
+  add_test(NAME test_flow_readout COMMAND test_flow_readout)
   add_executable(test_source_flow test/test_source_flow.cpp)
   target_link_libraries(test_source_flow PRIVATE nxr_compute)
   add_test(NAME test_source_flow COMMAND test_source_flow)
