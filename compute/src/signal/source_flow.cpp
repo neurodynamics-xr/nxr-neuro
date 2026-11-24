@@ -114,14 +114,19 @@ BandPairFlow readoutPairFlow(const Eigen::MatrixXcd& Y, const std::vector<Eigen:
   if (draws == 0) return out;
   // the cheaper order (compose first): dense conj(C) [columns x columns] once, or the factored conj(Y) (Yᵀ ·) when Y has fewer draws than columns
   const bool factored = 2 * draws < columns;
-  Eigen::MatrixXcd conjugateCrossSpectrum;
-  if (!factored) conjugateCrossSpectrum = (Y * Y.adjoint()).conjugate();
+  Eigen::MatrixXd crossSpectrumReal, crossSpectrumImaginaryConjugate;                       // conj(C) = Re C - i Im C, applied to a REAL readout as two real products
+  if (!factored) { const Eigen::MatrixXcd C = Y * Y.adjoint(); crossSpectrumReal = C.real(); crossSpectrumImaginaryConjugate = -C.imag(); }
   std::vector<Eigen::MatrixXd> transposed;                                                 // U_pᵀ [columns x components V]: each vertex's row a contiguous column
   for (const auto& readout : readouts) transposed.push_back(readout.transpose());
   const Eigen::SparseMatrix<double, Eigen::RowMajor> sharpByEdge = Eigen::SparseMatrix<double, Eigen::RowMajor>(sharpWeights.transpose());   // [E x 3V]: each edge's (at most 6) weights
   for (Eigen::Index q = 0; q < bands; ++q) {
-    const Eigen::MatrixXcd right = factored ? Eigen::MatrixXcd(Y.conjugate() * (Y.transpose() * transposed[static_cast<std::size_t>(q)].cast<ComplexValue>()))
-                                            : Eigen::MatrixXcd(conjugateCrossSpectrum * transposed[static_cast<std::size_t>(q)].cast<ComplexValue>());   // conj(C) U_qᵀ [columns x components V]
+    Eigen::MatrixXcd right;                                                                 // conj(C) U_qᵀ [columns x components V]
+    if (factored) right = Y.conjugate() * (Y.transpose() * transposed[static_cast<std::size_t>(q)].cast<ComplexValue>());
+    else {
+      right.resize(columns, transposed[static_cast<std::size_t>(q)].cols());
+      right.real() = crossSpectrumReal * transposed[static_cast<std::size_t>(q)];
+      right.imag() = crossSpectrumImaginaryConjugate * transposed[static_cast<std::size_t>(q)];
+    }
     for (Eigen::Index p = 0; p < bands; ++p) {
       const Eigen::MatrixXd& left = transposed[static_cast<std::size_t>(p)];
       const Eigen::Index pair = p * bands + q;
