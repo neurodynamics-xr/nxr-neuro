@@ -358,8 +358,6 @@ namespace {
 
 struct FlowPrepared {
   nxr::pipelines::graph::BoundPackage package;
-  const ng::Array* spectra_array = nullptr;
-  ng::Array spectra_copy;
   Eigen::MatrixXd frequency, scale;          // [members x bins], [bands x K] (scale empty: no bands)
   std::vector<double> standardDeviations;
   Json p;
@@ -367,8 +365,7 @@ struct FlowPrepared {
 FlowPrepared prepare_flow(const ng::Arrays& c, const Json& p, const char* who, bool needAtoms) {
   FlowPrepared pr;
   pr.package = bind_hodge_package(constant_input(c, "package", who), who);
-  pr.spectra_copy = constant_input(c, "spectra", who);
-  const Spectra s = spectra_of(pr.spectra_copy, who);
+  const Spectra s = spectra_of(constant_input(c, "spectra", who), who);   // read in place: the run reads the same stored array (its `in`), never a copy
   pr.frequency = frequency_gains(s, c, p, who, needAtoms ? &pr.standardDeviations : nullptr);
   const ng::Array& H = constant_input(c, "package", who);
   const std::vector<double> mass = H.meta.at("mass").get<std::vector<double>>();
@@ -419,9 +416,9 @@ ng::NodeSpec spectral_flow() {
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_flow(c, p, kFlow, false)); };
-  n.run = [](const std::any& prepared, const ng::Arrays&) {
+  n.run = [](const std::any& prepared, const ng::Arrays& in) {
     const FlowPrepared& pr = std::any_cast<const FlowPrepared&>(prepared);
-    const Spectra s = spectra_of(pr.spectra_copy, kFlow);
+    const Spectra s = spectra_of(constant_input(in, "spectra", kFlow), kFlow);
     const nxr::signal::IntrinsicComplex& cx = *pr.package.complex;
     const nxr::signal::Modes& m = *pr.package.modes;
     const Eigen::Map<const Eigen::VectorXd> mass(cx.star0.data(), cx.star0.size());
@@ -515,9 +512,9 @@ ng::NodeSpec atom_time_cells() {
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_flow(c, p, kCells, true)); };
-  n.run = [](const std::any& prepared, const ng::Arrays&) {
+  n.run = [](const std::any& prepared, const ng::Arrays& in) {
     const FlowPrepared& pr = std::any_cast<const FlowPrepared&>(prepared);
-    const Spectra s = spectra_of(pr.spectra_copy, kCells);
+    const Spectra s = spectra_of(constant_input(in, "spectra", kCells), kCells);
     const nxr::signal::IntrinsicComplex& cx = *pr.package.complex;
     const auto [Psi, mu] = synthesis_of(s, *pr.package.modes, cx.star0, kCells);
     const Eigen::SparseMatrix<double> sharpWeights = nxr::signal::sharpOperator(cx);

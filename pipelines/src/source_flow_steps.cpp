@@ -221,7 +221,6 @@ ng::NodeSpec source_mode_operator() {
 // ── what the cortical readers share ──────────────────────────────────────────────────────────────────────────────
 struct CorticalPrepared {
   BoundPackage package;
-  ng::Array spectra;
   Eigen::MatrixXd frequency;                 // [members x bins]
   std::vector<double> standardDeviations;    // the atoms' (time cells only)
   std::vector<Eigen::MatrixXd> readouts;     // the whole field's readout first, then each band's (component-major [3V x columns])
@@ -233,8 +232,7 @@ struct CorticalPrepared {
 CorticalPrepared prepare_cortical(const ng::Arrays& c, const Json& p, const char* who, bool needAtoms) {
   CorticalPrepared pr;
   pr.package = bind_hodge_package(constant_input(c, "package", who), who);
-  pr.spectra = constant_input(c, "spectra", who);
-  const readers::Spectra s = readers::spectra_of(pr.spectra, who);
+  const readers::Spectra s = readers::spectra_of(constant_input(c, "spectra", who), who);   // read in place: the run reads the same stored array (its `in`)
   pr.frequency = readers::frequency_gains(s, c, p, who, needAtoms ? &pr.standardDeviations : nullptr);
   const ng::Array& O = constant_input(c, "operator", who);
   const ng::Array& KC = constant_input(c, "kernel_columns", who);
@@ -315,9 +313,9 @@ ng::NodeSpec cortical_flow() {
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_cortical(c, p, kFlow, false)); };
-  n.run = [](const std::any& prepared, const ng::Arrays&) {
+  n.run = [](const std::any& prepared, const ng::Arrays& in) {
     const CorticalPrepared& pr = std::any_cast<const CorticalPrepared&>(prepared);
-    const readers::Spectra s = readers::spectra_of(pr.spectra, kFlow);
+    const readers::Spectra s = readers::spectra_of(constant_input(in, "spectra", kFlow), kFlow);
     const nxr::signal::IntrinsicComplex& cx = *pr.package.complex;
     const nxr::signal::Modes& m = *pr.package.modes;
     const Eigen::SparseMatrix<double> sharpWeights = nxr::signal::sharpOperator(cx);
@@ -431,9 +429,9 @@ ng::NodeSpec cortical_time_cells() {
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_cortical(c, p, kCells, true)); };
-  n.run = [](const std::any& prepared, const ng::Arrays&) {
+  n.run = [](const std::any& prepared, const ng::Arrays& in) {
     const CorticalPrepared& pr = std::any_cast<const CorticalPrepared&>(prepared);
-    const readers::Spectra s = readers::spectra_of(pr.spectra, kCells);
+    const readers::Spectra s = readers::spectra_of(constant_input(in, "spectra", kCells), kCells);
     const nxr::signal::IntrinsicComplex& cx = *pr.package.complex;
     const Eigen::SparseMatrix<double> sharpWeights = nxr::signal::sharpOperator(cx);
     const Eigen::Index V = cx.nV, E = cx.nE, A = pr.frequency.rows(), R = static_cast<Eigen::Index>(pr.readouts.size());

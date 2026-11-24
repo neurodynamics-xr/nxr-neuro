@@ -31,7 +31,7 @@ ng::Arrays run_array(const char* name, const ng::Arrays& c, const Json& p) {
   const ng::Arrays none;
   ng::NodeCall prep = ng::NodeCall::prepare(types, c, p, shared);
   ng::dispatch(node, prep);
-  ng::NodeCall go = ng::NodeCall::run(prep.made, none);
+  ng::NodeCall go = ng::NodeCall::run(prep.made, c);   // as the executor does: run is handed the arrays prepare was
   ng::dispatch(node, go);
   return go.made_arrays;
 }
