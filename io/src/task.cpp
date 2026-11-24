@@ -1222,9 +1222,23 @@ std::string Unit::points(const PointsOut& p) {
 std::string Unit::cell_complex(const ComplexOut& o) {
   need_open(open_);
   SubjectWriter& sub = *impl_->writer;
-  if (o.vertices.shape.size() != 2 || o.vertices.shape[1] != 3 || o.vertices.f64.empty() || o.vertices.size() != o.vertices.shape[0] * 3) throw Error(code::invalid_argument, "complex " + o.name + ": vertices [n x 3] in float64");
+  // `geometry_of`: the positions of another manifold (an intrinsic triangulation is its surface's geometry with its own topology). A geometry constructs ONE manifold (UNIQUE geometry_id),
+  // so it gets its own geometry row reading the SAME positions array (no copy)
+  std::optional<std::string> shared_positions;
+  std::int64_t n = 0;
+  if (o.geometry_of) {
+    const auto m = sub.db().read("manifold", *o.geometry_of);
+    const auto g = m && !is_null(*m, "geometry_id") ? sub.db().read("geometry", text(*m, "geometry_id")) : std::nullopt;
+    if (!g || is_null(*g, "positions_path")) throw Error(code::no_such_row, "complex " + o.name + ": the manifold whose positions it shares (" + *o.geometry_of + ") is not stored or has no stored positions");
+    if (!o.vertices.shape.empty()) throw Error(code::invalid_argument, "complex " + o.name + ": it shares the positions of another manifold, so it holds no vertices of its own");
+    shared_positions = text(*g, "positions_path");
+    n = integer(*m, "n_vertices");
+  } else {
+    if (o.vertices.shape.size() != 2 || o.vertices.shape[1] != 3 || o.vertices.f64.empty() || o.vertices.size() != o.vertices.shape[0] * 3) throw Error(code::invalid_argument, "complex " + o.name + ": vertices [n x 3] in float64");
+    n = o.vertices.shape[0];
+  }
   if (o.edges.empty() || o.edges.size() % 2 || o.faces.empty() || o.faces.size() % 3) throw Error(code::invalid_argument, "complex " + o.name + ": edges [nE x 2] and faces [nF x 3]");
-  const std::int64_t n = o.vertices.shape[0], nE = static_cast<std::int64_t>(o.edges.size() / 2), nF = static_cast<std::int64_t>(o.faces.size() / 3);
+  const std::int64_t nE = static_cast<std::int64_t>(o.edges.size() / 2), nF = static_cast<std::int64_t>(o.faces.size() / 3);
   for (const auto e : o.edges) if (e < 0 || e >= n) throw Error(code::invalid_argument, "complex " + o.name + ": an edge names vertex " + std::to_string(e) + " of " + std::to_string(n));
   for (const auto f : o.faces) if (f < 0 || f >= n) throw Error(code::invalid_argument, "complex " + o.name + ": a face names vertex " + std::to_string(f) + " of " + std::to_string(n));
   const std::string path = path_of(o);
@@ -1239,11 +1253,13 @@ std::string Unit::cell_complex(const ComplexOut& o) {
   ms.type = "surface";
   ms.n_vertices = n;
   ms.topology = {"simplicial", 2, 1, std::string("ccw-outward"), {{1, path + "/edges"}, {2, path + "/faces"}}};
-  GeometrySpec g;
-  g.form = "stored";
-  g.cs_key = o.cs_key;
-  g.positions_path = path + "/vertices";
-  ms.geometry = g;
+  {
+    GeometrySpec g;
+    g.form = "stored";
+    g.cs_key = o.cs_key;
+    g.positions_path = shared_positions ? *shared_positions : path + "/vertices";   // shared: the same positions array as the manifold it is made from
+    ms.geometry = g;
+  }
   if (o.acquisition_id) ms.cols.set("acquisition_id", *o.acquisition_id);
   if (o.derived_from_id) ms.cols.set("derived_from_id", *o.derived_from_id);
   if (o.description) ms.cols.set("comment", *o.description);
@@ -1252,8 +1268,9 @@ std::string Unit::cell_complex(const ComplexOut& o) {
   const Values& v = o.vertices;
   const std::vector<std::int32_t>& e = o.edges;
   const std::vector<std::int32_t>& f = o.faces;
-  ms.populate = [&sub, &v, &e, &f, path, n, nE, nF](Store&, const std::string&) {
-    sub.write_array(path + "/vertices", view(v.f64, {n, 3}));
+  const bool own_vertices = !shared_positions;
+  ms.populate = [&sub, &v, &e, &f, path, n, nE, nF, own_vertices](Store&, const std::string&) {
+    if (own_vertices) sub.write_array(path + "/vertices", view(v.f64, {n, 3}));
     sub.write_array(path + "/edges", view(e, {nE, 2}));
     sub.write_array(path + "/faces", view(f, {nF, 3}));
   };

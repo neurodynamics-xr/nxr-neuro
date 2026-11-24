@@ -303,8 +303,10 @@ struct ComplexOut {
   std::optional<std::string> path;                 // default: `source/<name>`
   std::string cs_key = "scs";
   std::optional<std::string> derived_from_id, description, acquisition_id;
-  Values vertices;                                 // [n x 3], float64
+  Values vertices;                                 // [n x 3], float64 (empty with `geometry_of`)
   std::vector<std::int32_t> edges, faces;          // [nE x 2], [nF x 3]
+  // the manifold whose GEOMETRY it shares (same positions, no copy): an intrinsic triangulation is the surface's geometry with its own topology (its own edges and faces)
+  std::optional<std::string> geometry_of;
   Json producer;
 };
 // a product of MANIFOLDS (a sensor × time line, a surface × frequency): its factors in axis order, existing or made in the same unit. (A product of SELECTIONS, with factor levels, is `SelectionOut` type "product".)

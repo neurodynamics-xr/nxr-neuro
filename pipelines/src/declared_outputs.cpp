@@ -517,6 +517,7 @@ void check_declared(const Plan& P, const std::string& o) {
       for (const auto& f : spec["factors"]) link(P, f.get<std::string>(), nullptr, o);
     }
     if ((t == "surface" || t == "points" || t == "complex") && spec.contains("derived_from")) link_of(P, spec, "derived_from", nullptr, o);
+    if (t == "complex" && spec.contains("geometry_of")) link_of(P, spec, "geometry_of", nullptr, o);   // the manifold whose positions it shares (an intrinsic triangulation: the surface's)
   }
 }
 
@@ -570,7 +571,8 @@ std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, co
     out.emplace_back(task::Cls::statistic, path);
     if (spec.contains("partition")) out.emplace_back(task::Cls::selection, ts.node_path(link_of(P, spec["partition"], "on", nullptr, o), nxr::io::safe_name(fill(P, spec["partition"]["tiling"].get<std::string>()))));
   } else if (k == "operator") {
-    out.emplace_back(task::Cls::operator_, nxr::io::safe_name(name));
+    // an ANALYTIC operator (layout analytic, D93) has no bytes and no path: it is found or made with the manifold it lies on (the run's other outputs decide a hit), never a place of its own
+    if (spec.value("layout", std::string()) != "analytic") out.emplace_back(task::Cls::operator_, nxr::io::safe_name(name));
   } else if (k == "selection" && !spec.contains("on") && typed_axes_of(P, o) && P.values.at(o).facts.contains("domain")) {
     // a typed selection lies on its domain's one axis: its place is known when that manifold is stored (a frequency line found by its key); before, there is none
     if (const std::string mid = stored_factor(P, ts, ng::domain_from_json(P.values.at(o).facts["domain"]).factors.at(0)); !mid.empty()) out.emplace_back(task::Cls::selection, ts.node_path(mid, name));
@@ -665,8 +667,12 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       if (spec.contains("derived_from")) c.derived_from_id = link_of(P, spec, "derived_from", &made, o);
       if (d.contains("description") && d["description"].is_string()) c.description = d["description"].get<std::string>();
       if (d.contains("producer") && d["producer"].is_object()) c.producer = d["producer"];
-      if (a.cols != 3) bad(o, "a complex's vertices are [n x 3]");
-      c.vertices = values_of(a, {a.rows, a.cols}, false, o);
+      if (spec.contains("geometry_of")) {                                   // the same positions as the manifold it is made from (one geometry, its own topology): no vertices of its own
+        c.geometry_of = link_of(P, spec, "geometry_of", &made, o);
+      } else {
+        if (a.cols != 3) bad(o, "a complex's vertices are [n x 3]");
+        c.vertices = values_of(a, {a.rows, a.cols}, false, o);
+      }
       for (const auto& e : d.value("edges", Json::array())) c.edges.push_back(e.get<std::int32_t>());
       for (const auto& f : d.value("faces", Json::array())) c.faces.push_back(f.get<std::int32_t>());
       if (replace) clear(task::Cls::manifold, unit.path_of(c));
@@ -940,7 +946,19 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (d.contains("to_cell") && d["to_cell"].is_string()) op.to_cell = d["to_cell"].get<std::string>();
     if (d.contains("chunks")) op.chunk_shape = ints(d["chunks"]);
     if (d.contains("shards")) op.shard_shape = ints(d["shards"]);
-    if (d.contains("sparse") && d["sparse"].is_object()) {
+    if (d.contains("analytic") && d["analytic"].is_object()) {
+      // an ANALYTIC operator (D93): no bytes, evaluated by its method from the geometry; its shape in cells of the two ends, its parameters in `params`
+      const Json& an = d["analytic"];
+      task::OperatorOut::Analytic x;
+      x.method = an.value("method", std::string());
+      x.n_rows = an.value("rows", std::int64_t(0)); x.n_cols = an.value("cols", std::int64_t(0));
+      if (x.method.empty() || x.n_rows < 1 || x.n_cols < 1) bad(o, "an analytic operator's description: {method, rows, cols}");
+      op.analytic = std::move(x);
+      // the one of its name already on that manifold (the run made again on a manifold found, not replaced) gives its place to the new one: an analytic row holds nothing of its own
+      task::Want same{.cls = task::Cls::operator_};
+      same.name = op.name; same.from_manifold_id = op.from_manifold_id;
+      for (const auto& n : task::Subject::of(sub).find_all(same)) if (!n.path) unit.remove_unstored(task::Cls::operator_, n.id);
+    } else if (d.contains("sparse") && d["sparse"].is_object()) {
       // a SPARSE operator: the node's array holds the nnz values, its description the structure (csr: indptr [rows + 1], indices [nnz])
       const Json& sp = d["sparse"];
       task::OperatorOut::Sparse x;

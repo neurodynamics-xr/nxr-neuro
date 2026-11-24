@@ -1111,7 +1111,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         stored.push_back(one);
         continue;
       }
-      if (places.empty() && ospec["kind"] != "manifold" && !ospec.value("optional", false)) { hit = false; break; }
+      if (places.empty() && ospec["kind"] != "manifold" && ospec.value("layout", std::string()) != "analytic" && !ospec.value("optional", false)) { hit = false; break; }   // (an analytic operator is found or made with its manifold)
       for (const auto& [cls, path] : places) {
         const auto row = nxr::pipelines::find_cached(sub.db(), sub.id(), task::to_string(cls), key, path);
         if (!row && ospec.value("optional", false) && !sub.find(task::to_string(cls), path)) continue;   // an optional output this very run did not make (nothing stored there): not a miss
@@ -1768,6 +1768,28 @@ class JobCapture {
 std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Definition& d, const Json& set, const RunOptions& opt, bool dry_run,
                       const std::function<void(const Json&)>& progress) {
   if (d.outputs.empty()) refuse("run " + d.name + ": the definition stores nothing (its steps end in sink nodes): compile it instead; run has nothing to store");
+  // AN INPUT MADE FIRST (`made_by`: the eigensolve's intrinsic triangulation, made by its own definition on the surface): when nothing matches, the runner runs that shipped definition as its OWN
+  // run (its own provenance and cache key), says what it made and why, and finds again. Nothing is made hidden inside this run.
+  Json made_first_inputs = Json::array();
+  if (!dry_run && d.inputs.is_object())
+    for (const auto& [port, spec] : d.inputs.items()) {
+      if (!spec.is_object() || !spec.contains("made_by")) continue;
+      const Json params = parameters_of(d, set, opt.preset);
+      Json one = Json::object();
+      one[port] = spec;
+      bool found = true;
+      try { found = !nxr::io::finder::resolve(sub.db(), sub.id(), one, params).empty(); } catch (const nxr::io::Error&) { found = false; }
+      if (found) continue;
+      const std::string pipeline = spec["made_by"]["pipeline"].get<std::string>();
+      const Json with = spec["made_by"].contains("with") ? with_value(spec["made_by"]["with"], params) : Json::object();
+      const std::string why = "the pipeline " + d.name + " reads its input `" + port + "` and none is stored";
+      if (progress) progress(Json{{"stage", "make"}, {"made", pipeline}, {"input", port}, {"with", with}, {"why", why}});
+      const Definition md = load(pipeline);
+      RunOptions mo;
+      mo.requested_by = opt.requested_by;
+      const std::vector<Json> reps = run(ds, sub, md, with, mo, false, progress);
+      made_first_inputs.push_back(Json{{"input", port}, {"pipeline", pipeline}, {"with", with}, {"why", why}, {"runs", static_cast<std::int64_t>(reps.size())}});
+    }
   const auto plans = plan_runs(d, sub.db(), sub.id(), set, opt.preset, [&sub](const std::string& recording) { return nxr::pipelines::channel_facts(sub, recording); });     // every run planned before any is executed
   std::vector<Json> out;
   for (const auto& P : plans) {
@@ -1779,6 +1801,7 @@ std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, c
       JobCapture job(sub, d, P, opt, progress);
       try {
         out.push_back(execute(ds, sub, P, opt, progress));
+        if (!made_first_inputs.empty()) out.back()["made_first_inputs"] = made_first_inputs;   // said in the report: what was made first, as its own run, and why
         job.done(out.back());
       }
       catch (const std::invalid_argument& e) { job.failed(e.what()); refuse(e.what()); }       // a node's refusal (compute throws std::invalid_argument) is the run's: an io error with its code
