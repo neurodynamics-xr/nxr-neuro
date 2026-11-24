@@ -9,6 +9,7 @@
 #include "nxr/io/database.h"
 #include "nxr/io/errors.h"
 #include "nxr/io/writer_lock.h"
+#include "reader_vfs.h"
 
 namespace fs = std::filesystem;
 
@@ -164,7 +165,7 @@ SmallFileStore::Db* SmallFileStore::db(bool create) const {
   }
   if (!opened) {   // read-only: the file as a reader sees it (and a database in WAL mode on read-only media, as immutable)
     if (want_write) throw Error(code::not_writable, p + ": the small-file database cannot be written");
-    if (sqlite3_open_v2(p.c_str(), &d->h, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) { if (d->h) sqlite3_close(d->h); d->h = nullptr; }
+    if (sqlite3_open_v2(p.c_str(), &d->h, SQLITE_OPEN_READONLY, detail::reader_vfs()) != SQLITE_OK) { if (d->h) sqlite3_close(d->h); d->h = nullptr; }   // writes nothing (reader_vfs.h)
     bool ok = d->h != nullptr;
     if (ok) {
       sqlite3_busy_timeout(d->h, 5000);
