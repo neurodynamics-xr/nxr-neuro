@@ -13,6 +13,7 @@ on:
   push:
     tags: ["v*"]
   pull_request:
+    branches: [main]       # milestone pull requests only (develop -> main), when this binding changed
     paths:
       - "bindings/mex/**"
       - "pipelines/include/nxr/pipelines/face.h"

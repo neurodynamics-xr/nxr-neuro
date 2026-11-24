@@ -168,8 +168,11 @@ the work was done, whatever the change.
 - **The full suite runs at the end of a development round, when the maintainers say so,** not during it. During development: `status`,
   then `run` on what the change reaches.
 - **Continuous integration** (`.github/workflows/ci.yml`; selection by `tools/ci_select.py`, build targets by `tools/tests.py targets`): CI builds only what it tests.
-  - **Pull requests (Linux) and pushes to main (Linux and macOS)** run the same scoped selection, slow tests left out (a push to main repeats its pull
-    request's selection, which already passed). A changed test source (`*/test/<name>.cpp`) selects only that test; a changed library source selects that
+  - **CI runs at milestones only.** Work lands on the integration branch `develop` with scoped local tests and runs no CI there; `main` is updated
+    from `develop` by one pull request at a milestone, and that pull request runs CI on Linux and macOS, with the bindings' workflows when their binding
+    changed. Branches merged into `develop` open no pull request and wait on no CI.
+  - **Milestone pull requests and pushes to main (Linux and macOS)** run the same scoped selection, slow tests left out (a push to main repeats its pull
+    request's selection, which already passed, and fills the compiler cache the next milestone starts from). A changed test source (`*/test/<name>.cpp`) selects only that test; a changed library source selects that
     library's tests (every kind) plus the **integration** tests of the libraries that depend on it (not their unit or golden tests); the guards
     (`^layering_`, kind `guard`) always run. Libraries (labels): `compute`, `meeg`, `io_formats`, `io`, `pipelines_graph`, `pipelines`, `cli`.
     A shared file (top-level CMake, `cmake/`, the CI workflow) selects everything; a change to `tools/` selects the guards only (except `tools/gen_record_rows.py`,
@@ -177,12 +180,12 @@ the work was done, whatever the change.
     Documentation-only pull requests run nothing.
   - **The full suite** (every test, slow ones included, Linux and macOS) runs **only nightly**, on version tags and on demand, and the nightly run first checks
     whether main changed since the last successful nightly run and does nothing if not.
-  - **The bindings** (`matlab.yml`, `wheels.yml`, `wasm.yml`) run only when their binding changes (and on tags and on demand), build only the binding
+  - **The bindings** (`matlab.yml`, `wheels.yml`, `wasm.yml`) run only in a milestone pull request that changes their binding (and on tags and on demand), build only the binding
     target and the libraries it links, and have no nightly run.
   - A test that takes minutes is `slow` in `tests/kinds.tsv`.
 
 - **Test only what the change touches.**
-  - A small change runs the tests of the function it changed: the one test file, or `ctest -R <test>`, or `pytest file::test`.
+  - A small change runs the tests of the function it changed: `tools/tests.py run '<the test>|^layering_'`, or `pytest file::test`.
   - Then stop. Do not sweep for every test that mentions the topic, and do not rerun the whole C++ or parity suite.
   - Run the full suites only for a change across several areas or a shared core (a reader/writer, the schema, a header used everywhere), and say why.
   - The same applies in the sibling repositories.
@@ -230,7 +233,11 @@ not signed or notarised yet; that needs an Apple developer account and is not do
 - **Every PR description answers the architecture checklist** (the architecture policy, point 5). A PR that breaks the architecture is not opened:
   ask the maintainers first.
 
-- **Branch and PR:** work on a branch in this checkout (`feat/…`, `fix/…`, `docs/…`) and merge through a pull request on `neurodynamics-xr/nxr-neuro`.
+- **Branches:** development goes into the integration branch `develop`. Work on a branch from it (`feat/…`, `fix/…`, `docs/…`), one commit per change;
+  when its scoped local tests pass, merge it into `develop` (no pull request, no CI) and push.
+- **Milestones:** `main` is updated from `develop` by ONE pull request on `neurodynamics-xr/nxr-neuro`, when a piece of work is done. Before opening it,
+  run CI's own selection locally once (configure first): `python3 tools/ci_select.py --base origin/main --head develop --exclude-slow` prints the
+  tests (`CTEST_NAMES`); run them with `tools/tests.py run '<that regex>'`. The pull request then needs one CI round (Linux, macOS, changed bindings).
 - **Commit messages:** one sentence on what changed and why, prefixed by the area when it helps (`flow: …`).
 - **Never** force-push, leave work uncommitted at the end of a run, or commit data, build outputs or `Testing/`.
 - **`compute/` and `io/` came in by `git subtree`** with their history (`git log -- compute/src` reaches the old repos). The old `nxr-compute` and `nxr-io`

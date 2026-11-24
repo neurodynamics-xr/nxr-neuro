@@ -1,8 +1,10 @@
 name: ci
 
 # Build and test nxr-neuro, building only what is tested (tools/ci_select.py picks the tests; tools/tests.py targets gives their build targets).
-# - Pull requests (Linux) and pushes to main (Linux and macOS): the SAME scoped selection, slow tests left out (a push to main repeats its pull
-#   request's selection, which already passed). A changed test source selects only that test; a changed library source selects that library's
+# CI runs at MILESTONES only: development lands on `develop` with scoped local tests and no CI; `main` is updated from `develop` by one pull
+# request, and that pull request is where CI runs (Linux and macOS; the bindings' workflows likewise, when their binding changed).
+# - Pull requests into main (Linux and macOS) and pushes to main (Linux and macOS): the SAME scoped selection, slow tests left out (a push to main
+#   repeats its pull request's selection, which already passed, and fills the compiler cache the next milestone starts from). A changed test source selects only that test; a changed library source selects that library's
 #   tests plus the integration tests of the libraries that depend on it; the guards always run; a shared file (top-level CMake, cmake/, this
 #   workflow) selects everything. Only the selected tests' executables (and `nxr-neuro` for tests that call it) are built, never `all`, except
 #   for a scope of "all". Documentation-only pull requests do not run.
@@ -11,9 +13,10 @@ name: ci
 # Compiled objects are cached with ccache (keyed by branch, falling back to main), the bundled dependencies (HDF5, matio, c-blosc, geometry-central) included.
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     tags: ["v*"]
   pull_request:
+    branches: [main]       # milestone pull requests only (develop -> main); work merged into develop runs no CI
     paths-ignore:          # documentation-only changes run no build and no tests
       - "docs/**"
       - "**/*.md"
@@ -101,7 +104,7 @@ jobs:
 
   macos:
     needs: gate
-    if: github.event_name != 'pull_request' && needs.gate.outputs.run == 'true'
+    if: needs.gate.outputs.run == 'true'
     runs-on: macos-15            # macos-14 jobs are cancelled before they start for this organisation
     env:
       MACOSX_DEPLOYMENT_TARGET: "13.3"   # std::to_chars for floating point
