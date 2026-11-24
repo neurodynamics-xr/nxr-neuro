@@ -532,7 +532,7 @@ A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<val
 | command | what it does | old spelling |
 |---|---|---|
 | `nxr-neuro list datasets` | List the dataset folders in a folder (`--datastore`): every dataset of either form (`form`: `one-database`, or `catalogue` as `create dataset --dataset` makes it), with its id, name, path, database and subject count; an empty folder is an empty list, a folder that does not exist is `not_found`. | `dataset list` |
-| `nxr-neuro list subjects` | List the subjects of a dataset. | `subject list` |
+| `nxr-neuro list subjects` | List the subjects of a dataset, each with its `counts` (as `show subject`; read from its package in a catalogue, null when it cannot be opened). | `subject list` |
 | `nxr-neuro list recordings` | List the recordings of a subject. |  |
 | `nxr-neuro list kernels` | List the inverse kernels of a subject. |  |
 | `nxr-neuro list results` | List the fields and statistics the computations stored for a subject. |  |
@@ -544,7 +544,7 @@ A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<val
 | command | what it does | old spelling |
 |---|---|---|
 | `nxr-neuro show dataset` | Show a dataset: its subjects by kind, its source and its creation date, and the count of each class of node (`nodes`). | `dataset show` |
-| `nxr-neuro show subject` | Show how many manifolds, fields, operators and selections a subject holds. | `subject show` |
+| `nxr-neuro show subject` | Show how many manifolds, fields, operators and selections a subject holds, and `counts`: its acquisitions, manifolds, surfaces, volumes, fields, recordings, selections, operators, statistics and the seconds its recordings hold. | `subject show` |
 
 ### `read`: Read stored arrays and derived readings
 
@@ -598,19 +598,21 @@ and typed: a node is named, never numbered; what it refers to is named by its na
 (`*_id`, `*_json`). Only complete nodes are described. `id` is the node's identity (stable across calls). **Every typed node carries `type`: the JSON `compile` gives a value** (the type
 system's: `class`, `domain` with its factor manifolds (`kind`, `topology`, `coordinate_system` {space, name, unit}, `n`, `origin`, `spacing`, `unit`), `value` (real, complex, ...), `components`, `unit`,
 `quantity`, `sfreq` for a stream); a manifold's `type` is its manifold term. It is built the way the runner types a stored input, so a client reads a stored node and a compiled graph's value in one
-vocabulary, and the same stored field has the same `type` in `read subject` and in `compile`. The storage words (`value_type`, `cells`, `data_type`, `layout`, and a domain, unit or components of
-their own) are not keys: `type` says them. `kind` is the stored kind (a field's, an operator's, a selection's type, a manifold's type); `type.quantity` is the typed quantity. The other keys:
+vocabulary, and the same stored field has the same `type` in `read subject` and in `compile`. The storage words (`value_type`, `cells`, `data_type`, and a domain, unit or components of
+their own) are not keys: `type` says them; an operator's cells at each end are its type's `domain.cells` and `target.cells` (d0 `0` to `1`; the Hodge-Dirac eigenvectors the line's `0` to the
+triangulation's `0+1+2`). An operator's `layout` is a key: it says how its values are read (`dense`: one array; `csr` or `csc`: data, indices, indptr; `analytic`: no values, evaluated from its
+`method` and `parameters`, D93). `kind` is the stored kind (a field's, an operator's, a selection's type, a manifold's type); `type.quantity` is the typed quantity. The other keys:
 
 | class | description (besides `id`, `name`, `kind`, `type`) |
 |---|---|
-| manifold | `label`, `description`, `primary`, `acquisition`, `coordinates` {system, unit, kinds, axes} (the coordinate system its points are in; `kinds` when each point of a line carries a code; `axes` [{name, size, origin, spacing, unit}], the coordinate of a closed-form geometry along each axis, a line's one: its first point, the step between points and the unit), `size` {vertices, edges, faces, volumes}, `factors` (a product's, by name), `component_of`, `component_ordinal`, `from_index` (a component's first vertex in the whole's vertex order), `derived_from`, `derived_by`, `stored`, `provenance` |
-| field | `label`, `acquisition`, `description`, `stored`, `lineage` {derived_from, of_field, of_operator, by_operator, function, contributions [{field, weight}]}, `provenance` |
-| selection | `label`, `acquisition`, `description`, `elements`, `members` (their count), `member_of`, `member_ordinal`, `code` (a member of a set, such as each atlas of the set of a surface's parcellations or each level of a grid, is a selection of its own, described like any other: the set it belongs to by name, its place in it and its code; null for a selection that is no member), `of_field`, `weights` (one weight a member is stored), `stored`, `dictionary` (its name), `entries` [{code, name, colour, label, description}], `provenance` |
-| operator | `label`, `acquisition`, `description`, `from` and `to` {manifold, selection}, `method`, `parameters`, `shape` {rows, columns, nonzeros}, `stored`, `lineage` {derived_from, of_statistic, inverts, inverse_kind}, `provenance` |
+| manifold | `label`, `description`, `primary`, `acquisition`, `coordinates` {system, unit, kinds, axes} (the coordinate system its points are in; `kinds` when each point of a line carries a code; `axes` [{name, size, origin, spacing, unit}], the coordinate of a closed-form geometry along each axis, a line's one: its first point, the step between points and the unit), `size` {vertices, edges, faces, volumes} (a count the row leaves unset is the rows of its stored cells' array, read from the array's metadata), `arrays` [{name, holds, rows}] (the arrays `read manifold` gives: `positions` and `cells_<rank>`, holding the vertices, edges, faces or volumes), `positions_of` (the manifold whose positions array it reads, such as the glued cortex for its intrinsic triangulation or the whole cortex for a hemisphere; null: its own), `factors` (a product's, by name), `component_of`, `component_ordinal`, `from_index` (a component's first vertex in the whole's vertex order), `derived_from`, `derived_by`, `stored`, `provenance` |
+| field | `label`, `acquisition`, `description`, `stored`, `chunk_samples` (a time-resolved field: the samples a chunk of it holds, as the chunk service reads it; null otherwise), `lineage` {derived_from, of_field, of_operator, by_operator, function, contributions [{field, weight}]}, `provenance` |
+| selection | `label`, `acquisition`, `description`, `elements`, `members` (their count), `measures` [{measure, of_field, of_statistic, within, unit, array, rows}] (the measurements it holds, as `read selection --measure` reads them; `array`: one array of a value per member per row of its field, such as a recording's envelope `min` and `max`), `member_of`, `member_ordinal`, `code` (a member of a set, such as each atlas of the set of a surface's parcellations or each level of a grid, is a selection of its own, described like any other: the set it belongs to by name, its place in it and its code; null for a selection that is no member), `of_field`, `weights` (one weight a member is stored), `stored`, `dictionary` (its name), `entries` [{code, name, colour, label, description}], `provenance` |
+| operator | `label`, `acquisition`, `description`, `from` and `to` {manifold, selection}, `layout`, `method`, `parameters`, `shape` {rows, columns, nonzeros}, `stored`, `lineage` {derived_from, of_statistic, inverts, inverse_kind}, `provenance` |
 | statistic | `measure`, `method`, `label`, `acquisition`, `description`, `of_field`, `of_statistic`, `partition`, `members`, `members_skipped`, `dof`, `axes` [{name, manifold, selection, size, unit}], `stored`, `provenance` (its `type` is untyped past its class, value and unit: its domain is typed by the node that made it) |
 | dictionary | `name`, `scope`, `description`, `entries` [{code, name, colour (#rrggbb), label, description, measurement, unit, function, params}], `provenance` (every dictionary the subject sees, each with its `scope`: the subject's own, the dataset's, and every app-scope one, whether or not a selection of the subject reads it); no `type` |
 | space | `name`, `geometry`, `rank`, `parameters`, `description`, `coordinate_systems` [{name, unit, reference, transition, description}]; no `type` |
-| acquisition | `name` (its label), `session`, `task`, `run`, `acq`, `processing`, `split`; no `type` |
+| acquisition | `name` (its label), `session`, `task`, `run`, `acq`, `processing`, `split`, `recordings` (how many), `seconds` (what they hold); no `type` |
 
 `provenance` is {source, comment, created_utc, created_by, modified_utc, modified_by, producer}: `producer` is the node's producer record as `read <class>` gives it (the command or pipeline that made it, the program, its inputs, and what the maker gave with `--producer`; null when none; a selection's is kept in its parameters, a statistic's provenance has no source or comment). `type` is built by the pipelines' face (`face::read_subject`, `face::list_class`); io reads and pages
 the rows (a build without the pipelines gives `"type": null`; a node the type system refuses to type, such as a tangent field with no gauge record, gives `"type": {"refused": "<why>"}`).
@@ -1087,13 +1089,14 @@ eigensolve reads it and none is stored: the input's `made_by`). It is a manifold
 from the triangulation as the Studio's `hodgeDirac.ts dec(m)` builds them); the edge lengths and signposts are fields on its cells (`_length`, `_angle_tail`, `_angle_tip`, `_angle_sum`, `_reference`).
 
 Stored by the eigensolve (stem `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not the primary one), in the four classes: the EIGENVALUE LINE `<stem>` (a manifold of points, coordinate
-mu = sqrt(lambda), ascending), the field `<stem>_eigenvalues` (lambda; of the eigenvectors operator), the selection `<stem>_kinds` (a labelling of the line: exact, label 0; coexact, label 2), the selection
-`<stem>_support`, and ONE operator `<stem>_eigenvectors` from the line (cell 0) to the intrinsic triangulation (cell key `0+1+2`, schema 55): [(V + E + F) x K] float32, each column a mode's MIXED FORM, rows
+mu = sqrt(lambda), ascending), the field `<stem>_eigenvalues` (lambda; of the eigenvectors operator), the selection `<stem>_kinds` (a labelling of the line: exact, label 0; coexact, label 2),
+and ONE operator `<stem>_eigenvectors` from the line (cell 0) to the intrinsic triangulation (cell key `0+1+2`, schema 55): [(V + E + F) x K] float32, each column a mode's MIXED FORM, rows
 stacked 0-forms [0, V) (the vertex potential ψ/√2, or ⟨χ/√2, w_v⟩) · 1-forms [V, V+E) (dψ/(μ√2), or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2)) · 2-forms [V+E, V+E+F) (χ/√2), the Studio's Hodge-Dirac order. One mode a chunk of V
 rows: a vertex reader reads the first rows only. It is the synthesis (line to triangulation); the analysis is its D106 pair, never stored twice. The library's `eigen_solve` (`pipelines/eigen.h`) is a thin caller
 of the two definitions. A solve stored in the earlier form (three operators `_eigenvectors` to the surface, `_forms1`, `_forms2`; a kind field; stored d0, d1 and stars) is refused by the readers, naming
 `nxr-neuro migrate eigensolve --dataset D --subject S [--name STEM]`: it converts it in place with no solve (absent 1-form parts are made from the stored parts and operators by `signal::oneFormFromParts`),
-moves the replaced items aside, records `migrated_from` in the new items, is idempotent and refuses a form it does not know.
+moves the replaced items aside, records `migrated_from` in the new items, is idempotent and refuses a form it does not know. No support is stored: the input's vertex under each solved vertex is the
+glue's correspondence (the glued cortex's hemispheres labelling and the input's medial wall), or every vertex when the input itself was solved; `migrate eigensolve` moves a stored `<stem>_support` aside.
 
 ## The sensor surface (`run sensor_surface`; the nodes `meeg.channel_positions`, `geometry.point_set_mesh`, `geometry.surface_from_parts`)
 
@@ -1606,7 +1609,7 @@ Hodge–Dirac package holds that spectrum (its exact modes); the series only app
     vertices, then the bridge, the corpus callosum included), not only on the kernel's kept vertices. The form is zero on the cut medial wall and on the bridge BEFORE the band; the band, taken through the glued
     surface's modes, fills them (exactly nxr `Cortex.coords` → the gain → `P.T`, read at every glued vertex, where nxr's `hat_operator` reads only the kept ones). Still ONE linear operator bound in preparation, now
     [glued vertices × channels]. The output's surface is the glued one (a cortex of two hemispheres; the surface itself for one closed piece). **Eigenmode first, Chebyshev second, announced:** the stored glued
-    eigenmodes (`hodgeDirac_eigenvectors`, `hodgeDirac_support` maps them to the kept vertices) when they reach where the hat's gain falls under 1e-3; else the Chebyshev series of the GLUED mesh (never the native mesh: it
+    eigenmodes (`hodgeDirac_eigenvectors`, mapped to the kept vertices by the glue's correspondence) when they reach where the hat's gain falls under 1e-3; else the Chebyshev series of the GLUED mesh (never the native mesh: it
     has no bridge), with a warning in the progress and the provenance; `exact` is the dense modes of the glued mesh. The glued surface must be stored (`nxr-neuro run eigenmodes`; the run is refused, saying so, when it is not).
     Without `tiles` there is no band and the form stays on the kernel's own vertices. The Riesz part is not built on the glued surface.
 - **`levels` and `glued` (; spatial-events spec, piece 3): the scale space as ONE operator.** `levels: [4, 5, 6, 7, 8]` (instead of `level`) binds one operator a hat level in preparation and stacks them: the output is
@@ -2407,9 +2410,10 @@ nxr-neuro solves the Hodge–Dirac modes **exactly as nxr and Rheome do** (`nxr.
 (the hemispheres, read from the caller's hemisphere labelling) has each MEDIAL WALL (the vertices its stored Desikan-Killiany atlas codes `unassigned`) cut out exactly (nothing more), and a BRIDGE of new vertices grown between the two rims
 (nxr-compute's `glueMesh`, a line port of the Studio's `glue.ts`, bit-exact with its golden where the exact cut is one simple loop; the reference widens a cut that is not, nxr refuses or stitches it as it is). The solve runs on the glued surface, and the package is stored as nxr stores one:
 
-- `source/<surface>_glued`: the glued surface; vertex i < n_kept is `<stem>_support[i]` (the vertices off the medial wall, ascending), the rest the bridge;
+- `source/<surface>_glued`: the glued surface; vertex i < n_kept is the i-th vertex off the medial wall (ascending), the rest the bridge. It is checked to be a SPHERE (closed: every edge on
+  exactly two faces; consistently oriented; connected; V - E + F = 2) and refused otherwise, naming the property that failed; its face and edge counts are stored;
 - `<surface>_glued_hemispheres`: the labelling of the glued vertices: the original's hemisphere entries and `bridge` (not cortex: no sources, a forward zero there);
-- `<stem>_eigenvectors`: [glued vertices × K], onto the glued surface; `<stem>_support`: the input's kept vertices.
+- `<stem>_eigenvectors`: [glued vertices × K], onto the glued surface.
 
 **The full forms are stored with the eigensolve**. The modes are solved on the intrinsic Delaunay triangulation: the same vertices, its own
 edges (lengths along the surface) and faces, and on the cortex some pairs of vertices are joined by two different edges, so it is not a mesh of vertex

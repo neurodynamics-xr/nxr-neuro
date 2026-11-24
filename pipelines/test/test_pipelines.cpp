@@ -25,6 +25,8 @@
 #include "nxr/geometry/surface_maps.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/input.h"
+#include "nxr/pipelines/face.h"
+#include "nxr/io/task/commands.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -201,6 +203,8 @@ int main() {
     CHECK_EQ(text(*tri, "derived_from_id"), text(*gs, "id"));
     CHECK(opt_text(*op, "to_cell") == std::optional<std::string>("0+1+2") && opt_text(*op, "from_cell") == std::optional<std::string>("0"));
     CHECK_EQ(integer(*gs, "n_vertices"), Vg);
+    CHECK_EQ(integer(*gs, "n_faces"), static_cast<std::int64_t>(gm.faces.size() / 3));                 // the glue fills its f-vector: a sphere's edges, V + F - 2
+    CHECK_EQ(integer(*gs, "n_edges"), Vg + static_cast<std::int64_t>(gm.faces.size() / 3) - 2);
     CHECK_EQ(integer(*op, "n_rows"), Vg + integer(*tri, "n_edges") + integer(*tri, "n_faces"));
     {   // the triangulation reads the glued surface's positions (the same array, not copied), through a geometry of its own
       const auto gg = nxr::io::manifold_row_named(s3, "cortex_glued"), tg = nxr::io::manifold_row_named(s3, "cortex_glued_intrinsic");
@@ -215,9 +219,10 @@ int main() {
     CHECK(!s3.find("operator", "hodgeDirac__cortex_glued_forms1") && !s3.find("operator", "hodgeDirac__cortex_glued_forms2"));
     const std::vector<std::uint8_t> raw = ArrayReader::open(s3.store(), ("source/cortex_glued/faces")).read();
     CHECK(raw.size() == gm.faces.size() * sizeof(std::int32_t) && std::memcmp(raw.data(), gm.faces.data(), raw.size()) == 0);   // the glued faces, as glueMesh gives them
-    const std::vector<std::uint8_t> sup = ArrayReader::open(s3.store(), (text(*s3.find("selection", "source/hodgeDirac__cortex_glued_support"), "array_path"))).read();
-    // the support: the glued vertices that are cortex (the bridge is not), as original vertex numbers, in order
-    CHECK(sup.size() == static_cast<std::size_t>(kept) * sizeof(std::int32_t) && std::memcmp(sup.data(), gm.keep.data(), sup.size()) == 0);
+    // no support stored: the glued vertices that are cortex, as original vertex numbers, are the glue's correspondence (its hemispheres labelling and the medial wall)
+    CHECK(!s3.find("selection", "source/hodgeDirac__cortex_glued_support"));
+    const auto map = nxr::pipelines::glue_map_of(s3, text(*gs, "id"));
+    CHECK(map && std::equal(gm.keep.begin(), gm.keep.begin() + static_cast<long>(kept), map->original_of.begin()));
   }
   // THE FULL FORMS: the intrinsic complex (d0, d1, the stars) and the 2-forms, read back; built from them alone, every mode's 1-form part has energy
   // λ/2 in ⋆1 and the 1-form parts are mutually orthogonal (the Dirac eigenvectors' orthonormality): reading a 1-form into the modes is inner products
@@ -345,6 +350,36 @@ int main() {
   }
 
   ds.close();
+  // THE DESCRIPTIONS a client builds its ports from (`read subject`): the operators' cells in their types, the analytic layouts, the triangulation reading the glued cortex's positions, the glued
+  // cortex's counts and its cell arrays
+  {
+    nxr::io::task::ReadSubjectRequest q;
+    q.dataset = (root / "demo").string(); q.subject = "S3";
+    const Json d = nxr::pipelines::face::read_subject(q).result;
+    auto named = [](const Json& rows, const std::string& n) -> const Json* { for (const auto& r : rows) if (r["name"] == n) return &r; return nullptr; };
+    const Json* ev = named(d["operators"], "hodgeDirac__cortex_glued_eigenvectors");
+    const Json* d0 = named(d["operators"], "cortex_glued_intrinsic_d0");
+    const Json* glued = named(d["manifolds"], "cortex_glued");
+    const Json* tri = named(d["manifolds"], "cortex_glued_intrinsic");
+    CHECK(ev && d0 && glued && tri);
+    if (ev && d0 && glued && tri) {
+      CHECK_EQ((*ev)["type"]["domain"]["cells"].get<std::string>(), std::string("0"));
+      CHECK_EQ((*ev)["type"]["target"]["cells"].get<std::string>(), std::string("0+1+2"));
+      CHECK_EQ((*ev)["layout"].get<std::string>(), std::string("dense"));
+      CHECK_EQ((*d0)["type"]["domain"]["cells"].get<std::string>(), std::string("0"));
+      CHECK_EQ((*d0)["type"]["target"]["cells"].get<std::string>(), std::string("1"));
+      CHECK_EQ((*d0)["layout"].get<std::string>(), std::string("analytic"));
+      CHECK_EQ((*d0)["method"].get<std::string>(), std::string("dec"));
+      CHECK_EQ((*tri)["positions_of"].get<std::string>(), std::string("cortex_glued"));
+      CHECK((*glued)["positions_of"].is_null());
+      CHECK_EQ((*glued)["size"]["faces"].get<std::int64_t>(), static_cast<std::int64_t>(gm.faces.size() / 3));
+      CHECK_EQ((*tri)["size"]["edges"].get<std::int64_t>(), (*tri)["arrays"][1]["rows"].get<std::int64_t>());
+      std::vector<std::string> arrays;
+      for (const auto& a : (*tri)["arrays"]) arrays.push_back(a["name"].get<std::string>() + ":" + a["holds"].get<std::string>());
+      CHECK(arrays == (std::vector<std::string>{"positions:vertices", "cells_1:edges", "cells_2:faces"}));
+      CHECK(!named(d["selections"], "hodgeDirac__cortex_glued_support"));
+    }
+  }
   fs::remove_all(root);
   std::cout << "test_pipelines: ok\n";
   return 0;
