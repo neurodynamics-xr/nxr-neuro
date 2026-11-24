@@ -28,6 +28,8 @@ target_sources(nxr_compute PRIVATE
   src/signal/mode_spectrum.cpp
   src/signal/spectral_flow.cpp
   src/signal/aperiodic.cpp
+  src/signal/bispectrum.cpp
+  src/signal/flow_across_frequencies.cpp
   src/signal/hodge_decomposition.cpp
   src/signal/isolines.cpp
   src/signal/streamlines.cpp
@@ -72,6 +74,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   target_link_libraries(test_aperiodic PRIVATE nxr_compute)
   target_compile_definitions(test_aperiodic PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
   add_test(NAME test_aperiodic COMMAND test_aperiodic)
+  add_executable(test_bispectrum test/test_bispectrum.cpp)
+  target_link_libraries(test_bispectrum PRIVATE nxr_compute)
+  add_test(NAME test_bispectrum COMMAND test_bispectrum)
   add_executable(test_patterns test/test_patterns.cpp)
   target_link_libraries(test_patterns PRIVATE nxr_compute)
   add_test(NAME test_patterns COMMAND test_patterns)
