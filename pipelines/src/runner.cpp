@@ -1376,6 +1376,8 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     for (const auto& [port, name] : n.in)                                   // A HODGE-DIRAC PACKAGE (its eigenvectors' operator): its basis, mass and meshes, read by pipelines
       if (constants.count(name) && P.values.count(name) && P.values.at(name).cls == "operator" && P.found.count(name) && P.found.at(name).row &&
           nxr::io::opt_text(*P.found.at(name).row, "kind") == std::optional<std::string>("eigenvectors")) {
+        // read once a run (#232): a package an earlier node already read is reused, unless this node needs the forms and they were not read yet
+        if (const auto& done = constants.at(name).meta; done.value("hodge", false) && (!n.spec->reads_package_forms || done.contains("forms2"))) continue;
         const nxr::pipelines::HodgePackageData h = nxr::pipelines::hodge_package_data(sub, text(*P.found.at(name).row, "name"), std::nullopt);
         nxr::graph::Array a;
         a.rows = h.basis.P.rows(); a.cols = h.basis.P.cols();
