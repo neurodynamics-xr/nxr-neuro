@@ -20,6 +20,15 @@ code does something:
 3. Write a new one only when nothing fits, and say so: the commit (or the brief) names the searches run and why what they found does not fit.
 A commit that adds a compute function, a node or a node option without that line is sent back.
 
+## No problem left silent
+
+Every problem found while working (a bug, a wrong refusal, a duplication, a page that says what the code does not do, a breach of these rules) is
+either fixed or filed, never only mentioned in a report, a commit message or a conversation:
+1. **Fix it in place** when it is small and inside the change's scope; the commit says what it fixed.
+2. **Otherwise file it at once** as a GitHub issue (CONTRIBUTING, *Issues*: one problem an issue, a plain title, the smallest synthetic
+   reproduction, the area labels) and name the issue numbers in the report.
+3. **Duplications are filed, not fixed piecemeal:** they are removed together in one survey-and-consolidation pass (label `duplicate`).
+
 ## Before designing a node or a pipeline
 
 Write it as its graph first (nodes, typed ports, the inputs it is handed, the outputs it gives back), each piece in its part (loading · preparation ·

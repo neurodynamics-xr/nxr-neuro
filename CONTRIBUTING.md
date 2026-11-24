@@ -115,6 +115,15 @@ blocks by sample range, so the chunk service can stream them. Parse every header
 files written by the reference (MNE-Python, nibabel), each next to its generator; never a real recording. A new dependency needs a compatible licence,
 an entry in `THIRD_PARTY_NOTICES.md` and the maintainers' OK.
 
+## Issues: how problems are tracked
+
+Every problem found and not fixed in the same change is a GitHub issue, so nothing lives only in a report, a pull-request description or a chat.
+- **Bug** (template `Bug`, label `bug`): wrong behaviour, a wrong refusal, or a page that documents what the code does not do. **Task** (template `Task`, label `task`): known work left (a test to port, a lost check, a missing command).
+- One issue per problem; the title says what is wrong in plain words; the body has the smallest reproduction on synthetic data. Add the area labels that apply (`io`, `pipelines`, `cli`, `bindings`, `compute`, `docs`, `tests`, `ci`).
+- Never put real data, dataset names, subject identifiers or private paths in an issue: the repository is public.
+- A pull request that fixes an issue says `Fixes #N`; a pull request that leaves known work behind opens its issues and links them under *Known*.
+- Before starting work, look at the open issues of the area (`gh issue list --label <area>`); a duplicate is closed with a link to the first.
+
 ## Test kinds
 
 Every ctest test has exactly one kind, listed in `tests/kinds.tsv` (`name<TAB>kind[<TAB>slow]`); the label is set by `cmake/test_kinds.cmake`, and a test missing from the table fails the configure.
