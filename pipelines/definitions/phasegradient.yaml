@@ -6,6 +6,8 @@
 #
 #   nxr-neuro run phasegradient --dataset <folder> --subject sub-01 --cross-spectrum rest_crossspectrum --band alpha --kernel KERNEL --finest "parts 16"
 pipeline: phasegradient
+# WHY WELCH: it reads a Welch band cross-spectrum (tapered segments); moving it onto the chunk spectra the flow definitions read would change
+# its method, so it stays as it is (a decision of the flow consolidation, #254).
 version: 2
 description: a band's phase gradient from its cross-spectrum through a free kernel, as the additive ingredients of the surface's leaves
 scope: subject

@@ -5,6 +5,7 @@
 #
 #   nxr-neuro run surrogate_lagfree_pairs --dataset <folder> --subject sub-01 --recording rest --windows "rest time grid band 8-12 Hz" --bursts "rest alpha bursts" --psd rest_psd_welch --band "[8, 12]"
 pipeline: surrogate_lagfree_pairs
+# WHY WELCH: a lag-free surrogate is a NULL ported from nxr (noise with the data's own Welch spectrum); nulls are never changed without a new design, so it stays on Welch.
 version: 2
 description: per burst, the lagged share of its sensors' second moment against lag-free Wishart draws of its own zero-lag second moment
 scope: subject

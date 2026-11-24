@@ -5,6 +5,8 @@
 #
 #   nxr-neuro run speedspectrum --dataset <folder> --subject sub-01 --recording rest --all --kernel KERNEL --graph-family mexhat --family morlet --gain 1 --sides analytic --centres "[4, 8, 16]"
 pipeline: speedspectrum
+# WHY WELCH: the speed spectrum ports nxr's (the fused inverse on a Welch cross-spectrum); it stays as the reference made it. The sensor and source flow give the
+# per-mode flow from the chunk spectra; the speed across frequencies is a readout of their per-atom results (sensor_flow_across_frequencies).
 version: 1
 description: the speed spectrum of the Hodge-Dirac modes of a recording's sources (joint wavenumber x frequency bank)
 scope: subject

@@ -12,6 +12,7 @@
 #
 #   nxr-neuro run surrogate_lagfree_vortex --dataset <folder> --subject sub-01 --recording rest --psd-statistic rest_psd_welch --cross-spectrum rest_crossspectrum_alpha --seed 1 --spatial-scale "parts 32" --all
 pipeline: surrogate_lagfree_vortex
+# WHY WELCH: a lag-free surrogate is a NULL ported from nxr (noise with the data's own Welch spectrum); nulls are never changed without a new design, so it stays on Welch.
 version: 2
 description: one draw of the lag-free surrogate of the vortex chain (the same graph on a lag-free surrogate of the recording), its tile crossings over the level's tiles as a statistic
 scope: subject
