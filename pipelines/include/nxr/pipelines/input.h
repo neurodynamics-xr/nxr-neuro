@@ -9,6 +9,7 @@
 
 #include "nxr/io.h"
 #include "nxr/io/subject_package.h"
+#include "nxr/io/task/task.h"
 
 namespace nxr::pipelines {
 
@@ -98,14 +99,27 @@ std::string hodge_package_stem(const SurfaceInput& surface);
 // hemispheres are glued by anatomy only).
 std::vector<std::uint8_t> medial_wall(nxr::io::SubjectWriter& sub, const SurfaceInput& surface);
 
-// THE GLUED CORTEX. The imported two-hemisphere surface is the manifold of record; the glued surface is a DERIVED manifold made by a `glue` definition, which stores its MAP (glued vertex → original
-// vertex, -1 on the bridge) in the manifold's producer record under `glue: {original: <manifold id>}`; the map is the field `<glued name>_map` of the glued surface. Analysis runs on the glued surface; every result is RESTRICTED BACK to the original for
+// THE GLUED CORTEX. The imported two-hemisphere surface is the manifold of record; the glued surface is a DERIVED manifold made by a `glue` definition. What the glue stores is SELECTIONS, as an atlas is
+// stored: on the glued surface ONE LABELLING `<glued name>_hemispheres` (the caller's hemisphere labelling of the original carried over, its entries kept, one more: `bridge`), and on the original the
+// indices `<glued name>_kept` (the original vertices the glue keeps, ascending). The glued vertices are the kept vertices in that order, then the bridge's: the correspondence is derived from the two (no
+// index field). The manifold's producer record names the original (`glue: {original, form: labelling}`). Analysis runs on the glued surface; every result is RESTRICTED BACK to the original for
 // storage, export and visualisation: exact (the glued → original transfer), the bridge dropped like the medial wall.
 struct GlueMap {
   std::string glued_id, original_id;
-  std::vector<std::int32_t> original_of;   // [n_glued]: the original vertex, or -1 (the bridge)
+  std::vector<std::int32_t> original_of;   // [n_glued]: the original vertex, or -1 (the bridge): derived from the labelling and the kept vertices
   std::int64_t n_glued() const { return static_cast<std::int64_t>(original_of.size()); }
 };
+/** a LABELLING as stored (a set per element: an atlas, the glued cortex's hemispheres): each element's label (-1: none) and the dictionary's entries (code, name, colour) */
+struct StoredLabelling {
+  std::string id, name;
+  std::vector<std::int64_t> labels;
+  std::vector<nxr::io::task::DictionaryLevel> entries;
+  std::optional<std::int64_t> code_of(const std::string& entry) const { for (const auto& e : entries) if (e.name == entry) return e.code; return std::nullopt; }
+};
+StoredLabelling stored_labelling(nxr::io::SubjectWriter& sub, const std::string& selection_id);
+/** why a HEMISPHERE LABELLING of a two-hemisphere surface disagrees with it (empty: it agrees): the entries `left` and `right` must exist, each be ONE connected piece of the surface (joined by the faces
+ *  all of whose vertices carry it), every vertex outside the labelling's own `unassigned` be in one of them, and no face have vertices in both */
+std::string hemispheres_disagree(const std::vector<std::int32_t>& faces, const StoredLabelling& labelling, const std::string& left, const std::string& right);
 // The glue map of a manifold when it is a derived glued surface (made by `glue`), else nothing.
 std::optional<GlueMap> glue_map_of(nxr::io::SubjectWriter& sub, const std::string& manifold_id);
 // Vertex-major values [n_glued x comps] restricted to the original [n_original x comps]: each original vertex takes its glued counterpart's values; an original vertex with no counterpart (the medial wall,

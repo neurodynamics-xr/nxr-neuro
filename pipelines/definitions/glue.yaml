@@ -2,30 +2,41 @@
 # record (atlases, kernels, exports, results, figures); the glued surface is the default COMPUTATIONAL manifold for spatiotemporal pattern analysis (patterns cross hemispheres smoothly: one cortex), and results are
 # reported back on the original two hemispheres.
 #
-# The definition stores the glued surface with its MAP (glued vertex -> original vertex, -1 on the bridge) and the BRIDGE as a labelled irregular selection ("bridge: not cortex"). Transfers: original -> glued (values
-# kept copied; the bridge by sourcesOf interpolation; the medial wall has no counterpart) and glued -> original (exact; the bridge dropped like the medial wall); atlases are carried by `transfer`. Orientations are also
-# reported in the anatomical frame (canonical frames, gauge recorded) as a check on the bridge's transport. `eigenmodes` and `apply_kernel` take this surface BY NAME: a flag that only chooses the input (`--glued`) is gone.
+# The hemispheres are READ, never found: the caller names the original's HEMISPHERE LABELLING (`--hemispheres`; Brainstorm's scout atlas `Structures` by default, its entries `Cortex L`, `Cortex R` and
+# `unassigned`: the reference's names, the defaults of `--left` and `--right`). A labelling whose left or right member is not one connected piece, that leaves cortex outside its own `unassigned`, or that
+# puts a face in both hemispheres is refused with the reason. The medial wall is the Desikan-Killiany atlas' `unassigned`, as before.
 #
-# What it cannot resolve: the pieces must match by anatomy (the medial walls cut, a bridge grown); a pair that does not match is refused with the reason.
+# Stored, as an atlas is (Selections, no index field):
+#   {name}                  the glued surface: the kept vertices of the original in ascending order, then the bridge's
+#   {name}_hemispheres      ONE labelling of the glued surface: the input labelling's entries (names, codes, colours) and one more, `bridge`; every glued vertex a member of one
+#   {name}_kept             on the original: the vertices the glue keeps (indices, ascending). The correspondence glued -> original is derived from these two (glued vertex i < n_kept is the i-th kept)
+# Transfers: original -> glued (values copied; the bridge by sourcesOf interpolation; the medial wall has no counterpart) and glued -> original (exact; the bridge dropped like the medial wall); atlases are
+# carried by `transfer`. `eigenmodes` and `apply_kernel` take this surface BY NAME. A glue stored in the earlier form (a map field and a bridge selection) is converted in place by `nxr-neuro migrate glue`.
 #
-#   nxr-neuro run glue --dataset <folder> --subject sub-01 --surface cortex_pial
+# What it cannot resolve: the pieces must match by anatomy (the medial walls cut, a bridge grown); a pair that does not match is refused with the reason. The bridge is a construction, not cortex.
+#
+#   nxr-neuro run glue --dataset <folder> --subject sub-01 --surface cortex_pial [--hemispheres Structures] [--left "Cortex L"] [--right "Cortex R"]
 pipeline: glue
-version: 1
-description: the two hemispheres of a cortex glued by a bridge, a derived manifold stored with its map to the original and its bridge selection
+version: 2
+description: the two hemispheres of a cortex glued by a bridge, a derived manifold stored with its hemispheres labelling (left, right, bridge) and the original's kept vertices
 scope: subject
 
 inputs:
   surface: {manifold: surface, where: {name: $surface}, hint: "name the two-hemisphere surface (--surface)"}
+  hemispheres: {selection: set, manifold: surface.manifold.0, where: {name: $hemispheres}, hint: "the original's hemisphere labelling, by name (--hemispheres; Brainstorm's `Structures`)"}
 
 parameters:
   surface: {default: null, meaning: "the two-hemisphere surface, by name", unit: "-"}
+  hemispheres: {default: Structures, meaning: "the original's hemisphere labelling, by name (default: Brainstorm's scout atlas Structures, the reference's)", unit: "-"}
+  left: {default: "Cortex L", meaning: "the labelling's entry that is the left hemisphere (default: Brainstorm's name)", unit: "-"}
+  right: {default: "Cortex R", meaning: "the labelling's entry that is the right hemisphere (default: Brainstorm's name)", unit: "-"}
   name: {default: "{surface}_glued", meaning: "the glued surface's name", unit: "-"}
 
 steps:
   before:
-    - {node: geometry.glue, in: {surface: surface}, out: [glued, map, bridge]}
+    - {step: geometry.glue, in: {surface: surface, hemispheres: hemispheres}, with: {left: $left, right: $right}, out: [glued, labels, kept]}
 
 outputs:
   glued:  {kind: manifold, type: surface, name: $name, derived_from: surface.manifold.0}
-  map:    {kind: field, kind_name: glue map, name: "{name}_map", on: glued}
-  bridge: {kind: selection, type: indices, name: "{name}_bridge", on: glued}
+  labels: {kind: selection, type: partition, name: "{name}_hemispheres", on: glued}
+  kept:   {kind: selection, type: indices, name: "{name}_kept", on: surface.manifold.0}

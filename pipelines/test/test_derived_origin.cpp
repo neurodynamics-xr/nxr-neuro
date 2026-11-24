@@ -9,6 +9,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "hemispheres.h"
 #include "nxr/io/subject_api.h"
 #include "run_definition.h"
 
@@ -31,6 +32,7 @@ DatasetWriter make_package(const fs::path& folder, const Brain& b, const std::op
     sub.compose([&] {
       SurfaceOptions so; so.name = "cortex"; so.sphere = b.Sph;
       so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
+      so.atlases.push_back(nxrtest::structures_of(b.P, b.F));   // the hemispheres, as Brainstorm's Structures (the glue reads them)
       add_surface(sub, so, b.P, b.F);
     });
   }

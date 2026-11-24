@@ -4,6 +4,8 @@
 //   - ONE eigenvectors operator, line -> the triangulation '0+1+2': its 0- and 2-form rows the earlier bytes exactly, its 1-form rows made from the stored parts (no solve) = the solve's own 1-form parts;
 //   - the kinds a labelling of the line, the eigenvalues a field of the new operator, the triangulation on the surface's positions, d0, d1 and the stars analytic (method dec), the signposts kept;
 //   - the reader (`stored_eigensolve`) reads it; a second migrate is a no-op; a stem of a form it does not know is refused, and nothing of it changes.
+// and `nxr-neuro migrate glue`: a glued cortex of two spheres stored in the earlier form (the field <glued>_map, the indices <glued>_bridge) becomes the hemispheres labelling of the glued cortex
+// (Structures carried over, `bridge` added) and the original's kept vertices; the correspondence read back equals the glue's; a labelling that disagrees with the pieces is refused; idempotent.
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -19,6 +21,8 @@
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/eigen_migrate.h"
 #include "nxr/pipelines/input.h"
+#include "nxr/geometry/surface_maps.h"
+#include "hemispheres.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -168,6 +172,70 @@ int main() {
   // idempotent
   const Json again = migrate_eigensolve(sub, stem);
   CHECK(again["stems"][0]["status"] == "already in the new form");
+
+  // THE GLUE of the earlier form, converted
+  {
+    std::vector<double> W = Vx; std::vector<std::int32_t> G = Fx;
+    const std::int32_t n1 = static_cast<std::int32_t>(Vx.size() / 3);
+    for (std::size_t i = 0; i < Vx.size(); i += 3) { W.push_back(Vx[i] + 0.2); W.push_back(Vx[i + 1]); W.push_back(Vx[i + 2]); }
+    for (auto f : Fx) G.push_back(f + n1);
+    std::vector<std::int32_t> dk(static_cast<std::size_t>(2 * n1), 1);
+    std::vector<std::uint8_t> wall(dk.size(), 0);
+    for (std::int32_t i = 0; i < 2 * n1; ++i) if ((i < n1 && W[3 * i] > 0.05) || (i >= n1 && W[3 * i] - 0.2 < -0.05)) { dk[static_cast<std::size_t>(i)] = 0; wall[static_cast<std::size_t>(i)] = 1; }
+    AtlasMember bad = nxrtest::structures_of(W, G);
+    bad.family = "Bad";
+    for (std::int32_t i = 0; i < n1; ++i) if (W[3 * i + 2] > 0.06) bad.codes[static_cast<std::size_t>(i)] = 1;
+    { SubjectWriter s = SubjectWriter::create(ds, "S2");
+      SurfaceOptions so{.name = "cortex"};
+      so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
+      so.atlases.push_back(nxrtest::structures_of(W, G));
+      so.atlases.push_back(bad);
+      s.compose([&] { add_surface(s, so, W, G); }); }
+    SubjectWriter s2 = SubjectWriter::open(ds, "S2");
+    const std::string orig = *tk::Subject::of(s2).manifold_named("cortex");
+    std::vector<double> W32(W.size());
+    for (std::size_t i = 0; i < W.size(); ++i) W32[i] = static_cast<double>(static_cast<float>(W[i]));
+    const nxr::geometry::glue::Glued gm = nxr::geometry::glue::glueMesh(W32, G, wall);
+    const std::int64_t Vg = static_cast<std::int64_t>(gm.keep.size());
+    std::int64_t m = 0;
+    for (const auto k : gm.keep) m += k >= 0;
+    {
+      const tk::Subject ts = tk::Subject::of(s2);
+      tk::Unit u = ts.unit(tk::By{"earlier glue", Json()});
+      tk::SurfaceOut so; so.name = "cortex_glued"; so.output = "glued"; so.derived_from_id = orig; so.faces = gm.faces;
+      so.vertices.shape = {Vg, 3}; so.vertices.f64 = gm.positions; so.producer = Json{{"glued_from", "cortex"}, {"glue", Json{{"original", orig}}}};
+      const std::string gid = u.surface(so);
+      tk::FieldOut mf; mf.name = "cortex_glued_map"; mf.output = "map"; mf.kind = "glue map"; mf.manifold_id = gid; mf.value_type = "integer";
+      mf.data.shape = {Vg}; mf.data.i32 = gm.keep; u.field(mf);
+      tk::SelectionOut bs; bs.name = "cortex_glued_bridge"; bs.output = "bridge"; bs.type = "indices"; bs.manifold_id = gid;
+      for (std::int64_t i = m; i < Vg; ++i) bs.codes.push_back(i);
+      u.selection(bs);
+      u.commit();
+    }
+    const std::string gid = *tk::Subject::of(s2).manifold_named("cortex_glued");
+    const std::string earlier = refusal([&] { glue_map_of(s2, gid); });
+    CHECK(earlier.find("migrate glue") != std::string::npos);                                     // the readers name the migration
+    const std::string disagree = refusal([&] { migrate_glue(s2, std::string("cortex_glued"), "Bad", "Cortex L", "Cortex R"); });
+    std::printf("  a hemisphere labelling that disagrees: %s\n", disagree.substr(0, 160).c_str());
+    CHECK(disagree.find("Bad:") != std::string::npos);
+    CHECK(s2.find("selection", "source/cortex_glued_bridge").has_value());
+    const Json gr = migrate_glue(s2, std::nullopt, "Structures", "Cortex L", "Cortex R");
+    std::printf("  glue migrated: %s\n", gr.dump().substr(0, 200).c_str());
+    CHECK(gr["glued"][0]["status"] == "migrated");
+    const auto gmap = glue_map_of(s2, gid);
+    CHECK(gmap && gmap->original_of == gm.keep && gmap->original_id == orig);
+    auto sel_named = [&](const std::string& name) { tk::Want w{.cls = tk::Cls::selection}; w.name = name; return tk::Subject::of(s2).find(w); };
+    const auto hl = sel_named("cortex_glued_hemispheres");
+    CHECK(hl.has_value() && !sel_named("cortex_glued_bridge") && sel_named("cortex_glued_kept").has_value());
+    if (hl) {
+      const StoredLabelling H = stored_labelling(s2, hl->id);
+      const auto L = H.code_of("Cortex L"), R = H.code_of("Cortex R"), B = H.code_of("bridge");
+      bool ok = L && R && B && static_cast<std::int64_t>(H.labels.size()) == Vg;
+      for (std::int64_t i = 0; ok && i < Vg; ++i) ok = H.labels[static_cast<std::size_t>(i)] == (i >= m ? *B : gm.keep[static_cast<std::size_t>(i)] < n1 ? *L : *R);
+      CHECK(ok);
+    }
+    CHECK(migrate_glue(s2, std::nullopt, "Structures", "Cortex L", "Cortex R")["glued"][0]["status"] == "already in the new form");
+  }
   ds.close();
   fs::remove_all(root);
   return nxrtest::finish("test_migrate_eigensolve");

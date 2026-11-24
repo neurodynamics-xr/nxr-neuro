@@ -20,6 +20,7 @@
 #include "nxr/io/subject_api.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/eigen_migrate.h"
+#include "nxr/pipelines/input.h"
 #include "nxr/selection/selection.h"
 #include "nxr/signal/intrinsic_forms.h"
 
@@ -285,7 +286,86 @@ Json migrate_one(SubjectWriter& sub, const std::string& stem, const std::functio
   return Json{{"stem", stem}, {"status", "migrated"}, {"eigenvectors", oid}, {"triangulation", tid}, {"rows", N}, {"modes", K}, {"forms1", forms1_made}};
 }
 
+// A GLUED CORTEX of the earlier form (the field `<glued>_map`, glued vertex -> original vertex, -1 on the bridge; the indices `<glued>_bridge`) -> the hemispheres labelling of the glued cortex and the
+// original's kept vertices. The map is checked against the glue's rule (the kept vertices first, ascending, then the bridge) and the bridge selection; the original's hemisphere labelling is checked
+// against the original surface; the map and the bridge are then moved aside. One unit a glued cortex.
+Json migrate_glue_one(SubjectWriter& sub, const tk::Node& glued, const std::string& hemispheres, const std::string& left, const std::string& right, const std::function<void(const Json&)>& say) {
+  const tk::Subject ts = tk::Subject::of(sub);
+  const std::string gname = glued.name;
+  auto unknown_glue = [&](const std::string& why) -> void { throw Error(code::invalid_argument, "migrate glue " + gname + ": not a stored glued cortex of a form this migration knows (" + why + "); nothing changed"); };
+  const Json& g = glued.producer["glue"];
+  if (!g.is_object() || !g.contains("original") || !g["original"].is_string()) unknown_glue("its glue record names no original");
+  const std::string original = g["original"].get<std::string>();
+  tk::Want wk{.cls = tk::Cls::selection}; wk.name = gname + "_kept"; wk.manifold_id = original;
+  tk::Want wl{.cls = tk::Cls::selection}; wl.name = gname + "_hemispheres"; wl.manifold_id = glued.id;
+  if (ts.find(wk) && ts.find(wl)) return Json{{"glued", gname}, {"status", "already in the new form"}};
+  tk::Want wm{.cls = tk::Cls::field}; wm.name = gname + "_map"; wm.manifold_id = glued.id;
+  tk::Want wb{.cls = tk::Cls::selection}; wb.name = gname + "_bridge"; wb.manifold_id = glued.id;
+  const auto mapn = ts.find(wm), bridgen = ts.find(wb);
+  if (!mapn || !mapn->path) unknown_glue(gname + "_map is not stored");
+  if (!bridgen || !bridgen->array_path || !bridgen->path) unknown_glue(gname + "_bridge is not stored");
+  const std::vector<std::int32_t> map = read_as<std::int32_t>(sub.store(), *mapn->path);
+  const std::vector<std::int32_t> br = read_as<std::int32_t>(sub.store(), *bridgen->array_path);
+  const std::int64_t n = static_cast<std::int64_t>(map.size());
+  if (!glued.n_vertices || *glued.n_vertices != n) unknown_glue(gname + "_map holds " + std::to_string(n) + " values for the glued surface's vertices");
+  std::int64_t m = 0;
+  while (m < n && map[static_cast<std::size_t>(m)] >= 0) ++m;
+  for (std::int64_t i = 0; i < n; ++i) {
+    const std::int32_t o = map[static_cast<std::size_t>(i)];
+    if ((i < m) != (o >= 0) || (i > 0 && i < m && o <= map[static_cast<std::size_t>(i - 1)])) unknown_glue(gname + "_map breaks the glue's rule at glued vertex " + std::to_string(i) + " (the kept vertices first, ascending, then the bridge)");
+  }
+  if (static_cast<std::int64_t>(br.size()) != n - m) unknown_glue(gname + "_bridge holds " + std::to_string(br.size()) + " vertices, the map " + std::to_string(n - m));
+  for (std::size_t i = 0; i < br.size(); ++i) if (br[i] != m + static_cast<std::int64_t>(i)) unknown_glue(gname + "_bridge is not the glued vertices after the kept ones");
+  // the original's hemisphere labelling, checked against the original surface
+  const SurfaceInput O = read_surface(sub, ts.by_id(tk::Cls::manifold, original)->name);
+  tk::Want wh{.cls = tk::Cls::selection}; wh.name = hemispheres; wh.manifold_id = original;
+  const auto hn = ts.find(wh);
+  if (!hn) unknown_glue("the original " + O.name + " has no hemisphere labelling named " + hemispheres);
+  const StoredLabelling H = stored_labelling(sub, hn->id);
+  if (static_cast<std::int64_t>(H.labels.size()) != O.n_vertices()) unknown_glue(hemispheres + " does not label every vertex of " + O.name);
+  if (const std::string why = hemispheres_disagree(O.faces, H, left, right); !why.empty()) unknown_glue(why);
+  for (std::int64_t i = 0; i < m; ++i) if (map[static_cast<std::size_t>(i)] >= O.n_vertices()) unknown_glue(gname + "_map names a vertex outside " + O.name);
+  if (say) say(Json{{"stage", "migrate"}, {"glued", gname}, {"kept", m}, {"bridge", n - m}});
+
+  tk::Unit u = ts.unit(tk::By{"nxr-neuro migrate glue", Json{{"migrated_from", Json{{"date", now_utc(false)}, {"from", "the earlier form: a map field and a bridge selection"},
+                                                                                     {"items", Json{{gname + "_map", Json{{"class", "field"}, {"id", mapn->id}}}, {gname + "_bridge", Json{{"class", "selection"}, {"id", bridgen->id}}}}}}}}});
+  u.replace(tk::Cls::field, *mapn->path, true, "the earlier form of the glued cortex " + gname);
+  u.replace(tk::Cls::selection, *bridgen->path, true, "the earlier form of the glued cortex " + gname);
+  std::int64_t bcode = 0;
+  tk::SelectionOut ls;
+  ls.name = gname + "_hemispheres"; ls.output = "labels"; ls.type = "partition"; ls.manifold_id = glued.id;
+  nxr::selection::Lookup names;
+  for (const auto& e : H.entries) { bcode = std::max(bcode, e.code + 1); ls.lookup.push_back({e.code, e.name, e.color}); names.push_back(nxr::selection::Entry{e.code, e.name, e.color}); }
+  ls.lookup.push_back({bcode, "bridge", std::array<int, 3>{128, 128, 128}});
+  names.push_back(nxr::selection::Entry{bcode, "bridge", std::array<int, 3>{128, 128, 128}});
+  std::vector<std::int32_t> labels(static_cast<std::size_t>(n));
+  for (std::int64_t i = 0; i < n; ++i) labels[static_cast<std::size_t>(i)] = static_cast<std::int32_t>(i < m ? H.labels[static_cast<std::size_t>(map[static_cast<std::size_t>(i)])] : bcode);
+  const nxr::selection::Selection sel = nxr::selection::from_labels(labels, names);
+  ls.member_of = sel.member_of; ls.member_codes = sel.member_codes;
+  ls.description = "the hemispheres of the glued cortex: " + H.name + " of " + O.name + " carried over (its entries kept), and the bridge (not cortex: no sources, a forward zero there)";
+  u.selection(ls);
+  tk::SelectionOut ks;
+  ks.name = gname + "_kept"; ks.output = "kept"; ks.type = "indices"; ks.manifold_id = original;
+  for (std::int64_t i = 0; i < m; ++i) ks.codes.push_back(map[static_cast<std::size_t>(i)]);
+  ks.description = "the vertices of " + O.name + " the glued surface keeps, ascending: glued vertex i < " + std::to_string(m) + " is the i-th of them";
+  u.selection(ks);
+  u.commit();
+  return Json{{"glued", gname}, {"status", "migrated"}, {"kept", m}, {"bridge", n - m}, {"hemispheres", H.name}};
+}
+
 }  // namespace
+
+Json migrate_glue(SubjectWriter& sub, const std::optional<std::string>& glued_name, const std::string& hemispheres, const std::string& left, const std::string& right,
+                  const std::function<void(const Json&)>& progress) {
+  tk::Want w{.cls = tk::Cls::manifold};
+  w.type = "surface";
+  if (glued_name) w.name = *glued_name;
+  Json out = Json::array();
+  for (const auto& n : tk::Subject::of(sub).find_all(w))
+    if (n.producer.is_object() && n.producer.contains("glue")) out.push_back(migrate_glue_one(sub, n, hemispheres, left, right, progress));
+  if (glued_name && out.empty()) throw Error(code::no_such_row, sub.name() + ": no glued cortex named " + *glued_name);
+  return Json{{"subject", sub.name()}, {"glued", out}};
+}
 
 Json migrate_eigensolve(SubjectWriter& sub, const std::optional<std::string>& stem, const std::function<void(const Json&)>& progress) {
   std::vector<std::string> stems;

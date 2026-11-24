@@ -485,6 +485,11 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --sidecar@export participants	FILE	Also write the participants.json sidecar to this file.	none	-
 --registered-by@split dataset	WHO	Who runs the split: recorded with each catalogue entry.	required	-
 --templates@migrate eigensolve	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; the migration reads no template array.	none (the environment variable and the user setting only)	-
+--templates@migrate glue	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; the migration reads no template array.	none (the environment variable and the user setting only)	-
+--name@migrate glue	NAME	The glued cortex to convert, by name.	every glued cortex of the subject	-
+--hemispheres@migrate glue	NAME	The original cortex's hemisphere labelling, by name: carried onto the glued cortex.	Structures (Brainstorm's scout atlas)	-
+--left@migrate glue	NAME	The hemisphere labelling's entry that is the left hemisphere.	Cortex L (Brainstorm's)	-
+--right@migrate glue	NAME	The hemisphere labelling's entry that is the right hemisphere.	Cortex R (Brainstorm's)	-
 --name@migrate eigensolve	STEM	The stem of the stored eigensolve to convert (hodgeDirac, hodgeDirac__<surface>).	every stored eigensolve of the subject	-
 --dry-run@migrate selections		Report, per subject, the selections that would be converted to the member form, without changing anything.	off	-
 --dry-run@migrate measurements		Report, per subject, the statistics that would become measurements, the products and tilings that would be rewritten, and the conflicts, without changing anything.	off	-
@@ -828,6 +833,13 @@ alias: no
 summary: Convert a subject's stored Hodge-Dirac eigensolve of the earlier form (three operators _eigenvectors, _forms1, _forms2; a kind field; stored d0, d1 and stars) in place to the four classes: one eigenvectors operator to the intrinsic triangulation's cells 0+1+2, the kinds a labelling, d0, d1 and the stars analytic. No solve; idempotent; an unknown form refused; the replaced items moved aside.
 opts: --dataset* --subject* --name --templates+
 example: nxr-neuro migrate eigensolve --dataset D --subject sub-01 --name hodgeDirac__cortex_pial_glued
+)TBL",
+R"TBL(@ migrate glue
+old: package migrate-glue
+alias: no
+summary: Convert a subject's stored glued cortex of the earlier form (the field <glued>_map and the selection <glued>_bridge) in place to selections: the original's hemisphere labelling carried onto the glued cortex with one more entry, bridge, and the original's kept vertices. The map is checked against the glue's rule and the labelling against the original surface before the map and the bridge are moved aside; idempotent; an unknown form refused.
+opts: --dataset* --subject* --name --hemispheres --left --right --templates+
+example: nxr-neuro migrate glue --dataset D --subject sub-01 --name cortex_pial_glued --hemispheres Structures
 )TBL",
 R"TBL(@ join dataset
 old: package join

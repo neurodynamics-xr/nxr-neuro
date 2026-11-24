@@ -118,8 +118,57 @@ SurfaceInput read_surface(const SubjectPackage& pk, const std::string& name) {
   return s;
 }
 
+StoredLabelling stored_labelling(SubjectWriter& sub, const std::string& selection_id) {
+  const task::Subject ts = task::Subject::of(sub);
+  const auto node = ts.by_id(task::Cls::selection, selection_id);
+  if (!node) throw Error(code::no_such_row, "the labelling " + selection_id + " is not stored");
+  StoredLabelling l;
+  l.id = selection_id; l.name = node->name;
+  l.labels = ts.element_members(selection_id).element_labels();
+  if (node->dictionary_id) l.entries = ts.dictionary_entries(*node->dictionary_id);
+  return l;
+}
+
+namespace {
+// the connected pieces of the vertices labelled `code`, joined by the faces all of whose vertices carry it (a member vertex in no such face is a piece of its own)
+int member_pieces(const std::vector<std::int32_t>& faces, const std::vector<std::int64_t>& labels, std::int64_t code) {
+  const std::size_t n = labels.size();
+  std::vector<std::size_t> parent(n);
+  std::iota(parent.begin(), parent.end(), 0);
+  auto find = [&](std::size_t x) { while (parent[x] != x) x = parent[x] = parent[parent[x]]; return x; };
+  for (std::size_t f = 0; f + 2 < faces.size(); f += 3) {
+    const auto a = static_cast<std::size_t>(faces[f]), b = static_cast<std::size_t>(faces[f + 1]), c = static_cast<std::size_t>(faces[f + 2]);
+    if (a >= n || b >= n || c >= n || labels[a] != code || labels[b] != code || labels[c] != code) continue;
+    parent[find(a)] = find(b);
+    parent[find(b)] = find(c);
+  }
+  std::set<std::size_t> roots;
+  for (std::size_t v = 0; v < n; ++v) if (labels[v] == code) roots.insert(find(v));
+  return static_cast<int>(roots.size());
+}
+}  // namespace
+
+std::string hemispheres_disagree(const std::vector<std::int32_t>& faces, const StoredLabelling& H, const std::string& left, const std::string& right) {
+  const auto L = H.code_of(left), R = H.code_of(right), U = H.code_of("unassigned");
+  if (!L || !R) return H.name + " has no entry '" + (L ? right : left) + "' (the hemispheres are named by --left and --right)";
+  for (const auto& [code, nm] : {std::pair<std::int64_t, std::string>{*L, left}, {*R, right}}) {
+    const int pc = member_pieces(faces, H.labels, code);
+    if (pc != 1) return H.name + ": its '" + nm + "' is " + std::to_string(pc) + " connected pieces, not one hemisphere";
+  }
+  std::int64_t outside = 0;
+  for (const auto l : H.labels) if (l != *L && l != *R && !(U && l == *U)) ++outside;
+  if (outside) return H.name + ": " + std::to_string(outside) + " vertices are in neither '" + left + "' nor '" + right + "' nor its own 'unassigned'";
+  for (std::size_t f = 0; f + 2 < faces.size(); f += 3) {
+    bool l = false, r = false;
+    for (int k = 0; k < 3; ++k) { const auto x = H.labels[static_cast<std::size_t>(faces[f + static_cast<std::size_t>(k)])]; l = l || x == *L; r = r || x == *R; }
+    if (l && r) return H.name + ": face " + std::to_string(f / 3) + " has vertices in both hemispheres: the labelling does not follow the surface's pieces";
+  }
+  return {};
+}
+
 std::optional<GlueMap> glue_map_of(SubjectWriter& sub, const std::string& manifold_id) {
-  const auto node = task::Subject::of(sub).by_id(task::Cls::manifold, manifold_id);
+  const task::Subject ts = task::Subject::of(sub);
+  const auto node = ts.by_id(task::Cls::manifold, manifold_id);
   if (!node || !node->producer.is_object() || !node->producer.contains("glue")) return std::nullopt;
   const Json& g = node->producer["glue"];
   if (!g.is_object() || !g.contains("original") || !g["original"].is_string())
@@ -127,8 +176,23 @@ std::optional<GlueMap> glue_map_of(SubjectWriter& sub, const std::string& manifo
   GlueMap m;
   m.glued_id = manifold_id;
   m.original_id = g["original"].get<std::string>();
-  const std::string map_path = g.contains("map_path") && g["map_path"].is_string() ? g["map_path"].get<std::string>() : task::Subject::of(sub).node_path(manifold_id, node->name + "_map");   // the map is the field `<glued name>_map` of the glued surface
-  m.original_of = read_as<std::int32_t>(sub.store(), map_path);
+  // the kept vertices of the original (ascending) and the labelling of the glued vertices: the first ones are the kept, in that order, the rest the bridge
+  task::Want wk{.cls = task::Cls::selection}; wk.name = node->name + "_kept"; wk.manifold_id = m.original_id;
+  task::Want wh{.cls = task::Cls::selection}; wh.name = node->name + "_hemispheres"; wh.manifold_id = manifold_id;
+  const auto kn = ts.find(wk), hn = ts.find(wh);
+  if (!kn || !kn->array_path || !hn)
+    throw Error(code::invalid_argument, node->name + ": its kept vertices (" + wk.name.value_or("") + ") or its hemispheres labelling (" + wh.name.value_or("") + ") is not stored: a glued cortex in the earlier form (a map field and a bridge selection) is converted in place by `nxr-neuro migrate glue`");
+  const std::vector<std::int32_t> kept = read_as<std::int32_t>(sub.store(), *kn->array_path);
+  const StoredLabelling h = stored_labelling(sub, hn->id);
+  const auto bridge = h.code_of("bridge");
+  const std::int64_t n = static_cast<std::int64_t>(h.labels.size()), k = static_cast<std::int64_t>(kept.size());
+  if (!bridge || k > n) throw Error(code::invalid_argument, node->name + ": its hemispheres labelling has no `bridge` entry, or fewer vertices than the kept ones");
+  for (std::int64_t i = 0; i < n; ++i)
+    if ((h.labels[static_cast<std::size_t>(i)] == *bridge) != (i >= k))
+      throw Error(code::invalid_argument, node->name + ": glued vertex " + std::to_string(i) + " breaks the glue's order (the " + std::to_string(k) + " kept vertices first, then the bridge)");
+  for (std::int64_t i = 1; i < k; ++i) if (kept[static_cast<std::size_t>(i)] <= kept[static_cast<std::size_t>(i - 1)]) throw Error(code::invalid_argument, node->name + ": its kept vertices are not ascending");
+  m.original_of.assign(static_cast<std::size_t>(n), -1);
+  for (std::int64_t i = 0; i < k; ++i) m.original_of[static_cast<std::size_t>(i)] = kept[static_cast<std::size_t>(i)];
   return m;
 }
 

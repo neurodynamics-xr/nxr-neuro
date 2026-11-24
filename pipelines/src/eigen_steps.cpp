@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdio>
 #include <numeric>
+#include <set>
 #include <tuple>
 
 #include "nxr/geometry/curvature.h"
@@ -356,36 +357,43 @@ StepSpec hodge_dirac_step() {
 }
 
 
-// ── surface.glue ─────────────────────────────────────────────────────────────────────────────────────────────────
+// ── geometry.glue ────────────────────────────────────────────────────────────────────────────────────────────────
 // THE GLUED CORTEX, made by its own definition (`glue`): the two hemispheres' medial walls (the Desikan-Killiany atlas' `unassigned`) cut as disks and a BRIDGE grown between the rims (the Studio's
-// glue.ts glueMesh, nxr-compute glue.h, bit-exact). Makes the glued surface (the kept vertices in ascending original index, then the bridge's), the MAP glued vertex -> original vertex (-1 on the bridge: not
-// cortex) as a field of the glued surface, and the bridge as an indices selection. The surface's producer record carries {glue: {original}}; the map is the field `<glued name>_map` beside it; a result on the glued surface is restricted back to the original.
-struct GlueState { std::string surface; };
+// glue.ts glueMesh, nxr-compute glue.h, bit-exact). The hemispheres are READ, never found: the caller names the original's HEMISPHERE LABELLING (an atlas: Brainstorm's `Structures`, `Cortex L` /
+// `Cortex R` / `unassigned`) and which of its entries are the left and the right; a labelling whose left or right member is not one connected piece, that leaves cortex outside its own `unassigned`
+// unlabelled, or that puts one face in both hemispheres is refused with the reason. Makes the glued surface (the kept vertices in ascending original index, then the bridge's), ONE LABELLING of it
+// (the input's entries, names, codes and colours, and one more: `bridge`) and the original's kept vertices (indices, ascending): the correspondence glued -> original is derived from these two.
+struct GlueState { std::string surface, hemispheres; std::string left, right; };
+
 StepSpec surface_glue_step() {
   StepSpec s;
   s.name = "geometry.glue";
   s.kind = "setup";
-  s.inputs = {"surface"};
-  s.outputs = {"glued", "map", "bridge"};
-  s.parameters = Json::object();
+  s.inputs = {"surface", "hemispheres"};
+  s.outputs = {"glued", "labels", "kept"};
+  s.parameters = Json{{"left", "Cortex L"}, {"right", "Cortex R"}};
   s.matches = "the Studio's glue.ts glueMesh (nxr-compute glue.h; nxr geom.glue)";
-  s.description = "a cortex of two hemispheres glued by anatomy into ONE closed surface: each medial wall cut out as a disk, a bridge of new vertices grown between the two rims. Makes the glued surface, the map "
-                  "glued vertex -> original vertex (-1 on the bridge) and the bridge selection; refused when the pieces do not match";
+  s.description = "a cortex of two hemispheres glued by anatomy into ONE closed surface: each medial wall cut out as a disk, a bridge of new vertices grown between the two rims. The hemispheres are the caller's "
+                  "labelling of the original (left and right named); makes the glued surface, its hemispheres labelling (the input's entries and `bridge`) and the original's kept vertices; refused when the "
+                  "labelling and the surface disagree";
   s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the surface: positions as the Studio receives them (float32 widened), double");
-  s.plan = [](const Values& ins, const Json&, const PlanContext&) {
+  s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
     need(ins.count("surface") != 0 && ins.at("surface").row, "geometry.glue: the input `surface` is missing");
+    need(ins.count("hemispheres") != 0 && ins.at("hemispheres").row, "geometry.glue: the input `hemispheres` (the original's hemisphere labelling) is missing");
+    need(p.value("left", std::string()) != p.value("right", std::string()) && !p.value("left", std::string()).empty(), "geometry.glue: left and right name two entries of the hemisphere labelling");
     const std::string sid = ins.at("surface").manifolds.empty() ? std::string() : ins.at("surface").manifolds[0];
     Values out;
-    for (const char* port : {"glued", "map", "bridge"}) {
+    for (const char* port : {"glued", "labels", "kept"}) {
       Value v;
-      v.cls = std::string(port) == "glued" ? "manifold" : std::string(port) == "bridge" ? "selection" : "field";
+      v.cls = std::string(port) == "glued" ? "manifold" : "selection";
       v.manifolds = {sid};
-      if (std::string(port) == "map") v.value_type = "integer";
       out[port] = std::move(v);
     }
     return out;
   };
-  s.prepare = [](const Values& ins, const Json&, ExecContext&) { return std::any(GlueState{nxr::io::text(*ins.at("surface").row, "name")}); };
+  s.prepare = [](const Values& ins, const Json& p, ExecContext&) {
+    return std::any(GlueState{nxr::io::text(*ins.at("surface").row, "name"), nxr::io::text(*ins.at("hemispheres").row, "id"), p.value("left", std::string("Cortex L")), p.value("right", std::string("Cortex R"))});
+  };
   s.resolve = [](const Values& ins, const Json&, const Bound& bound) {
     const SurfaceInput S = bound.surface(nxr::io::text(*ins.at("surface").row, "name"));
     return Json{{"mesh", mesh_key(S.faces)}, {"positions", positions_key(S.vertices)}, {"medial_wall", wall_key(bound.medial_wall(S))}, {"glue", "anatomy"}};
@@ -393,28 +401,44 @@ StepSpec surface_glue_step() {
   s.run = [](const std::any& state, const Arrays&, ExecContext& ctx) {
     const GlueState& st = std::any_cast<const GlueState&>(state);
     const SurfaceInput S = ctx.bound.surface(st.surface);
-    const int pieces = connected_pieces(S.faces, S.n_vertices());
-    need(pieces == 2, st.surface + " is " + std::to_string(pieces) + " piece(s): `glue` is for a cortex of two pieces (its hemispheres)");
+    const StoredLabelling H = ctx.bound.labelling(st.hemispheres);
+    const std::int64_t V = S.n_vertices();
+    need(static_cast<std::int64_t>(H.labels.size()) == V, H.name + " labels " + std::to_string(H.labels.size()) + " vertices, " + S.name + " has " + std::to_string(V) + ": not a labelling of it");
+    const std::string disagree = hemispheres_disagree(S.faces, H, st.left, st.right);   // each one connected piece, every vertex outside its own `unassigned` in one, no face in both
+    need(disagree.empty(), disagree + " (" + S.name + ")");
     const std::vector<std::uint8_t> wall = ctx.bound.medial_wall(S);
     const nxr::geometry::glue::Glued G = nxr::geometry::glue::glueMesh(S.vertices, S.faces, wall);
     const std::int64_t Vg = static_cast<std::int64_t>(G.keep.size());
-    std::int64_t kept = 0;
-    for (const auto k : G.keep) if (k >= 0) ++kept;
+    std::vector<std::int32_t> kept;
+    for (const auto k : G.keep) if (k >= 0) kept.push_back(k);
+    const std::int64_t m = static_cast<std::int64_t>(kept.size());
+    for (std::int64_t i = 0; i < Vg; ++i) need((G.keep[static_cast<std::size_t>(i)] >= 0) == (i < m) && (i == 0 || i >= m || G.keep[static_cast<std::size_t>(i)] > G.keep[static_cast<std::size_t>(i - 1)]),
+                                               "glue: the glued vertices are not the kept ones in ascending order, then the bridge's");
     const Json bridge = Json{{"vertices", G.bridge.vertices}, {"rings", G.bridge.rings}, {"area", G.bridge.area}, {"longestEdge", G.bridge.longestEdge}};
     if (ctx.say) ctx.say(Json{{"stage", "glued"}, {"surface", S.name}, {"nV", Vg}, {"nF", static_cast<std::int64_t>(G.faces.size() / 3)}, {"mesh", mesh_key(G.faces)}, {"bridge", bridge}});
     const Json glue_record = Json{{"by", "anatomy: the Desikan-Killiany medial wall cut, a bridge grown"}, {"bridge", bridge}, {"nV", Vg}, {"positions", "float32, as the Studio receives them"},
-                                  {"reference", "the Studio's glue.ts glueMesh (nxr-compute glue.h, bit-exact)"}};
+                                  {"reference", "the Studio's glue.ts glueMesh (nxr-compute glue.h, bit-exact)"},
+                                  {"hemispheres", Json{{"labelling", H.name}, {"left", st.left}, {"right", st.right}}}};
+    // the glued labelling: each kept vertex its input label, the bridge one more entry (a code after the input's)
+    std::int64_t bcode = 0;
+    Json lookup = Json::array();
+    for (const auto& e : H.entries) {
+      bcode = std::max(bcode, e.code + 1);
+      Json x = Json{{"code", e.code}, {"name", e.name}};
+      if (e.color) x["colour"] = Json::array({(*e.color)[0], (*e.color)[1], (*e.color)[2]});
+      lookup.push_back(x);
+    }
+    lookup.push_back(Json{{"code", bcode}, {"name", "bridge"}, {"colour", Json::array({128, 128, 128})}});
+    std::vector<double> glued_labels(static_cast<std::size_t>(Vg));
+    for (std::int64_t i = 0; i < Vg; ++i) glued_labels[static_cast<std::size_t>(i)] = i < m ? static_cast<double>(H.labels[static_cast<std::size_t>(kept[static_cast<std::size_t>(i)])]) : static_cast<double>(bcode);
     Arrays out;
-    // the producer's `glue` marks a glued surface: the original manifold and the map's field (named, found beside the surface); results on it are restricted back through the map
+    // the producer's `glue` marks a glued surface: the original manifold, the hemispheres labelling and the kept vertices (named, found beside it); results on it are restricted back through them
     out["glued"] = made(Vg, 3, G.positions, Json{{"faces", G.faces}, {"cs", ctx.bound.coordinate_system_key(S.id)},
-                        {"description", S.name + " glued by anatomy: its medial walls cut (the Desikan-Killiany atlas), a bridge grown between the rims; vertex i < " + std::to_string(kept) + " is a kept vertex of " + S.name + ", the rest the bridge"},
-                        {"producer", Json{{"glued_from", S.name}, {"mesh", mesh_key(G.faces)}, {"gluing", glue_record}, {"glue", Json{{"original", S.id}}}}}});
-    out["map"] = made(Vg, 1, widened(G.keep), Json{{"dtype", "i32"}, {"value_type", "integer"}, {"shape", Json::array({Vg})}, {"glue_map", true},
-                      {"description", "per glued vertex: its original vertex in " + S.name + ", -1 on the bridge (not cortex)"}});
-    std::vector<double> br;
-    for (std::int64_t i = kept; i < Vg; ++i) br.push_back(static_cast<double>(i));
-    const std::int64_t nb = static_cast<std::int64_t>(br.size());
-    out["bridge"] = made(nb, 1, std::move(br), Json{{"glue_map", true}, {"description", "the medial BRIDGE (not cortex): label 0 'bridge: not cortex'; to mask it, no sources, a forward zero there"}});
+                        {"description", S.name + " glued by anatomy: its medial walls cut (the Desikan-Killiany atlas), a bridge grown between the rims; vertex i < " + std::to_string(m) + " is a kept vertex of " + S.name + ", the rest the bridge"},
+                        {"producer", Json{{"glued_from", S.name}, {"mesh", mesh_key(G.faces)}, {"gluing", glue_record}, {"glue", Json{{"original", S.id}, {"form", "labelling"}}}}}});
+    out["labels"] = made(Vg, 1, std::move(glued_labels), Json{{"lookup", lookup}, {"glue_map", true},
+                              {"description", "the hemispheres of the glued cortex: " + H.name + " of " + S.name + " carried over (its entries kept), and the bridge (not cortex: no sources, a forward zero there)"}});
+    out["kept"] = made(m, 1, widened(kept), Json{{"glue_map", true}, {"description", "the vertices of " + S.name + " the glued surface keeps, ascending: glued vertex i < " + std::to_string(m) + " is the i-th of them"}});
     return out;
   };
   return s;

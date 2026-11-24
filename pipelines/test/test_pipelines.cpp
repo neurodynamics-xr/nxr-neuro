@@ -15,6 +15,7 @@
 #include <Eigen/Sparse>
 
 #include "check.h"
+#include "hemispheres.h"
 #include "run_definition.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/selection_store.h"
@@ -23,6 +24,7 @@
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/surface_maps.h"
 #include "nxr/pipelines/eigen.h"
+#include "nxr/pipelines/input.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -128,10 +130,24 @@ int main() {
     SubjectWriter s3 = SubjectWriter::create(ds, "S3");     // the Desikan-Killiany atlas with its wall
     SurfaceOptions so{.name = "cortex"};
     so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
+    so.atlases.push_back(nxrtest::structures_of(W, G));   // the hemispheres, as Brainstorm's Structures (the glue reads them)
     s3.compose([&] { add_surface(s3, so, W, G); });
   }
   SubjectWriter s2 = SubjectWriter::open(ds, "S2");
-  CHECK_EQ(([&] { try { eigen_solve(ds, s2, opt); } catch (const Error& e) { return e.code(); } return std::string(); })(), std::string(code::no_such_row));
+  CHECK(!([&] { try { eigen_solve(ds, s2, opt); } catch (const Error& e) { return e.code(); } return std::string(); })().empty());   // no hemisphere labelling, no atlas: refused
+  {   // a hemisphere labelling that does not follow the pieces (a cap of the first sphere labelled right): the glue is refused, with the reason
+    SubjectWriter s4 = SubjectWriter::create(ds, "S4");
+    SurfaceOptions so{.name = "cortex"};
+    so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
+    AtlasMember bad = nxrtest::structures_of(W, G);
+    for (std::int32_t i = 0; i < n1; ++i) if (W[3 * i + 2] > 0.06) bad.codes[static_cast<std::size_t>(i)] = 1;
+    so.atlases.push_back(bad);
+    s4.compose([&] { add_surface(s4, so, W, G); });
+    const std::string why = [&] { try { nxrtest::run_definition(ds, s4, "glue", Json{{"surface", "cortex"}}); } catch (const std::exception& e) { return std::string(e.what()); } return std::string(); }();
+    std::printf("  a hemisphere labelling that disagrees: %s\n", why.substr(0, 160).c_str());
+    CHECK(why.find("Structures") != std::string::npos);
+    CHECK(!s4.find("manifold", "source/cortex_glued"));
+  }
   SubjectWriter s3 = SubjectWriter::open(ds, "S3");
   opt.replace = false;
   // two identical spheres make exactly cocircular quads: flipped to Delaunay their cotan weights are 0 up to rounding (about -1e-17), which the 2-form ladder inverts: the named *1 floor keeps it defined, and the
@@ -152,7 +168,28 @@ int main() {
   CHECK(g.modes.n_exact > 0 && g.modes.n_coexact > 0);
   {
     const auto gs = s3.find("manifold", "source/cortex_glued");
-    const auto br = s3.find("selection", "source/cortex_glued_bridge");
+    // the glue's result is SELECTIONS: the hemispheres labelling of the glued cortex (the input's entries and `bridge`) and the original's kept vertices; the correspondence derived from them
+    nxr::io::task::Want wl{.cls = nxr::io::task::Cls::selection}; wl.name = std::string("cortex_glued_hemispheres");
+    const auto hl = nxr::io::task::Subject::of(s3).find(wl);
+    const auto br = hl;
+    CHECK(hl.has_value() && !s3.find("field", "source/cortex_glued/cortex_glued_map") && !s3.find("selection", "source/cortex_glued_bridge"));
+    if (hl) {
+      const StoredLabelling H = stored_labelling(s3, hl->id);
+      const auto L = H.code_of("Cortex L"), R = H.code_of("Cortex R"), B = H.code_of("bridge");
+      CHECK(L && R && B && static_cast<std::int64_t>(H.labels.size()) == Vg);
+      bool order = true;
+      std::int64_t left = 0, right = 0;
+      for (std::int64_t i = 0; i < Vg; ++i) {
+        const auto l = H.labels[static_cast<std::size_t>(i)];
+        order = order && ((l == *B) == (i >= kept));
+        if (i < kept) order = order && l == (gm.keep[static_cast<std::size_t>(i)] < n1 ? *L : *R);   // each kept vertex its hemisphere's label
+        left += l == *L; right += l == *R;
+      }
+      std::printf("  glued labelling: %lld left, %lld right, %lld bridge\n", (long long)left, (long long)right, (long long)(Vg - kept));
+      CHECK(order && left > 0 && right > 0);
+      const auto gmap = glue_map_of(s3, text(*s3.find("manifold", "source/cortex_glued"), "id"));   // the correspondence, carried
+      CHECK(gmap && gmap->original_of == gm.keep);
+    }
     const auto op = s3.find("operator", "hodgeDirac__cortex_glued_eigenvectors");
     const auto tri = s3.find("manifold", "source/cortex_glued_intrinsic");
     CHECK(gs && br && op && tri);

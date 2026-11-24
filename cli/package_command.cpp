@@ -12,7 +12,7 @@
 //   package participants-import --dataset D --tsv TSV [--sidecar JSON]    package participants-export --dataset D --tsv TSV [--sidecar JSON]
 //   package split   --dataset D --registered-by WHO [--dry-run]            package join --dataset D
 //   package migrate-selections --dataset D [--dry-run]                     package migrate-measurements --dataset D [--dry-run] [--remove-statistics]
-//   package migrate-eigensolve --dataset D --subject S [--name STEM]
+//   package migrate-eigensolve --dataset D --subject S [--name STEM]      package migrate-glue --dataset D --subject S [--name GLUED] [--hemispheres L] [--left E] [--right E]
 //   package release --package P --name N --template-version V --released-by WHO --into DIR    package release-redistributable --package P --into DIR --released-by WHO
 //   package templates [--templates DIR ...]
 //   package template-create --recipe fsaverage|icbm152 --sources DIR --package P [--name N] [--surface S ...] [--parcellation NAME ...] [--cortex-mask] [--hcp-trk FILE --hcp-end-surface S
@@ -103,6 +103,17 @@ int package_main(const std::vector<std::string>& argv) {
 #else
     throw Usage(prog + ": this build has no pipelines");
 #endif
+  } else if (action == "migrate-glue") {
+#ifdef NXR_NEURO_WITH_PIPELINES
+    // THE GLUED CORTEX as selections (pipelines/eigen_migrate.h): a map field and a bridge selection converted in place to the hemispheres labelling and the kept vertices; idempotent
+    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--hemispheres", "--left", "--right"}, {}, {"--dataset", "--subject"});
+    DatasetWriter ds = open_dataset(a);
+    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"));
+    emit_result(call(prog, [&] { return nxr::pipelines::migrate_glue(sub, a.maybe("--name"), a.maybe("--hemispheres").value_or("Structures"), a.maybe("--left").value_or("Cortex L"),
+                                                                     a.maybe("--right").value_or("Cortex R"), [](const Json& j) { emit(j); }); }));
+#else
+    throw Usage(prog + ": this build has no pipelines");
+#endif
   } else if (action == "join") {
     const Args a = parse(prog, rest, {"--dataset"}, {}, {"--dataset"});
     emit_result(task::join_dataset({a.get("--dataset")}).result);
@@ -174,7 +185,7 @@ int package_main(const std::vector<std::string>& argv) {
 #endif
   } else {
     throw Usage("nxr-neuro package: error: argument action: invalid choice: '" + action +
-                "' (choose from 'create', 'verify', 'show', 'register', 'status', 'select', 'index', 'participants-import', 'participants-export', 'split', 'join', 'migrate-selections', 'migrate-measurements', 'migrate-eigensolve', 'release', 'release-redistributable', 'templates', 'registration-create', 'template-create')");
+                "' (choose from 'create', 'verify', 'show', 'register', 'status', 'select', 'index', 'participants-import', 'participants-export', 'split', 'join', 'migrate-selections', 'migrate-measurements', 'migrate-eigensolve', 'migrate-glue', 'release', 'release-redistributable', 'templates', 'registration-create', 'template-create')");
   }
   return 0;
 }

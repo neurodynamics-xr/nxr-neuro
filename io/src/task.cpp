@@ -989,7 +989,8 @@ std::string Unit::selection(const SelectionOut& s) {
   } else {
     throw Error(code::invalid_argument, "selection " + s.name + ": type " + s.type + " (partition, set, indices, spans, kernels, tiling, cells, grid or product)");
   }
-  for (std::size_t k = 0; k < s.entries.size(); ++k) d.lookup.push_back(selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});   // the codes' names
+  if (!s.lookup.empty()) for (const auto& e : s.lookup) d.lookup.push_back(selection::Entry{e.code, e.name, e.colour});   // the codes' names, codes and colours as given
+  else for (std::size_t k = 0; k < s.entries.size(); ++k) d.lookup.push_back(selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});   // the codes' names
   if (!s.weights.shape.empty()) {   // one weight a member, beside the selection's array and named in its parameters (as a kernel's `weights` array is)
     const std::string wpath = at.path.value_or(std::string()) + ".weights";
     sub.write_array(wpath, view_of(s.weights, "selection " + s.name + " weights"));

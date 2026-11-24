@@ -997,7 +997,16 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       std::vector<std::int32_t> labels;
       for (const double c : a.data) labels.push_back(static_cast<std::int32_t>(c));
       nxr::selection::Lookup names;
-      for (std::size_t k = 0; k < s.entries.size(); ++k) names.push_back(nxr::selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});
+      if (d.contains("lookup") && d["lookup"].is_array()) {                // the codes with their own names and colours (a labelling carried from another: its dictionary and more)
+        for (const auto& e : d["lookup"]) {
+          task::SelectionOut::LookupEntry x;
+          x.code = e.at("code").get<std::int64_t>(); x.name = e.at("name").get<std::string>();
+          if (e.contains("colour") && e["colour"].is_array() && e["colour"].size() == 3) x.colour = std::array<int, 3>{e["colour"][0].get<int>(), e["colour"][1].get<int>(), e["colour"][2].get<int>()};
+          names.push_back(nxr::selection::Entry{x.code, x.name, x.colour});
+          s.lookup.push_back(std::move(x));
+        }
+      } else
+        for (std::size_t k = 0; k < s.entries.size(); ++k) names.push_back(nxr::selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});
       try {
         const nxr::selection::Selection set = nxr::selection::from_labels(labels, names);
         s.member_of = set.member_of;

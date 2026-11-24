@@ -87,6 +87,8 @@ class Bound {
   std::optional<nxr::io::Row> eigenvalue_line() const;
   /** the glue map of a manifold that is a derived glued surface (made by `glue`): glued vertex → original vertex (-1: the bridge); nothing for any other manifold. Results on it are restricted back to the original */
   std::optional<GlueMap> glue_of(const std::string& manifold_id) const;
+  /** a labelling (a set per element: an atlas, a hemisphere labelling) as stored: each element's label and the dictionary's entries */
+  StoredLabelling labelling(const std::string& selection_id) const;
   // ── the subject's stored constants (a run) ──
   std::optional<nxr::io::Row> manifold_named(const std::string& name) const;    // the run's subject's manifold by name
   SurfaceInput surface(const std::optional<std::string>& name = std::nullopt, bool as_stored = false) const;

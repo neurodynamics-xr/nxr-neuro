@@ -13,6 +13,7 @@
 #include <Eigen/Eigenvalues>
 
 #include "check.h"
+#include "hemispheres.h"
 #include "mesh_helpers.h"
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/surface_maps.h"
@@ -197,6 +198,7 @@ int main() {
       SurfaceOptions so{.name = "cortex"};
       so.sphere = UU;
       so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
+      so.atlases.push_back(nxrtest::structures_of(W, G));   // the hemispheres, as Brainstorm's Structures (the glue reads them)
       b.compose([&] { add_surface(b, so, W, G); });
     }
     // no atlas: not computable; auto falls back (announced), eigen refuses naming the atlas

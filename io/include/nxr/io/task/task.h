@@ -256,7 +256,10 @@ struct SelectionOut {
   std::vector<std::string> factor_ids;             // product (the Studio's D100, mixed radix, first factor fastest): the factors' stored selections, in order (>= 2)
   std::vector<int> factor_levels;                  // product (schema 53): the LEVEL of each factor that is a grid (`ladder`), -1 for a factor as it is; empty: all -1. A coupled level (a band's) is named here, never made a row of its own
   std::vector<std::int64_t> radices;               // product: each factor's radix; required for a factor that is a level of a grid (its member count there); empty: the factors' member counts
-  std::vector<std::string> entries;                // the codes' names (a dictionary of the selection's own), when any
+  std::vector<std::string> entries;                // the codes' names (a dictionary of the selection's own), when any: entry k names code k
+  // the codes' names with their own codes and colours (a labelling carried from another one: an atlas's dictionary and one more entry); when given, it is the dictionary and `entries` is not used
+  struct LookupEntry { std::int64_t code = 0; std::string name; std::optional<std::array<int, 3>> colour; };
+  std::vector<LookupEntry> lookup;
   std::optional<std::string> of_field_id, description, label, acquisition;
   Json params;                                     // the selection's parameters (null: none)
   Json producer;
