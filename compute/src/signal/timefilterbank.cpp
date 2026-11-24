@@ -136,6 +136,22 @@ GaborGrid gaborGrid(double sigmaMin, double sigmaMax, int perOctave, double fMin
     return g;
 }
 
+Gain1 bandGain(const BandShape& shape) {
+    const double lo = shape.lo, hi = shape.hi;
+    if (!(hi > lo)) throw std::invalid_argument("bandGain: a band is [lo, hi] with lo < hi");
+    if (shape.family == "morlet") return [lo, hi](double f) { return morletBand(f, lo, hi); };
+    if (shape.family == "meyer") {
+        if (!shape.halfWidth) throw std::invalid_argument("bandGain: a meyer band states its half-width (octaves)");
+        const double halfWidth = *shape.halfWidth;
+        return [lo, hi, halfWidth](double f) { return meyerBand(f, lo, hi, halfWidth); };
+    }
+    if (shape.family == "morlet_ladder") {
+        if (!shape.ladderMinimum || !shape.ladderMaximum || !shape.voices) throw std::invalid_argument("bandGain: a morlet_ladder band states its ladder's minimum, maximum and voices");
+        return morletLadderGain(lo, hi, *shape.ladderMinimum, *shape.ladderMaximum, *shape.voices);
+    }
+    throw std::invalid_argument("bandGain: the band shape '" + shape.family + "' is not morlet, meyer or morlet_ladder");
+}
+
 std::function<double(double)> morletLadderGain(double lo, double hi, double ladderMin, double ladderMax, int voices) {
     if (!(ladderMin > 0) || !(ladderMax > ladderMin) || voices < 1) throw std::invalid_argument("morletLadderGain: 0 < ladderMin < ladderMax and voices >= 1");
     const int K = static_cast<int>(std::lround(voices * std::log2(ladderMax / ladderMin)));

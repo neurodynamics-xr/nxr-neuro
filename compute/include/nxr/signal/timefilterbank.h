@@ -143,6 +143,17 @@ GaborGrid gaborGrid(double sigmaMin, double sigmaMax, int perOctave, double fMin
  *  cycles = 1 / (2^(1/2V) − 2^(−1/2V)), so Σ g² is flat inside the ladder; normalised so the largest Σ g² over [2 ladderMin, ladderMax / 2] is 1): Σ g_m(f)² over the members whose centre lies in [lo, hi].
  *  A real gain of |f| (Hz); the members are the bank's Morlet family. Throws on 0 < ladderMin < ladderMax, voices >= 1 not met. */
 std::function<double(double)> morletLadderGain(double lo, double hi, double ladderMin, double ladderMax, int voices);
+/** ONE BAND'S GAIN as the nodes that take a band and a shape name it: `morlet` (morletBand), `meyer` (meyerBand, `halfWidth` octaves, required) or
+ *  `morlet_ladder` (morletLadderGain: `ladderMinimum`, `ladderMaximum`, `voices` required), over [lo, hi] Hz. Throws std::invalid_argument naming a missing
+ *  setting or an unknown family. The one place a node's band and shape become a gain. */
+struct BandShape {
+    std::string family;
+    double lo = 0, hi = 0;
+    std::optional<double> halfWidth;
+    std::optional<double> ladderMinimum, ladderMaximum;
+    std::optional<int> voices;
+};
+Gain1 bandGain(const BandShape& shape);
 
 /** Build the bank on a grid of `nfft` samples at `fs`. Throws on an unsatisfiable design (no member fits; gain <= 0; missing centres). */
 TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs);

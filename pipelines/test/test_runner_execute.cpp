@@ -15,7 +15,7 @@
 #include "check.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/runner.h"

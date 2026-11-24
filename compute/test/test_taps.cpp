@@ -18,7 +18,7 @@
 #include <string>
 #include <vector>
 
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 static int fails = 0;

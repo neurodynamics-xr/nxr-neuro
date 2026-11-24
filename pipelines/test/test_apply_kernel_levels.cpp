@@ -26,7 +26,7 @@
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/filters_fir.h"
 #include "make_grids.h"
 

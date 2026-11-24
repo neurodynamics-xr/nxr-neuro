@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/filters_fir.h"
 
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;

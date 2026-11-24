@@ -33,7 +33,7 @@
 #include "store_at.h"
 #include "nxr/bst/entities.h"
 #include "nxr/select/cores.h"
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/forms.h"
 #include "nxr/stats/histogram.h"
 #include "nxr/io.h"

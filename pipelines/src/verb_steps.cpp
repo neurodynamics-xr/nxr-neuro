@@ -10,7 +10,7 @@
 #include <Eigen/Dense>
 
 #include "nxr/select/cores.h"
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/synthesis/lagfree.h"
 #include "nxr/stats/nulltest.h"
 #include <limits>
@@ -243,7 +243,7 @@ StepSpec lagfree_pairs_step() {
   s.kind = "setup";
   s.inputs = {"recording", "bursts", "psd"};
   s.outputs = {"per_burst", "run"};
-  s.parameters = Json{{"windows", nullptr}, {"band", nullptr}, {"shape", "morlet"}, {"draws", 1000}, {"seed", 0}};
+  s.parameters = Json{{"windows", nullptr}, {"band", nullptr}, {"shape", nullptr}, {"half_width", nullptr}, {"draws", 1000}, {"seed", 0}};
   s.matches = "Rheome +rheome/+cores pairnull, pairshare, pairdof, bh, tilepq; compute nxr::synthesis::lagfreeSecondMomentDraw, laggedShare, effectiveBandwidth; nxr::stats::fixedDrawPs, benjaminiHochbergQ, compareMeanOverMembers";
   s.description = "per burst, the lagged share of its sensors' second moment against lag-free Wishart draws of its own zero-lag second moment and degrees of freedom; and the run's mean share against the draws'";
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double from stored windows");
@@ -252,8 +252,10 @@ StepSpec lagfree_pairs_step() {
     if (!p["windows"].is_string()) refuse("synthesis.lagfree_pairs: windows names the analytic cross-spectrum series of the band (<name>_<band>_windows)");
     if (!p["band"].is_array() || p["band"].size() != 2 || !(p["band"][0].get<double>() >= 0 && p["band"][0].get<double>() < p["band"][1].get<double>())) refuse("synthesis.lagfree_pairs: band is [lo, hi] Hz, lo < hi");
     if (p.value("draws", 1000) < 20) refuse("synthesis.lagfree_pairs: draws is at least 20");
-    const std::string sh = p.value("shape", std::string("morlet"));
+    if (!p.contains("shape") || !p["shape"].is_string()) refuse("synthesis.lagfree_pairs: shape has no default: name it (morlet | meyer)");
+    const std::string sh = p["shape"].get<std::string>();
     if (sh != "morlet" && sh != "meyer") refuse("synthesis.lagfree_pairs: shape is morlet or meyer");
+    if (sh == "meyer" && !(p.contains("half_width") && p["half_width"].is_number())) refuse("synthesis.lagfree_pairs: a meyer band states half_width (octaves)");
     Value pb;                                                              // per burst: a measurement of the recording over the bursts' members
     pb.cls = "measurement";
     pb.manifolds = ins.at("bursts").manifolds;
@@ -279,10 +281,15 @@ StepSpec lagfree_pairs_step() {
     if (!(df > 0)) refuse("synthesis.lagfree_pairs: the PSD records no frequency resolution");
     const std::int64_t nf = P.shape[1];
     const std::vector<double> band = p["band"].get<std::vector<double>>();
-    const std::string shape = p.value("shape", std::string("morlet"));
+    nxr::signal::timefilterbank::BandShape bandShape;                    // the band's analytic gain: the one band-gain function (timefilterbank::bandGain)
+    bandShape.family = p.at("shape").get<std::string>();
+    bandShape.lo = band[0];
+    bandShape.hi = band[1];
+    if (p.contains("half_width") && p["half_width"].is_number()) bandShape.halfWidth = p["half_width"].get<double>();
+    const std::function<double(double)> bandGainOf = nxr::signal::timefilterbank::bandGain(bandShape);
     Eigen::VectorXd freq(nf), gain(nf);
     for (std::int64_t k = 0; k < nf; ++k) freq[k] = static_cast<double>(k) * df;
-    for (std::int64_t k = 0; k < nf; ++k) gain[k] = shape == "morlet" ? nxr::signal::timefilterbank::morletBand(freq[k], band[0], band[1]) : nxr::signal::timefilterbank::meyerBand(freq[k], band[0], band[1], 1.0 / 3.0);
+    for (std::int64_t k = 0; k < nf; ++k) gain[k] = bandGainOf(freq[k]);
     double Beff = 0;
     try { Beff = nxr::synthesis::effectiveBandwidth(freq, channel_mean_spectrum(P.values, P.shape[0], nf, win.channels), gain); } catch (const std::invalid_argument& e) { refuse(std::string("synthesis.lagfree_pairs: ") + e.what()); }
     // each burst's second moment: the windows wholly inside it summed (a selection of the windows by the burst's span: the windows are read, never recomputed)

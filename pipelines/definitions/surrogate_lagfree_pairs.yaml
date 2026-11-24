@@ -21,13 +21,14 @@ parameters:
   psd: {default: null, meaning: "the recording's Welch PSD (its bandwidth through the band's gain gives the dof)", unit: "-"}
   band: {default: null, meaning: "the band [lo, hi]", unit: "Hz"}
   shape: {default: morlet, meaning: "the band's analytic gain: morlet | meyer", unit: "-", choices: [morlet, meyer]}
+  half_width: {default: 0.3333333333333333, meaning: "a meyer band's transition half-width (read for shape meyer)", unit: "octave"}
   draws: {default: 1000, meaning: "the lag-free Wishart draws a burst (at least 20)", unit: "-"}
   seed: {default: 0, meaning: "the draws' seed", unit: "-"}
   name: {default: "surrogate_lagfree_pairs.{bursts}", meaning: "the per-burst measurement's name; the run's statistic is <name>.run", unit: "-"}
 
 steps:
   before:
-    - {node: synthesis.lagfree_pairs, in: {recording: recording, bursts: bursts, psd: psd}, with: {windows: $windows, band: $band, shape: $shape, draws: $draws, seed: $seed}, out: [per_burst, run]}
+    - {node: synthesis.lagfree_pairs, in: {recording: recording, bursts: bursts, psd: psd}, with: {windows: $windows, band: $band, shape: $shape, half_width: $half_width, draws: $draws, seed: $seed}, out: [per_burst, run]}
 
 outputs:
   per_burst:

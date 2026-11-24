@@ -29,7 +29,7 @@
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/signal/filters_fir.h"
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "make_grids.h"
 #include "run_definition.h"
 
