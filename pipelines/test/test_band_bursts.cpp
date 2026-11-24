@@ -140,7 +140,7 @@ int main() {
   CHECK(amp_mv.rows == M && amp_mv.members == TT && peak_mv.members == TT);
   const std::vector<double>& arr = amp_mv.values;
   {
-    const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 16.0); };
+    const auto gain = [&](double f) { return nxr::signal::timefilterbank::morletBand(f, 8.0, 16.0); };
     const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
     const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
     double worst = 0, scale = 0;
@@ -199,7 +199,7 @@ int main() {
   std::vector<double> dur_all;
   {
     const std::int64_t TW = W;
-    const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 16.0); };
+    const auto gain = [&](double f) { return nxr::signal::timefilterbank::morletBand(f, 8.0, 16.0); };
     const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
     const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
     auto env = [&](int c, std::int64_t k) { const double a = re[static_cast<std::size_t>(c * T + k)], b = im[static_cast<std::size_t>(c * T + k)]; return static_cast<double>(static_cast<float>(std::sqrt(a * a + b * b))); };
@@ -326,7 +326,7 @@ int main() {
         "outputs:\n  med: {kind: measurement, over: grid, of: recording}\n";
     const g::Definition dm = g::parse(parse_yaml(yaml, "test.yaml"), "test.yaml", yaml);
     const auto rm = g::run(ds, sub, dm, Json::object(), all);
-    const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 16.0); };
+    const auto gain = [&](double f) { return nxr::signal::timefilterbank::morletBand(f, 8.0, 16.0); };
     const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
     const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
     auto env = [&](int c, std::int64_t k) { const double a = re[static_cast<std::size_t>(c * T + k)], b = im[static_cast<std::size_t>(c * T + k)]; return static_cast<double>(static_cast<float>(std::sqrt(a * a + b * b))); };

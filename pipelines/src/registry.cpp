@@ -742,10 +742,10 @@ std::vector<float> convolve(const Block& b, const std::vector<float>& taps, std:
 std::function<double(double)> band_gain(const Json& p) {
   if (p["band"].is_null()) return [](double) { return 1.0; };
   const double lo = p["band"][0].get<double>(), hi = p["band"][1].get<double>(), hw = p["half_width"].get<double>();
-  if (p["shape"] == "morlet") return [lo, hi](double f) { return nxr::signal::graphfilterbank::morletBand(f, lo, hi); };
+  if (p["shape"] == "morlet") return [lo, hi](double f) { return nxr::signal::timefilterbank::morletBand(f, lo, hi); };
   if (p["shape"] == "morlet_ladder")                                     // the band's members of a Morlet ladder, their squared gains summed (the reference Gabor detector's R² signal)
     return nxr::signal::timefilterbank::morletLadderGain(lo, hi, p["ladder_min"].get<double>(), p["ladder_max"].get<double>(), p["voices"].get<int>());
-  return [lo, hi, hw](double f) { return nxr::signal::graphfilterbank::meyerBand(f, lo, hi, hw); };
+  return [lo, hi, hw](double f) { return nxr::signal::timefilterbank::meyerBand(f, lo, hi, hw); };
 }
 struct AnalyticTaps { std::vector<float> even, odd; };
 struct KernelState { std::shared_ptr<const Eigen::MatrixXd> K; Json resolved; };

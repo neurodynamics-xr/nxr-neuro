@@ -181,7 +181,7 @@ int main() {
   const std::vector<double> va = nxr::select::vertexAreas(lm);
   std::vector<double> tarea(static_cast<std::size_t>(tiles), 0.0);
   for (int v = 0; v < N; ++v) tarea[static_cast<std::size_t>(SL.tile[static_cast<std::size_t>(v)])] += va[static_cast<std::size_t>(v)];
-  const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 16.0); };
+  const auto gain = [&](double f) { return nxr::signal::timefilterbank::morletBand(f, 8.0, 16.0); };
   const auto hh = nxr::signal::gainTaps(gain, sfreq, false), qq = nxr::signal::gainTaps(gain, sfreq, true);
   const auto re = nxr::signal::convolveRows(xf.data(), M, T, hh, 0, T, false);
   const auto im = nxr::signal::convolveRows(xf.data(), M, T, qq, 0, T, true);

@@ -349,7 +349,6 @@ function	signal.mscohere	nxr::signal::mscohere	ok
 function	signal.fir1	nxr::signal::fir1	ok
 function	signal.butter	nxr::signal::butter	ok
 function	signal.istft	nxr::signal::istft	ok
-function	signal.fromOperator	nxr::signal::graphfilterbank::fromOperator	ok
 function	signal.wgft	nxr::signal::graphfilterbank::wgft	ok
 function	signal.iwgft	nxr::signal::graphfilterbank::iwgft	ok
 function	signal.jft	nxr::signal::jointtransforms::jft	ok

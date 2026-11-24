@@ -282,7 +282,7 @@ StepSpec lagfree_pairs_step() {
     const std::string shape = p.value("shape", std::string("morlet"));
     Eigen::VectorXd freq(nf), gain(nf);
     for (std::int64_t k = 0; k < nf; ++k) freq[k] = static_cast<double>(k) * df;
-    for (std::int64_t k = 0; k < nf; ++k) gain[k] = shape == "morlet" ? nxr::signal::graphfilterbank::morletBand(freq[k], band[0], band[1]) : nxr::signal::graphfilterbank::meyerBand(freq[k], band[0], band[1], 1.0 / 3.0);
+    for (std::int64_t k = 0; k < nf; ++k) gain[k] = shape == "morlet" ? nxr::signal::timefilterbank::morletBand(freq[k], band[0], band[1]) : nxr::signal::timefilterbank::meyerBand(freq[k], band[0], band[1], 1.0 / 3.0);
     double Beff = 0;
     try { Beff = nxr::synthesis::effectiveBandwidth(freq, channel_mean_spectrum(P.values, P.shape[0], nf, win.channels), gain); } catch (const std::invalid_argument& e) { refuse(std::string("synthesis.lagfree_pairs: ") + e.what()); }
     // each burst's second moment: the windows wholly inside it summed (a selection of the windows by the burst's span: the windows are read, never recomputed)

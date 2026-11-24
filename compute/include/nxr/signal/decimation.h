@@ -27,4 +27,11 @@ Eigen::Index decimationHalo(int q, int order = 0);
 Eigen::MatrixXd decimate(const Eigen::MatrixXd& x, int q, Eigen::Index left = 0, Eigen::Index width = -1, Eigen::Index offset = 0, int order = 0);
 Eigen::MatrixXf decimate(const Eigen::MatrixXf& x, int q, Eigen::Index left = 0, Eigen::Index width = -1, Eigen::Index offset = 0, int order = 0);
 
+// ── DECIMATION of a band-limited block (moved from the time filterbank: a bank only designs) (the analytic signal of a band, whose content sits far below the new Nyquist rate: nothing aliases) ──
+/** Every d-th column of Z [channels x T], starting at column `offset` (0 ≤ offset < d): [channels x ⌈(T − offset) / d⌉]. The caller places the grid (a
+ *  global one across chunks: offset = (d − (first − s0) mod d) mod d for a block whose first column is sample `first` of a span starting at s0). Not a
+ *  filter: a signal that is not already band-limited below fs / (2d) aliases. Σ z zᴴ over the kept columns is the full-rate sum divided by d, up to the
+ *  band-limited signal's sampling error. */
+Eigen::MatrixXcd downsample(const Eigen::MatrixXcd& Z, int d, int offset = 0);
+
 }  // namespace nxr::signal

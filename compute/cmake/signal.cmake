@@ -17,7 +17,6 @@ target_sources(nxr_compute PRIVATE
   src/signal/gabor.cpp
   src/signal/graphfilterbank.cpp
   src/signal/graphtransforms.cpp
-  src/signal/graphfilterbank_operator.cpp
   src/signal/graphwavelet.cpp
   src/signal/istft.cpp
   src/signal/jointtransforms.cpp

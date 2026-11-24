@@ -15,8 +15,27 @@ using Eigen::MatrixXd;
 using Eigen::VectorXd;
 namespace fb = nxr::signal::graphfilterbank;
 namespace gt = nxr::signal::graphtransforms;
-static constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 static constexpr double kPi = 3.14159265358979323846;
+
+namespace {
+double angle(double x, double e, double h) { return (kPi / 2) * fb::meyerNu((std::log2(x / e) + h) / (2 * h)); }
+}
+
+double meyerBand(double x, double lo, double hi, double h) {
+    if (!(x > 0)) return lo > 0 ? 0.0 : 1.0;
+    const double rise = lo > 0 ? std::sin(angle(x, lo, h)) : 1.0;
+    const double fall = std::isfinite(hi) ? std::cos(angle(x, hi, h)) : 1.0;
+    return rise * fall;
+}
+
+double morletBand(double x, double lo, double hi) {
+    if (!(hi > lo)) throw std::invalid_argument("timefilterbank::morletBand: needs lo < hi");
+    const double f0 = (lo + hi) / 2, sigma = (hi - lo) / (2 * std::sqrt(2 * std::log(2.0)));
+    const double z = (std::fabs(x) - f0) / sigma;
+    return std::exp(-0.5 * z * z);
+}
+
+static constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 
 Family bandFamilyOf(const std::string& name) {
     if (name == "morlet") return Family::Morlet;
@@ -49,7 +68,7 @@ MatrixXd bandGains(const VectorXd& freqs, const std::vector<std::pair<double, do
   for (const auto& b : bands) if (!(b.second > b.first) || !(b.first > 0)) throw std::invalid_argument("a band needs 0 < lo < hi");
   if (family == Family::Morlet) {
     for (Eigen::Index b = 0; b < nb; ++b)
-      for (Eigen::Index k = 0; k < nf; ++k) g(b, k) = freqs(k) == 0 ? 0.0 : fb::morletBand(std::abs(freqs(k)), bands[b].first, bands[b].second);
+      for (Eigen::Index k = 0; k < nf; ++k) g(b, k) = freqs(k) == 0 ? 0.0 : morletBand(std::abs(freqs(k)), bands[b].first, bands[b].second);
     return g;
   }
   // nxr band_gains: edges in log2 f, a cos/sin crossover half an octave wide centred on each shared edge, the outer edges taper to zero the same way
@@ -240,7 +259,7 @@ TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs) {
             for (const auto& [lo, hi] : d.bands) {
                 if (!(lo >= 0 && hi > lo)) throw std::invalid_argument("timebank::design: a Meyer band is [lo, hi] Hz, 0 <= lo < hi");
                 const double hw = d.halfWidth;
-                add(Role::Band, std::sqrt(std::max(lo, 1e-12) * hi), lo, hi, [sc, lo, hi, hw](double af) { return sc * fb::meyerBand(af, lo, hi, hw); });
+                add(Role::Band, std::sqrt(std::max(lo, 1e-12) * hi), lo, hi, [sc, lo, hi, hw](double af) { return sc * meyerBand(af, lo, hi, hw); });
             }
             b.total = kNaN;
             break;
@@ -293,7 +312,7 @@ TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs) {
         if (d.family == Family::Morlet && !d.bands.empty()) {   // the fixed-band Morlet: one member a band
             for (const auto& [lo, hi] : d.bands) {
                 if (!(lo > 0 && hi > lo)) throw std::invalid_argument("timebank::design: a band needs 0 < lo < hi");
-                add(Role::Band, 0.5 * (lo + hi), lo, hi, [sc, lo, hi](double af) { return sc * fb::morletBand(af, lo, hi); });
+                add(Role::Band, 0.5 * (lo + hi), lo, hi, [sc, lo, hi](double af) { return sc * morletBand(af, lo, hi); });
             }
             b.total = kNaN;
             break;
@@ -433,52 +452,6 @@ std::pair<VectorXd, std::vector<std::size_t>> rates(const TimeFilterbank& b, dou
     return {r, Nm};
 }
 
-// ── the transform ────────────────────────────────────────────────────────────────────────────────────────────────────────
-
-static void requireSides(const TimeFilterbank& b, Sides s, const char* what) {
-    if (b.sides != s) throw std::invalid_argument(std::string("timebank::") + what + (s == Sides::Analytic ? ": needs an analytic bank" : ": needs a two-sided bank"));
-}
-
-MatrixXcd spectrum(const TimeFilterbank& b, const MatrixXd& x) {
-    if (static_cast<std::size_t>(x.rows()) > b.nfft) throw std::invalid_argument("timebank: the record is longer than the bank's grid");
-    MatrixXd xp = MatrixXd::Zero(static_cast<Eigen::Index>(b.nfft), x.cols());
-    xp.topRows(x.rows()) = x;
-    if (b.sides == Sides::Analytic) return rfft(xp);
-    return fft(xp.cast<cd>());
-}
-
-MatrixXcd spectrum(const TimeFilterbank& b, const MatrixXcd& x) {
-    if (b.sides == Sides::Analytic)
-        throw std::invalid_argument("timebank: an ANALYTIC bank is one-sided and cannot take a complex signal (it would drop its negative frequencies silently); "
-                                    "use a two-sided bank, or pass the real signal");
-    if (static_cast<std::size_t>(x.rows()) > b.nfft) throw std::invalid_argument("timebank: the record is longer than the bank's grid");
-    MatrixXcd xp = MatrixXcd::Zero(static_cast<Eigen::Index>(b.nfft), x.cols());
-    xp.topRows(x.rows()) = x;
-    return fft(xp);
-}
-
-MatrixXcd filterSpectrum(const TimeFilterbank& b, const VectorXd& g, const MatrixXcd& X) {
-    if (g.size() != X.rows()) throw std::invalid_argument("timebank::filterSpectrum: one gain per bin");
-    MatrixXcd Y = MatrixXcd::Zero(static_cast<Eigen::Index>(b.nfft), X.cols());
-    for (Eigen::Index j = 0; j < X.cols(); ++j)
-        for (Eigen::Index k = 0; k < X.rows(); ++k) Y(k, j) = X(k, j) * g(k);
-    return ifft(Y);
-}
-
-MatrixXcd coefficientSpectrum(const TimeFilterbank& b, const MatrixXcd& W) {
-    MatrixXcd S = fft(W);
-    return b.sides == Sides::Analytic ? MatrixXcd(S.topRows(static_cast<Eigen::Index>(rfftBins(b.nfft)))) : S;
-}
-
-MatrixXd inverseReal(const TimeFilterbank& b, const MatrixXcd& S, std::size_t n) {
-    requireSides(b, Sides::Analytic, "inverseReal");
-    return irfft(S, b.nfft).topRows(static_cast<Eigen::Index>(n));
-}
-
-MatrixXcd inverseComplex(const TimeFilterbank& b, const MatrixXcd& S, std::size_t n) {
-    requireSides(b, Sides::TwoSided, "inverseComplex");
-    return ifft(S).topRows(static_cast<Eigen::Index>(n));
-}
 
 std::size_t haloOfTaps(const TimeFilterbank& bank, int member) {
   if (member < 0 || member >= bank.size()) throw std::invalid_argument("haloOf: no member " + std::to_string(member));
@@ -543,13 +516,5 @@ double independentEstimates(const TimeFilterbank& bank, int member, std::int64_t
   return equivalentBandwidth(bank, member) * static_cast<double>(samples) / bank.fs;
 }
 
-Eigen::MatrixXcd downsample(const Eigen::MatrixXcd& Z, int d, int offset) {
-  if (d < 1) throw std::invalid_argument("downsample: the factor d is at least 1");
-  if (offset < 0 || offset >= d) throw std::invalid_argument("downsample: the offset is in [0, d)");
-  const Eigen::Index T = Z.cols(), n = T > offset ? (T - offset + d - 1) / d : 0;
-  Eigen::MatrixXcd out(Z.rows(), n);
-  for (Eigen::Index j = 0; j < n; ++j) out.col(j) = Z.col(offset + j * d);
-  return out;
-}
 
 }  // namespace nxr::signal::timefilterbank

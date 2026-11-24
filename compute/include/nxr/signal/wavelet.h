@@ -17,6 +17,23 @@
 #include <cstdint>
 #include <vector>
 
+namespace nxr::signal::timefilterbank {
+
+// ── the time-domain primitives the transforms are built from (wt / iwt and the joint transform); they take the bank for its grid and sides ─────────────────────────────────────────────────────────────
+
+/** Forward spectrum of a record on the bank's grid: rfft (Analytic, real) or fft (TwoSided) of x zero-padded to nfft → [bins × C]. */
+Eigen::MatrixXcd spectrum(const TimeFilterbank& bank, const Eigen::MatrixXd& x);
+Eigen::MatrixXcd spectrum(const TimeFilterbank& bank, const Eigen::MatrixXcd& x);   // Analytic refuses
+/** ifft of (spec ⊙ gain) on the grid → [nfft × C] (Analytic: the negative bins are zero). `gain` has one entry per bin. */
+Eigen::MatrixXcd filterSpectrum(const TimeFilterbank& bank, const Eigen::VectorXd& gain, const Eigen::MatrixXcd& spec);
+/** Back to the record: irfft (Analytic) or ifft (TwoSided) of a spectrum [bins × C], cropped to n rows. Analytic returns the real part in `real`. */
+Eigen::MatrixXd inverseReal(const TimeFilterbank& bank, const Eigen::MatrixXcd& spec, std::size_t n);
+Eigen::MatrixXcd inverseComplex(const TimeFilterbank& bank, const Eigen::MatrixXcd& spec, std::size_t n);
+/** Spectrum of a member's coefficients [nfft × C] on the bank's grid (fft, first `bins` rows). */
+Eigen::MatrixXcd coefficientSpectrum(const TimeFilterbank& bank, const Eigen::MatrixXcd& coefficients);
+
+}  // namespace nxr::signal::timefilterbank
+
 namespace nxr::signal {
 
 // ── FULL RATE ─────────────────────────────────────────────────────────────────────────────────────────────────────────

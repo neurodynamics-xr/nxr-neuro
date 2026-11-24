@@ -39,8 +39,8 @@ void statistic_input(const Value& t, const std::string& who, const std::string& 
 }
 std::function<double(double)> gain_of(const Json& p) {
   const double lo = p["band"][0].get<double>(), hi = p["band"][1].get<double>(), hw = p["half_width"].get<double>();
-  if (p["shape"] == "morlet") return [lo, hi](double f) { return nxr::signal::graphfilterbank::morletBand(f, lo, hi); };
-  return [lo, hi, hw](double f) { return nxr::signal::graphfilterbank::meyerBand(f, lo, hi, hw); };
+  if (p["shape"] == "morlet") return [lo, hi](double f) { return nxr::signal::timefilterbank::morletBand(f, lo, hi); };
+  return [lo, hi, hw](double f) { return nxr::signal::timefilterbank::meyerBand(f, lo, hi, hw); };
 }
 void band_params(const Json& p, const std::string& who, double rate) {
   const Json& b = p["band"];

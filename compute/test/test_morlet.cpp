@@ -1,4 +1,4 @@
-// nxr::signal::graphfilterbank::morletBand against nxr (golden: test/golden/gen_morlet_golden.py, from nxr/detect/vortex.py morlet_gain, the
+// nxr::signal::timefilterbank::morletBand against nxr (golden: test/golden/gen_morlet_golden.py, from nxr/detect/vortex.py morlet_gain, the
 // Studio's morlet_hat, nxr/filters/taps.py gain_taps): the gain, the even and odd taps of two bands, and the band's analytic signal of a synthetic series through the taps
 // route (nxr nxr::signal) against nxr's FFT route, away from the series' ends. Then: unit peak at the arithmetic centre, FWHM = the band's width, a refusal.
 #include <cmath>
@@ -52,7 +52,7 @@ int main() {
   std::vector<float> x(xd.begin(), xd.end());
   struct Case { const char* name; double fs, lo, hi; };
   for (const Case& c : {Case{"alpha100", 100.0, 8.0, 12.0}, Case{"beta100", 100.0, 15.0, 29.0}}) {
-    auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, c.lo, c.hi); };
+    auto gain = [&](double f) { return nxr::signal::timefilterbank::morletBand(f, c.lo, c.hi); };
     // the gain on the grid f = 0.5 … 60
     const auto& wg = g.at(std::string("gain ") + c.name);
     double worst = 0;
@@ -85,11 +85,11 @@ int main() {
   }
   // unit peak at the arithmetic centre; half maximum at the band's edges' distance: FWHM = hi - lo
   const double lo = 15.0, hi = 29.0, f0 = (lo + hi) / 2;
-  EXPECT(std::fabs(nxr::signal::graphfilterbank::morletBand(f0, lo, hi) - 1.0) < 1e-15, "the peak is not 1 at (lo + hi)/2");
-  EXPECT(std::fabs(nxr::signal::graphfilterbank::morletBand(f0 - (hi - lo) / 2, lo, hi) - 0.5) < 1e-12, "the half maximum is not at half the width from the centre");
-  EXPECT(std::fabs(nxr::signal::graphfilterbank::morletBand(f0 + (hi - lo) / 2, lo, hi) - 0.5) < 1e-12, "the half maximum is not at half the width from the centre (above)");
+  EXPECT(std::fabs(nxr::signal::timefilterbank::morletBand(f0, lo, hi) - 1.0) < 1e-15, "the peak is not 1 at (lo + hi)/2");
+  EXPECT(std::fabs(nxr::signal::timefilterbank::morletBand(f0 - (hi - lo) / 2, lo, hi) - 0.5) < 1e-12, "the half maximum is not at half the width from the centre");
+  EXPECT(std::fabs(nxr::signal::timefilterbank::morletBand(f0 + (hi - lo) / 2, lo, hi) - 0.5) < 1e-12, "the half maximum is not at half the width from the centre (above)");
   bool refused = false;
-  try { nxr::signal::graphfilterbank::morletBand(10.0, 12.0, 8.0); } catch (const std::invalid_argument&) { refused = true; }
+  try { nxr::signal::timefilterbank::morletBand(10.0, 12.0, 8.0); } catch (const std::invalid_argument&) { refused = true; }
   EXPECT(refused, "lo >= hi not refused");
   std::cout << (fails ? "FAILED " : "ok ") << fails << "\n";
   return fails ? 1 : 0;

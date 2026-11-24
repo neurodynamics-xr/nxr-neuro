@@ -80,7 +80,7 @@ int main() {
   EXPECT(worst < 1e-3, "chunks of 4096 with the band's halo, haloOf = " << H << " samples == the whole record transformed at once (worst relative " << worst << ")");
   // the FFT route and the taps route: the same Meyer gain
   {
-    const auto gain = [](double f) { return nxr::signal::graphfilterbank::meyerBand(f, 8.0, 12.0, 1.0 / 3.0); };
+    const auto gain = [](double f) { return nxr::signal::timefilterbank::meyerBand(f, 8.0, 12.0, 1.0 / 3.0); };
     const auto h = nxr::signal::gainTaps(gain, fs, false), g = nxr::signal::gainTaps(gain, fs, true);
     std::vector<float> xf(static_cast<std::size_t>(channels * n));
     for (Eigen::Index c = 0; c < channels; ++c) for (Eigen::Index s = 0; s < n; ++s) xf[static_cast<std::size_t>(c * n + s)] = static_cast<float>(x(c, s));
