@@ -436,6 +436,8 @@ ng::Json factor_descriptor(const ng::Array& f, const std::string& who) {
     return Json{{"kind", "dyadic"}, {"surface", surface}, {"level", prm["level"]}, {"tiles", prm["tiles"]}, {"family", "grid"}};
   }
   if (f.meta.value("n_members", std::int64_t(0)) > 0 && prm.value("kind", std::string()) == "elements") return Json{{"kind", "elements"}, {"size", f.meta["n_members"]}};
+  // a stored PARTITION (an irregular set: regions, lobes, an atlas): its members as they are (D100's atlas x windows), no level to roll up along
+  if (f.meta.value("type", std::string()) == "set" && f.meta.value("n_members", std::int64_t(0)) > 0) return Json{{"kind", "set"}, {"size", f.meta["n_members"]}, {"family", "irregular"}};
   refuse(who + ": the factor " + f.meta.value("name", std::string("?")) + " records no grid (params.grid), surface level or elements grid");
 }
 
@@ -529,7 +531,7 @@ ng::NodeSpec select_product() {
       std::int64_t m = 0;
       if (f["kind"] == "time") m = f["count"].get<std::int64_t>();
       else if (f["kind"] == "dyadic") m = f["tiles"].get<std::int64_t>();
-      else if (f["kind"] == "elements" || f["kind"] == "kernels") m = f["size"].get<std::int64_t>();   // a kernel set: its members (a frequency or scale filterbank)
+      else if (f["kind"] == "elements" || f["kind"] == "kernels" || f["kind"] == "set") m = f["size"].get<std::int64_t>();   // a kernel set: its members (a frequency or scale filterbank)
       else if (f["kind"] == "span" || f["kind"] == "whole") m = 1;
       need(m > 0, "select.product: the factor " + f.value("name", std::string("?")) + " has no members");
       pp.counts.push_back(m);

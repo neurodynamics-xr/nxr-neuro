@@ -281,8 +281,10 @@ ng::NodeSpec flow_map() {
   n.inputs = {{"coefficients", "the stored mode-space Fourier coefficients (`spectral_coefficients`): [tiles x bins x rows] complex, on the package's mode axis", false},
               {"package", "the Hodge-Dirac package the coefficients are on (its eigenvectors operator); the runner binds its form parts and its complex's options with it", false},
               {"frequency", "the frequency kernel set (stored: `select_kernels` on the coefficients' frequency line): the product's first factor", false},
-              {"scale", "the scale kernel set (stored: `select_kernels` on the package's mode axis): the product's second factor", false}};
-  n.outputs = {{"maps", "per cell (a member of frequency x scale, the frequency member fastest), per vertex: power, exact_potential, coexact_stream, one_form_energy, exact_energy, coexact_energy", false},
+              {"scale", "the scale kernel set (stored: `select_kernels` on the package's mode axis): the product's second factor", false},
+              {"regions", "a stored partition of the package's surface (the caller's: the whole surface as one member, lobes, an atlas): the regions each cell's totals are summed over", false}};
+  n.outputs = {{"totals", "per member of frequency x scale x regions (one value a member): the sums of power, one_form_energy, exact_energy, coexact_energy over the region's vertices, and its vertex count (the shares derived at read)", false},
+               {"maps", "per cell (a member of frequency x scale, the frequency member fastest), per vertex: power, exact_potential, coexact_stream, one_form_energy, exact_energy, coexact_energy", false},
                {"edges", "per cell, per intrinsic edge: the phase current (a 1-form)", false}};
   n.parameters = {};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64,
@@ -291,19 +293,22 @@ ng::NodeSpec flow_map() {
   n.description = "the whole-run flow maps of every cell of a frequency kernel set x a scale kernel set, from stored mode-space Fourier coefficients: per cell, power per vertex, phase current per edge, "
                   "its Hodge split; each a measurement over the product's members";
   n.plan = [](const ng::Types& in, const Json&) {
-    for (const char* k : {"coefficients", "package", "frequency", "scale"}) if (!in.count(k)) ng::refuse(std::string("signal.flow_map: ") + k + " is not given");
+    for (const char* k : {"coefficients", "package", "frequency", "scale", "regions"}) if (!in.count(k)) ng::refuse(std::string("signal.flow_map: ") + k + " is not given");
     ng::Planned out;
-    for (const char* o : {"maps", "edges"}) { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "measurement"; out.out[o] = t; }
+    for (const char* o : {"totals", "maps", "edges"}) { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "measurement"; out.out[o] = t; }
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json&, ng::Shared&) {
-    for (const char* k : {"coefficients", "package", "frequency", "scale"})
+    for (const char* k : {"coefficients", "package", "frequency", "scale", "regions"})
       if (!c.count(k) || c.at(k).meta.value("placeholder", false)) ng::refuse(std::string("signal.flow_map: ") + k + " was not handed over");
+    const ng::Array& G = c.at("regions");
+    if (G.meta.value("type", std::string()) != "set" || G.data.empty()) ng::refuse("signal.flow_map: regions is a stored partition of the surface (a member number per vertex)");
+    std::vector<std::int32_t> region(G.data.begin(), G.data.end());
     return std::any(std::make_tuple(bind_package(c.at("package"), "signal.flow_map"), c.at("package"), c.at("coefficients"), kernel_members(c.at("frequency"), "frequency"),
-                                    kernel_members(c.at("scale"), "scale")));
+                                    kernel_members(c.at("scale"), "scale"), region, G.meta.value("n_members", std::int64_t(0))));
   };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
-    const auto& [sp, H, A, fk, sk] = std::any_cast<const std::tuple<SplitPrepared, ng::Array, ng::Array, std::vector<Json>, std::vector<Json>>&>(prepared);
+    const auto& [sp, H, A, fk, sk, region, NRm] = std::any_cast<const std::tuple<SplitPrepared, ng::Array, ng::Array, std::vector<Json>, std::vector<Json>, std::vector<std::int32_t>, std::int64_t>&>(prepared);
     const nxr::signal::IntrinsicComplex& c = *sp.complex;
     const nxr::signal::Modes& m = *sp.modes;
     const Json pr = A.meta.value("producer", Json::object());
@@ -314,6 +319,9 @@ ng::NodeSpec flow_map() {
     const int comps = pr.value("components", 1);
     const std::int64_t K = static_cast<std::int64_t>(modes.size()), V = m.P.rows();
     if (K * comps != R) ng::refuse("signal.flow_map: the coefficients' rows are not their modes x components");
+    if (static_cast<std::int64_t>(region.size()) != m.P.rows()) ng::refuse("signal.flow_map: regions has " + std::to_string(region.size()) + " elements, the package's surface " + std::to_string(m.P.rows()) + " vertices");
+    std::int64_t NR = NRm;
+    for (const auto r : region) NR = std::max<std::int64_t>(NR, r + 1);
     const double fs = pr.at("sfreq").get<double>(), nt = pr.at("tile_samples").get<double>();
     const std::int64_t first = pr.at("first_bin").get<std::int64_t>();
     const std::vector<double> mass = H.meta.at("mass").get<std::vector<double>>();
@@ -328,7 +336,9 @@ ng::NodeSpec flow_map() {
     Eigen::MatrixXd Hs(K, NS);
     for (std::int64_t s2 = 0; s2 < NS; ++s2) for (std::int64_t j = 0; j < K; ++j) Hs(j, s2) = kernel_gain(sk[static_cast<std::size_t>(s2)], m.mu[modes[static_cast<std::size_t>(j)]]);
     const int NV = 6;                                                            // power, exact_potential, coexact_stream, one_form_energy, exact_energy, coexact_energy
-    ng::Array maps, edges;
+    ng::Array maps, edges, totals;
+    const int NT = 5;                                                            // per region: power, one_form_energy, exact_energy, coexact_energy (sums over its vertices), count
+    totals.rows = NR * M; totals.cols = NT; totals.data.assign(static_cast<std::size_t>(NR * M * NT), 0.0);
     maps.rows = V * M; maps.cols = NV; maps.data.assign(static_cast<std::size_t>(V * M * NV), 0.0);
     edges.rows = c.nE * M; edges.cols = 1; edges.data.assign(static_cast<std::size_t>(c.nE * M), 0.0);
     Json dof = Json::array();
@@ -372,6 +382,12 @@ ng::NodeSpec flow_map() {
           maps.data[r + 3] = E(v, 0); maps.data[r + 4] = E(v, 1); maps.data[r + 5] = E(v, 2);
         }
         for (std::int64_t e = 0; e < c.nE; ++e) edges.data[static_cast<std::size_t>(e * M + cell)] = J[e];
+        for (std::int64_t v = 0; v < V; ++v) {                                   // the totals: a reduction across space is a measurement over a partition (the caller's regions)
+          const std::int32_t g = region[static_cast<std::size_t>(v)];
+          if (g < 0 || !std::isfinite(power[v]) || !std::isfinite(E(v, 0))) continue;   // a vertex in no region, or of no value (a medial wall the glue cut)
+          const std::size_t r = static_cast<std::size_t>((g * M + cell) * NT);
+          totals.data[r] += power[v]; totals.data[r + 1] += E(v, 0); totals.data[r + 2] += E(v, 1); totals.data[r + 3] += E(v, 2); totals.data[r + 4] += 1.0;
+        }
       }
     }
     const Json attrs = Json{{"rows", "the vertices of the package's surface"}, {"members", "the cells of frequency x scale, the frequency member fastest"}, {"frequency_members", dof},
@@ -380,8 +396,12 @@ ng::NodeSpec flow_map() {
                                                          Json{{"measure", "exact_energy"}}, Json{{"measure", "coexact_energy"}}})},
                                  {"values_shape", Json::array({V, M})}, {"attributes", attrs}};
     Json eattrs = attrs; eattrs["rows"] = "the edges of the package's intrinsic complex (tail -> tip)";
+    Json tattrs = attrs; tattrs["members"] = "the cells of frequency x scale x regions, the frequency member fastest, then the scale member, then the region"; tattrs.erase("rows");
+    totals.meta["describe"] = Json{{"measures", Json::array({Json{{"measure", "power"}}, Json{{"measure", "one_form_energy"}}, Json{{"measure", "exact_energy"}}, Json{{"measure", "coexact_energy"}},
+                                                           Json{{"measure", "count"}}})},
+                                   {"values_shape", Json::array({NR * M})}, {"attributes", tattrs}};
     edges.meta["describe"] = Json{{"measures", Json::array({Json{{"measure", "phase_current"}}})}, {"values_shape", Json::array({c.nE, M})}, {"attributes", eattrs}};
-    return ng::Arrays{{"maps", std::move(maps)}, {"edges", std::move(edges)}};
+    return ng::Arrays{{"totals", std::move(totals)}, {"maps", std::move(maps)}, {"edges", std::move(edges)}};
   };
   return n;
 }
