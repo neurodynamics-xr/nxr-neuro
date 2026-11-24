@@ -272,6 +272,9 @@ int main() {
     CHECK(n_members("atom_band_pairs") == n_members("atoms") * n_members("bands") * n_members("bands"));
     CHECK(members_of("atoms", "phase_current") == n_members("atoms") && members_of("atom_band_pairs", "phase_current") == n_members("atom_band_pairs") &&
           members_of("atom_bands", "consistency") == n_members("atom_bands"));
+    // a later run reads the stored flow measurements: the speed and direction across frequencies
+    CHECK(!nxrtest::run_definition(ds, sub, "sensor_flow_across_frequencies", Json{{"recording", "rest"}, {"package", "hodgeDirac__helmet"}, {"atoms", "atoms"}}).empty());
+    CHECK(!probe.rows("statistic", {{"name", V("rest_hodgeDirac__helmet_eigenvectors_across_frequencies_atom_pairs")}}).empty());
     CHECK(probe.rows("statistic", {{"name", V("flow_time_cells")}}).empty() && probe.rows("statistic", {{"name", V("flow_flow_edges")}}).empty());   // no stored cells; no flow statistics
   }
   fs::remove_all(root);

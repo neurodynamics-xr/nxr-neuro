@@ -334,10 +334,16 @@ const char* const kAcross = "signal.flow_across_frequencies";
 struct AcrossPrepared {
   BoundPackage package;
   ng::Array edges, modes, vertices;
+  std::vector<ng::Array> stored;      // power, current_x, current_y, current_z when given as stored measurements
   std::vector<double> centres;
 };
 // a flow readout's per-atom values [elements x atoms] of one measure (signal.spectral_flow's arrays: element x member x measure)
 Eigen::MatrixXd measure_of(const ng::Array& a, std::int64_t measure, const char* who, const char* port) {
+  if (a.meta.contains("measure") && measure == 0) {                       // a STORED measurement, read by its measure: its values [rows x members]
+    Eigen::MatrixXd m(a.rows, a.cols);
+    for (std::int64_t r = 0; r < a.rows; ++r) for (std::int64_t c = 0; c < a.cols; ++c) m(r, c) = a.at(static_cast<std::size_t>(r * a.cols + c));
+    return m;
+  }
   const Json shape = shape_of(a);
   if (!shape.is_array() || shape.size() != 3) ng::refuse(std::string(who) + ": " + port + " is not a flow readout's [elements x members x measures] (signal.spectral_flow)");
   const std::int64_t rows = shape[0], members = shape[1], measures = shape[2];
@@ -355,7 +361,11 @@ ng::NodeSpec flow_across_frequencies() {
   n.reads_package_forms = true;
   n.inputs = {{"edges", "the flow's phase current per edge and atom (signal.spectral_flow's whole_edges)", false},
               {"modes", "the flow's Hodge-Dirac coefficient per mode and atom (signal.spectral_flow's whole_modes)", false},
-              {"vertices", "the flow's vertex measures per atom (signal.spectral_flow's whole_vertices: power, potential, stream, vertex phase current x y z)", false},
+              {"vertices", "the flow's vertex measures per atom as one readout (signal.spectral_flow's whole_vertices in a run: power, potential, stream, vertex phase current x y z); or the four ports below", true},
+              {"power", "the stored measurement power per vertex and atom (with current_x, current_y, current_z, in place of vertices)", true},
+              {"current_x", "the stored measurement vertex_phase_current_x", true},
+              {"current_y", "the stored measurement vertex_phase_current_y", true},
+              {"current_z", "the stored measurement vertex_phase_current_z", true},
               {"package", "the Hodge-Dirac package the flow is on (its edges' Hodge weights and its modes' kinds)", false},
               {"frequency", "the atoms the flow was read with (the kernel set: their centres are the frequencies compared)", false}};
   n.outputs = {{"atom_pairs", "per pair of atoms: the cosine of their edge phase currents, of their travel coefficients and of their rotation coefficients", false},
@@ -366,7 +376,9 @@ ng::NodeSpec flow_across_frequencies() {
   n.matches = "the speed across frequencies readout of the sensor flow (spec 2026-11-24-bispectrum); compute nxr::signal::flowAcrossFrequencies";
   n.description = "whether the flow moves at the same speed and in the same direction across frequencies: cosines of the atoms' flows, direction consistency and the slope of speed against frequency";
   n.plan = [](const ng::Types& in, const Json&) {
-    for (const char* k : {"edges", "modes", "vertices", "package", "frequency"}) if (!in.count(k)) ng::refuse(std::string(kAcross) + ": " + k + " is not given");
+    for (const char* k : {"edges", "modes", "package", "frequency"}) if (!in.count(k)) ng::refuse(std::string(kAcross) + ": " + k + " is not given");
+    const bool four = in.count("power") && in.count("current_x") && in.count("current_y") && in.count("current_z");
+    if (in.count("vertices") == four) ng::refuse(std::string(kAcross) + ": give the vertex measures either as one readout (vertices) or as the four stored measurements (power, current_x, current_y, current_z)");
     ng::Planned out;
     for (const char* o : {"atom_pairs", "dispersion"}) { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "statistic"; out.out[o] = t; }
     return out;
@@ -374,17 +386,24 @@ ng::NodeSpec flow_across_frequencies() {
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json&, ng::Shared&) {
     AcrossPrepared pr;
     pr.package = bind_hodge_package(handed(c, "package", kAcross), kAcross);
-    pr.edges = handed(c, "edges", kAcross); pr.modes = handed(c, "modes", kAcross); pr.vertices = handed(c, "vertices", kAcross);
+    pr.edges = handed(c, "edges", kAcross); pr.modes = handed(c, "modes", kAcross);
+    if (c.count("vertices")) pr.vertices = handed(c, "vertices", kAcross);
+    else for (const char* k : {"power", "current_x", "current_y", "current_z"}) pr.stored.push_back(handed(c, k, kAcross));
     pr.centres = centres_of(handed(c, "frequency", kAcross), kAcross);
     return std::any(std::move(pr));
   };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
     const AcrossPrepared& pr = std::any_cast<const AcrossPrepared&>(prepared);
     const Eigen::MatrixXd edges = measure_of(pr.edges, 0, kAcross, "edges"), modes = measure_of(pr.modes, 0, kAcross, "modes");
-    const Eigen::MatrixXd power = measure_of(pr.vertices, 0, kAcross, "vertices");
+    const bool stored = !pr.stored.empty();
+    const Eigen::MatrixXd power = stored ? measure_of(pr.stored[0], 0, kAcross, "power") : measure_of(pr.vertices, 0, kAcross, "vertices");
     const Eigen::Index S = power.rows(), A = power.cols();
     Eigen::MatrixXd current(3 * S, A);
-    for (int c = 0; c < 3; ++c) { const Eigen::MatrixXd m = measure_of(pr.vertices, 3 + c, kAcross, "vertices"); for (Eigen::Index v = 0; v < S; ++v) current.row(3 * v + c) = m.row(v); }
+    for (int c = 0; c < 3; ++c) {
+      const Eigen::MatrixXd m = stored ? measure_of(pr.stored[static_cast<std::size_t>(1 + c)], 0, kAcross, "current") : measure_of(pr.vertices, 3 + c, kAcross, "vertices");
+      if (m.rows() != S || m.cols() != A) ng::refuse(std::string(kAcross) + ": the vertex measures do not share their vertices and atoms");
+      for (Eigen::Index v = 0; v < S; ++v) current.row(3 * v + c) = m.row(v);
+    }
     if (static_cast<Eigen::Index>(pr.centres.size()) != A) ng::refuse(std::string(kAcross) + ": the flow has " + std::to_string(A) + " members, the atoms " + std::to_string(pr.centres.size()));
     const nxr::signal::IntrinsicComplex& cx = *pr.package.complex;
     const nxr::signal::Modes& md = *pr.package.modes;
