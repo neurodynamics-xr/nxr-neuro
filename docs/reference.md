@@ -1189,7 +1189,9 @@ decay, < 0 the reverse). `--normalisation`: `threenorm` (default; Shahbazi Avarv
 Σ w|x(f1 + f2)|³, w = g1 g2 g3; bicoherence |B| / cbrt of their product, at most 1), `kim_powers` (Kim and Powers 1979, Hagihira et al. 2001: Σ w|x(f1) x(f2)|² and
 Σ w|x(f1 + f2)|²; bicoherence² |B|² over their product), `none`. Every ratio (bicoherence, biphase, asymmetry) is derived at read from the stored sums. `--space`:
 `coordinates` (each field coordinate with itself; a band is a selection of these rows at read) or `surface` (each vertex: the coordinates' synthesis, composed with each
-eigenvalue band's gains first with `--banded true`, applied to the coefficients). The atoms are the flow's (`--frequency-normalisation`, `--support-floor` as `sensor_flow`'s).
+eigenvalue band's gains first with `--banded true`, applied to the coefficients) or `band_triples` (coupling across spatial scales: each vertex, every triple of bands p, q, r,
+the first axis on band p's field, the second on q's, the sum on r's; one correlation per pair of bands (q, r) read with every p). No null yet (it waits for a design
+ported from nxr's nulls); the empty-room recording is the control (the same pipeline on its spectra, by name). The atoms are the flow's (`--frequency-normalisation`, `--support-floor` as `sensor_flow`'s).
 Cheapest order: never per pair of bins and never a modes³ x bins² object; triples sharing their (second, sum) gains share one correlation along the frequency line (one
 transform of the gains' supports, rows at a time), read with each first gain by a dot product (or (first, second) convolved once, whichever has fewer distinct pairs, stated in
 the producer); the cube sums and the sum power need only the gains' own correlations, made once per triple. Stored: one statistic [elements x triples (x bands) x measures]

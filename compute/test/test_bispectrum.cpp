@@ -1,14 +1,15 @@
 // nxr::signal bispectrum and flow_across_frequencies on synthetic data (generated signals and random arrays; never a real recording):
 //   atomBispectrum against the direct sums over every pair of bins (the bispectrum, the threenorm's cube sums, Kim and Powers' product and sum powers), for both groupings
 //     (pairs of (second, sum) correlated, pairs of (first, second) convolved) and a first bin above 0; both bicoherences at most 1;
-//   phase-amplitude coupling: a 40 Hz rhythm whose amplitude follows a 6 Hz rhythm's phase gives a threenorm bicoherence on the (6, 40, 40) atoms over 5 times that of the
-//     same amplitude modulation with a phase unrelated to the 6 Hz rhythm, and of Gaussian noise;
+//   phase-amplitude coupling: a 40 Hz rhythm whose amplitude follows a 6 Hz rhythm's phase gives a threenorm bicoherence on the (6, 40, 40) atoms over 3 times that of the
+//     same amplitude modulation with a phase unrelated to the 6 Hz rhythm and 5 times that of Gaussian noise;
 //   harmonics and waveform shape on the (8, 8, 16) atoms: a sawtooth's bicoherence is over 5 times noise's; its biphase is +90 degrees for a slow rise and fast decay, -90 for the reverse;
 //     a wave with sharp peaks (cos + 0.5 cos 2) has biphase 0 (positive real part), with sharp troughs 180;
 //   flowAcrossFrequencies: the same field at two frequencies gives cosines 1, direction consistency 1 and a speed slope 1 (same wavelength) or 0 (same speed).
 #include <cmath>
 #include <complex>
 #include <functional>
+#include <algorithm>
 #include <iostream>
 #include <random>
 
@@ -43,6 +44,19 @@ ns::TripleSums direct(const Eigen::MatrixXd& g, std::int64_t f0, const std::vect
           s.productPower(r, t) += w * std::norm(X(r, i) * X(r, j)); s.sumPower(r, t) += w * std::norm(X(r, k));
         }
   return s;
+}
+// the direct cross sums: the first axis on X1, the second on X2, the sum on X3
+Eigen::MatrixXcd directCross(const Eigen::MatrixXd& g, std::int64_t f0, const std::vector<ns::AtomTriple>& triples, const Eigen::MatrixXcd& X1, const Eigen::MatrixXcd& X2, const Eigen::MatrixXcd& X3) {
+  const Eigen::Index R = X1.rows(), B = X1.cols(), T = static_cast<Eigen::Index>(triples.size());
+  Eigen::MatrixXcd b = Eigen::MatrixXcd::Zero(R, T);
+  for (Eigen::Index t = 0; t < T; ++t)
+    for (Eigen::Index r = 0; r < R; ++r)
+      for (Eigen::Index i = 0; i < B; ++i)
+        for (Eigen::Index j = 0; i + j + f0 < B; ++j) {
+          const auto& tr = triples[static_cast<std::size_t>(t)];
+          b(r, t) += g(tr.first, i) * g(tr.second, j) * g(tr.sum, i + j + f0) * X1(r, i) * X2(r, j) * std::conj(X3(r, i + j + f0));
+        }
+  return b;
 }
 double relative(const Eigen::MatrixXcd& a, const Eigen::MatrixXcd& b) { return (a - b).norm() / std::max(1e-300, b.norm()); }
 
@@ -102,6 +116,18 @@ int main() {
           }
         EXPECT(top <= 1 + 1e-12, label + ": both bicoherences are at most 1 (largest " + std::to_string(top) + ")");
       }
+    // every triple of bands: the first axis on band p's spectrum, the second on q's, the sum on r's
+    Eigen::MatrixXcd Y(R, B);
+    for (Eigen::Index r = 0; r < R; ++r) for (Eigen::Index k = 0; k < B; ++k) Y(r, k) = cd(nd(rng), nd(rng));
+    const std::vector<Eigen::MatrixXcd> bandSpectra{X, Y};
+    for (const auto* triples : {&coupling, &harmonic}) {
+      const ns::AtomTriples at = ns::atomTriples(g, 1, *triples);
+      const std::vector<ns::TripleSums> each = ns::bandTripleBispectrum(at, bandSpectra, ns::BicoherenceNormalisation::kim_powers);
+      double e = 0;
+      for (int p = 0; p < 2; ++p) for (int q = 0; q < 2; ++q) for (int r = 0; r < 2; ++r)
+        e = std::max(e, relative(each[static_cast<std::size_t>((p * 2 + q) * 2 + r)].bispectrum, directCross(g, 1, *triples, bandSpectra[p], bandSpectra[q], bandSpectra[r])));
+      EXPECT(e < 1e-12, std::string(triples == &coupling ? "(second, sum)" : "(first, second)") + " grouping: every band triple equals the direct cross sum (relative error " + std::to_string(e) + ")");
+    }
     ns::TripleSums twice = ns::atomBispectrum(ns::atomTriples(g, 0, coupling), X, ns::BicoherenceNormalisation::threenorm);
     twice += twice;
     EXPECT(relative(twice.bispectrum, 2.0 * direct(g, 0, coupling, X).bispectrum) < 1e-12, "the sums of two chunks are the sum of each");
@@ -121,10 +147,11 @@ int main() {
     for (int s = 0; s < segments; ++s) total += ns::atomBispectrum(at, segmentSpectrum(make, s, n, fs, bins), ns::BicoherenceNormalisation::threenorm);
     return total;
   };
+  std::mt19937 signals(17);                                                      // the generated signals' own generator: independent of the blocks above
   std::vector<double> phase(segments), other(segments), carrier(segments);
-  for (int s = 0; s < segments; ++s) { phase[s] = 2 * M_PI * ud(rng); other[s] = 2 * M_PI * ud(rng); carrier[s] = 2 * M_PI * ud(rng); }
+  for (int s = 0; s < segments; ++s) { phase[s] = 2 * M_PI * ud(signals); other[s] = 2 * M_PI * ud(signals); carrier[s] = 2 * M_PI * ud(signals); }
   std::vector<std::vector<double>> noise(segments, std::vector<double>(n));
-  for (auto& seg : noise) for (auto& v : seg) v = nd(rng);
+  for (auto& seg : noise) for (auto& v : seg) v = nd(signals);
   {
     // phase-amplitude coupling: the atoms (6 Hz, sd 0.6) and (40 Hz, sd 5): the high atom is wide enough to hold 40 +- 6 Hz (Zandvoort and Nolte 2021)
     Eigen::MatrixXd g(2, bins);
@@ -138,7 +165,8 @@ int main() {
     const double bc = threenormBicoherence(sums(coupled, at), 0), bu = threenormBicoherence(sums(uncoupled, at), 0), bn = threenormBicoherence(sums(gaussian, at), 0);
     std::cout << "    phase-amplitude coupling, threenorm bicoherence: coupled " << bc << ", unrelated phase " << bu << ", Gaussian noise " << bn << "\n";
     // the atoms' bins without the rhythms count in the threenorm too, so the coupled value is far from 1: the test is against the controls
-    EXPECT(bc > 0.08 && bc > 5 * bu && bc > 5 * bn, "a 40 Hz amplitude following the 6 Hz phase gives a bicoherence on (6, 40, 40) over 5 times the controls'");
+    // an unrelated modulation leaves a residue of about the coupled value / sqrt(segments) (60 segments: about an eighth), so the bound is 3 times
+    EXPECT(bc > 0.08 && bc > 3 * bu && bc > 5 * bn, "a 40 Hz amplitude following the 6 Hz phase gives a bicoherence on (6, 40, 40) over 3 times an unrelated modulation's and 5 times noise's");
   }
   {
     // harmonics and waveform shape: the atom (8 Hz, sd 1) on the first two axes and the same atom at f / 2 on the sum (its centre 16 Hz)

@@ -170,6 +170,29 @@ int main() {
                                       Json{{"readings", Json::array({"harmonics"})}, {"normalisation", "none"}, {"space", "surface"}, {"frequency_normalisation", "none"}});
   CHECK(banded.at("bispectrum").rows == nV * 3 * 2 && banded.at("bispectrum").cols == 2);
 
+  // ── coupling across spatial scales: a 6 Hz rhythm on a coarse pattern whose phase sets the amplitude of a 30 Hz rhythm on a fine pattern ──
+  {
+    auto fine = [&](int v) { const double z = V[3 * v + 2]; return (35 * z * z * z * z - 30 * z * z + 3) / 8.0; };   // a degree-4 zonal pattern (mu about 4.5)
+    const ng::Array planted = serve([&](int v, double t) {
+      const double low = std::cos(2 * M_PI * 6 * t);
+      return V[3 * v + 2] * low + fine(v) * (1 + 0.8 * low) * std::cos(2 * M_PI * 30 * t) + noise(); });
+    const ng::Arrays triples3 = run_array(ng::registry().at("signal.bispectrum"),
+                                          ng::Arrays{{"spectra", planted}, {"frequency", kernel_set(atoms_at({6.0, 30.0}))}, {"package", H}, {"scale", kernel_set(bands)}},
+                                          Json{{"readings", Json::array({"phase_amplitude_coupling"})}, {"normalisation", "threenorm"}, {"space", "band_triples"},
+                                               {"frequency_normalisation", "none"}});
+    const ng::Array& bt = triples3.at("bispectrum");
+    CHECK(bt.rows == nV * 8 && bt.cols == 5);                                    // one coupling triple x 8 band triples; B and the three cube sums
+    std::vector<double> total(8, 0.0);
+    for (int v = 0; v < nV; ++v)
+      for (int m = 0; m < 8; ++m) {
+        const double* x = &bt.data[static_cast<std::size_t>((v * 8 + m) * bt.cols)];
+        total[static_cast<std::size_t>(m)] += std::hypot(x[0], x[1]);
+      }
+    const int strongest = static_cast<int>(std::max_element(total.begin(), total.end()) - total.begin());
+    std::printf("  planted coarse-phase / fine-amplitude coupling: the strongest band triple %d (want 3 = coarse, fine, fine)\n", strongest);
+    CHECK(strongest == 3);                                                       // (p, q, r) = (0, 1, 1): index (0 x 2 + 1) x 2 + 1
+  }
+
   // ── the flow across frequencies: waves travelling at 8 and 16 Hz ──
   const Json fp = Json{{"frequency_weighting", "kernels"}, {"frequency_normalisation", "sum_of_squared_gains"}, {"support_floor", 1e-3}};
   const ng::Array atoms = kernel_set(atoms_at({8.0, 16.0}));

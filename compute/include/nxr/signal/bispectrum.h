@@ -62,4 +62,11 @@ struct TripleSums {
 /** one chunk's sums: `spectrum` [rows x bins] (the bins of `triples.gains`). Throws std::invalid_argument on bins that disagree. */
 TripleSums atomBispectrum(const AtomTriples& triples, const Eigen::MatrixXcd& spectrum, BicoherenceNormalisation normalisation);
 
+/** COUPLING ACROSS SPATIAL SCALES: one chunk's sums for every TRIPLE OF BANDS (p, q, r), the first axis read on band p's field, the second on band q's, the sum on band r's
+ *  (`bands` [Q] each [rows x bins]: the same rows, e.g. the vertices of each band's field, its gains composed with the synthesis first). Index (p Q + q) Q + r. The correlation of
+ *  (second, sum) is formed once per pair of bands (q, r) and read with every first band (or the convolution of (first, second) once per (p, q)): Q² transforms per distinct pair
+ *  of gains, never Q³. `atomBispectrum` is the one-band case. Throws std::invalid_argument on sizes that disagree. */
+std::vector<TripleSums> bandTripleBispectrum(const AtomTriples& triples, const std::vector<Eigen::MatrixXcd>& bands, BicoherenceNormalisation normalisation);
+
+
 }  // namespace nxr::signal
