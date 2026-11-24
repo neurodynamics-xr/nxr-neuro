@@ -1,7 +1,7 @@
 // The flow through the fibre network (pipelines/src/connectome_flow_steps.cpp) through the graph's dispatch point, on hand-made arrays (never a dataset): four tiles on two pieces,
 // one vertex each; the kernel the identity on twelve channels (three components a tile); the spectra served through a random complete serving operator; tile 1 follows tile 0
 // by a planted lag. Checked: the pairs (counts, medians, across), the connectome eigenmodes (null modes), the tile operator (the served coordinates back to the tiles), the
-// whole run's tile cross-spectrum (the planted lag back, the reference's sign), the time cells and the sensor chain's sign-flip test on them (the lagged pair consistent),
+// whole run's tile cross-spectrum (the planted lag back, the reference's sign), the segments and the reference's sign-flip test and control on them (the lagged pair consistent),
 // the network's divergence (out of tile 0, into tile 1); refusals with their reasons.
 #include <cmath>
 #include <complex>
@@ -42,7 +42,7 @@ double at(const ng::Array& a, std::int64_t r, std::int64_t c) { return a.at(stat
 int main() {
   nxr::pipelines::graph::register_sensor_flow_nodes();
   nxr::pipelines::graph::register_connectome_flow_nodes();
-  for (const char* name : {"meeg.fiber_lengths", "meeg.tile_pairs", "meeg.laplacian_eigenmodes", "signal.tile_operator", "signal.tile_flow", "signal.tile_time_cells", "meeg.network_flow"})
+  for (const char* name : {"stats.network_sign_flip", "stats.run_replication", "meeg.fiber_lengths", "meeg.tile_pairs", "meeg.laplacian_eigenmodes", "signal.tile_operator", "signal.tile_flow", "signal.tile_time_cells", "meeg.network_flow"})
     CHECK(ng::registry().at(name).traits.declared());
 
   // ── the surface (four vertices), its grid (two pieces, depth 1: codes 2 piece + tile), the fibres ──
@@ -133,18 +133,31 @@ int main() {
   ng::Array wrongSpectra = spectra; wrongSpectra.meta["producer"]["modes"] = Json::array({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 99});
   CHECK(refused([&] { run_array("signal.tile_flow", {{"spectra", wrongSpectra}, {"operator", M}, {"frequency", atoms}}, fp); }));
 
-  const auto cells = run_array("signal.tile_time_cells", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}}, Json{{"frequency_normalisation", "none"}, {"cell_width", 2.0}});
+  const auto cells = run_array("signal.tile_time_cells", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}}, Json{{"frequency_normalisation", "none"}, {"cells", "segments"}, {"segment_seconds", 1.0}});
   const ng::Array& Z = cells.at("cells");
-  const Json groups = Z.meta["describe"]["attributes"]["groups"];
-  CHECK(groups.size() == 1 && Z.cols == 6 + 4 && Z.rows == groups[0]["cells"].get<std::int64_t>() && Z.rows >= 8);
+  const Json groups = Z.meta["producer"]["groups"];
+  CHECK(groups.size() == 1 && Z.cols == 2 * 6 + 4 && Z.rows == 10 && groups[0]["cell_samples"] == 200);   // 2048 own samples: ten whole segments of 200 (the eleventh cut off, as S = N // L)
   bool positive = true;
-  for (std::int64_t r = 0; r < Z.rows; ++r) positive = positive && at(Z, r, q01) > 0;
+  for (std::int64_t r = 0; r < Z.rows; ++r) positive = positive && at(Z, r, 6 + q01) > 0;
   CHECK(positive);
-  const auto flip = run_array("stats.sign_flip_consistency", {{"cells", Z}}, Json{{"elements", "edges"}, {"patterns", 500}, {"seed", 0}, {"cells_per_flip", 1}});
+  const auto width = run_array("signal.tile_time_cells", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}}, Json{{"frequency_normalisation", "none"}, {"cells", "atom_width"}, {"cell_width", 2.0}});
+  CHECK(width.at("cells").rows == 2048 / width.at("cells").meta["producer"]["groups"][0]["cell_samples"].get<std::int64_t>());
+  const Json flipParameters = Json{{"patterns", 500}, {"seed", 0}, {"min_streamlines", 10}, {"distance_bin_edges", Json::array({0, 0.03, 0.045, 0.06, 0.08, 0.1, 0.13, 0.17, 0.25})}};
+  const auto flip = run_array("stats.network_sign_flip", {{"cells", Z}, {"pairs", pairs}}, flipParameters);
   const ng::Array& R = flip.at("consistency");
-  CHECK(R.rows == 1 && std::abs(at(R, 0, q01) - 1) < 1e-12 && at(R, 0, 6 + q01) < 0.01);   // R1 = 1 and p small for the lagged pair
+  CHECK(R.rows == 1 && R.cols == 5 * 6);
+  CHECK(at(R, 0, q01) > 0.3 && at(R, 0, 6 + q01) < 0.01 && at(R, 0, 12 + q01) < 0.05);     // the lagged pair: a positive mean flow, p and family-wise p small
+  CHECK(std::abs(-at(R, 0, 24 + q01) / (2 * M_PI * f) + tau) < 1e-3);                      // the phase of the cells' summed cross-spectrum gives the lag back
+  // the control: the joined pairs (0-1 at 0.03, 2-3 at 0.03) occupy one distance bin; the not-joined pairs in it: none here (0-2 0.1, 0-3 0.13, 1-2 0.07, 1-3 0.1)
+  double controls = 0;
+  for (int q = 0; q < 6; ++q) controls += at(R, 0, 18 + q);
+  CHECK(controls == 0);
+  const auto again = run_array("stats.network_sign_flip", {{"cells", Z}, {"pairs", pairs}}, flipParameters);
+  CHECK(again.at("consistency").data == R.data);                                            // one seed, one result
+  const auto replication = run_array("stats.run_replication", {{"first", R}, {"second", R}, {"pairs", pairs}}, Json{{"min_streamlines", 1}});
+  CHECK(std::abs(at(replication.at("replication"), 0, 0) - 1) < 1e-12);
 
-  const auto network = run_array("meeg.network_flow", {{"pairs", pairs}, {"eigenmodes", modes.at("eigenmodes")}, {"flow", F}}, Json{{"min_streamlines", 10}});
+  const auto network = run_array("meeg.network_flow", {{"pairs", pairs}, {"eigenmodes", modes.at("eigenmodes")}, {"flow", R}}, Json{{"min_streamlines", 10}});
   const ng::Array& W = network.at("network");
   CHECK(W.rows == 1 && W.cols == 3 * 4 + 2);
   CHECK(at(W, 0, 0) < 0 && at(W, 0, 1) > 0 && std::abs(at(W, 0, 0) + at(W, 0, 1)) < 1e-12);  // out of tile 0, into tile 1

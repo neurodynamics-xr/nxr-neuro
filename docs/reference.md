@@ -463,7 +463,8 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run sensor_bispectrum` | The bispectrum of the stored chunk spectra in eigenmode coordinates, weighted by the flow's frequency atoms (one gain per axis): phase-amplitude coupling and harmonics (waveform shape from the biphase), with the bicoherence's sums; per coordinate or per vertex (per band). | (new) |
 | `nxr-neuro run sensor_flow_across_frequencies` | Whether the sensor flow moves at the same speed and direction across frequencies: per pair of atoms the cosines of their flows, per vertex the direction consistency and the slope of apparent speed against frequency, from the flow's stored results. | (new) |
 | `nxr-neuro run tile_network` | The fibre network on the tiles of a surface's dyadic grid: per pair of tiles the streamlines joining them, their median length, the tiles' distance and whether they lie on different hemispheres; the connectome Laplacian of the edges and all its eigenmodes. | (new) |
-| `nxr-neuro run connectome_flow` | The flow through the fibre network: the tiles' cross-spectrum per atom from the stored chunk spectra (the kernel averaged over each tile, composed once), its time cells and sign-flip test per pair of tiles, the network's divergence and graph potential in the connectome eigenmodes. | (new) |
+| `nxr-neuro run connectome_flow` | The flow through the fibre network: the tiles' cross-spectrum per atom from the stored chunk spectra (the kernel averaged over each tile, composed once), per segment, nxr's nulls (sign flip with its family-wise maximum, the distance-matched control), the network's divergence and graph potential in the connectome eigenmodes. | (new) |
+| `nxr-neuro run connectome_flow_replication` | The run-to-run replication of the flow through the fibre network: per atom the correlation of two runs' edge flows over the joined and the not-joined pairs. | (new) |
 | `nxr-neuro run roll_up` | A measurement rolled up through its grid's hierarchy, or across a group's subjects (scope group). | `run roll_up` |
 | `nxr-neuro run band_analytic`, `cortical_band`, `member_activation`, `band_outer` | Field chains: pointwise fields (a band's analytic signal, the band on the cortex, one filter-bank member's activation, z z^H), run alone or composed into `measure`. | the steps of `pyramid`, `cortical_band_cells`, `opticalflow` |
 | `nxr-neuro run lowpass` | A zero-phase low-pass filter, written as a new recording. | `lowpass` |
@@ -1222,17 +1223,21 @@ one dense solve; its null modes, one per connected component, counted with `--nu
 recording): `signal.tile_operator` averages the caller's free-orientation kernel over each tile's vertices (three components, no orientation assumed) and composes it with
 the synthesis of the served coordinates back to the kernel's channels (the pseudo-inverse of the serving operator `signal.mode_analysis` makes, as `sensor_flow` binds it): one
 operator [3 tiles x coordinates]; `signal.tile_flow` gives per atom the whole run's tile cross-spectrum S_ij = Σ over chunks and the atom's bins of g² Σ_c z_i conj(z_j)
-(Re and Im per pair, power per tile); `signal.tile_time_cells` the same Im sums and powers per time cell of each atom (the cells of `signal.atom_time_cells`);
-`stats.sign_flip_consistency` (elements `edges`) tests each pair's sign over the cells (family-wise over all pairs); `meeg.network_flow` reads the edge flow
-F = Im S_ij / sqrt(S_ii S_jj) on the edges and gives the divergence Bᵀ F, the graph potential phi of L phi = Bᵀ W F as the 1/eigenvalue gain on the complete connectome
+(Re and Im per pair, power per tile; the sensor chain's whole-run form); `signal.tile_time_cells` the same sums per cell of a level of the time line (`--cells segments`, the
+default and nxr's: non-overlapping 4 s segments from the run's first sample, `--segment-seconds`; or `atom_width`, each atom's own cells); `stats.network_sign_flip` ports nxr's
+nulls exactly (numpy's `default_rng(--seed)` bit for bit, drawn in nxr's order): per pair the mean over the cells of Im C_ij / sqrt(C_ii C_jj), its sign-flip p over the cells
+(`--patterns`) and the family-wise p (the null maximum of the normalised sums), the distance-matched control (as many not-joined pairs per distance bin, `--distance-bin-edges`,
+as joined ones, numpy's `choice`), and the phase of the summed cross-spectrum; `meeg.network_flow` reads that mean edge flow F (or the whole-run ratio Im S_ij / sqrt(S_ii S_jj))
+on the edges and gives the divergence Bᵀ F, the graph potential phi of L phi = Bᵀ W F as the 1/eigenvalue gain on the complete connectome
 eigenmodes (the minimum-norm solution: the null modes left out) and its coefficients, and the weighted sums of squares of the gradient part and of the flow. Derived at
 read, never stored: the edge flow (> 0 when tile j lags tile i), the lag -arg S_ij / (2 pi f), the speed (median length / |lag|, an upper bound), the gradient share, the
 potential's energy over the connectome's eigenvalues, the counts over the edges and over the distance-matched not-joined pairs (the control). What it cannot resolve: a
 tile's current is the kernel's mean over its vertices; tractography ends are not cortical terminations; leakage pulls lags towards zero; a consistent lag between joined tiles
 does not by itself show that the fibres carry it (the control); a whole-run cross-spectrum keeps the net quadrature only. Memory: the fibre bundle is read whole (10^6
 fibres of 100 points: 2.4 GB in double); the tile operator [3T x K]; per chunk the tiles' coefficients [3T x bins] and one atom's band signal of one component [T x transform
-samples]. Tests: `test_tile_network` (the potential against a direct solve; a gradient and a circulation), `test_tile_flow` (a planted directed lag), `test_connectome_flow`
-(the nodes on hand-made arrays with a planted lag, the sensor chain's sign-flip test on the cells).
+samples]. `run connectome_flow_replication` (`stats.run_replication`): per atom the correlation of two runs' mean edge flows over the joined and the not-joined pairs. Tests:
+`test_tile_network` (the potential against a direct solve; a gradient and a circulation), `test_tile_flow` (a planted directed lag), `test_network_flip` (golden: numpy and nxr's
+flip and control), `test_connectome_flow` (the nodes on hand-made arrays with a planted lag).
 
 ## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 

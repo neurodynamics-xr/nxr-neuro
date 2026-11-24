@@ -94,6 +94,8 @@ node	signal.tile_operator	-	composite
 node	signal.tile_flow	-	composite
 node	signal.tile_time_cells	-	composite
 node	stats.sign_flip_consistency	-	composite
+node	stats.network_sign_flip	-	composite
+node	stats.run_replication	-	composite
 node	signal.sensor_power	-	composite
 node	stats.aperiodic_fit	-	composite
 node	signal.bispectrum	-	composite

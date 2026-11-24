@@ -168,6 +168,7 @@ test_spectral_flow	unit
 test_bispectrum	unit
 test_tile_flow	unit
 test_tile_network	unit
+test_network_flip	golden
 test_sign_flip	golden
 test_aperiodic	golden
 test_intrinsic_surface	unit

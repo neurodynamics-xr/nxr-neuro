@@ -67,7 +67,10 @@ int main() {
     CHECK(std::abs(lag + tau) < 1e-3);
     CHECK(sums[0](0, 1).imag() > 0);
     const Eigen::MatrixXcd X = Y * gains.row(0).asDiagonal();
-    const TileCells c = tileTimeCells(X, 0, N, own0, own, cell, M);
+    const TileCells c = tileTimeCells(X, 0, N, own0, own, 0, cell, M);
+    CHECK(c.firstCell == 0 && c.samples.size() == static_cast<std::size_t>(own / cell));
+    const TileCells shifted = tileTimeCells(X, 0, N, own0, own, 100, cell, M);          // the own span starting at line sample 100: a part cell at each end
+    CHECK(shifted.firstCell == 0 && shifted.samples.front() == cell - 100 && shifted.samples.back() == 100 && std::abs(shifted.pairImaginary.sum() - c.pairImaginary.sum()) < 1e-9 * std::abs(c.pairImaginary.sum()));
     CHECK(c.pairImaginary.rows() == 1 && c.pairImaginary.cols() == own / cell && c.power.rows() == 2);
     bool positive = true;
     for (Eigen::Index j = 0; j < c.pairImaginary.cols(); ++j) positive = positive && c.pairImaginary(0, j) > 0;

@@ -64,25 +64,31 @@ void accumulateTileCrossSpectra(const Eigen::MatrixXcd& Z, const Eigen::MatrixXd
   }
 }
 
-TileCells tileTimeCells(const Eigen::MatrixXcd& X, std::int64_t firstBin, std::int64_t N, std::int64_t ownFirst, std::int64_t ownSamples, std::int64_t cellSamples,
-                        const Eigen::MatrixXd& M) {
+TileCells tileTimeCells(const Eigen::MatrixXcd& X, std::int64_t firstBin, std::int64_t N, std::int64_t ownFirst, std::int64_t ownSamples, std::int64_t lineFirst,
+                        std::int64_t cellSamples, const Eigen::MatrixXd& M) {
   const Eigen::Index K = X.rows(), B = X.cols();
   if (M.cols() != K || M.rows() % 3 != 0) bad("tileTimeCells: the tile operator is [3T x K] of the spectrum's K coordinates");
   if (firstBin < 0 || firstBin + B > N) bad("tileTimeCells: the bins fall outside the transform");
   if (ownFirst < 0 || ownSamples < 1 || ownFirst + ownSamples > N) bad("tileTimeCells: the chunk's own samples fall outside the transform");
-  if (cellSamples < 1) bad("tileTimeCells: a cell holds at least one sample");
+  if (cellSamples < 1 || lineFirst < 0) bad("tileTimeCells: a cell holds at least one sample; the line starts at sample 0");
   const Eigen::Index T = M.rows() / 3;
-  const std::int64_t cells = ownSamples / cellSamples, P = T * (T - 1) / 2;
+  const std::int64_t P = T * (T - 1) / 2;
   TileCells out;
+  out.firstCell = lineFirst / cellSamples;
+  const std::int64_t cells = (lineFirst + ownSamples - 1) / cellSamples - out.firstCell + 1;
+  out.pairReal = Eigen::MatrixXd::Zero(P, cells);
   out.pairImaginary = Eigen::MatrixXd::Zero(P, cells);
   out.power = Eigen::MatrixXd::Zero(T, cells);
-  if (cells == 0) return out;
+  out.samples.assign(static_cast<std::size_t>(cells), 0);
+  for (std::int64_t c = 0; c < cells; ++c) {
+    const std::int64_t lo = std::max(lineFirst, (out.firstCell + c) * cellSamples), hi = std::min(lineFirst + ownSamples, (out.firstCell + c + 1) * cellSamples);
+    out.samples[static_cast<std::size_t>(c)] = hi - lo;
+  }
   // the atom's bins only (the gains are in X): drop the bins it does not reach before the operator is applied
   std::vector<Eigen::Index> bins;
   for (Eigen::Index k = 0; k < B; ++k) if (X.col(k).squaredNorm() > 0) bins.push_back(k);
   Eigen::MatrixXcd reached(K, static_cast<Eigen::Index>(bins.size()));
   for (std::size_t q = 0; q < bins.size(); ++q) reached.col(static_cast<Eigen::Index>(q)) = X.col(bins[q]);
-  const std::int64_t used = cells * cellSamples;
   for (int c = 0; c < 3; ++c) {
     Eigen::MatrixXd rows(T, K);
     for (Eigen::Index t = 0; t < T; ++t) rows.row(t) = M.row(3 * t + c);
@@ -91,15 +97,22 @@ TileCells tileTimeCells(const Eigen::MatrixXcd& X, std::int64_t firstBin, std::i
     for (Eigen::Index t = 0; t < T; ++t)
       for (std::size_t q = 0; q < bins.size(); ++q) buffer[static_cast<std::size_t>(t * N + firstBin + bins[q])] = spectral(t, static_cast<Eigen::Index>(q));
     c2c(buffer.data(), buffer.data(), {static_cast<std::size_t>(T), static_cast<std::size_t>(N)}, 1, false);
-    Eigen::MatrixXcd z(T, used);
-    for (Eigen::Index t = 0; t < T; ++t) for (std::int64_t s = 0; s < used; ++s) z(t, s) = buffer[static_cast<std::size_t>(t * N + ownFirst + s)];
+    Eigen::MatrixXcd z(T, ownSamples);
+    for (Eigen::Index t = 0; t < T; ++t) for (std::int64_t s = 0; s < ownSamples; ++s) z(t, s) = buffer[static_cast<std::size_t>(t * N + ownFirst + s)];
     buffer.clear(); buffer.shrink_to_fit();
+    std::int64_t start = 0;
     for (std::int64_t cell = 0; cell < cells; ++cell) {
-      const auto block = z.middleCols(cell * cellSamples, cellSamples);
-      const Eigen::MatrixXcd sums = block * block.adjoint();                                      // [T x T]: Σ_t z_i conj(z_j) over the cell (every pair is an element)
+      const std::int64_t width = out.samples[static_cast<std::size_t>(cell)];
+      const auto block = z.middleCols(start, width);
+      start += width;
+      const Eigen::MatrixXcd sums = block * block.adjoint();                                      // [T x T]: Σ_t z_i conj(z_j) over the cell's samples (every pair is an element)
       for (Eigen::Index i = 0; i < T; ++i) {
         out.power(i, cell) += sums(i, i).real();
-        for (Eigen::Index j = i + 1; j < T; ++j) out.pairImaginary(i * T - i * (i + 1) / 2 + (j - i - 1), cell) += sums(i, j).imag();
+        for (Eigen::Index j = i + 1; j < T; ++j) {
+          const std::int64_t q = i * T - i * (i + 1) / 2 + (j - i - 1);
+          out.pairReal(q, cell) += sums(i, j).real();
+          out.pairImaginary(q, cell) += sums(i, j).imag();
+        }
       }
     }
   }

@@ -43,7 +43,7 @@ B = 3 277 bins of [0, 60) Hz, A = 17 atoms.
 |---|---|---|
 | loading (io) | the stored chunk spectra (`sensor_flow`'s `<name>_chunk_spectra`: the cross-spectrum in its factored form); the atoms (a kernel set); the sensor surface's eigenvectors and channel map (to make the serving operator again); the inverse kernel (by name: the caller's, free orientation); the tiles; the network's `<name>_pairs` and `<name>_eigenmodes` | by name; never the recording |
 | preparation | `signal.mode_analysis` (REUSED, as `sensor_flow` binds it: the serving operator, `exact_and_constant`, `unit_mass`); `signal.tile_operator` (NEW): the kernel averaged over each tile's vertices, composed with the synthesis of the served coordinates back to the kernel's channels: ONE operator [3T x K], built once | the spectra's coordinates must be the serving operator's rows; the kernel's channels must be the serving operator's channels; the kernel's surface the tiles' |
-| graph | `signal.tile_flow` (NEW): the whole run's tile cross-spectrum per atom; `signal.tile_time_cells` (NEW): the same sums per time cell of each atom; `stats.sign_flip_consistency` (REUSED, the sensor chain's); `meeg.network_flow` (NEW): divergence, graph potential, its connectome-eigenmode coefficients, the gradient part's sums | spectra, operator, atoms → per atom: pair sums, tile power; per cell: pair sums; per pair: consistency and p; per tile and mode: divergence, potential, coefficients |
+| graph | `signal.tile_flow` (NEW): the whole run's tile cross-spectrum per atom (the sensor chain's form, for comparison); `signal.tile_time_cells` (NEW): the same sums per cell of a level of the time line (the reference's 4 s segments by default); `stats.network_sign_flip` (NEW, the reference's nulls); `meeg.network_flow` (NEW): divergence, graph potential, its connectome-eigenmode coefficients, the gradient part's sums; `stats.run_replication` (NEW, definition `connectome_flow_replication`) | spectra, operator, atoms → per atom: pair sums, tile power; per cell: pair sums; per pair: mean edge flow, p, family-wise p, control, phase; per tile and mode: divergence, potential, coefficients; per atom: the runs' correlations |
 | readback | `<name>_tile_flow`, `<name>_tile_cells`, `<name>_sign_flip`, `<name>_network_flow` (statistics) | derived at read: edge flow, lag, speed, shares, counts over the edges and the control |
 
 ### The maths
@@ -57,13 +57,21 @@ assumed): z_t(k) = M y_t(k).
   Im(conj(z_tail) z_tip) is its negative for the pair's orientation.
 - **the lag and the speed** (derived at read): lag = -arg(S_ij) / (2 pi f_a), f_a the atom's centre; speed = median length / |lag| on the consistent edges. An upper
   bound: leakage pulls lags towards zero.
-- **the time cells** (`signal.tile_time_cells`): per atom and chunk, the atom's band signal back in time: the tile operator composed with the atom's gains on its
-  bins FIRST (M y g_a: [3T x the atom's bins]), one inverse transform per row, the chunk's own samples kept (the overlap dropped), then per cell of the atom's own
-  width (`cell_width` time standard deviations, snapped to a power of two of samples, as `signal.atom_time_cells` does) the sums Σ_c Σ_samples z_i conj(z_j) for every
-  pair (Im part) and |z_i|² per tile. The per-cell sums over all pairs are one product of [T x cell] blocks per component (the cheapest order: the pairs are every
-  pair, not a sparse set); no matrix of a single sample is formed.
-- **the test**: `stats.sign_flip_consistency` (elements `edges`, one value per pair) on the cells' Im sums: per pair R1 = |Σ_cells sign| / cells, its p against
-  random sign patterns over the cells and the family-wise p over all pairs (the null maximum).
+- **the cells** (`signal.tile_time_cells`): per atom and chunk, the atom's band signal back in time: the tile operator composed with the atom's gains on its
+  bins FIRST (M y g_a: [3T x the atom's bins]), one inverse transform per row, the chunk's own samples kept (the overlap dropped), then per cell the sums
+  Σ_c Σ_samples z_i conj(z_j) for every pair (real and imaginary parts) and |z_i|² per tile. The cells are a level of the time line anchored at the run's first
+  sample; a cell cut by a chunk's edge is added up from the two chunks and only whole cells are kept. `cells segments` (DEFAULT, the reference's): non-overlapping
+  segments of `segment_seconds` (4 s), the same for every atom, S = N // L; `cells atom_width`: each atom's own cells (the sensor flow's). The per-cell sums over all
+  pairs are one product of [T x cell] blocks per component (every pair is an element); no matrix of a single sample is formed.
+- **the nulls** (`stats.network_sign_flip`, the reference's, ported exactly; numpy's generator bit for bit, one for the run, drawn in the reference's order): per atom,
+  each cell's edge flow F_s = Im C_ij / sqrt(C_ii C_jj) for every pair (kept in float32, as the reference's array); the mean edge flow Σ_s F_s / S; the sign flip
+  (time reversal) over the cells: `patterns` sign vectors random((patterns, S)) < 0.5 → -1, p = (#(|null| >= |observed|) + 1) / (patterns + 1), and the
+  family-wise p over all pairs on the sums normalised by Σ_s |F_s| (the null maximum); then the CONTROL: for each distance bin (np.digitize over
+  `distance_bin_edges`, 0 30 45 60 80 100 130 170 250 mm) the joined pairs occupy, as many not-joined pairs of that bin as joined ones, drawn by numpy's
+  `choice(replace=False)`; the phase arg Σ_s C_ij. Checked against numpy and the reference's code on generated values (`test_network_flip`: every p, family-wise p
+  and control flag equal).
+- **the replication** (`stats.run_replication`, the reference's `netfig`): per atom Pearson's r of two runs' mean edge flows over the joined pairs and over the
+  not-joined pairs.
 - **the network** (`meeg.network_flow`), per atom, on the edges (count >= `min_streamlines`), weights w = their counts, B the incidence (edge e = (i → j):
   -1 at i, +1 at j):
   - divergence d = Bᵀ F (per tile; the reference's sign: the flow into a tile minus the flow out of it);
@@ -100,11 +108,11 @@ The network step reads the sums only: a function of the reduced quantities (a de
 | the reference (nxr flownet) | here | why |
 |---|---|---|
 | the recording decimated to 300 Hz, the whole run transformed at once | the stored chunk spectra at the native rate | no resampling (2026-11-23, restated 2026-11-24); recordings streamed one chunk at a time, the cross-spectrum stored factored (2026-11-24) |
-| 4 s segments: the sign-flip unit and the mean of per-segment normalised flows | the atoms' own time cells; the edge flow from the whole-run sums (ratio derived at read) | no windowing step: the wavelet atoms decide the time cells (2026-11-24); ratios derived at read (the cardinal rule) |
-| its own flip: Σ of the per-segment flows, |null| >= |observed|, family-wise on normalised sums | `stats.sign_flip_consistency`: R1 of the signs per pair, same patterns (numpy `default_rng(0)`, 2000) | the sign-flip test is the flow pipeline's (2026-11-24) |
+| 4 s segments: the sign-flip unit and the mean of per-segment normalised flows | the same by default (`cells segments`, 4 s at the native rate, from the run's first sample, whole segments only); the atoms' own cells an option (`cells atom_width`), and the whole-run ratio of sums (`signal.tile_flow`) stored beside it | nulls are ported exactly; where atoms and time cells would change a null, the reference's behaviour is the default and the difference is reported (2026-11-24) |
+| its own flip and its distance-matched control, one numpy generator | the same (`stats.network_sign_flip`), bit for bit | ported exactly (2026-11-24); not the sensor chain's `stats.sign_flip_consistency` (R1 of the signs), whose statistic differs |
 | Gaussians at 4 x 2^(k/5) Hz with standard deviation f / 12, unnormalised | the flow pipeline's atoms (the same centres and widths), normalised by the sum of their squared gains | the frequency grid = the flow pipeline's atoms (2026-11-24) |
 | the tile current: the kernel averaged over the tile, applied to the decimated recording | the same average composed with the synthesis of the served coordinates: one [3T x K] operator | compose first (2026-11-24) |
-| the distance-matched control: a random draw of as many not-joined pairs per distance bin | stored per pair: count, distance, across; the control is a selection at read (the not-joined pairs of each distance bin, weighted to the edges' distance distribution) | reductions are measurements over selections; no random draw stored as data |
+| the edge flow the network reads: the mean over segments of the per-segment ratios | the same by default (`meeg.network_flow` reads the nulls' mean edge flow); the whole-run ratio an input it also reads | the reference's behaviour as the default |
 | phi by `lstsq` on the weighted incidence | the 1/eigenvalue gain on the connectome's complete eigenmodes | Poisson solves are filters in eigenmodes (2026-11-24) |
 | the kernel's long wavelengths removed (`--keep`) | not built | the source mapping's band readouts (source flow) compose with the tile averaging when they land |
 

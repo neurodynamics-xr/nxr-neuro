@@ -24,8 +24,12 @@ class NumpyGenerator {
   std::uint64_t nextRaw();
   /** numpy `Generator.random()`: a double in [0, 1) */
   double random();
+  /** the bit generator's next 32 bits (numpy PCG64 `next_uint32`: the two halves of one 64-bit output, the low half first, the high half kept for the next call) */
+  std::uint32_t nextUint32();
  private:
   unsigned __int128 state_ = 0, increment_ = 0;
+  bool hasUint32_ = false;
+  std::uint32_t uinteger_ = 0;
 };
 
 struct SignFlipConsistency {

@@ -1,0 +1,29 @@
+# THE RUN-TO-RUN REPLICATION OF THE FLOW THROUGH THE FIBRE NETWORK (spec docs/specs/2026-11-24-connectome-flow.md): nxr's replication, the correlation of two runs' mean edge flows
+# per atom over the joined pairs and over the not-joined pairs, from two `connectome_flow` results on the same network and atoms.
+#
+# What it cannot resolve: a correlation of two runs says the pattern repeats, not that the fibres carry it (the not-joined pairs' correlation is the comparison).
+#
+#   nxr-neuro run connectome_flow_replication --dataset D --subject S --first RUN1_STEM --second RUN2_STEM --network BUNDLE_tiles32
+pipeline: connectome_flow_replication
+version: 1
+description: the run-to-run replication of the flow through the fibre network - per atom the correlation of two runs' edge flows over the joined and the not-joined pairs
+scope: subject
+
+inputs:
+  first:  {statistic: any, where: {name: "${first}_sign_flip"}, hint: "one run's connectome flow (`nxr-neuro run connectome_flow` first)"}
+  second: {statistic: any, where: {name: "${second}_sign_flip"}, hint: "the other run's connectome flow, on the same network and atoms"}
+  pairs:  {statistic: any, where: {name: "${network}_pairs"}, hint: "the fibre network (`nxr-neuro run tile_network` first)"}
+
+parameters:
+  first: {default: null, meaning: "the stem of one run's connectome flow names", unit: "-"}
+  second: {default: null, meaning: "the stem of the other run's", unit: "-"}
+  network: {default: null, meaning: "the stem of the fibre network's names", unit: "-"}
+  min_streamlines: {default: 10, meaning: "a pair is joined when at least this many streamlines join it (nxr: 10)", unit: streamlines}
+  name: {default: "{first}_{second}_replication", meaning: "the stored statistic's name", unit: "-"}
+
+steps:
+  before:
+    - {node: stats.run_replication, in: {first: first, second: second, pairs: pairs}, with: {min_streamlines: $min_streamlines}, out: replication}
+
+outputs:
+  replication: {kind: statistic, name: $name, of: first}
