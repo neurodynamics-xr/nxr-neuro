@@ -77,5 +77,6 @@ outputs:
   pair_modes:     {kind: measurement, over: pairs, of: recording}
   consistency:    {kind: measurement, over: atom_bands, of: recording}
   consistency_summary: {kind: measurement, over: atom_bands, of: recording}
+  # (whole_consistency, whole_consistency_summary: the sensor chain's time cells are per band only, so the node makes them absent; not stored)
   power:          {kind: statistic, name: "{name}_sensor_power", of: recording, when: $aperiodic}
   aperiodic_fit:  {kind: statistic, name: "{name}_aperiodic", of: recording, when: $aperiodic}

@@ -1,5 +1,8 @@
 # The bispectrum in eigenmode coordinates, and the flow across frequencies (2026-11-24): the graphs
 
+> **Storage, since the flow consolidation (2026-11-24):** the per-member flow results named below as statistics are stored as MEASUREMENTS over the atoms and their products, and the time cells are not stored; see `docs/reference.md`, "How the flow results are stored".
+
+
 **Status:** design written before the code (CONTRIBUTING, "Adding a node or a pipeline", step 0), then built: `sensor_bispectrum` and `sensor_flow_across_frequencies`. The
 single-event shape and the per-event flow across frequencies are graphs only (not built). Sensor space; the same nodes read any surface's chunk spectra. It replaces the separate
 "phase-amplitude coupling", "harmonics", "speed across frequencies" and "waveform shape" sketches of `docs/specs/2026-11-24-sensor-flow.md` ("Pipelines that read the same chunk

@@ -166,5 +166,6 @@ int main() {
   CHECK(at(W, 0, 0) < 0 && at(W, 1, 0) > 0 && std::abs(at(W, 0, 0) + at(W, 1, 0)) < 1e-12);  // the divergence: out of tile 0, into tile 1
   CHECK(std::abs(at(Wt, 0, 0) / at(Wt, 0, 1) - 1) < 1e-9);                                  // a tree: every flow is a gradient
   CHECK(refused([&] { run_array("meeg.network_flow", {{"pairs", pairs}, {"eigenmodes", modes.at("eigenmodes")}, {"flow", R}}, Json{{"min_streamlines", 2}}); }));   // eigenmodes made with 10
+  CHECK(refused([&] { run_array("meeg.network_flow", {{"pairs", pairs}, {"eigenmodes", modes.at("eigenmodes")}, {"flow", F}}, Json{{"min_streamlines", 10}}); }));  // a flow whose first measure is not the mean edge flow
   return nxrtest::finish("test_connectome_flow");
 }

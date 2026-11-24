@@ -1153,7 +1153,7 @@ flow definitions read it; the flow itself is `flow_readout.h` (`pairFlow`, `time
 members is a measurement): the whole field's power, phase currents, potential, stream and flow coefficients over the atoms; the band pairs over the product atoms x bands
 x bands; the sign-flip test's per-element results and per-member summary over atoms x bands (and, in the source flow, the whole field's over the atoms). The products are
 made first by `run select_kernel_product` (`--factors 3 --first ATOMS --second BANDS --third BANDS`; `--factors 2` for atoms x bands), their code mixed radix, the first
-factor fastest (the stored member order a + A (p Q + q)). With `frequency_weighting every_bin` the frequency line's bins are an axis, not members: statistics. The time
+factor fastest: atom a, then the band q at the tip, then the band p at the tail (the stored member order a + A (q + Q p)). With `frequency_weighting every_bin` the frequency line's bins are an axis, not members: statistics. The time
 cells are made and tested inside the run, never stored. The order on a new recording: `run sensor_flow_bins` (no atoms: its chunk spectra make the frequency line
 `<time line>_freq_L<log2 transform>`), `run select_kernels` (the atoms on that line, the bands on the solve's eigenvalue line), `run select_kernel_product`, `run sensor_flow`.
 Per hemisphere, each side's measures carry a stated suffix (`measure_suffix`: `_left`, `_right`) until a measurement's key names the surface its rows are on.

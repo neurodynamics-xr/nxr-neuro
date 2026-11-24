@@ -103,6 +103,12 @@ double measured(const ng::Array& a, std::int64_t row, std::int64_t atom, std::in
   const std::int64_t atoms = shape[1].get<std::int64_t>(), K = shape[2].get<std::int64_t>();
   return a.at(static_cast<std::size_t>((row * atoms + atom) * K + measure));
 }
+// the name of a flow measurement's first measure: in a run its describe's first, stored its meta's
+std::string first_measure(const ng::Array& a) {
+  if (a.meta.contains("measure") && !a.meta.contains("describe")) return a.meta["measure"].get<std::string>();
+  const Json d = a.meta.value("describe", Json::object());
+  return d.contains("measures") && !d["measures"].empty() ? d["measures"][0].value("measure", std::string()) : std::string();
+}
 // the atoms and rows of a flow measurement
 std::pair<std::int64_t, std::int64_t> atoms_rows(const ng::Array& a) {
   if (a.meta.contains("measure") && !a.meta.contains("describe")) return {a.cols, a.rows};
@@ -704,7 +710,7 @@ ng::NodeSpec network_flow() {
   n.kind = ng::Kind::array;
   n.inputs = {{"pairs", "the tile pairs (meeg.tile_pairs)", false},
               {"eigenmodes", "the connectome eigenmodes (meeg.laplacian_eigenmodes), made with the same min_streamlines", false},
-              {"flow", "the edge flow per atom: the mean over the cells (stats.network_sign_flip, the reference's) or the whole run's tile cross-spectrum (signal.tile_flow: Im S_ij / sqrt(S_ii S_jj))", false}};
+              {"flow", "the edge flow per atom: stats.network_sign_flip's consistency (its first measure mean_edge_flow: the mean over the cells, the reference's), a measurement over the atoms", false}};
   n.outputs = {{"network_tiles", "a MEASUREMENT over the atoms: per tile its divergence and graph potential", false},
                {"network_modes", "a MEASUREMENT over the atoms: the potential's coefficient per connectome eigenmode", false},
                {"network_totals", "a MEASUREMENT over the atoms, one row: Σ w (B phi)², Σ w F²", false}};
@@ -731,6 +737,7 @@ ng::NodeSpec network_flow() {
     const std::pair<std::int64_t, std::int64_t> flowShape = atoms_rows(flow);
     const std::int64_t A = flowShape.first, flowRows = flowShape.second;                                                // stats.network_sign_flip's measurement: the mean edge flow per pair and atom
     if (eigen.rows != T || eigen.cols != T + 1 || flowRows != P) ng::refuse(std::string(kNetwork) + ": the eigenmodes or the flow do not fit the pairs' tiles");
+    if (first_measure(flow) != "mean_edge_flow") ng::refuse(std::string(kNetwork) + ": flow is not the mean edge flow (stats.network_sign_flip's consistency): its first measure is '" + first_measure(flow) + "'");
     nxr::meeg::LaplacianModes modes;
     modes.eigenvalues.resize(T); modes.eigenvectors.resize(T, T);
     for (std::int64_t k = 0; k < T; ++k) { modes.eigenvalues(k) = cell(eigen, k, 0); for (std::int64_t i = 0; i < T; ++i) modes.eigenvectors(i, k) = cell(eigen, k, 1 + i); }

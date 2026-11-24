@@ -1,7 +1,7 @@
 # THE PRODUCT OF KERNEL SETS: every combination of the members of two or three stored kernel sets (`select_kernels`), coded mixed radix with the FIRST
 # factor fastest (the node `select.product`, layout product). The flow pipelines measure over such products: the atoms x the eigenvalue bands (the
-# consistency per atom and band) and the atoms x the bands x the bands (the band pairs: frequency member a, band p at the tail, band q at the tip; code
-# a + A (p Q + q)). A kernel set is a selection on its line (the frequency line, the eigenvalue line), so the product lies on the product of the lines.
+# consistency per atom and band) and the atoms x the bands x the bands (the band pairs: the first factor the atom a, the second the band q at the tip, the third the band p at
+# the tail; code a + A (q + Q p)). A kernel set is a selection on its line (the frequency line, the eigenvalue line), so the product lies on the product of the lines.
 #
 #   nxr-neuro run select_kernel_product --dataset <folder> --subject sub-01 --first atoms --second bands --third bands --name "atoms x bands x bands"
 pipeline: select_kernel_product
