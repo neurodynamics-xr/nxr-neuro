@@ -148,6 +148,48 @@ PairFlow pairFlow(const Eigen::MatrixXcd& Y, const std::vector<Eigen::MatrixXd>&
   return out;
 }
 
+TimeCellPairFlow takeWholeCells(TimeCellPairFlow& carried, const TimeCellPairFlow& part, std::int64_t cellSamples) {
+  const Eigen::Index cells = part.power.cols();
+  if (static_cast<Eigen::Index>(part.samples.size()) != cells) bad("takeWholeCells: a part's sample counts, one a cell");
+  TimeCellPairFlow merged = part;                                                          // the carried cell added to the part's first cell when it is the same cell
+  if (carried.power.cols() == 1 && cells > 0 && carried.firstCell == part.firstCell) {
+    merged.power.col(0) += carried.power.col(0);
+    merged.pairReal.col(0) += carried.pairReal.col(0);
+    merged.pairImaginary.col(0) += carried.pairImaginary.col(0);
+    if (merged.vertexCurrent.size()) merged.vertexCurrent.col(0) += carried.vertexCurrent.col(0);
+    merged.samples[0] += carried.samples[0];
+  }
+  carried = TimeCellPairFlow{};
+  if (cells > 0 && merged.samples.back() < cellSamples) {                                  // the last cell, cut by this chunk's end: carried to the next chunk
+    const Eigen::Index last = cells - 1;
+    carried.firstCell = merged.firstCell + last;
+    carried.power = merged.power.col(last);
+    carried.pairReal = merged.pairReal.col(last);
+    carried.pairImaginary = merged.pairImaginary.col(last);
+    if (merged.vertexCurrent.size()) carried.vertexCurrent = merged.vertexCurrent.col(last);
+    carried.samples = {merged.samples.back()};
+  }
+  std::vector<Eigen::Index> whole;
+  for (Eigen::Index cell = 0; cell < cells; ++cell) if (merged.samples[static_cast<std::size_t>(cell)] == cellSamples) whole.push_back(cell);
+  TimeCellPairFlow out;
+  out.firstCell = whole.empty() ? 0 : merged.firstCell + whole.front();
+  const Eigen::Index count = static_cast<Eigen::Index>(whole.size());
+  out.power.resize(merged.power.rows(), count);
+  out.pairReal.resize(merged.pairReal.rows(), count);
+  out.pairImaginary.resize(merged.pairImaginary.rows(), count);
+  if (merged.vertexCurrent.size()) out.vertexCurrent.resize(merged.vertexCurrent.rows(), count);
+  for (Eigen::Index j = 0; j < count; ++j) {
+    const Eigen::Index cell = whole[static_cast<std::size_t>(j)];
+    if (cell != whole.front() + j) bad("takeWholeCells: the whole cells are not contiguous (a chunk missing from the line)");
+    out.power.col(j) = merged.power.col(cell);
+    out.pairReal.col(j) = merged.pairReal.col(cell);
+    out.pairImaginary.col(j) = merged.pairImaginary.col(cell);
+    if (merged.vertexCurrent.size()) out.vertexCurrent.col(j) = merged.vertexCurrent.col(cell);
+    out.samples.push_back(cellSamples);
+  }
+  return out;
+}
+
 FlowSplit flowSplit(const IntrinsicComplex& c, const Modes& m, const Eigen::MatrixXd& edgeCurrent, const OneFormRemainderSplit* remainderSplit) {
   if (edgeCurrent.rows() != c.nE) bad("flowSplit: an edge current on the " + std::to_string(c.nE) + " edges");
   FlowSplit out;

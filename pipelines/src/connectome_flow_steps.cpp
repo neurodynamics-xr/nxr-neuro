@@ -29,6 +29,8 @@
 #include "nxr/meeg/tile_network.h"
 #include "nxr/select/grid.h"
 #include "nxr/signal/spectral_flow.h"
+#include "nxr/signal/flow_readout.h"
+#include "nxr/signal/source_flow.h"
 #include "nxr/signal/tile_flow.h"
 #include "nxr/stats/network_flip.h"
 
@@ -109,6 +111,12 @@ std::vector<std::int64_t> distinct_codes(const std::vector<std::int64_t>& codes)
 using Spectra = spectra_readers::Spectra;
 using spectra_readers::spectra_of;
 // the atoms' gains per bin (a kernel set: nxr::signal::kernelGains), normalised as the parameter says; their centres and time standard deviations (Gaussians on a linear chart)
+// every pair of tiles i < j, i the slower index (the order of the stored pair columns): [P x 2] flat
+std::vector<std::int32_t> tile_pairs(std::int64_t tiles) {
+  std::vector<std::int32_t> pairs;
+  for (std::int32_t i = 0; i < tiles; ++i) for (std::int32_t j = i + 1; j < tiles; ++j) { pairs.push_back(i); pairs.push_back(j); }
+  return pairs;
+}
 struct Atoms { Eigen::MatrixXd gains; std::vector<double> centres, standardDeviations; };
 Atoms atoms_of(const Spectra& s, const ng::Array& sel, const Json& p, const char* who) {
   Eigen::VectorXd frequency(s.bins);
@@ -379,7 +387,7 @@ ng::NodeSpec tile_flow() {
                   {"support_floor", Json(), "with sum_of_squared_gains: as signal.spectral_flow's (no default)", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64,
                              "once a run, chunk by chunk of the stored spectra: the tile operator applied to each chunk's coefficients once, then per atom the weighted sum of products over the bins");
-  n.matches = "nxr flownet's Stot (the per-segment C = w wᴴ traced over components, summed): here the same sums from the factored cross-spectrum; compute nxr::signal::accumulateTileCrossSpectra";
+  n.matches = "nxr flownet's Stot (the per-segment C = w wᴴ traced over components, summed): here the same sums from the factored cross-spectrum; compute nxr::signal::pairFlow";
   n.description = "the whole run's cross-spectrum of the tiles' currents per atom: the ingredients of the edge flow, the lag and the speed (derived at read)";
   n.plan = [](const ng::Types& in, const Json& p) {
     for (const char* k : {"spectra", "operator", "frequency"}) if (!in.count(k)) ng::refuse(std::string(kFlow) + ": " + k + " is not given");
@@ -394,19 +402,16 @@ ng::NodeSpec tile_flow() {
     const Atoms atoms = atoms_of(s, pr.frequency, pr.p, kFlow);
     const Eigen::MatrixXd M = matrix_of(pr.op);
     const std::int64_t T = M.rows() / 3, P = T * (T - 1) / 2, A = atoms.gains.rows();
-    std::vector<Eigen::MatrixXcd> sums;
-    for (std::int64_t t = 0; t < s.chunks; ++t) {
-      Eigen::MatrixXcd Y(s.rows, s.bins);
-      for (std::int64_t k = 0; k < s.bins; ++k) for (std::int64_t r = 0; r < s.rows; ++r) Y(r, k) = s.at(t, k, r);
-      nxr::signal::accumulateTileCrossSpectra(M.cast<cd>() * Y, atoms.gains, sums);              // [3T x B] once per chunk, every atom reads it
-    }
+    const std::vector<Eigen::MatrixXd> tileReadout{nxr::signal::componentMajor(M, 3)};       // the tile operator, component-major: one readout of three components
+    const std::vector<std::int32_t> tilePairs = tile_pairs(T);
     ng::Array out;
     out.rows = A; out.cols = 2 * P + T;
     for (std::int64_t a = 0; a < A; ++a) {
-      const Eigen::MatrixXcd& S = sums[static_cast<std::size_t>(a)];
-      for (std::int64_t i = 0; i < T; ++i) for (std::int64_t j = i + 1; j < T; ++j) out.data.push_back(S(i, j).real());
-      for (std::int64_t i = 0; i < T; ++i) for (std::int64_t j = i + 1; j < T; ++j) out.data.push_back(S(i, j).imag());
-      for (std::int64_t i = 0; i < T; ++i) out.data.push_back(S(i, i).real());
+      // the atom's weighting of the cross-spectrum, factored (C = Y Yᴴ, a SUM over chunks and the atom's bins), read through the tiles: Σ conj(z_i) z_j = conj(S_ij)
+      const nxr::signal::PairFlow flow = nxr::signal::pairFlow(spectra_readers::weighted_columns(s, atoms.gains.row(a), 0.0), tileReadout, 3, tilePairs, nullptr);
+      for (std::int64_t q = 0; q < P; ++q) out.data.push_back(flow.pairReal(q, 0));
+      for (std::int64_t q = 0; q < P; ++q) out.data.push_back(-flow.pairImaginary(q, 0));          // S_ij = Σ z_i conj(z_j)
+      for (std::int64_t i = 0; i < T; ++i) out.data.push_back(flow.power(i, 0));
     }
     Json centres = Json::array();
     for (const double c : atoms.centres) centres.push_back(c);
@@ -443,7 +448,7 @@ ng::NodeSpec tile_time_cells() {
                   {"cell_width", Json(), "cells atom_width: a cell's width in the atom's time standard deviations (the sensor flow's: 2)", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64,
                              "once a run, chunk by chunk of the stored spectra: the tile operator composed on the atom's bins, one inverse transform per row, summed over the cells (a cell cut by a chunk's edge is added up across the two chunks)");
-  n.matches = "nxr flownet's per-segment C = w wᴴ traced over components (segments of --seg seconds, S = N // L, from the run's first sample); compute nxr::signal::tileTimeCells";
+  n.matches = "nxr flownet's per-segment C = w wᴴ traced over components (segments of --seg seconds, S = N // L, from the run's first sample); compute nxr::signal::timeCellPairFlow, takeWholeCells";
   n.description = "the tiles' cross-spectrum of each atom per cell of a level of the time line: the sums the reference's sign-flip test and its mean edge flow read";
   n.plan = [](const ng::Types& in, const Json& p) {
     for (const char* k : {"spectra", "operator", "frequency"}) if (!in.count(k)) ng::refuse(std::string(kCells) + ": " + k + " is not given");
@@ -464,6 +469,8 @@ ng::NodeSpec tile_time_cells() {
     const Eigen::MatrixXd M = matrix_of(pr.op);
     const std::int64_t T = M.rows() / 3, P = T * (T - 1) / 2, A = atoms.gains.rows();
     const bool segments = pr.p["cells"].get<std::string>() == "segments";
+    const Eigen::MatrixXd tileReadout = nxr::signal::componentMajor(M, 3);                    // the tile operator, component-major
+    const std::vector<std::int32_t> tilePairs = tile_pairs(T);
     ng::Array out;
     out.cols = 2 * P + T;
     Json groups = Json::array();
@@ -476,29 +483,22 @@ ng::NodeSpec tile_time_cells() {
         if (!std::isfinite(sd)) ng::refuse(std::string(kCells) + ": atom-width cells need Gaussian atoms on a linear chart");
         cellSamples = std::int64_t(1) << static_cast<int>(std::lround(std::log2(pr.p["cell_width"].get<double>() / (2.0 * M_PI * sd) * s.sfreq)));
       }
-      // each cell's sums, added up across the chunks that hold its parts; only whole cells are kept (the reference's S = N // L)
-      std::map<std::int64_t, std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::VectorXd, std::int64_t>> sums;
+      // whole cells only (the reference's S = N // L): a cell cut by a chunk's edge completed from the next chunk
+      std::int64_t cells = 0, firstCell = -1;
+      nxr::signal::TimeCellPairFlow carried;
       for (std::int64_t t = 0; t < s.chunks; ++t) {
         Eigen::MatrixXcd X(s.rows, s.bins);
         for (std::int64_t k = 0; k < s.bins; ++k) for (std::int64_t r = 0; r < s.rows; ++r) X(r, k) = atoms.gains(a, k) * s.at(t, k, r);
-        const nxr::signal::TileCells f = nxr::signal::tileTimeCells(X, s.first, s.transform, s.overlap, s.owns[static_cast<std::size_t>(t)], s.firsts[static_cast<std::size_t>(t)], cellSamples, M);
-        for (std::size_t j = 0; j < f.samples.size(); ++j) {
-          auto it = sums.find(f.firstCell + static_cast<std::int64_t>(j));
-          if (it == sums.end()) it = sums.emplace(f.firstCell + static_cast<std::int64_t>(j), std::make_tuple(Eigen::VectorXd::Zero(P), Eigen::VectorXd::Zero(P), Eigen::VectorXd::Zero(T), std::int64_t(0))).first;
-          std::get<0>(it->second) += f.pairReal.col(static_cast<Eigen::Index>(j));
-          std::get<1>(it->second) += f.pairImaginary.col(static_cast<Eigen::Index>(j));
-          std::get<2>(it->second) += f.power.col(static_cast<Eigen::Index>(j));
-          std::get<3>(it->second) += f.samples[j];
+        const nxr::signal::TimeCellPairFlow part = nxr::signal::timeCellPairFlow(X, s.first, s.transform, s.overlap, s.owns[static_cast<std::size_t>(t)], s.firsts[static_cast<std::size_t>(t)],
+                                                                                 cellSamples, tileReadout, 3, tilePairs, nullptr);
+        const nxr::signal::TimeCellPairFlow f = nxr::signal::takeWholeCells(carried, part, cellSamples);
+        if (f.power.cols() > 0 && firstCell < 0) firstCell = f.firstCell;
+        for (Eigen::Index j = 0; j < f.power.cols(); ++j) {
+          for (std::int64_t q = 0; q < P; ++q) out.data.push_back(f.pairReal(q, j));
+          for (std::int64_t q = 0; q < P; ++q) out.data.push_back(-f.pairImaginary(q, j));      // Σ z_i conj(z_j): the conjugate of Σ conj(z_i) z_j
+          for (std::int64_t i = 0; i < T; ++i) out.data.push_back(f.power(i, j));
         }
-      }
-      std::int64_t cells = 0, firstCell = -1;
-      for (const auto& [index, v] : sums) {
-        if (std::get<3>(v) != cellSamples) continue;
-        if (firstCell < 0) firstCell = index;
-        for (std::int64_t q = 0; q < P; ++q) out.data.push_back(std::get<0>(v)(q));
-        for (std::int64_t q = 0; q < P; ++q) out.data.push_back(std::get<1>(v)(q));
-        for (std::int64_t i = 0; i < T; ++i) out.data.push_back(std::get<2>(v)(i));
-        ++cells;
+        cells += f.power.cols();
       }
       groups.push_back(Json{{"atom", a}, {"band", 0}, {"first_row", row}, {"cells", cells}, {"first_cell", firstCell}, {"cell_samples", cellSamples}, {"cell_seconds", static_cast<double>(cellSamples) / s.sfreq},
                             {"frequency_hz", atoms.centres[static_cast<std::size_t>(a)]}});

@@ -302,7 +302,7 @@ ng::NodeSpec cortical_flow() {
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input,
                              "once a run: per frequency member one weighted sum of the chunk spectra (in sensor coordinates), per band the readout's right factor, per pair only the entries read; float32 out for float32 spectra");
   n.matches = "the reference's flow identity per vertex P = sum over components of grad k Im(C) kᵀ and |w|^2 = sum k Re(C) kᵀ with the band kernels k_b = Phi g_b Phiᵀ star0 k (last band the complement); "
-              "the split from the stored edge rows; compute nxr::signal::bandReadouts, readoutPairFlow, projectOneForm, exactPotential, coexactStream, OneFormRemainderSplit";
+              "the split from the stored edge rows; compute nxr::signal::bandReadouts, pairFlow, flowSplit, OneFormRemainderSplit";
   n.description = "the cortical flow of a weighted cross-spectrum read through the minimum-norm kernel in eigenmode coordinates: per frequency member the whole field's and every cortical band pair's power, "
                   "phase current per edge and per vertex, flow coefficients, potential and stream, and the remainder beyond the kept modes";
   n.plan = [](const ng::Types& in, const Json& p) {
@@ -328,25 +328,21 @@ ng::NodeSpec cortical_flow() {
     ng::Array pv = measured(V, A * pairs, kVertexMeasureCount), pe = measured(E, A * pairs, 1), pm = measured(M + 2, A * pairs, 1);
     double remainderEnergy = 0, flowEnergy = 0;
     // the readings of one frequency member's columns (whole field: one column; pairs: Q² columns), stored at their cells
-    auto store = [&](ng::Array& vertices, ng::Array& edges, ng::Array& modes, Eigen::Index cells, const std::vector<Eigen::Index>& cellOf, const nxr::signal::BandPairFlow& f) {
-      const Eigen::MatrixXd coef = nxr::signal::projectOneForm(cx, m, f.edgeCurrent);                       // [M x columns] on the stored edge rows
-      const Eigen::MatrixXd potential = nxr::signal::exactPotential(m, coef), stream = nxr::signal::coexactStream(cx, m, coef);
-      const Eigen::MatrixXd remainder = f.edgeCurrent - nxr::signal::synthesizeOneForm(cx, m, coef);       // the flow beyond the kept modes
-      for (Eigen::Index j = 0; j < f.edgeCurrent.cols(); ++j) {
+    auto store = [&](ng::Array& vertices, ng::Array& edges, ng::Array& modes, Eigen::Index cells, const std::vector<Eigen::Index>& cellOf, const nxr::signal::PairFlow& f) {
+      const nxr::signal::FlowSplit split = nxr::signal::flowSplit(cx, m, f.pairImaginary, &splitter);        // the stored edge rows, then the remainder beyond the kept modes
+      for (Eigen::Index j = 0; j < f.pairImaginary.cols(); ++j) {
         const Eigen::Index cell = cellOf[static_cast<std::size_t>(j)];
-        const nxr::signal::OneFormRemainderSplit::Parts parts = splitter.split(remainder.col(j));
-        const double energy = f.edgeCurrent.col(j).cwiseAbs2().dot(cx.star1), rest = remainder.col(j).cwiseAbs2().dot(cx.star1);
-        flowEnergy += energy; remainderEnergy += rest;
+        flowEnergy += split.flowEnergy(j); remainderEnergy += split.remainderEnergy(j);
         for (Eigen::Index v = 0; v < V; ++v) {
           float* r = vertices.single.data() + (v * cells + cell) * kVertexMeasureCount;
-          r[0] = static_cast<float>(f.power(v, j)); r[1] = static_cast<float>(potential(v, j)); r[2] = static_cast<float>(stream(v, j));
+          r[0] = static_cast<float>(f.power(v, j)); r[1] = static_cast<float>(split.potential(v, j)); r[2] = static_cast<float>(split.stream(v, j));
           for (int comp = 0; comp < 3; ++comp) r[3 + comp] = static_cast<float>(f.vertexCurrent(3 * v + comp, j));
-          r[6] = static_cast<float>(parts.potential(v)); r[7] = static_cast<float>(parts.stream(v));
+          r[6] = static_cast<float>(split.remainderPotential(v, j)); r[7] = static_cast<float>(split.remainderStream(v, j));
         }
-        for (Eigen::Index e = 0; e < E; ++e) edges.single[static_cast<std::size_t>(e * cells + cell)] = static_cast<float>(f.edgeCurrent(e, j));
-        for (Eigen::Index k = 0; k < M; ++k) modes.single[static_cast<std::size_t>(k * cells + cell)] = static_cast<float>(coef(k, j));
-        modes.single[static_cast<std::size_t>(M * cells + cell)] = static_cast<float>(energy);
-        modes.single[static_cast<std::size_t>((M + 1) * cells + cell)] = static_cast<float>(rest);
+        for (Eigen::Index e = 0; e < E; ++e) edges.single[static_cast<std::size_t>(e * cells + cell)] = static_cast<float>(f.pairImaginary(e, j));
+        for (Eigen::Index k = 0; k < M; ++k) modes.single[static_cast<std::size_t>(k * cells + cell)] = static_cast<float>(split.coefficients(k, j));
+        modes.single[static_cast<std::size_t>(M * cells + cell)] = static_cast<float>(split.flowEnergy(j));
+        modes.single[static_cast<std::size_t>((M + 1) * cells + cell)] = static_cast<float>(split.remainderEnergy(j));
       }
     };
     const std::vector<Eigen::MatrixXd> whole(pr.readouts.begin(), pr.readouts.begin() + 1), bands(pr.readouts.begin() + 1, pr.readouts.end());
@@ -355,11 +351,11 @@ ng::NodeSpec cortical_flow() {
       const Eigen::MatrixXcd Y = readers::weighted_columns(s, pr.frequency.row(a));
       members.push_back(Json{{"member", a}, {"columns", Y.cols()}, {"order", 2 * Y.cols() < Y.rows() ? "factored" : "dense"}});
       if (Y.cols() == 0) continue;
-      store(wv, we, wm, A, {a}, nxr::signal::readoutPairFlow(Y, whole, 3, cx.edges, sharpWeights));
+      store(wv, we, wm, A, {a}, nxr::signal::pairFlow(Y, whole, 3, cx.edges, &sharpWeights));
       if (Q == 0) continue;
       std::vector<Eigen::Index> cells;
       for (Eigen::Index pq = 0; pq < pairs; ++pq) cells.push_back(a + A * pq);
-      store(pv, pe, pm, A * pairs, cells, nxr::signal::readoutPairFlow(Y, bands, 3, cx.edges, sharpWeights));
+      store(pv, pe, pm, A * pairs, cells, nxr::signal::pairFlow(Y, bands, 3, cx.edges, &sharpWeights));
     }
     Json vertexMeasures = Json::array();
     for (const char* name : kVertexMeasures) vertexMeasures.push_back(Json{{"measure", name}});
@@ -424,7 +420,7 @@ ng::NodeSpec cortical_time_cells() {
       {"cell_width", Json(), "a time cell's width in the atom's time standard deviations (1 / (2 pi sigma_f)), snapped to the nearest power of two of samples (no default)", "-", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input,
                              "once a run, chunk by chunk of the stored spectra: the atom's spectrum back in time on the columns' side (one inverse transform of the columns), then the readout per cell and its sums");
-  n.matches = "signal.atom_time_cells with the cortical readout in place of the sensor synthesis; compute nxr::signal::readoutTimeCellFlow";
+  n.matches = "signal.atom_time_cells with the cortical readout in place of the sensor synthesis; compute nxr::signal::timeCellPairFlow, takeWholeCells";
   n.description = "the cortical flow of each atom in the atom's own time cells, for the whole field and each band: per cell the sums of the edge and vertex phase currents and of the power";
   n.plan = [](const ng::Types& in, const Json& p) {
     for (const char* k : {"spectra", "package", "operator", "kernel_columns", "frequency"}) if (!in.count(k)) ng::refuse(std::string(kCells) + ": " + k + " is not given");
@@ -441,7 +437,7 @@ ng::NodeSpec cortical_time_cells() {
     const nxr::signal::IntrinsicComplex& cx = *pr.package.complex;
     const Eigen::SparseMatrix<double> sharpWeights = nxr::signal::sharpOperator(cx);
     const Eigen::Index V = cx.nV, E = cx.nE, A = pr.frequency.rows(), R = static_cast<Eigen::Index>(pr.readouts.size());
-    if (static_cast<std::int64_t>(s.owns.size()) != s.chunks) ng::refuse(std::string(kCells) + ": the spectra do not record each chunk's own samples");
+    if (static_cast<std::int64_t>(s.owns.size()) != s.chunks || static_cast<std::int64_t>(s.firsts.size()) != s.chunks) ng::refuse(std::string(kCells) + ": the spectra do not record each chunk's samples");
     const double width = pr.p["cell_width"].get<double>();
     ng::Array out;
     out.cols = E + 4 * V;
@@ -452,16 +448,19 @@ ng::NodeSpec cortical_time_cells() {
         const double sigmaT = 1.0 / (2.0 * M_PI * pr.standardDeviations[static_cast<std::size_t>(a)]);
         const std::int64_t cell = std::int64_t(1) << static_cast<int>(std::lround(std::log2(width * sigmaT * s.sfreq)));
         std::int64_t cells = 0;
+        nxr::signal::TimeCellPairFlow carried;                                               // a cell cut by a chunk's end, completed from the next chunk
         for (std::int64_t t = 0; t < s.chunks; ++t) {
           Eigen::MatrixXcd X(s.rows, s.bins);
           for (std::int64_t k = 0; k < s.bins; ++k) for (std::int64_t c = 0; c < s.rows; ++c) X(c, k) = pr.frequency(a, k) * s.at(t, k, c);
-          const nxr::signal::CellFlow f = nxr::signal::readoutTimeCellFlow(X, s.first, s.transform, s.overlap, s.owns[static_cast<std::size_t>(t)], cell, pr.readouts[static_cast<std::size_t>(r)], 3, cx.edges, sharpWeights);
-          for (Eigen::Index j = 0; j < f.edgeCurrent.cols(); ++j) {
-            for (Eigen::Index e = 0; e < E; ++e) out.single.push_back(static_cast<float>(f.edgeCurrent(e, j)));
+          const nxr::signal::TimeCellPairFlow part = nxr::signal::timeCellPairFlow(X, s.first, s.transform, s.overlap, s.owns[static_cast<std::size_t>(t)], s.firsts[static_cast<std::size_t>(t)],
+                                                                                   cell, pr.readouts[static_cast<std::size_t>(r)], 3, cx.edges, &sharpWeights);
+          const nxr::signal::TimeCellPairFlow f = nxr::signal::takeWholeCells(carried, part, cell);
+          for (Eigen::Index j = 0; j < f.power.cols(); ++j) {
+            for (Eigen::Index e = 0; e < E; ++e) out.single.push_back(static_cast<float>(f.pairImaginary(e, j)));
             for (Eigen::Index i = 0; i < 3 * V; ++i) out.single.push_back(static_cast<float>(f.vertexCurrent(i, j)));
             for (Eigen::Index v = 0; v < V; ++v) out.single.push_back(static_cast<float>(f.power(v, j)));
           }
-          cells += f.edgeCurrent.cols();
+          cells += f.power.cols();
         }
         groups.push_back(Json{{"atom", a}, {"band", r - 1}, {"first_row", row}, {"cells", cells}, {"cell_samples", cell}, {"cell_seconds", static_cast<double>(cell) / s.sfreq}});
         row += cells;
@@ -471,7 +470,7 @@ ng::NodeSpec cortical_time_cells() {
                                 {"measures", Json::array({Json{{"measure", "phase_current"}, {"columns", Json::array({0, E})}}, Json{{"measure", "vertex_phase_current"}, {"columns", Json::array({E, E + 3 * V})}},
                                                          Json{{"measure", "power"}, {"columns", Json::array({E + 3 * V, E + 4 * V})}}})},
                                 {"values_shape", Json::array({row, E + 4 * V})}, {"precision", "float32"},
-                                {"attributes", Json{{"groups", groups}, {"rows", "the time cells of each atom x readout (band -1: the whole field), in the groups' order; within a group chunk by chunk, a trailing part cell of a chunk left out"},
+                                {"attributes", Json{{"groups", groups}, {"rows", "the time cells of each atom x readout (band -1: the whole field), in the groups' order; whole cells anchored at the recording's first sample, a cell cut by a chunk's edge completed from the next chunk, a part cell at the recording's ends left out"},
                                                     {"columns", "the edges' phase currents, then each vertex's x y z phase current, then each vertex's power (the three current components summed)"},
                                                     {"cell_width", width}, {"sum_over", "the cell's samples (each sample once)"}}}};
     return ng::Arrays{{"cells", std::move(out)}};

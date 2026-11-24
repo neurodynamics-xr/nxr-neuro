@@ -16,6 +16,9 @@
 //                           its other part in the neighbouring chunk (the caller adds them). Order (compose first): the readout applied to the atom's bins before the
 //                           inverse transform when it has fewer rows (components V) than the spectrum's columns, else the inverse transform on the columns first.
 //                           The per-sample products are never held beyond one cell
+//   takeWholeCells          the cells of a line streamed chunk by chunk (in line order): a chunk's cells added to the cell carried from the previous chunk; the cells now
+//                           whole (cellSamples samples) returned, a cell this chunk's end cuts carried to the next; a cell no chunk completes (the line's ends) never
+//                           returned (whole cells only: the reference's N // L segments)
 //   flowSplit               an edge current [E x m] split on the STORED Hodge-Dirac edge rows: its coefficients (projectOneForm: inner products, no solve), the travel
 //                           potential Σ_exact (c / mu) mode and the rotation stream Σ_coexact (c / mu) mode (the 1/mu gain: the full Poisson split when the basis is
 //                           complete), its ⋆1 energy; and, when a remainder split is given, the part beyond the kept modes split by sparse solves (a cortex)
@@ -66,6 +69,10 @@ struct TimeCellPairFlow {
 TimeCellPairFlow timeCellPairFlow(const Eigen::MatrixXcd& weightedSpectrum, std::int64_t firstBin, std::int64_t transformSamples, std::int64_t ownFirst, std::int64_t ownSamples,
                                   std::int64_t lineFirst, std::int64_t cellSamples, const Eigen::MatrixXd& readout, int components, const std::vector<std::int32_t>& pairs,
                                   const Eigen::SparseMatrix<double>* sharpWeights);
+
+/** `carried` the cell carried so far (empty at the start: power with no columns), updated; `part` one chunk's timeCellPairFlow, the chunks in line order.
+ *  Returns the whole cells now complete, contiguous from their firstCell (none: no columns). */
+TimeCellPairFlow takeWholeCells(TimeCellPairFlow& carried, const TimeCellPairFlow& part, std::int64_t cellSamples);
 
 struct FlowSplit {
   Eigen::MatrixXd coefficients;                          // [M x m] on the stored edge rows (exact: travel; coexact: rotation)

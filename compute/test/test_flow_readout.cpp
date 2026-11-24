@@ -7,6 +7,7 @@
 //   timeCellPairFlow: equals readoutTimeCellFlow (three components), timeCellFlow (one component, Psi diag(h)) and tileTimeCells (conjugated); both orders of the products
 //     (the readout applied before or after the inverse transform) equal a direct inverse transform written out here; a chunk cut in two, its cells anchored at the line's
 //     sample 0 and a cell straddling the cut, adds back to the uncut chunk;
+//   takeWholeCells: a chunk streamed in three parts gives the uncut chunk's whole cells, in order; the part cells at the line's ends are never returned;
 //   OneFormRemainderSplit: an exact 1-form d0 phi gives back phi and no stream; a coexact 1-form gives back its stream and no potential.
 #include <cmath>
 #include <complex>
@@ -245,6 +246,31 @@ int main() {
         }
       const double worst = std::max({relative(power, whole.power), relative(pairImaginary, whole.pairImaginary), relative(vertexCurrent, whole.vertexCurrent)});
       EXPECT(worst < 1e-10 && samples == whole.samples && whole.samples.front() == cellSamples - lineFirst, "a chunk cut in two: its parts add back to the uncut chunk's cells (gap " << worst << ")");
+    }
+    // streamed in three parts through takeWholeCells: the uncut chunk's whole cells (the first, cut by lineFirst 3, and the last part cell never returned)
+    {
+      const std::int64_t lineFirst = 3;
+      const std::int64_t ownLength = 30;                                                     // line samples [3, 33): cells 0 (5 samples), 1..3 whole, 4 (1 sample)
+      const ns::TimeCellPairFlow whole = ns::timeCellPairFlow(spectrum, firstBin, transformSamples, ownFirst, ownLength, lineFirst, cellSamples, sourceReadout, 3, complex.edges, &sharpWeights);
+      ns::TimeCellPairFlow carried;
+      std::vector<ns::TimeCellPairFlow> taken;
+      std::int64_t start = 0;
+      for (const std::int64_t length : {std::int64_t(9), std::int64_t(10), std::int64_t(11)}) {
+        const ns::TimeCellPairFlow part = ns::timeCellPairFlow(spectrum, firstBin, transformSamples, ownFirst + start, length, lineFirst + start, cellSamples, sourceReadout, 3, complex.edges, &sharpWeights);
+        taken.push_back(ns::takeWholeCells(carried, part, cellSamples));
+        start += length;
+      }
+      Eigen::MatrixXd power(whole.power.rows(), 0), vertexCurrent(whole.vertexCurrent.rows(), 0);
+      std::int64_t firstTaken = -1;
+      for (const auto& t : taken) {
+        if (t.power.cols() == 0) continue;
+        if (firstTaken < 0) firstTaken = t.firstCell;
+        power.conservativeResize(Eigen::NoChange, power.cols() + t.power.cols()); power.rightCols(t.power.cols()) = t.power;
+        vertexCurrent.conservativeResize(Eigen::NoChange, vertexCurrent.cols() + t.vertexCurrent.cols()); vertexCurrent.rightCols(t.vertexCurrent.cols()) = t.vertexCurrent;
+      }
+      const double worst = power.cols() == 3 ? std::max(relative(power, whole.power.middleCols(1, 3)), relative(vertexCurrent, whole.vertexCurrent.middleCols(1, 3))) : 1.0;
+      EXPECT(firstTaken == 1 && power.cols() == 3 && worst < 1e-10 && carried.samples == std::vector<std::int64_t>{1},
+             "takeWholeCells: three parts give the uncut chunk's whole cells 1..3; the end cells never returned (gap " << worst << ")");
     }
   }
 
