@@ -312,3 +312,4 @@ test_component_surface	unit
 test_derived_origin	integration
 test_import_covariance	integration
 test_flow_map	integration
+test_migrate_eigensolve	integration

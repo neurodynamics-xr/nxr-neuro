@@ -71,6 +71,7 @@ add_library(nxr_pipelines
   src/declared_outputs.cpp
   src/input.cpp
   src/eigen.cpp
+  src/eigen_migrate.cpp
   src/eigen_steps.cpp
   src/frames.cpp
   src/registration.cpp
@@ -471,6 +472,10 @@ add_executable(test_flow_map test/test_flow_map.cpp)   # the flow maps of the ce
     target_compile_definitions(test_filter_pipeline PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_filter_pipeline COMMAND test_filter_pipeline)
+  add_executable(test_migrate_eigensolve test/test_migrate_eigensolve.cpp)   # migrate eigensolve: the earlier form converted in place, synthetic
+  target_link_libraries(test_migrate_eigensolve PRIVATE nxr_pipelines)
+  target_include_directories(test_migrate_eigensolve PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_migrate_eigensolve COMMAND test_migrate_eigensolve)
   add_executable(test_sensor_surface test/test_sensor_surface.cpp)   # the sensor surface (a derived manifold of the channels) and its Hodge-Dirac modes, synthetic
   target_link_libraries(test_sensor_surface PRIVATE nxr_pipelines)
   target_include_directories(test_sensor_surface PRIVATE ${CMAKE_SOURCE_DIR}/io/test)

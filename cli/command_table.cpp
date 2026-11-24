@@ -484,6 +484,8 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --tsv@export participants	FILE	The file to write the participants table to as BIDS participants.tsv; nothing else is written.	required	-
 --sidecar@export participants	FILE	Also write the participants.json sidecar to this file.	none	-
 --registered-by@split dataset	WHO	Who runs the split: recorded with each catalogue entry.	required	-
+--templates@migrate eigensolve	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; the migration reads no template array.	none (the environment variable and the user setting only)	-
+--name@migrate eigensolve	STEM	The stem of the stored eigensolve to convert (hodgeDirac, hodgeDirac__<surface>).	every stored eigensolve of the subject	-
 --dry-run@migrate selections		Report, per subject, the selections that would be converted to the member form, without changing anything.	off	-
 --dry-run@migrate measurements		Report, per subject, the statistics that would become measurements, the products and tilings that would be rewritten, and the conflicts, without changing anything.	off	-
 --remove-statistics@migrate measurements		The explicit second step, taken only when asked for explicitly: remove each migrated statistic whose measurement is verified (and its array). Never the default: the old statistics are kept.	off	-
@@ -819,6 +821,13 @@ old: package migrate-measurements
 alias: no
 summary: Make every value over a selection's members one measurement (schema 53): per-member statistics become array-backed measurements, verified byte for byte; a product that only coupled a level names the grid and the level; day-anchored tower tilings are marked read-only. In place, subject by subject, resumable; the old statistics are kept.
 opts: --dataset* --dry-run --remove-statistics
+)TBL",
+R"TBL(@ migrate eigensolve
+old: package migrate-eigensolve
+alias: no
+summary: Convert a subject's stored Hodge-Dirac eigensolve of the earlier form (three operators _eigenvectors, _forms1, _forms2; a kind field; stored d0, d1 and stars) in place to the four classes: one eigenvectors operator to the intrinsic triangulation's cells 0+1+2, the kinds a labelling, d0, d1 and the stars analytic. No solve; idempotent; an unknown form refused; the replaced items moved aside.
+opts: --dataset* --subject* --name --templates+
+example: nxr-neuro migrate eigensolve --dataset D --subject sub-01 --name hodgeDirac__cortex_pial_glued
 )TBL",
 R"TBL(@ join dataset
 old: package join
