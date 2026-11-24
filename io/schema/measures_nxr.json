@@ -1113,7 +1113,7 @@
    "weight": null,
    "span": "levels",
    "derived_from": null,
-   "description": "\u03a3|z|\u00b2 of the whole spectrum a band's power is a share of (the denominator of the relative power; stored with the band's power_sum)"
+   "description": "Σ|z|² of the whole spectrum a band's power is a share of (the denominator of the relative power; stored with the band's power_sum)"
   },
   {
    "code": 1128,
@@ -1317,6 +1317,39 @@
    "span": "events",
    "derived_from": null,
    "description": "an event's offset, the recording's clock, by the rule its run names (the tangent on its envelope, or the atom's half maximum) (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1133,
+   "name": "phase_current",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": null,
+   "description": "the phase current Im(conj(z_tail) z_tip) of a band's complex field per intrinsic edge (a 1-form), summed over the member's samples (a cell of a joint filterbank: its tiles and bins)"
+  },
+  {
+   "code": 1134,
+   "name": "exact_potential",
+   "merge": "none",
+   "form": "vertex",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": null,
+   "description": "the potential of the exact (curl-free) part of a 1-form per vertex (nxr::signal::splitPhase): its sources and sinks; a map, never summed across a member"
+  },
+  {
+   "code": 1135,
+   "name": "coexact_stream",
+   "merge": "none",
+   "form": "vertex",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": null,
+   "description": "the stream function of the coexact (divergence-free) part of a 1-form per vertex (nxr::signal::splitPhase): its rotation; a map, never summed across a member"
   }
  ]
 }

@@ -253,126 +253,138 @@ ng::NodeSpec hodge_one_form_parts() {
   return n;
 }
 
-// THE WHOLE-RUN FLOW MAP of one cell of the joint filterbank, read from the stored mode-space Fourier coefficients A [tiles x bins x modes] (`spectral_coefficients`): the cross-spectrum
-// over the tiles S = sum_tiles sum_bins w_k A A^H (w = g^2 of the frequency member, a kernel on the frequency line: quadratic field), the free kernel's Cartesian components contracted,
-// then synthesised on the package's surface with the scale member's amplitudes h (g of a kernel on the mode axis; none: every mode): the POWER per vertex (0-form) and the PHASE CURRENT
-// Im(conj(z_tail) z_tip) per intrinsic edge (1-form), summed over the member's tiles and bins; then the phase current's Hodge split by the package's modes (potential, stream function,
-// the energies per vertex). Nothing here reduces across space; across time it is the cross-spectrum's own sum over the tiles (a statistic of the tile partition: the mean is sum / tiles).
-double member_gain(const std::string& profile, const std::string& chart, double x, double centre, double width) {
-  if (!(x > 0) && chart != "linear") return 0.0;
-  const double u = chart == "log2" ? std::log2(x) - std::log2(centre) : chart == "log10" ? std::log10(x) - std::log10(centre) : x - centre;
-  if (profile == "gaussian") { const double sd = width / (2.0 * std::sqrt(2.0 * std::log(2.0))); return std::exp(-u * u / (2.0 * sd * sd)); }
-  if (profile == "box") return std::abs(u) <= width / 2.0 ? 1.0 : 0.0;
-  ng::refuse("signal.flow_map: profile is gaussian or box, not " + profile);
+// THE WHOLE-RUN FLOW MAPS of the cells of a joint filterbank, read from the stored mode-space Fourier coefficients A [tiles x bins x rows] (`spectral_coefficients`), the cells being the
+// members of the PRODUCT of two stored kernel sets: frequency members (kernels on the coefficients' frequency line) x scale members (kernels on the package's mode axis). For each cell:
+// the member's cross-spectrum over the tiles in its low-rank form Y = A sqrt(g_f^2) (rows x tiles.bins; the quadratic field takes g^2), each Cartesian component's field on the
+// surface z = Phi diag(g_s) Y (Phi the kept modes' 0-form parts, normalised as the coefficients were), then pointwise: the POWER per vertex sum |z|^2 (0-form) and the PHASE CURRENT
+// Im(conj(z_tail) z_tip) per intrinsic edge summed over the columns and components (1-form), and the phase current's Hodge split by the package's modes. Nothing reduces across space;
+// across time each map is the sum over the coefficients' tiles and the member's bins (the mean is sum / tiles). Every value is ONE MEASUREMENT per cell: found by its member.
+double kernel_gain(const Json& k, double x) {
+  const std::string fam = k.at("family"), chart = k.at("chart");
+  const double c = k.at("start").get<double>(), fw = k.at("params").at("fwhm").get<double>(), g = k.value("gain", 1.0);
+  if (chart != "linear" && !(x > 0)) return 0.0;
+  const double u = chart == "log2" ? std::log2(x) - std::log2(c) : x - c;
+  if (fam == "gaussian") { const double sd = fw / (2.0 * std::sqrt(2.0 * std::log(2.0))); return g * std::exp(-u * u / (2.0 * sd * sd)); }
+  if (fam == "box") return std::abs(u) <= fw / 2.0 ? g : 0.0;
+  ng::refuse("signal.flow_map: a kernel's family is gaussian or box, not " + fam);
+}
+std::vector<Json> kernel_members(const ng::Array& sel, const char* port) {
+  const Json p = sel.meta.value("params", Json::object());
+  if (!p.contains("kernels") || !p["kernels"].contains("members")) ng::refuse(std::string("signal.flow_map: ") + port + " is not a kernel set (`nxr-neuro run select_kernels`)");
+  return p["kernels"]["members"].get<std::vector<Json>>();
 }
 ng::NodeSpec flow_map() {
   ng::NodeSpec n;
   n.name = "signal.flow_map";
   n.kind = ng::Kind::array;
   n.reads_package_forms = true;
-  n.inputs = {{"coefficients", "the stored mode-space Fourier coefficients (`spectral_coefficients`): [tiles x bins x modes] complex, on the package's mode axis", false},
-              {"package", "the Hodge-Dirac package the coefficients are on (its eigenvectors operator); the runner binds its form parts and its complex's options with it", false}};
-  n.outputs = {{"power", "the power per vertex of the cell (0-form), summed over the member's tiles and bins", false},
-               {"phase_current", "the phase current Im(conj(z_tail) z_tip) per intrinsic edge (1-form), summed over the member's tiles and bins", false},
-               {"potential", "the exact part's potential at the vertices", false}, {"stream", "the coexact part's stream function at the vertices", false},
-               {"one_form_energy", "the *1 energy of the phase current at the vertices", false}, {"exact_energy", "the *1 energy of its exact part at the vertices", false},
-               {"coexact_energy", "the *1 energy of its coexact part at the vertices", false}};
-  n.parameters = {{"frequency_profile", Json(), "the frequency member's profile: gaussian | box (no default)", "-", {"gaussian", "box"}, false},
-                  {"frequency_chart", Json(), "the chart its width is in: log2 (octaves) | linear (Hz) (no default)", "-", {"log2", "linear"}, false},
-                  {"frequency_centre", Json(), "the frequency member's centre (no default)", "Hz", {}, false},
-                  {"frequency_width", Json(), "the frequency member's full width at half maximum (gaussian) or full width (box), in its chart (no default)", "-", {}, false},
-                  {"scale_profile", Json(), "the scale member's profile on the mode axis: none (every mode, gain 1) | gaussian | box (no default)", "-", {"none", "gaussian", "box"}, false},
-                  {"scale_centre", Json(), "the scale member's centre wavelength 2 pi / mu (with a scale profile)", "length unit of the surface", {}, true},
-                  {"scale_width", Json(), "the scale member's width in octaves of wavelength (with a scale profile)", "octaves", {}, true}};
+  n.inputs = {{"coefficients", "the stored mode-space Fourier coefficients (`spectral_coefficients`): [tiles x bins x rows] complex, on the package's mode axis", false},
+              {"package", "the Hodge-Dirac package the coefficients are on (its eigenvectors operator); the runner binds its form parts and its complex's options with it", false},
+              {"frequency", "the frequency kernel set (stored: `select_kernels` on the coefficients' frequency line): the product's first factor", false},
+              {"scale", "the scale kernel set (stored: `select_kernels` on the package's mode axis): the product's second factor", false}};
+  n.outputs = {{"maps", "per cell (a member of frequency x scale, the frequency member fastest), per vertex: power, exact_potential, coexact_stream, one_form_energy, exact_energy, coexact_energy", false},
+               {"edges", "per cell, per intrinsic edge: the phase current (a 1-form)", false}};
+  n.parameters = {};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64,
-                             "once a run: the member's cross-spectrum over the stored tiles, then pointwise maps on the vertices and edges in double");
-  n.matches = "compute nxr::signal::modeCrossSpectrum, contractComponents, flowMap, splitPhase, vertexEnergy; the nxr flow scripts' whole-recording flow map (power, phase current, Hodge split)";
-  n.description = "the whole-run flow map of one cell (a frequency member x a scale member) from the stored mode-space Fourier coefficients: power per vertex, phase current per edge, its Hodge split";
-  n.plan = [](const ng::Types& in, const Json& p) {
-    if (!in.count("coefficients") || !in.count("package")) ng::refuse("signal.flow_map: coefficients and package are given");
-    for (const char* k : {"frequency_profile", "frequency_chart", "scale_profile"}) if (!p.contains(k) || !p[k].is_string()) ng::refuse(std::string("signal.flow_map: ") + k + " has no default: name it");
-    for (const char* k : {"frequency_centre", "frequency_width"}) if (!p.contains(k) || !p[k].is_number()) ng::refuse(std::string("signal.flow_map: ") + k + " has no default: name it");
-    if (p["scale_profile"] != "none") for (const char* k : {"scale_centre", "scale_width"}) if (!p.contains(k) || !p[k].is_number()) ng::refuse(std::string("signal.flow_map: ") + k + " is named with a scale profile");
+                             "once a run: per frequency member the low-rank cross-spectrum of the stored tiles, per cell the fields of its columns synthesised in blocks, pointwise maps in double");
+  n.matches = "the nxr flow scripts' whole-recording flow map per cell (power, phase current, Hodge split); compute nxr::signal::phaseCurrent, splitPhase, vertexEnergy; nxr::selection's kernel members";
+  n.description = "the whole-run flow maps of every cell of a frequency kernel set x a scale kernel set, from stored mode-space Fourier coefficients: per cell, power per vertex, phase current per edge, "
+                  "its Hodge split; each a measurement over the product's members";
+  n.plan = [](const ng::Types& in, const Json&) {
+    for (const char* k : {"coefficients", "package", "frequency", "scale"}) if (!in.count(k)) ng::refuse(std::string("signal.flow_map: ") + k + " is not given");
     ng::Planned out;
-    for (const char* o : {"power", "phase_current", "potential", "stream", "one_form_energy", "exact_energy", "coexact_energy"}) {
-      ng::PortType t;
-      t.cls = ng::PortClass::field; t.facts["cls"] = "field"; t.value = ng::ValueType::real; t.axis = ng::Axis::none;
-      out.out[o] = t;
-    }
+    for (const char* o : {"maps", "edges"}) { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "measurement"; out.out[o] = t; }
     return out;
   };
-  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) {
-    const auto pk = c.find("package"), cf = c.find("coefficients");
-    if (pk == c.end() || pk->second.meta.value("placeholder", false)) ng::refuse("signal.flow_map: package was not handed over");
-    if (cf == c.end() || cf->second.meta.value("placeholder", false)) ng::refuse("signal.flow_map: coefficients were not handed over");
-    return std::any(std::make_tuple(bind_package(pk->second, "signal.flow_map"), pk->second, cf->second, p));
+  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json&, ng::Shared&) {
+    for (const char* k : {"coefficients", "package", "frequency", "scale"})
+      if (!c.count(k) || c.at(k).meta.value("placeholder", false)) ng::refuse(std::string("signal.flow_map: ") + k + " was not handed over");
+    return std::any(std::make_tuple(bind_package(c.at("package"), "signal.flow_map"), c.at("package"), c.at("coefficients"), kernel_members(c.at("frequency"), "frequency"),
+                                    kernel_members(c.at("scale"), "scale")));
   };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
-    const auto& [sp, H, A, p] = std::any_cast<const std::tuple<SplitPrepared, ng::Array, ng::Array, Json>&>(prepared);
+    const auto& [sp, H, A, fk, sk] = std::any_cast<const std::tuple<SplitPrepared, ng::Array, ng::Array, std::vector<Json>, std::vector<Json>>&>(prepared);
     const nxr::signal::IntrinsicComplex& c = *sp.complex;
     const nxr::signal::Modes& m = *sp.modes;
     const Json pr = A.meta.value("producer", Json::object());
     const std::vector<std::int64_t> shape = A.meta.at("shape").get<std::vector<std::int64_t>>();
-    if (shape.size() != 4 || shape[3] != 2) ng::refuse("signal.flow_map: coefficients are not [tiles x bins x modes x 2] (complex)");
+    if (shape.size() != 4 || shape[3] != 2) ng::refuse("signal.flow_map: coefficients are not [tiles x bins x rows x 2] (complex)");
     const std::int64_t T = shape[0], B = shape[1], R = shape[2];
     const std::vector<std::int64_t> modes = pr.at("modes").get<std::vector<std::int64_t>>();
     const int comps = pr.value("components", 1);
-    const std::int64_t K = static_cast<std::int64_t>(modes.size());
+    const std::int64_t K = static_cast<std::int64_t>(modes.size()), V = m.P.rows();
     if (K * comps != R) ng::refuse("signal.flow_map: the coefficients' rows are not their modes x components");
-    const double fs = pr.at("sfreq").get<double>(), n_t = pr.at("tile_samples").get<double>();
+    const double fs = pr.at("sfreq").get<double>(), nt = pr.at("tile_samples").get<double>();
     const std::int64_t first = pr.at("first_bin").get<std::int64_t>();
-    // the frequency member: a kernel on the frequency line, its weight g^2 on this quadratic field
-    Eigen::VectorXd w(B);
-    for (std::int64_t k = 0; k < B; ++k) { const double g = member_gain(p["frequency_profile"], p["frequency_chart"], static_cast<double>(first + k) * fs / n_t, p["frequency_centre"], p["frequency_width"]); w[k] = g * g; }
-    if (!(w.sum() > 0)) ng::refuse("signal.flow_map: the frequency member holds no bin of the coefficients' span");
-    std::vector<Eigen::MatrixXcd> tiles;
-    for (std::int64_t t = 0; t < T; ++t) {
-      Eigen::MatrixXcd X(R, B);
-      for (std::int64_t k = 0; k < B; ++k) for (std::int64_t r = 0; r < R; ++r) {
-        const std::size_t at = static_cast<std::size_t>(((t * B + k) * R + r) * 2);
-        X(r, k) = std::complex<double>(A.data[at], A.data[at + 1]);
-      }
-      tiles.push_back(std::move(X));
-    }
-    Eigen::MatrixXcd S = nxr::signal::modeCrossSpectrum(tiles, w);
-    if (comps > 1) S = nxr::signal::contractComponents(S, comps);
-    // the synthesis: the kept modes' 0-form parts, normalised as the coefficients were (unit_mass: unit vertex-mass norm), and the scale member's amplitudes
     const std::vector<double> mass = H.meta.at("mass").get<std::vector<double>>();
-    const std::string norm = pr.value("normalisation", Json("unit_mass")).is_string() ? pr.value("normalisation", std::string("unit_mass")) : std::string("unit_mass");
-    Eigen::MatrixXd Phi(m.P.rows(), K);
-    Eigen::VectorXd h = Eigen::VectorXd::Ones(K);
+    const bool unit_mass = pr.value("normalisation", Json("unit_mass")) == Json("unit_mass");
+    Eigen::MatrixXd Phi(V, K);
     for (std::int64_t j = 0; j < K; ++j) {
       Phi.col(j) = m.P.col(modes[static_cast<std::size_t>(j)]);
-      if (norm == "unit_mass") { double s2 = 0; for (Eigen::Index v = 0; v < Phi.rows(); ++v) s2 += mass[static_cast<std::size_t>(v)] * Phi(v, j) * Phi(v, j); Phi.col(j) /= std::sqrt(s2); }
-      if (p["scale_profile"] != "none") h[j] = member_gain(p["scale_profile"], "log2", 2.0 * M_PI / m.mu[modes[static_cast<std::size_t>(j)]], p["scale_centre"], p["scale_width"]);
+      if (unit_mass) { double s2 = 0; for (Eigen::Index v = 0; v < V; ++v) s2 += mass[static_cast<std::size_t>(v)] * Phi(v, j) * Phi(v, j); Phi.col(j) /= std::sqrt(s2); }
     }
-    const nxr::signal::FlowMap fm = nxr::signal::flowMap(c, Phi, S, h);
-    const nxr::signal::PhaseSplit split = nxr::signal::splitPhase(c, m, fm.phaseCurrent);
-    Eigen::MatrixXd parts(c.nE, 3);
-    parts.col(0) = fm.phaseCurrent; parts.col(1) = split.exact; parts.col(2) = split.coexact;
-    const Eigen::MatrixXd E = nxr::signal::vertexEnergy(c, parts);
-    double dof_bins = w.sum() * w.sum() / w.squaredNorm();
-    const Json member = Json{{"frequency", Json{{"profile", p["frequency_profile"]}, {"chart", p["frequency_chart"]}, {"centre_hz", p["frequency_centre"]}, {"width", p["frequency_width"]}}},
-                             {"scale", p["scale_profile"] == "none" ? Json("every mode") : Json{{"profile", p["scale_profile"]}, {"chart", "log2"}, {"centre", p["scale_centre"]}, {"width_octaves", p["scale_width"]}}},
-                             {"tiles", T}, {"weighted_bins", dof_bins}, {"degrees_of_freedom_if_bins_independent", static_cast<double>(T) * dof_bins},
-                             {"coefficients", A.meta.value("name", std::string())}};
-    auto field = [&](const Eigen::VectorXd& v, const char* cell, const std::string& what) {
-      ng::Array a;
-      a.rows = v.size(); a.cols = 1; a.data.assign(v.data(), v.data() + v.size());
-      a.meta["describe"] = Json{{"cell", cell}, {"value_type", "scalar"}, {"producer", Json{{"member", member}, {"made_by", "signal.flow_map"}}}, {"description", what}};
-      return a;
-    };
-    return ng::Arrays{{"power", field(fm.power, "0", "the power per vertex of the cell, summed over its tiles and bins")},
-                      {"phase_current", field(fm.phaseCurrent, "1", "the phase current Im(conj(z_tail) z_tip) per intrinsic edge of the cell, summed over its tiles and bins")},
-                      {"potential", field(split.potential, "0", "the exact (curl-free) part's potential at the vertices")},
-                      {"stream", field(split.stream, "0", "the coexact (divergence-free) part's stream function at the vertices")},
-                      {"one_form_energy", field(E.col(0), "0", "the *1 energy of the phase current at the vertices")},
-                      {"exact_energy", field(E.col(1), "0", "the *1 energy of its exact part at the vertices")},
-                      {"coexact_energy", field(E.col(2), "0", "the *1 energy of its coexact part at the vertices")}};
+    const std::int64_t NF = static_cast<std::int64_t>(fk.size()), NS = static_cast<std::int64_t>(sk.size()), M = NF * NS;
+    // the scale members' amplitudes on the kept modes (anchors on the mode axis's coordinate mu)
+    Eigen::MatrixXd Hs(K, NS);
+    for (std::int64_t s2 = 0; s2 < NS; ++s2) for (std::int64_t j = 0; j < K; ++j) Hs(j, s2) = kernel_gain(sk[static_cast<std::size_t>(s2)], m.mu[modes[static_cast<std::size_t>(j)]]);
+    const int NV = 6;                                                            // power, exact_potential, coexact_stream, one_form_energy, exact_energy, coexact_energy
+    ng::Array maps, edges;
+    maps.rows = V * M; maps.cols = NV; maps.data.assign(static_cast<std::size_t>(V * M * NV), 0.0);
+    edges.rows = c.nE * M; edges.cols = 1; edges.data.assign(static_cast<std::size_t>(c.nE * M), 0.0);
+    Json dof = Json::array();
+    for (std::int64_t f = 0; f < NF; ++f) {
+      // the frequency member's bins and their weight g^2 (a quadratic field); its low-rank cross-spectrum Y [rows x tiles.bins]
+      std::vector<std::int64_t> bins; std::vector<double> w;
+      double wmax = 0;
+      for (std::int64_t k = 0; k < B; ++k) { const double g = kernel_gain(fk[static_cast<std::size_t>(f)], static_cast<double>(first + k) * fs / nt); wmax = std::max(wmax, g * g); }
+      for (std::int64_t k = 0; k < B; ++k) { const double g = kernel_gain(fk[static_cast<std::size_t>(f)], static_cast<double>(first + k) * fs / nt); if (g * g > 1e-6 * wmax && g > 0) { bins.push_back(k); w.push_back(g * g); } }
+      double sw = 0, sw2 = 0; for (double x : w) { sw += x; sw2 += x * x; }
+      dof.push_back(Json{{"member", f}, {"bins", bins.size()}, {"weighted_bins", sw2 > 0 ? sw * sw / sw2 : 0.0}, {"tiles", T}});
+      if (bins.empty()) continue;
+      const Eigen::Index cols = T * static_cast<Eigen::Index>(bins.size());
+      Eigen::MatrixXcd Y(R, cols);
+      for (std::int64_t t = 0; t < T; ++t) for (std::size_t q = 0; q < bins.size(); ++q) {
+        const double sq = std::sqrt(w[q]);
+        for (std::int64_t r = 0; r < R; ++r) {
+          const std::size_t at = static_cast<std::size_t>(((t * B + bins[q]) * R + r) * 2);
+          Y(r, t * static_cast<Eigen::Index>(bins.size()) + static_cast<Eigen::Index>(q)) = sq * std::complex<double>(A.data[at], A.data[at + 1]);
+        }
+      }
+      for (std::int64_t s2 = 0; s2 < NS; ++s2) {
+        const std::int64_t cell = f + NF * s2;                                   // the product's member: the first factor (frequency) fastest
+        Eigen::VectorXd power = Eigen::VectorXd::Zero(V), J = Eigen::VectorXd::Zero(c.nE);
+        for (int cc = 0; cc < comps; ++cc) {
+          const Eigen::MatrixXcd Yc = Hs.col(s2).cast<std::complex<double>>().asDiagonal() * Y.middleRows(cc * K, K);
+          for (Eigen::Index c0 = 0; c0 < cols; c0 += 128) {                       // the synthesis in column blocks: at most V x 128 complex at a time
+            const Eigen::Index wdt = std::min<Eigen::Index>(128, cols - c0);
+            const Eigen::MatrixXcd Z = Phi * Yc.middleCols(c0, wdt);
+            power += Z.cwiseAbs2().rowwise().sum();
+            J += nxr::signal::phaseCurrent(c, Z).rowwise().sum();
+          }
+        }
+        const nxr::signal::PhaseSplit split = nxr::signal::splitPhase(c, m, J);
+        Eigen::MatrixXd parts(c.nE, 3);
+        parts.col(0) = J; parts.col(1) = split.exact; parts.col(2) = split.coexact;
+        const Eigen::MatrixXd E = nxr::signal::vertexEnergy(c, parts);
+        for (std::int64_t v = 0; v < V; ++v) {
+          const std::size_t r = static_cast<std::size_t>((v * M + cell) * NV);
+          maps.data[r] = power[v]; maps.data[r + 1] = split.potential[v]; maps.data[r + 2] = split.stream[v];
+          maps.data[r + 3] = E(v, 0); maps.data[r + 4] = E(v, 1); maps.data[r + 5] = E(v, 2);
+        }
+        for (std::int64_t e = 0; e < c.nE; ++e) edges.data[static_cast<std::size_t>(e * M + cell)] = J[e];
+      }
+    }
+    const Json attrs = Json{{"rows", "the vertices of the package's surface"}, {"members", "the cells of frequency x scale, the frequency member fastest"}, {"frequency_members", dof},
+                            {"sum_over", "the coefficients' tiles and the member's bins (the mean is sum / tiles)"}};
+    maps.meta["describe"] = Json{{"measures", Json::array({Json{{"measure", "power"}}, Json{{"measure", "exact_potential"}}, Json{{"measure", "coexact_stream"}}, Json{{"measure", "one_form_energy"}},
+                                                         Json{{"measure", "exact_energy"}}, Json{{"measure", "coexact_energy"}}})},
+                                 {"values_shape", Json::array({V, M})}, {"attributes", attrs}};
+    Json eattrs = attrs; eattrs["rows"] = "the edges of the package's intrinsic complex (tail -> tip)";
+    edges.meta["describe"] = Json{{"measures", Json::array({Json{{"measure", "phase_current"}}})}, {"values_shape", Json::array({c.nE, M})}, {"attributes", eattrs}};
+    return ng::Arrays{{"maps", std::move(maps)}, {"edges", std::move(edges)}};
   };
   return n;
 }
-
 }  // namespace
 
 void register_form_nodes() {
