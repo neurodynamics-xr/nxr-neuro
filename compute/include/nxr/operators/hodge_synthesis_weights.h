@@ -7,8 +7,8 @@
 //                                                             flow weight b_k. A sensor column x gives the mode coefficients w = B x; an FFT column X(f) complex ones.
 //   hodgeSynthesis(...)  ->  w [2K x m] back to the current J [3V x m] on the glued surface and its forms: A = sum_exact b P, S = sum_coexact b P (the flow's potentials),
 //                            normal = sum_coexact a P; J = -grad A - n x grad S with its normal part set to `normal`.
-//   gluedKernel(...)     ->  a kernel [3 V_input x C] carried onto the glued surface [3 V_glued x C]: a kept vertex its own rows, a bridge vertex the inverse-distance blend of
-//                            its 3 nearest cut-out (wall) vertices, in input positions (rounded to single first).
+//   gluedKernel(...)     ->  a kernel [3 V_input x C] carried onto the glued surface [3 V_glued x C]: a SELECTION of rows, a kept vertex its own rows, a bridge vertex zero rows
+//                            (no current is estimated on the bridge; the reference blended its 3 nearest cut-out wall vertices, which invents current there).
 //   modePower(B, S)      ->  [2K x bands] diag(B S_b B^T), S_b a band's (real part of the) sensor cross-spectrum (nxr.spectral.chain.mode_power).
 //
 // The stored Hodge–Dirac package supplies P [K x V_glued] (the eigenvectors operator transposed: vertex potentials, mode-major), mu, kind (0 exact, 2 coexact), the glued
@@ -57,8 +57,7 @@ public:
 /** A kernel [3 V_input x C] (rows x, y, z per vertex) on the glued surface [3 V_glued x C]. */
 Eigen::MatrixXd gluedKernel(const Eigen::MatrixXd& W, const Basis& basis, const RowMat3& inputPositions);
 
-/** A kernel carried onto the glued surface, with what does not change built once (the bridge vertices' three nearest cut vertices and weights): `apply` is gluedKernel for one
- *  kernel or one velocity column at a time. */
+/** A kernel carried onto the glued surface (the kept vertices' input vertices, built once; the bridge rows zero): `apply` is gluedKernel for one kernel or one velocity column at a time. */
 class GluedCarry {
 public:
     GluedCarry(const Basis& basis, const RowMat3& inputPositions);
@@ -66,8 +65,6 @@ public:
 private:
     Eigen::Index vInput_ = 0, kept_ = 0, vGlued_ = 0;
     std::vector<std::int64_t> keep_;                  // [kept] the input vertex of each kept glued vertex
-    std::vector<int> wallVertex_;                     // [3 x bridges] the cut vertices blended
-    std::vector<double> wallWeight_;                  // [3 x bridges]
 };
 
 /** The reading of velocity fields (or kernels) in the modes, with everything that does not depend on the field built once: the face operators, the mode matrices, the
