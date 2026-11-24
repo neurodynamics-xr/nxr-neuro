@@ -18,14 +18,19 @@ ModeAnalysis modeAnalysis(const Eigen::MatrixXd& P, const Eigen::VectorXd& mass,
   if (P.rows() != mass.size()) bad("modeAnalysis: " + std::to_string(P.rows()) + " vertices in the 0-form parts, " + std::to_string(mass.size()) + " masses");
   if (static_cast<Eigen::Index>(kind.size()) != P.cols()) bad("modeAnalysis: " + std::to_string(P.cols()) + " modes, " + std::to_string(kind.size()) + " kinds");
   ModeAnalysis out;
+  if (kinds == ModeKinds::exact_and_constant) out.modes.push_back(-1);                   // the constant first (mu 0): the field's coordinates are the constant and the exact modes
   for (Eigen::Index k = 0; k < P.cols(); ++k) {
     const int t = kind[static_cast<std::size_t>(k)];
-    if (kinds == ModeKinds::all || (kinds == ModeKinds::exact && t == 0) || (kinds == ModeKinds::coexact && t == 2)) out.modes.push_back(k);
+    if (kinds == ModeKinds::all || ((kinds == ModeKinds::exact || kinds == ModeKinds::exact_and_constant) && t == 0) || (kinds == ModeKinds::coexact && t == 2)) out.modes.push_back(k);
   }
   if (out.modes.empty()) bad("modeAnalysis: the selection keeps no mode");
   const Eigen::Index V = P.rows(), K = static_cast<Eigen::Index>(out.modes.size());
   out.synthesis.resize(V, K);
   for (Eigen::Index i = 0; i < K; ++i) {
+    if (out.modes[static_cast<std::size_t>(i)] < 0) {                                     // the constant at unit ⋆0 norm, whatever the normalisation (the package stores no constant)
+      out.synthesis.col(i) = Eigen::VectorXd::Constant(V, 1.0 / std::sqrt(mass.sum()));
+      continue;
+    }
     Eigen::VectorXd col = P.col(out.modes[static_cast<std::size_t>(i)]);
     if (normalisation == ModeNormalisation::unit_mass) {
       const double n2 = col.cwiseProduct(col).dot(mass);

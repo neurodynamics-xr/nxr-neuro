@@ -71,7 +71,7 @@ ng::NodeSpec mode_analysis() {
   n.outputs = {{"operator", "the composed spatial operator, rows x the channels it reads: the modes' analysis rows (the selected modes' 0-form parts, normalised as stated, times the vertex mass), "
                             "composed with the kernel carried onto the package's surface (one block of rows per Cartesian component) or with the vertex-to-channel map", false}};
   n.parameters = {
-      {"modes", Json(), "which modes: exact | coexact | all (no default: the caller names it; the nxr flow scripts expand on the exact modes)", "-", {"exact", "coexact", "all"}, false},
+      {"modes", Json(), "which modes: exact | coexact | all | exact_and_constant (the constant, index -1 and mu 0, then the exact modes: a field's coordinates on the surface) (no default: the caller names it; the nxr flow scripts expand on the exact modes)", "-", {"exact", "coexact", "all", "exact_and_constant"}, false},
       {"normalisation", Json(), "unit_mass (each mode rescaled to unit vertex-mass norm: rows x synthesis = I, the nxr flow scripts) | as_stored (the package's parts as stored) (no default)", "-", {"unit_mass", "as_stored"}, false},
       {"mode_count", Json(), "the first modes of the package read; null: all", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "made in double, once a run, from the package and the kernel");
@@ -110,7 +110,8 @@ ng::NodeSpec mode_analysis() {
     if (a.p.contains("mode_count") && !a.p["mode_count"].is_null()) K = std::min<std::int64_t>(K, a.p["mode_count"].get<std::int64_t>());
     const std::vector<int> kind(basis.kind.begin(), basis.kind.begin() + K);
     const nxr::signal::ModeAnalysis ma = nxr::signal::modeAnalysis(basis.P.topRows(K).transpose(), basis.mass, kind,
-                                                                   modes == "exact" ? nxr::signal::ModeKinds::exact : modes == "coexact" ? nxr::signal::ModeKinds::coexact : nxr::signal::ModeKinds::all,
+                                                                   modes == "exact" ? nxr::signal::ModeKinds::exact : modes == "coexact" ? nxr::signal::ModeKinds::coexact
+                                                                   : modes == "exact_and_constant" ? nxr::signal::ModeKinds::exact_and_constant : nxr::signal::ModeKinds::all,
                                                                    norm == "unit_mass" ? nxr::signal::ModeNormalisation::unit_mass : nxr::signal::ModeNormalisation::as_stored);
     Eigen::MatrixXd O;
     std::vector<std::int32_t> channels;
@@ -147,7 +148,7 @@ ng::NodeSpec mode_analysis() {
     out.meta["components"] = components;
     out.meta["modes"] = ma.modes;
     std::vector<double> mu;
-    for (const auto k : ma.modes) mu.push_back(basis.mu(k));
+    for (const auto k : ma.modes) mu.push_back(k < 0 ? 0.0 : basis.mu(k));
     out.meta["mu"] = mu;
     out.meta["name"] = a.package.meta.value("name", std::string()) + (a.has_kernel ? "+" + a.kernel.meta.value("name", std::string()) : std::string("+channels"));
     out.meta["axis_id"] = a.package.meta.value("axis_id", std::string());

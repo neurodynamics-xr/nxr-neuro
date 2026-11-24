@@ -31,7 +31,7 @@
 
 namespace nxr::signal {
 
-enum class ModeKinds { exact, coexact, all };
+enum class ModeKinds { exact, coexact, all, exact_and_constant };   // exact_and_constant: the constant (index −1, unit ⋆0 norm) then the exact modes: a surface field's coordinates
 enum class ModeNormalisation { unit_mass, as_stored };
 
 struct ModeAnalysis {

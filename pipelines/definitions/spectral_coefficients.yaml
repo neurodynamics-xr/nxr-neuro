@@ -31,7 +31,7 @@ parameters:
   package: {default: null, meaning: "the Hodge-Dirac package's stem (its eigenvectors are <package>_eigenvectors)", unit: "-"}
   kernel: {default: null, meaning: "a free-orientation inverse kernel's name (the cortex). Exactly one of kernel, channel_map", unit: "-"}
   channel_map: {default: null, meaning: "the sensor surface's vertex-to-channel map's name (the sensors). Exactly one of kernel, channel_map", unit: "-"}
-  modes: {default: null, meaning: "which modes: exact | coexact | all (no default)", unit: "-", choices: [exact, coexact, all]}
+  modes: {default: null, meaning: "which modes: exact | coexact | all | exact_and_constant (the constant then the exact modes) (no default)", unit: "-", choices: [exact, coexact, all, exact_and_constant]}
   normalisation: {default: null, meaning: "unit_mass (each mode rescaled to unit vertex-mass norm) | as_stored (no default)", unit: "-", choices: [unit_mass, as_stored]}
   mode_count: {default: null, meaning: "the first modes of the package read; null: all", unit: "-"}
   tile_samples: {default: null, meaning: "the time tile in samples, a power of two: the recording's tile grid (the chunks: 32768) (no default)", unit: samples}

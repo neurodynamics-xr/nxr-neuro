@@ -407,6 +407,11 @@ ng::NodeSpec flow_map() {
 }
 }  // namespace
 
+BoundPackage bind_hodge_package(const ng::Array& eigenvectors, const char* who) {
+  const SplitPrepared b = bind_package(eigenvectors, who);
+  return BoundPackage{b.complex, b.modes, b.boundary};
+}
+
 void register_form_nodes() {
   ng::Registry& r = ng::registry();
   for (ng::NodeSpec n : {phase_split(), hodge_one_form_parts(), flow_map()})

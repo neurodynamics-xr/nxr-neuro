@@ -44,6 +44,7 @@ add_library(nxr_pipelines
   src/fingerprint_steps.cpp
   src/flow_steps.cpp
   src/form_steps.cpp
+  src/sensor_flow_steps.cpp
   src/spectral_steps.cpp
   src/verb_steps.cpp
   src/steps_measure.cpp
@@ -438,6 +439,10 @@ add_executable(test_flow_map test/test_flow_map.cpp)   # the flow maps of the ce
   target_link_libraries(test_flow_map PRIVATE nxr_pipelines)
   target_include_directories(test_flow_map PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_flow_map COMMAND test_flow_map)
+add_executable(test_sensor_flow test/test_sensor_flow.cpp)   # the sensor-space flow nodes: serving with overlap, chunk spectra, spectral flow, time cells, sign flip, aperiodic; synthetic
+  target_link_libraries(test_sensor_flow PRIVATE nxr_pipelines)
+  target_include_directories(test_sensor_flow PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_sensor_flow COMMAND test_sensor_flow)
   add_executable(test_connectome_nodes test/test_connectome_nodes.cpp)
   target_link_libraries(test_connectome_nodes PRIVATE nxr_pipelines)
   target_include_directories(test_connectome_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)

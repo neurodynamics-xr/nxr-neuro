@@ -48,6 +48,10 @@ int main() {
   EXPECT(ex.modes.size() == 4 && ex.modes[1] == 2 && (ex.rows * ex.synthesis - 0.5 * Eigen::MatrixXd::Identity(4, 4)).cwiseAbs().maxCoeff() < 1e-10,
          "exact modes only; as_stored keeps the package's 1/2 norm");
 
+  const ns::ModeAnalysis withConstant = ns::modeAnalysis(P, mass, kind, ns::ModeKinds::exact_and_constant, ns::ModeNormalisation::unit_mass);
+  EXPECT(withConstant.modes.size() == 5 && withConstant.modes[0] == -1 && std::abs(withConstant.synthesis.col(0).cwiseAbs2().dot(mass) - 1.0) < 1e-12 &&
+         std::abs((withConstant.rows.row(0) * Eigen::VectorXd::Ones(V)).value() - std::sqrt(mass.sum())) < 1e-10, "exact_and_constant: the constant first, at unit ⋆0 norm");
+
   // the components: a free kernel [3V x C]
   const int C = 5;
   const Eigen::MatrixXd W = randn(3 * V, C);
