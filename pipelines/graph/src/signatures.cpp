@@ -324,8 +324,10 @@ Signature s_phase_split() {
       .out("one_form_energy", like("x")).out("exact_energy", like("x")).out("coexact_energy", like("x")).out("exact_misfit_energy", like("x"))
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
-        const std::string one_form = p.value("one_form", std::string("phase_gradient"));
-        if (one_form != "phase_gradient" && one_form != "phase_current") u.fail("x", "one_form is phase_gradient (the reference) or phase_current, not '" + one_form + "'");
+        if (!p.contains("one_form") || !p["one_form"].is_string())
+          u.fail("x", "one_form is not given: the definition states the 1-form that is split (phase_gradient or phase_current; no default)");
+        const std::string one_form = p["one_form"].get<std::string>();
+        if (one_form != "phase_gradient" && one_form != "phase_current") u.fail("x", "one_form is phase_gradient or phase_current, not '" + one_form + "'");
         if (x.value != VT::complex) u.fail("x", "must be a complex scalar field (the analytic signal at the vertices): its phase is split");
         if (!is_surface(x.domain.factors.front())) u.fail("x", "its first factor " + print(x.domain.factors.front()) + " is not a surface; the phase is split on a surface's intrinsic complex");
         for (auto& [name, y] : u.out) {

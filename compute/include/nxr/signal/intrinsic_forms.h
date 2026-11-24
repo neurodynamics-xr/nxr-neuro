@@ -71,7 +71,10 @@ Eigen::Vector3d tangentAt(const IntrinsicComplex& c, int e, bool atTip);
 
 /** An ambient vertex field J [3V x m] (rows x y z per vertex) → a 1-form [nE x m] on the intrinsic edges. */
 Eigen::MatrixXd flat(const IntrinsicComplex& c, const Eigen::MatrixXd& J);
-/** A 1-form [nE x m] → the vertex tangent vectors [3V x m] (least squares over each vertex's edges). */
+/** THE SHARP: a 1-form [nE x m] → the vertex tangent vectors [3V x m] (least squares over each vertex's own edges: x_v = A_v⁻¹ Σ_e t_e (w_e / L_e) in the
+ *  vertex's tangent basis, A_v = Σ_e t_e t_eᵀ). Linear in w, so it is one sparse operator [3V x nE] (at most 3 entries an edge end), built once and applied. */
+Eigen::SparseMatrix<double> sharpOperator(const IntrinsicComplex& c);
+/** sharpOperator(c) w. */
 Eigen::MatrixXd sharp(const IntrinsicComplex& c, const Eigen::MatrixXd& w);
 
 /** THE POINTWISE FORMS of the exact tile integrals of a 1-form on the complex (the discrete Stokes and divergence theorems, additive up the tile tree). A tile's value is the SUM of these over
@@ -152,6 +155,13 @@ struct PhaseSplit {
   Eigen::MatrixXd propagation;               // [3V x 1]
 };
 PhaseSplit splitPhase(const IntrinsicComplex& c, const Modes& m, const Eigen::VectorXd& w);
+/** splitPhase on a batch of 1-forms [nE x m] (one column a sample) as matrix products, the sharp operator built once by the caller (sharpOperator). */
+struct PhaseSplits {
+  Eigen::MatrixXd coefficients, exact, coexact;          // [K x m]; [nE x m] the exact and coexact parts
+  Eigen::MatrixXd potential, stream;                     // [V x m]
+  Eigen::MatrixXd propagation;                           // [3V x m]
+};
+PhaseSplits splitPhases(const IntrinsicComplex& c, const Modes& m, const Eigen::MatrixXd& oneForms, const Eigen::SparseMatrix<double>& sharpWeights);
 /** THE PHASE GRADIENT on the intrinsic edges: the phase step w_e = arg(x_tip conj(x_tail)) (rad, in (−π, π]) of complex vertex fields x [V x m], one column a frame:
  *  dφ integrated along each edge. The same quantity as the vertex `phaseGradient(j, p)` (phase_gradient.h), discretised on the edges of the complex given. [nE x m] */
 Eigen::MatrixXd phaseGradient(const IntrinsicComplex& c, const Eigen::MatrixXcd& x);

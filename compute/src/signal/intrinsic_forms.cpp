@@ -129,27 +129,37 @@ MatrixXd flat(const IntrinsicComplex& c, const MatrixXd& J) {
     return w;
 }
 
+Eigen::SparseMatrix<double> sharpOperator(const IntrinsicComplex& c) {
+  // sharp at vertex v: x_v = A_v⁻¹ Σ_e t_e (w_e / L_e) in the tangent basis, A_v = Σ_e t_e t_eᵀ, then E1 x0 + E2 x1: linear in each w_e, so its weights are a sparse [3V x E]
+  std::vector<Eigen::Matrix2d> normal(static_cast<std::size_t>(c.nV), Eigen::Matrix2d::Zero());
+  std::vector<Eigen::Vector3d> first(static_cast<std::size_t>(c.nV)), second(static_cast<std::size_t>(c.nV));
+  for (int v = 0; v < c.nV; ++v) basisAt(c, v, first[static_cast<std::size_t>(v)], second[static_cast<std::size_t>(v)]);
+  std::vector<Eigen::Vector2d> direction(static_cast<std::size_t>(2 * c.nE));
+  for (int e = 0; e < c.nE; ++e)
+    for (int end = 0; end < 2; ++end) {
+      const std::size_t v = static_cast<std::size_t>(c.edges[static_cast<std::size_t>(2 * e + end)]);
+      const Eigen::Vector3d t = tangentAt(c, e, end == 1);
+      const Eigen::Vector2d inPlane(t.dot(first[v]), t.dot(second[v]));
+      direction[static_cast<std::size_t>(2 * e + end)] = inPlane;
+      normal[v] += inPlane * inPlane.transpose();
+    }
+  std::vector<Eigen::Triplet<double>> entries;
+  entries.reserve(static_cast<std::size_t>(6 * c.nE * 2));
+  for (int e = 0; e < c.nE; ++e)
+    for (int end = 0; end < 2; ++end) {
+      const std::size_t v = static_cast<std::size_t>(c.edges[static_cast<std::size_t>(2 * e + end)]);
+      const Eigen::Vector2d x = normal[v].ldlt().solve(direction[static_cast<std::size_t>(2 * e + end)]) / c.length(e);
+      const Eigen::Vector3d weight = first[v] * x(0) + second[v] * x(1);
+      for (int k = 0; k < 3; ++k) entries.emplace_back(static_cast<int>(3 * v) + k, e, weight(k));
+    }
+  Eigen::SparseMatrix<double> out(3 * c.nV, c.nE);
+  out.setFromTriplets(entries.begin(), entries.end());
+  return out;
+}
+
 MatrixXd sharp(const IntrinsicComplex& c, const MatrixXd& w) {
     if (w.rows() != c.nE) throw std::invalid_argument("intrinsic::sharp: a 1-form of " + std::to_string(c.nE) + " edges expected");
-    // per vertex: Σ_e (t_e t_eᵀ) v = Σ_e t_e (ω_e / L_e), on the tangent plane (2 x 2 in the vertex's basis)
-    std::vector<Eigen::Matrix2d> A(static_cast<std::size_t>(c.nV), Eigen::Matrix2d::Zero());
-    std::vector<MatrixXd> rhs(static_cast<std::size_t>(c.nV), MatrixXd::Zero(2, w.cols()));
-    std::vector<Eigen::Vector3d> E1(static_cast<std::size_t>(c.nV)), E2(static_cast<std::size_t>(c.nV));
-    for (int v = 0; v < c.nV; ++v) basisAt(c, v, E1[static_cast<std::size_t>(v)], E2[static_cast<std::size_t>(v)]);
-    for (int e = 0; e < c.nE; ++e)
-        for (int end = 0; end < 2; ++end) {
-            const int v = c.edges[static_cast<std::size_t>(2 * e + end)];
-            const Eigen::Vector3d t = tangentAt(c, e, end == 1);
-            const Eigen::Vector2d t2(t.dot(E1[static_cast<std::size_t>(v)]), t.dot(E2[static_cast<std::size_t>(v)]));
-            A[static_cast<std::size_t>(v)] += t2 * t2.transpose();
-            rhs[static_cast<std::size_t>(v)] += t2 * (w.row(e) / c.length(e));
-        }
-    MatrixXd out(3 * c.nV, w.cols());
-    for (int v = 0; v < c.nV; ++v) {
-        const MatrixXd x = A[static_cast<std::size_t>(v)].ldlt().solve(rhs[static_cast<std::size_t>(v)]);
-        out.middleRows(3 * v, 3) = E1[static_cast<std::size_t>(v)] * x.row(0) + E2[static_cast<std::size_t>(v)] * x.row(1);
-    }
-    return out;
+    return sharpOperator(c) * w;
 }
 
 MatrixXd area2form(const IntrinsicComplex& c, const MatrixXd& rho) {
@@ -400,18 +410,27 @@ PatternFields patternFields(const IntrinsicComplex& c, const Modes& m, const std
   return out;
 }
 
+PhaseSplits splitPhases(const IntrinsicComplex& c, const Modes& m, const Eigen::MatrixXd& oneForms, const Eigen::SparseMatrix<double>& sharpWeights) {
+  if (oneForms.rows() != c.nE) throw std::invalid_argument("splitPhases: the 1-forms have one row an intrinsic edge");
+  if (sharpWeights.rows() != 3 * c.nV || sharpWeights.cols() != c.nE) throw std::invalid_argument("splitPhases: the sharp operator is [3V x nE] (sharpOperator)");
+  PhaseSplits out;
+  out.coefficients = projectOneForm(c, m, oneForms);
+  MatrixXd exactCoefficients = out.coefficients, coexactCoefficients = out.coefficients;
+  for (Eigen::Index k = 0; k < m.mu.size(); ++k) (m.kind[static_cast<std::size_t>(k)] == 0 ? coexactCoefficients : exactCoefficients).row(k).setZero();
+  out.exact = synthesizeOneForm(c, m, exactCoefficients);
+  out.coexact = synthesizeOneForm(c, m, coexactCoefficients);
+  out.potential = exactPotential(m, exactCoefficients);
+  out.stream = coexactStream(c, m, coexactCoefficients);
+  out.propagation = -(sharpWeights * out.exact);
+  return out;
+}
+
 PhaseSplit splitPhase(const IntrinsicComplex& c, const Modes& m, const Eigen::VectorXd& w) {
   if (w.size() != c.nE) throw std::invalid_argument("splitPhase: w has one value an intrinsic edge");
-  const Eigen::Index K = m.mu.size();
+  const PhaseSplits batch = splitPhases(c, m, w, sharpOperator(c));
   PhaseSplit out;
-  out.coef = projectOneForm(c, m, w).col(0);
-  Eigen::VectorXd ce = out.coef, cc = out.coef;
-  for (Eigen::Index k = 0; k < K; ++k) (m.kind[static_cast<std::size_t>(k)] == 0 ? cc : ce)(k) = 0;
-  out.exact = synthesizeOneForm(c, m, ce).col(0);
-  out.coexact = synthesizeOneForm(c, m, cc).col(0);
-  out.potential = exactPotential(m, ce).col(0);
-  out.propagation = sharp(c, -out.exact);
-  out.stream = coexactStream(c, m, cc).col(0);
+  out.coef = batch.coefficients.col(0); out.exact = batch.exact.col(0); out.coexact = batch.coexact.col(0);
+  out.potential = batch.potential.col(0); out.stream = batch.stream.col(0); out.propagation = batch.propagation;
   return out;
 }
 

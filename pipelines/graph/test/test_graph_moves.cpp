@@ -70,6 +70,13 @@ void test_pointwise() {
   const auto env = use("signal.envelope", {{"x", rec}}).at("y");
   CHECK(env.nonlinear && env.quantity == "envelope");
   CHECK(refused([&] { use("signal.analytic", {{"x", z}}); }, {"port `x`", "is complex", "analytic signal is taken of a real field", "chunks[0] signal.analytic -> out"}));
+  // signal.phase_split: the 1-form it splits is stated by the definition, never defaulted: refused at the check without `one_form`
+  {
+    const auto onCortex = field_t({cortex, time}, VT::complex);
+    const g::Types in{{"x", onCortex}, {"package", kernel_t(sensors, cortex)}};
+    CHECK(use("signal.phase_split", in, Json{{"one_form", "phase_current"}}).at("potential").value == VT::real);
+    CHECK(refused([&] { use("signal.phase_split", in); }, {"one_form", "no default"}));
+  }
   // a toy node declared pointwise that drops a factor: the cardinal rule refuses it, whatever the node's own code does
   g::Signature bad = g::sig(g::Move::pointwise).in("x", g::field({g::var("M"), g::time_var("T")})).out("y", g::like("x").on({g::var("M")}));
   g::TypeUse tu; tu.label = "chunks[1] toy.drop"; tu.in = {{"x", rec}}; tu.in_names = {{"x", "rec"}}; tu.out_names = {{"y", "y"}};

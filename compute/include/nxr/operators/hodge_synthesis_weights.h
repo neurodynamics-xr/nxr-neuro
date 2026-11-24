@@ -2,6 +2,8 @@
 // nxr::operators — THE FUSED INVERSE: an imaging kernel read into the Hodge–Dirac modes. PURE MATHS (arrays in, arrays out; the kernel is just a matrix).
 // A line port of nxr's `nxr.inverse.fused` (glued_kernel, FaceOperators, fused_weights, synthesis; Rheome's hodge_weights / hodge_synthesis; the Studio's
 // hodgeSynthesisWeights): the same operators, the same names where they exist.
+// Kept for what reproduces that reference (the optical flow's vertex velocities, the speed spectrum, the Hodge power); the flow analysis's travel/rotation split
+// is not this solve: it projects the edge phase current on the stored Hodge-Dirac edge rows (signal::flowSplit, flow_readout.h).
 //
 //   hodgeWeights(P, mu, kind, mass, positions, faces, W)  ->  B [2K x C]: rows k < K the normal-current weight a_k (coexact modes; 0 on exact ones), rows K + k the
 //                                                             flow weight b_k. A sensor column x gives the mode coefficients w = B x; an FFT column X(f) complex ones.

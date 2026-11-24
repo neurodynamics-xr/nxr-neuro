@@ -1,7 +1,7 @@
 // nxr::signal tile flow (nxr/signal/tile_flow.h) on generated signals (no dataset):
 //   servedSynthesis: the inverse of a complete serving operator, the rank of an incomplete one;
 //   tileOperator: the kernel's rows averaged over each tile, composed with a synthesis;
-//   a planted directed lag: tile 1 follows tile 0 by tau on one component; the whole-run cross-spectrum's phase gives the lag back (-arg S_01 / 2 pi f = -tau, the reference's
+//   a planted directed lag (read through pairFlow and timeCellPairFlow): tile 1 follows tile 0 by tau on one component; the whole-run cross-spectrum's phase gives the lag back (-arg S_01 / 2 pi f = -tau, the reference's
 //   sign) and every time cell's Im sum is positive (tile 1 lags tile 0: the phase flows 0 -> 1); the per-cell sums add up to the whole own span's time-domain products.
 #include <cmath>
 #include <complex>
@@ -13,6 +13,8 @@
 
 #include "check.h"
 #include "nxr/signal/fourier.h"
+#include "nxr/signal/flow_readout.h"
+#include "nxr/signal/source_flow.h"
 #include "nxr/signal/tile_flow.h"
 
 using namespace nxr::signal;
@@ -59,21 +61,22 @@ int main() {
     Eigen::MatrixXd gains(1, Y.cols());
     for (Eigen::Index k = 0; k < Y.cols(); ++k) { const double fk = static_cast<double>(k) * fs / static_cast<double>(N); gains(0, k) = k == 0 ? 0 : 2 * std::exp(-(fk - f) * (fk - f) / 2.0); }
     const Eigen::MatrixXd M = Eigen::MatrixXd::Identity(6, 6);
-    std::vector<Eigen::MatrixXcd> sums;
-    accumulateTileCrossSpectra(M.cast<cd>() * Y, gains, sums);
-    CHECK(sums.size() == 1 && sums[0].rows() == 2);
-    const double lag = -std::arg(sums[0](0, 1)) / (2 * M_PI * f);
+    const Eigen::MatrixXd tileReadout = componentMajor(M, 3);                                 // two tiles of three components
+    const std::vector<std::int32_t> tilePair{0, 1};
+    const PairFlow flow = pairFlow(Y * gains.row(0).transpose().asDiagonal(), {tileReadout}, 3, tilePair, nullptr);
+    const cd crossSpectrum01(flow.pairReal(0, 0), -flow.pairImaginary(0, 0));                  // S_01 = Σ z_0 conj(z_1), the conjugate of the pair sum
+    const double lag = -std::arg(crossSpectrum01) / (2 * M_PI * f);
     std::printf("  planted lag %.4f s, read %.4f s (the reference's sign: -tau)\n", tau, lag);
     CHECK(std::abs(lag + tau) < 1e-3);
-    CHECK(sums[0](0, 1).imag() > 0);
+    CHECK(crossSpectrum01.imag() > 0);
     const Eigen::MatrixXcd X = Y * gains.row(0).asDiagonal();
-    const TileCells c = tileTimeCells(X, 0, N, own0, own, 0, cell, M);
+    const TimeCellPairFlow c = timeCellPairFlow(X, 0, N, own0, own, 0, cell, tileReadout, 3, tilePair, nullptr);
     CHECK(c.firstCell == 0 && c.samples.size() == static_cast<std::size_t>(own / cell));
-    const TileCells shifted = tileTimeCells(X, 0, N, own0, own, 100, cell, M);          // the own span starting at line sample 100: a part cell at each end
+    const TimeCellPairFlow shifted = timeCellPairFlow(X, 0, N, own0, own, 100, cell, tileReadout, 3, tilePair, nullptr);   // the own span starting at line sample 100: a part cell at each end
     CHECK(shifted.firstCell == 0 && shifted.samples.front() == cell - 100 && shifted.samples.back() == 100 && std::abs(shifted.pairImaginary.sum() - c.pairImaginary.sum()) < 1e-9 * std::abs(c.pairImaginary.sum()));
     CHECK(c.pairImaginary.rows() == 1 && c.pairImaginary.cols() == own / cell && c.power.rows() == 2);
     bool positive = true;
-    for (Eigen::Index j = 0; j < c.pairImaginary.cols(); ++j) positive = positive && c.pairImaginary(0, j) > 0;
+    for (Eigen::Index j = 0; j < c.pairImaginary.cols(); ++j) positive = positive && -c.pairImaginary(0, j) > 0;   // Σ Im(z_0 conj z_1) > 0: tile 1 lags tile 0
     CHECK(positive);
     // the cells' sums are the time-domain sums of the band signal over the own span (an inverse transform of the weighted bins, unscaled)
     double whole = 0;                                                                         // Σ over the three components of tile 0 (rows 0 1 2) with tile 1 (rows 3 4 5)
@@ -84,7 +87,7 @@ int main() {
       c2c(z1.data(), z1.data(), {static_cast<std::size_t>(N)}, 0, false);
       for (std::int64_t t = own0; t < own0 + own; ++t) whole += (z0[static_cast<std::size_t>(t)] * std::conj(z1[static_cast<std::size_t>(t)])).imag();
     }
-    CHECK(std::abs(c.pairImaginary.sum() - whole) < 1e-9 * std::abs(whole));
+    CHECK(std::abs(-c.pairImaginary.sum() - whole) < 1e-9 * std::abs(whole));
   }
   return nxrtest::finish("test_tile_flow");
 }
