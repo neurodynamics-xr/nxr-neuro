@@ -12,7 +12,6 @@
 
 #include "nxr/graph/node.h"
 #include "nxr/operators/hodge_synthesis_weights.h"
-#include "nxr/signal/fourier.h"
 #include "nxr/signal/mode_spectrum.h"
 #include "nxr/signal/source_flow.h"
 #include "source_flow_readers.h"
@@ -22,16 +21,9 @@ namespace nxr::pipelines::graph {
 namespace ng = nxr::graph;
 using nxr::graph::Json;
 using RowMajor = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-using RowMajorF = Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 
 namespace {
 
-ng::PortType constant_of(const char* cls) {
-  ng::PortType t;
-  t.cls = ng::PortClass::constant;
-  t.facts["cls"] = cls;
-  return t;
-}
 std::string text_param(const Json& p, const char* key, const char* who) {
   if (!p.contains(key) || !p[key].is_string()) ng::refuse(std::string(who) + ": " + key + " has no default: name it");
   return p[key].get<std::string>();

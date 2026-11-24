@@ -103,7 +103,7 @@ int main() {
     ng::Types stypes, gtypes;
     ng::PortType xt; xt.sfreq = fs; xt.axis = ng::Axis::samples; stypes["x"] = xt; stypes["operator"] = pk;
     ng::PortType st; st.sfreq = fs; for (const auto& [k, v] : sp.items()) st.facts[k] = v; gtypes["spectrum"] = st;   // the spectrum carries how it was made (overlapped_spectrum's plan)
-  gtypes["operator"] = pk;
+    gtypes["operator"] = pk;
     const ng::NodeSpec& s = ng::registry().at("signal.overlapped_spectrum");
     const ng::NodeSpec& g = ng::registry().at("signal.chunk_spectra");
     const ng::Arrays operatorInput{{"operator", O}};

@@ -178,7 +178,7 @@ ng::NodeSpec chunk_spectra() {
                              "each block's spectrum kept in time order (a measurement over the chunk partition: one value a member, nothing summed)");
   n.matches = "the flow analysis's served chunk spectra (each chunk's rfft in the field coordinates, stored); no reduction";
   n.description = "the chunk spectra of a run gathered into one statistic: the cross-spectrum per bin is the sum over its chunks of each spectrum times its conjugate";
-  n.plan = [](const ng::Types& in, const Json& p) {
+  n.plan = [](const ng::Types& in, const Json&) {
     const auto it = in.find("spectrum");
     if (it == in.end() || !it->second.per_block()) ng::refuse(std::string(kGather) + ": spectrum is a value made once per block (signal.overlapped_spectrum)");
     if (!in.count("operator")) ng::refuse(std::string(kGather) + ": operator is not given");
@@ -188,7 +188,7 @@ ng::NodeSpec chunk_spectra() {
     out.out["spectra"] = constant_of("statistic");
     return out;
   };
-  n.prepare = [](const ng::Types& in, const ng::Arrays& c, const Json& p, ng::Shared&) {
+  n.prepare = [](const ng::Types& in, const ng::Arrays& c, const Json&, ng::Shared&) {
     GatherPrepared pr;
     pr.op_meta = constant_input(c, "operator", kGather).meta;
     pr.op_meta.erase("channels");
@@ -324,6 +324,8 @@ Eigen::MatrixXd frequency_gains(const Spectra& s, const ng::Arrays& c, const Jso
   for (std::int64_t k = 0; k < s.bins; ++k) f(k) = s.frequency(k);
   if (weighting == "every_bin") {
     if (standardDeviations) ng::refuse(std::string(who) + ": every_bin has no atom (no time width)");
+    if (c.count("frequency") && !c.at("frequency").meta.value("placeholder", false))
+      ng::refuse(std::string(who) + ": frequency_weighting every_bin reads every bin alone: the frequency kernel set handed to it would be ignored (leave it out, or choose kernels)");
     return Eigen::MatrixXd::Identity(s.bins, s.bins);
   }
   if (weighting != "kernels") ng::refuse(std::string(who) + ": frequency_weighting is kernels or every_bin");
@@ -472,6 +474,7 @@ ng::NodeSpec spectral_flow() {
     describe(pv, vertexMeasures, S, A * pairs, "the vertices of the surface", pairsAre);
     describe(pe, Json::array({Json{{"measure", "phase_current"}}}), E, A * pairs, "the edges of the intrinsic complex (tail -> tip)", pairsAre);
     describe(pm, Json::array({Json{{"measure", "flow_coefficient"}}}), M, A * pairs, "the Hodge-Dirac modes", pairsAre);
+    if (Q == 0) for (ng::Array* none : {&pv, &pe, &pm}) { *none = ng::Array{}; none->meta["absent"] = true; }   // no bands wired: no band pairs (the runner stores none)
     return ng::Arrays{{"whole_vertices", std::move(wv)}, {"whole_edges", std::move(we)}, {"whole_modes", std::move(wm)},
                       {"pair_vertices", std::move(pv)}, {"pair_edges", std::move(pe)}, {"pair_modes", std::move(pm)}};
   };

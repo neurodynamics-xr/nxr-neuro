@@ -28,9 +28,8 @@ parameters:
   package: {default: null, meaning: "the Hodge-Dirac solve's stem", unit: "-"}
   channel_map: {default: null, meaning: "the sensor surface's vertex-to-channel map's name", unit: "-"}
   groups: {default: null, meaning: "sharp groups of bins by name (with frequency_weighting kernels)", unit: "-"}
-  bands: {default: null, meaning: "the eigenvalue bands by name; null: the whole field only", unit: "-"}
+  bands: {default: null, meaning: "the eigenvalue bands by name: every band pair is read and stored too; null: the whole field only (no band-pair outputs)", unit: "-"}
   frequency_weighting: {default: every_bin, meaning: "every_bin (each bin alone: the whole-recording flow per bin) | kernels (the bins grouped by the sharp kernel set named in groups, their gains not normalised)", unit: "-", choices: [every_bin, kernels]}
-  banded: {default: false, meaning: "true: also every pair of the eigenvalue bands named in bands", unit: "-"}
   overlap_samples: {default: 16384, meaning: "the overlap on each side of a chunk: half a chunk", unit: samples}
   transform_samples: {default: 65536, meaning: "each chunk's one transform: the chunk and its two overlaps", unit: samples}
   frequency_span: {default: [0, 60], meaning: "[lo, hi) the bins kept", unit: Hz}
@@ -52,6 +51,6 @@ outputs:
   whole_vertices: {kind: statistic, name: "{name}_flow_vertices", of: recording}
   whole_edges:    {kind: statistic, name: "{name}_flow_edges", of: recording}
   whole_modes:    {kind: statistic, name: "{name}_flow_modes", of: recording}
-  pair_vertices:  {kind: statistic, name: "{name}_band_pair_vertices", of: recording, when: $banded}
-  pair_edges:     {kind: statistic, name: "{name}_band_pair_edges", of: recording, when: $banded}
-  pair_modes:     {kind: statistic, name: "{name}_band_pair_modes", of: recording, when: $banded}
+  pair_vertices:  {kind: statistic, name: "{name}_band_pair_vertices", of: recording}
+  pair_edges:     {kind: statistic, name: "{name}_band_pair_edges", of: recording}
+  pair_modes:     {kind: statistic, name: "{name}_band_pair_modes", of: recording}

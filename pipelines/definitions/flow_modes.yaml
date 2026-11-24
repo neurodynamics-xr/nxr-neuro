@@ -49,7 +49,7 @@ parameters:
   method: {default: pcg, meaning: "the solver: pcg (preconditioned conjugate gradients) | direct (exact solve)", unit: "-", choices: [pcg, direct]}
   regulariser: {default: connection, meaning: "connection (the connection Laplacian on the signpost gauge) | ambient (the Dirichlet energy of the ambient 3-vector field, Lefevre and Baillet 2008)", unit: "-", choices: [connection, ambient]}
   datafit: {default: auto, meaning: "auto (gauge for connection, triangle for ambient) | gauge | triangle", unit: "-"}
-  alpha: {default: 0.01, meaning: "the smoothness weight (> 0): 0.01 is the reference's with the default connection regulariser; the ambient regulariser's reference value is 1 (set it with --regulariser ambient); vary it and report the range", unit: "-"}
+  alpha: {default: required, meaning: "the smoothness weight (> 0), the caller's choice (no default: it depends on the regulariser): the references use 0.01 with the connection regulariser and 1 with the ambient one; vary it and report the range", unit: "-"}
   flow_tolerance: {default: 1.0e-8, meaning: "the relative residual at which the iterative solver stops", unit: "-"}
   max_iterations: {default: 500, meaning: "the most iterations of the iterative solver for one frame", unit: "-"}
   preconditioner: {default: ldlt, meaning: "ldlt | ic", unit: "-", choices: [ldlt, ic]}
