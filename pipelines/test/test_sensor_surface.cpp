@@ -3,7 +3,8 @@
 // manifold and the csr coil weights). The pick is the gradiometers in a shuffled order. Checks: the surface is a manifold derived from the channels, its vertices the picked
 // channels in the pick's order at Brainstorm's positions (the pickup coil's centre), its map the pick, its faces nxr::geometry::pointset::pointSetMesh of those positions (a disc,
 // outward); position_rule stored gives the first coils; the refusals (no pick, a pick of another manifold's size); then `run eigenmodes` on the surface (an open disc) with the
-// *1 floor named: the mode axis, both kinds of modes, the 0-, 1- and 2-form parts.
+// *1 floor named: the mode axis, both kinds of modes, the 0-, 1- and 2-form parts. `run sensor_mesh`: the good gradiometers (one flagged bad) chosen from the type and
+// quality labellings, the surface, its map and its stored channels, a cache hit on a second run, and the refusals (no sensor type; three good electrodes).
 #include "nxr/io/subject_api.h"
 #include <unistd.h>
 
@@ -104,6 +105,8 @@ int main() {
       points(cid, "sensors", stored, M);
       std::vector<std::int64_t> tcode, qcode(M, 0);
       for (int i = 0; i < M; ++i) tcode.push_back(i < G ? 0 : 1);
+      qcode[17] = 1;                                         // one gradiometer bad (sensor_mesh leaves it out; sensor_surface takes its pick as named)
+      qcode[G + 3] = qcode[G + 4] = qcode[G + 5] = 1;        // three electrodes bad: three good EEG channels, fewer than sensor_mesh's four
       nxr::bst::label_set(sub, "sensor/sensors_labels", {{"type", tcode, {"MEG GRAD", "EEG"}, {}}, {"quality", qcode, {"good", "bad"}, {}}}, cid, "the montage families", std::nullopt,
                           [](const std::string& fam) { return std::make_pair(fam, std::string("app")); });
       const std::int64_t P = static_cast<std::int64_t>(cw.size());
@@ -168,6 +171,32 @@ int main() {
     const std::string b = refusal([&] { nxrtest::run_definition(ds, sub, "sensor_surface", Json{{"channels", "sensors"}, {"pick", "three"}, {"name", "x2"}}); });
     std::printf("  a pick of another manifold: %s\n", b.substr(0, 140).c_str());
     CHECK(!b.empty());
+  }
+  // sensor_mesh: the good channels of one sensor type chosen from the channels' type and quality labellings (meeg.good_channels_of_type), meshed as sensor_surface meshes
+  {
+    CHECK(!nxrtest::run_definition(ds, sub, "sensor_mesh", Json{{"channels", "sensors"}, {"sensor_type", "MEG"}}).empty());
+    const nxr::pipelines::SurfaceInput H = nxr::pipelines::read_surface(sub, "sensors_MEG_surface", true);
+    CHECK_EQ(H.n_vertices(), static_cast<std::int64_t>(G - 1));                     // the 150 gradiometers less the bad one
+    std::vector<std::int32_t> good_gradiometers;
+    for (int i = 0; i < G; ++i) if (i != 17) good_gradiometers.push_back(i);
+    const auto map = sub.find("field", nxr::io::task::Subject::of(sub).node_path(H.id, "sensors_MEG_surface_map"));
+    CHECK(map.has_value());
+    if (map) CHECK(read_as<std::int32_t>(sub, text(*map, "path")) == good_gradiometers);   // ascending, no reference, no electrode, no bad channel
+    const auto chosen = sub.find("selection", nxr::io::task::Subject::of(sub).node_path(text(*ch, "id"), "sensors_MEG_surface_channels"));
+    CHECK(chosen.has_value());
+    if (chosen) CHECK(read_as<std::int32_t>(sub, text(*chosen, "array_path")) == good_gradiometers);
+    std::vector<double> positions(H.vertices.begin(), H.vertices.end());
+    CHECK(nxr::geometry::pointset::pointSetMesh(positions).faces == H.faces);
+    // run again: the stored surface is found (a cache hit), no second surface
+    const auto again = nxrtest::run_definition(ds, sub, "sensor_mesh", Json{{"channels", "sensors"}, {"sensor_type", "MEG"}});
+    CHECK(!again.empty() && again.front().value("hit", false));
+    // refusals: the sensor type left required; three good EEG channels (fewer than four)
+    const std::string unnamed = refusal([&] { nxrtest::run_definition(ds, sub, "sensor_mesh", Json{{"channels", "sensors"}}); });
+    std::printf("  sensor_mesh, no sensor type: %s\n", unnamed.substr(0, 140).c_str());
+    CHECK(unnamed.find("sensor_type") != std::string::npos);
+    const std::string few_eeg = refusal([&] { nxrtest::run_definition(ds, sub, "sensor_mesh", Json{{"channels", "sensors"}, {"sensor_type", "EEG"}}); });
+    std::printf("  sensor_mesh, three good EEG channels: %s\n", few_eeg.substr(0, 140).c_str());
+    CHECK(few_eeg.find("fewer than the four") != std::string::npos);
   }
   // the Hodge-Dirac modes of the helmet (an open disc) through `eigenmodes`, the *1 floor named
   {

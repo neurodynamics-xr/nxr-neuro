@@ -1,0 +1,55 @@
+# THE SENSOR MESH: the good channels of one sensor type (MEG or EEG) as a surface, a triangulated helmet (MEG) or cap (EEG) whose vertices ARE those channels. The same surface as
+# `sensor_surface` makes, with the channels chosen from the channels' own labellings instead of a pick named by hand, so that importing a subject can make it with no hand step.
+# A manifold DERIVED from the channels: vertex i is the channel `<name>_map`[i] of the channels manifold, so a field on those channels is a field on the surface's vertices with
+# no mapping, and the channels get what any surface has (the intrinsic complex and its operators, the Hodge-Dirac modes: `run eigenmodes --surface <name>`).
+#
+# THE GRAPH:  type, quality (the channels' labellings: a channel's type, e.g. MEG GRAD, and its quality, good or bad) --[meeg.good_channels_of_type]--> pick [m];
+#             channels, pick --[meeg.channel_positions]--> positions [m x 3], channel_index [m];  positions --[geometry.point_set_mesh]--> faces [F x 3];
+#             positions, faces --[geometry.surface_from_parts]--> surface.
+# Stored: the surface `<name>` (type surface, derived from the channels manifold; its producer records the sensor type, the labellings read, the position rule and the mesher's
+# options and report), the map `<name>_map` (an integer field on the surface: each vertex's channel) and the pick `<name>_channels` (an indices selection of the channels: the
+# surface's channels, so a cross-spectrum can be made on exactly them).
+# WHICH CHANNELS: the good channels of sensor_type, REQUIRED (MEG: MEG, MEG MAG and MEG GRAD, never MEG REF; EEG: EEG); MEG and EEG are never meshed together. Good channels only:
+# the recorded field is defined only there. Fewer than four is refused.
+# Positions: Brainstorm's rule by default (the mean of a channel's first four coil points: a CTF axial gradiometer's pickup coil), or the stored point (position_rule stored).
+# The mesh: the point-set mesher (the projection about the pole, the planar Delaunay, long chords cut, pinches and holes repaired, every triangle turned outward); a point in no
+# triangle is refused.
+#
+# What it cannot resolve: the surface is a triangulation of the sensors, not a physical surface: its geometry is the sensors' layout (their spacing is its resolution: no pattern
+# shorter than about two sensor spacings is resolved on it), and a field on it is the sensors' measurement (lead fields, not cortical currents).
+#
+#   nxr-neuro run sensor_mesh --dataset <folder> --subject sub-01 --channels <channels manifold> --sensor-type MEG|EEG [--name NAME] [--position-rule stored] [--cut 2]
+pipeline: sensor_mesh
+version: 1
+description: the good channels of one sensor type (MEG or EEG) as a surface whose vertices are those channels, chosen from the channels' type and quality labellings
+scope: subject
+
+inputs:
+  channels: {manifold: points, where: {name: $channels}, hint: "name the channels manifold (--channels)"}
+  type:     {selection: set, manifold: channels.manifold.0, where: {name: $type_labelling}, hint: "the channels' type labelling (the importer's montage family `type`)"}
+  quality:  {selection: set, manifold: channels.manifold.0, where: {name: $quality_labelling}, hint: "the channels' good/bad labelling (the importer's montage family `quality`: the recording's channel flags)"}
+
+parameters:
+  channels: {default: required, meaning: "the channels manifold (a points manifold) by name", unit: "-"}
+  sensor_type: {default: required, meaning: "which sensors are the vertices: MEG (MEG, MEG MAG, MEG GRAD; never MEG REF) or EEG; never both", unit: "-", choices: [MEG, EEG]}
+  type_labelling: {default: type, meaning: "the channels' type labelling by name (the importer's montage family)", unit: "-"}
+  quality_labelling: {default: quality, meaning: "the channels' good/bad labelling by name (the importer's montage family)", unit: "-"}
+  name: {default: "{channels}_{sensor_type}_surface", meaning: "the surface's name; its map is <name>_map, its channels <name>_channels", unit: "-"}
+  position_rule: {default: brainstorm, meaning: "a channel's position: brainstorm (the mean of its first coil_points coil points; its stored point without coils) or stored (its stored point)", unit: "-", choices: [brainstorm, stored]}
+  coil_points: {default: 4, meaning: "how many of a channel's first coil points are averaged (Brainstorm: 4)", unit: points}
+  cut: {default: 2.0, meaning: "a triangle is removed when one of its edges is cut x the median edge or longer (nxr: 2)", unit: "-"}
+  pole: {default: [0, 0, 1], meaning: "the projection's pole, a direction in the channels' coordinate system (nxr: +z)", unit: "-"}
+  orientation: {default: outward, meaning: "each triangle turned so that its normal points away from the sensors' centroid (outward), or as_triangulated", unit: "-", choices: [outward, as_triangulated]}
+  repair_passes: {default: 20, meaning: "the most passes of the pinch repair before refusing (nxr: 20)", unit: passes}
+
+steps:
+  before:
+    - {node: meeg.good_channels_of_type, in: {type: type, quality: quality}, with: {sensor_type: $sensor_type}, out: pick}
+    - {node: meeg.channel_positions, in: {channels: channels, pick: pick}, with: {position_rule: $position_rule, coil_points: $coil_points}, out: [positions, channel_index]}
+    - {node: geometry.point_set_mesh, in: {points: positions}, with: {cut: $cut, pole: $pole, orientation: $orientation, repair_passes: $repair_passes}, out: faces}
+    - {node: geometry.surface_from_parts, in: {vertices: positions, faces: faces}, out: surface}
+
+outputs:
+  surface:       {kind: manifold, type: surface, name: $name, derived_from: channels.manifold.0}
+  channel_index: {kind: field, kind_name: channel map, name: "{name}_map", on: surface}
+  pick:          {kind: selection, type: indices, name: "{name}_channels", on: channels.manifold.0}

@@ -1253,6 +1253,12 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
           const nxr::io::selection::ElementMembers em = nxr::io::selection::read_element_members(sub.db(), sub.store(), text(row, "id"));
           for (const std::int32_t c : em.member_of) a.data.push_back(c);
           a.meta["member_codes"] = em.member_codes;
+          if (const auto dictionary = nxr::io::opt_text(row, "dictionary_id"); dictionary && !dictionary->empty()) {   // each member's label NAME, in member order (a node that chooses by name: a channel's type, its quality)
+            const std::map<std::int64_t, std::string> names = nxr::io::selection::lookup_names(sub.db(), *dictionary);
+            Json member_names = Json::array();
+            for (const std::int64_t code : em.member_codes) { const auto it = names.find(code); member_names.push_back(it == names.end() ? std::string() : it->second); }
+            a.meta["member_names"] = member_names;
+          }
         } else {                                                           // a pick (indices): the element list as stored
           for (const std::int32_t c : bound.array_int32(text(row, "array_path"))) a.data.push_back(c);
         }
