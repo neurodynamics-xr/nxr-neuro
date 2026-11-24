@@ -165,6 +165,7 @@ test_intrinsic_delaunay	unit
 test_intrinsic_forms	unit
 test_mode_spectrum	unit
 test_spectral_flow	unit
+test_bispectrum	unit
 test_sign_flip	golden
 test_aperiodic	golden
 test_intrinsic_surface	unit
