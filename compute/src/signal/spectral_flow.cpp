@@ -31,17 +31,23 @@ Eigen::MatrixXcd overlappedSpectrum(const Eigen::MatrixXd& servingOperator, cons
   const std::int64_t reflectLeft = overlap - takeLeft, reflectRight = transformSamples - overlap - own - takeRight;
   const std::int64_t start = left - takeLeft, stop = left + own + takeRight;             // the present samples taken: [start, stop) of the block
   const std::int64_t present = stop - start;
-  if (reflectLeft > present - 1 || reflectRight > present - 1)
-    bad("overlappedSpectrum: a side needs " + std::to_string(std::max(reflectLeft, reflectRight)) + " reflected samples, the chunk and its overlap hold " + std::to_string(present));
+  if (present < 2 && (reflectLeft > 0 || reflectRight > 0)) bad("overlappedSpectrum: a reflection needs at least two samples, the chunk and its overlap hold " + std::to_string(present));
   if (reflectLeft > 0 && start != 0) bad("overlappedSpectrum: the left side is reflected only where the samples end (the recording's start)");
   if (reflectRight > 0 && stop != width) bad("overlappedSpectrum: the right side is reflected only where the samples end (the recording's end)");
+  // numpy `reflect` (the edge sample not repeated); a side longer than the samples present is reflected again, as numpy pads repeatedly: the even extension of period
+  // 2 (present - 1) (a short last chunk, e.g. a recording that ends a few seconds into its last chunk)
+  const std::int64_t period = 2 * (present - 1);
+  auto mirrored = [&](std::int64_t position) {                                            // position relative to `start`, any integer -> a present sample
+    if (period == 0) return std::int64_t(0);
+    std::int64_t m = position % period;
+    if (m < 0) m += period;
+    return m < present ? m : period - m;
+  };
   const Eigen::Index K = coordinates.rows();
   std::vector<double> buffer(static_cast<std::size_t>(K * transformSamples));
   for (Eigen::Index r = 0; r < K; ++r) {
     double* row = buffer.data() + r * transformSamples;
-    for (std::int64_t j = 0; j < reflectLeft; ++j) row[j] = coordinates(r, start + (reflectLeft - j));                     // numpy reflect: x[m], ..., x[1] before x[0]
-    for (std::int64_t j = 0; j < present; ++j) row[reflectLeft + j] = coordinates(r, start + j);
-    for (std::int64_t j = 0; j < reflectRight; ++j) row[reflectLeft + present + j] = coordinates(r, stop - 2 - j);       // after x[n-1]: x[n-2], x[n-3], ...
+    for (std::int64_t j = 0; j < transformSamples; ++j) row[j] = coordinates(r, start + mirrored(j - reflectLeft));
   }
   std::vector<std::complex<double>> spectrum(static_cast<std::size_t>(K * bins));
   r2c(buffer.data(), spectrum.data(), {static_cast<std::size_t>(K), static_cast<std::size_t>(transformSamples)}, 1);

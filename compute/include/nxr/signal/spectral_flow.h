@@ -26,7 +26,7 @@
 namespace nxr::signal {
 
 /** `servingOperator` [K x channels], `samples` [channels x (left + own + right)] (`left`, `right` the samples present beyond the chunk's `own`), `overlap` the samples the transform takes
- *  on the left, `transformSamples` its length (the right side gets transformSamples − overlap − own). Throws std::invalid_argument when a side needs more reflection than the samples hold,
+ *  on the left, `transformSamples` its length (the right side gets transformSamples − overlap − own; a side longer than the samples is reflected again, numpy `reflect`). Throws std::invalid_argument on fewer than two samples to reflect,
  *  or the bins fall outside the transform's. Returns [K x binCount] complex, unscaled (numpy rfft norm backward). */
 Eigen::MatrixXcd overlappedSpectrum(const Eigen::MatrixXd& servingOperator, const Eigen::MatrixXd& samples, std::int64_t left, std::int64_t right, std::int64_t overlap,
                                     std::int64_t transformSamples, std::int64_t firstBin, std::int64_t binCount);
