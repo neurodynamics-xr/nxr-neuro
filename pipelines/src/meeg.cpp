@@ -2,6 +2,7 @@
 #include "nxr/io/selection_reads.h"
 #include "nxr/io/selection_store.h"
 #include "nxr/io/subject_reads.h"
+#include "nxr/io/subject_api.h"
 
 #include <algorithm>
 #include <cctype>
@@ -89,6 +90,15 @@ std::vector<T> read_all(const nxr::io::Store& store, const std::string& key, std
   ArrayReader r = ArrayReader::open(store, key);
   if (shape) *shape = r.shape();
   return as_vector<T>(r.read(), r.dtype());
+}
+
+// the rows [r0, r1) of a 2-D array, every column (a block of a stacked operator: the 0-form rows of the Hodge–Dirac eigenvectors), never the whole array
+template <class T>
+std::vector<T> read_rows(const nxr::io::Store& store, const std::string& key, std::int64_t r0, std::int64_t r1, std::vector<std::int64_t>* shape = nullptr) {
+  ArrayReader r = ArrayReader::open(store, key);
+  if (shape) *shape = r.shape();
+  if (r.shape().size() != 2 || r0 < 0 || r1 > r.shape()[0] || r0 > r1) throw Error(code::invalid_argument, key + ": rows [" + std::to_string(r0) + ", " + std::to_string(r1) + ") are not in a 2-D array of its shape");
+  return as_vector<T>(r.read({r0, 0}, {r1, r.shape()[1]}), r.dtype());
 }
 
 // one level name per element of a labelling Selection of `manifold_id` called `family` (a set's partition: 'type', 'quality'); empty when there is none
@@ -746,62 +756,98 @@ CrossSpectrumWindows crossspectrum_windows_read(SubjectWriter& sub, const std::s
 
 namespace {
 
-// The subject's stored Hodge–Dirac package of a surface (the eigenvectors operator, the axis, the kinds, the support) and its glued surface.
+// The subject's stored Hodge–Dirac EIGENSOLVE of a surface (its eigenvectors operator, the eigenvalue line, the kinds labelling, the support), the surface it was solved on and its intrinsic
+// triangulation. The eigenvectors are ONE operator from the eigenvalue line to the triangulation, cell key '0+1+2': rows [0, V) the 0-form parts (the vertex potentials), [V, V+E) the 1-form
+// parts, [V+E, V+E+F) the 2-form parts. A solve stored in the earlier form (three operators and a kind field) is refused, naming `nxr-neuro migrate eigensolve`.
 struct HodgePackage {
   SurfaceInput in, glued;
   std::string stem, axis_id;
   Row opr, axis;
-  std::int64_t Vin = 0, Vg = 0, Ktot = 0, K = 0, kept = 0;
+  std::int64_t Vin = 0, Vg = 0, nE = 0, nF = 0, Ktot = 0, K = 0, kept = 0;
   std::vector<double> mu_all;
   std::vector<std::uint8_t> kind_all;
   std::vector<std::int32_t> support;
 };
 
+}  // namespace
+
+StoredEigensolve stored_eigensolve(SubjectWriter& sub, const std::string& stem) {
+  StoredEigensolve e;
+  e.stem = stem;
+  const auto opr = find_operator(sub.db(), sub.id(), "eigenvectors", stem + "_eigenvectors");
+  if (!opr) missing(sub.name() + ": no stored Hodge-Dirac eigensolve '" + stem + "' (nxr-neuro run eigenmodes)");
+  if (opt_text(*opr, "to_cell").value_or("0") != "0+1+2")
+    invalid(stem + "_eigenvectors maps to cell '" + opt_text(*opr, "to_cell").value_or("0") + "': a solve stored in the earlier form (three operators _eigenvectors, _forms1, _forms2); convert it in place with `nxr-neuro migrate eigensolve`");
+  const auto line = sub.db().read("manifold", text(*opr, "from_manifold_id"));
+  const auto tri = sub.db().read("manifold", text(*opr, "to_manifold_id"));
+  if (!line || !tri) missing(stem + ": its eigenvalue line or its intrinsic triangulation is not stored");
+  if (is_null(*tri, "derived_from_id")) invalid(stem + ": its intrinsic triangulation names no surface it is made from");
+  const auto surf = sub.db().read("manifold", text(*tri, "derived_from_id"));
+  if (!surf) missing(stem + ": the surface its intrinsic triangulation is made from is not stored");
+  const auto kinds = nxr::io::selection::named_row(sub.db(), sub.id(), stem + "_kinds");
+  if (!kinds) missing(sub.name() + ": the stored eigensolve '" + stem + "' has no kinds labelling (" + stem + "_kinds)");
+  e.eigenvectors = *opr; e.line = *line; e.triangulation = *tri; e.surface = *surf;
+  e.V = integer(*tri, "n_vertices"); e.E = integer(*tri, "n_edges"); e.F = integer(*tri, "n_faces");
+  e.mu = read_all<double>(sub.store(), text(*line, "path"));
+  e.K = static_cast<std::int64_t>(e.mu.size());
+  if (integer(*opr, "n_rows") != e.V + e.E + e.F || integer(*opr, "n_cols") != e.K)
+    invalid(stem + "_eigenvectors is [" + std::to_string(integer(*opr, "n_rows")) + " x " + std::to_string(integer(*opr, "n_cols")) + "], not [V + E + F = " + std::to_string(e.V + e.E + e.F) + " x " + std::to_string(e.K) + "] of its triangulation and line");
+  const nxr::io::selection::ElementMembers em = nxr::io::selection::read_element_members(sub, text(*kinds, "id"));
+  if (static_cast<std::int64_t>(em.member_of.size()) != e.K) invalid(stem + "_kinds labels " + std::to_string(em.member_of.size()) + " points, the eigenvalue line has " + std::to_string(e.K));
+  e.kind.resize(static_cast<std::size_t>(e.K));
+  for (std::int64_t k = 0; k < e.K; ++k) {
+    const std::int32_t m = em.member_of[static_cast<std::size_t>(k)];
+    const std::int64_t label = m < 0 ? -1 : em.member_codes.empty() ? m : em.member_codes[static_cast<std::size_t>(m)];
+    if (label != 0 && label != 2) invalid(stem + "_kinds: mode " + std::to_string(k) + " is labelled " + std::to_string(label) + " (0 exact, 2 coexact)");
+    e.kind[static_cast<std::size_t>(k)] = static_cast<std::uint8_t>(label);
+  }
+  const Json prov = Json::parse(opt_text(*opr, "producer_json").value_or("{}"), nullptr, false);
+  if (prov.is_object() && prov.contains("solve") && prov["solve"].is_object() && prov["solve"].contains("options") && prov["solve"]["options"].is_object()) {
+    const Json& o = prov["solve"]["options"];
+    e.mollify = o.value("mollify", e.mollify);
+    e.flip_eps = o.value("flip_eps", e.flip_eps);
+    if (o.contains("star1_floor") && o["star1_floor"].is_number()) e.star1_floor = o["star1_floor"].get<double>();
+  }
+  return e;
+}
+
+std::vector<float> stored_eigensolve_rows(SubjectWriter& sub, const StoredEigensolve& e, std::int64_t r0, std::int64_t r1) {
+  return read_rows<float>(sub.store(), text(e.eigenvectors, "path"), r0, r1);
+}
+
+namespace {
+
 HodgePackage resolve_hodge_package(SubjectWriter& sub, const Row& smf, const std::optional<std::string>& package, const std::optional<std::int64_t>& modes, const std::string& who) {
   HodgePackage pk;
   pk.Vin = integer(smf, "n_vertices");
   const std::int64_t Vin = pk.Vin;
-  const std::optional<std::int64_t>& opt_modes = modes;
   const SurfaceInput in = read_surface(sub, text(smf, "name"));
   const std::string stem_pkg = package ? *package : hodge_package_stem(in);
-  const auto opr = find_operator(sub.db(), sub.id(), "eigenvectors", stem_pkg + "_eigenvectors");
-  if (!opr) missing(sub.name() + ": no stored Hodge-Dirac package '" + stem_pkg + "' (nxr-neuro run eigenmodes, or nxr eigen solve)");
-  const auto axis = sub.db().read("manifold", text(*opr, "from_manifold_id"));
-  // by NAME, never by path: a migrated dataset keeps the support in its manifold's folder (source/<stem>_support), a fresh solve at the root
-  const auto kindf = find_field(sub.db(), sub.id(), FieldQuery{stem_pkg + "_kind"});
-  const auto supp = nxr::io::selection::named_row(sub.db(), sub.id(), stem_pkg + "_support");
-  if (!axis || !kindf || !supp) missing(sub.name() + ": the stored package '" + stem_pkg + "' is incomplete (axis, kinds or support)");
-  const std::string axis_id = text(*axis, "id");
-  const auto gm = sub.db().read("manifold", text(*opr, "to_manifold_id"));
-  if (!gm) missing(stem_pkg + ": its eigenvectors' target surface is not stored");
-  const SurfaceInput glued = read_surface(sub, text(*gm, "name"));      // the glued surface (the input itself for a surface of one piece)
+  const StoredEigensolve e = stored_eigensolve(sub, stem_pkg);
+  const auto supp = nxr::io::selection::named_row(sub.db(), sub.id(), stem_pkg + "_support");   // by NAME, never by path
+  if (!supp) missing(sub.name() + ": the stored eigensolve '" + stem_pkg + "' has no support (" + stem_pkg + "_support)");
+  const SurfaceInput glued = read_surface(sub, text(e.surface, "name"));   // the surface solved on: the glued surface (the input itself for a surface of one piece)
   const std::int64_t Vg = glued.n_vertices();
-  const std::vector<double> mu_all = read_all<double>(sub.store(), text(*axis, "path"));
-  const std::vector<std::uint8_t> kind_all = read_all<std::uint8_t>(sub.store(), text(*kindf, "path"));
-  const std::int64_t Ktot = static_cast<std::int64_t>(mu_all.size());
-  const std::int64_t K = opt_modes ? std::min<std::int64_t>(*opt_modes, Ktot) : Ktot;
+  if (Vg != e.V) invalid(stem_pkg + ": its intrinsic triangulation has " + std::to_string(e.V) + " vertices, the surface it is made from " + std::to_string(Vg));
+  const std::int64_t K = modes ? std::min<std::int64_t>(*modes, e.K) : e.K;
   if (K < 2) invalid(who + ": at least 2 modes");
   const std::vector<std::int32_t> support = read_all<std::int32_t>(sub.store(), text(*supp, "array_path"));
   const std::int64_t kept = static_cast<std::int64_t>(support.size());
   if (kept > Vg || kept > Vin) invalid(stem_pkg + ": its support does not fit the surfaces");
   for (auto s : support) if (s < 0 || s >= Vin) invalid(stem_pkg + ": its support indexes outside " + in.name);
-  pk.in = in; pk.glued = glued; pk.stem = stem_pkg; pk.axis_id = axis_id; pk.opr = *opr; pk.axis = *axis;
-  pk.Vg = Vg; pk.Ktot = Ktot; pk.K = K; pk.kept = kept; pk.mu_all = mu_all; pk.kind_all = kind_all; pk.support = support;
+  pk.in = in; pk.glued = glued; pk.stem = stem_pkg; pk.axis_id = text(e.line, "id"); pk.opr = e.eigenvectors; pk.axis = e.line;
+  pk.Vg = Vg; pk.nE = e.E; pk.nF = e.F; pk.Ktot = e.K; pk.K = K; pk.kept = kept; pk.mu_all = e.mu; pk.kind_all = e.kind; pk.support = support;
   return pk;
 }
 
-// The basis of the first pk.K modes: the stored potentials (the operator is [V_glued x Ktot], row-major), the vertex mass of the glued mesh as the solve took it.
+// The basis of the first pk.K modes: the stored potentials (the 0-form rows [0, V) of the eigenvectors, row-major [V x Ktot]: only those rows are read), the vertex mass of the glued mesh as the solve took it.
 nxr::operators::Basis load_hodge_basis(SubjectWriter& sub, const HodgePackage& pk) {
   const std::int64_t Vg = pk.Vg, Ktot = pk.Ktot, K = pk.K, kept = pk.kept;
   const SurfaceInput& glued = pk.glued;
-  const std::string& stem_pkg = pk.stem;
   const std::vector<std::int32_t>& support = pk.support;
   const std::vector<std::uint8_t>& kind_all = pk.kind_all;
   const std::vector<double>& mu_all = pk.mu_all;
-  const std::optional<Row> opr = pk.opr;
-  std::vector<std::int64_t> eshape;
-  const std::vector<float> ev = read_all<float>(sub.store(), text(*opr, "path"), &eshape);
-  if (eshape.size() != 2 || eshape[0] != Vg || eshape[1] != Ktot) invalid(stem_pkg + ": the stored eigenvectors are not [" + std::to_string(Vg) + " x " + std::to_string(Ktot) + "]");
+  const std::vector<float> ev = read_rows<float>(sub.store(), text(pk.opr, "path"), 0, Vg);
   nxr::operators::Basis basis;
   basis.P.resize(K, Vg);
   for (std::int64_t v = 0; v < Vg; ++v) for (std::int64_t k = 0; k < K; ++k) basis.P(k, v) = static_cast<double>(ev[static_cast<std::size_t>(v * Ktot + k)]);
@@ -813,7 +859,7 @@ nxr::operators::Basis load_hodge_basis(SubjectWriter& sub, const HodgePackage& p
   for (std::int64_t i = 0; i < kept; ++i) basis.keep[static_cast<std::size_t>(i)] = support[static_cast<std::size_t>(i)];
   {
     nxr::geometry::DelaunayOptions dopt;
-    const Json prov = Json::parse(opt_text(*opr, "producer_json").value_or("{}"), nullptr, false);
+    const Json prov = Json::parse(opt_text(pk.opr, "producer_json").value_or("{}"), nullptr, false);
     if (prov.is_object() && prov.contains("solve") && prov["solve"].is_object() && prov["solve"].contains("options") && prov["solve"]["options"].is_object()) {
       dopt.mollify = prov["solve"]["options"].value("mollify", dopt.mollify);
       dopt.flipEps = prov["solve"]["options"].value("flip_eps", dopt.flipEps);
@@ -829,22 +875,19 @@ nxr::operators::Basis load_hodge_basis(SubjectWriter& sub, const HodgePackage& p
 
 }  // namespace
 
-// A HODGE-DIRAC PACKAGE as a node reads it (the runner hands it over: a node reads no store): the basis of its first `modes` modes (all: null), the input surface's
-// positions (the kernel's sources) and the package's identity
+// A HODGE-DIRAC EIGENSOLVE as a node reads it (the runner hands it over: a node reads no store): the basis of its first `modes` modes (all: null), the input surface's
+// positions (the kernel's sources) and the solve's identity
 HodgePackageData hodge_package_data(SubjectWriter& sub, const std::string& eigenvectors_name, const std::optional<std::int64_t>& modes) {
   const std::string suffix = "_eigenvectors";
   if (eigenvectors_name.size() <= suffix.size() || eigenvectors_name.compare(eigenvectors_name.size() - suffix.size(), suffix.size(), suffix) != 0)
-    invalid(eigenvectors_name + ": not a Hodge-Dirac package's eigenvectors (<stem>_eigenvectors)");
+    invalid(eigenvectors_name + ": not a Hodge-Dirac eigensolve's eigenvectors (<stem>_eigenvectors)");
   const std::string stem = eigenvectors_name.substr(0, eigenvectors_name.size() - suffix.size());
-  const auto opr = find_operator(sub.db(), sub.id(), "eigenvectors", eigenvectors_name);
-  if (!opr) missing(sub.name() + ": no stored Hodge-Dirac package '" + stem + "'");
-  const auto gm = sub.db().read("manifold", text(*opr, "to_manifold_id"));
-  if (!gm) missing(stem + ": its eigenvectors' target surface is not stored");
-  const Json gp = Json::parse(opt_text(*gm, "producer_json").value_or("{}"), nullptr, false);
-  const std::string input = gp.is_object() && gp.contains("glued_from") ? gp["glued_from"].get<std::string>() : text(*gm, "name");   // the glued surface's input, or itself
+  const StoredEigensolve e = stored_eigensolve(sub, stem);
+  const Json gp = Json::parse(opt_text(e.surface, "producer_json").value_or("{}"), nullptr, false);
+  const std::string input = gp.is_object() && gp.contains("glued_from") ? gp["glued_from"].get<std::string>() : text(e.surface, "name");   // the glued surface's input, or itself
   const auto smf = find_manifold(sub.db(), sub.id(), input, "surface");
   if (!smf) missing(stem + ": its input surface '" + input + "' is not stored");
-  const HodgePackage pk = resolve_hodge_package(sub, *smf, stem, modes, "hodge package");
+  const HodgePackage pk = resolve_hodge_package(sub, *smf, stem, modes, "hodge eigensolve");
   HodgePackageData d;
   d.basis = load_hodge_basis(sub, pk);
   d.input_positions = pk.in.vertices;
@@ -855,33 +898,21 @@ HodgePackageData hodge_package_data(SubjectWriter& sub, const std::string& eigen
   return d;
 }
 
+// the 1- and 2-form parts of the first K modes: the eigenvectors' rows [V, V+E) and [V+E, V+E+F), each block read on its own
 HodgePackageForms hodge_package_forms(SubjectWriter& sub, const HodgePackageData& d) {
   HodgePackageForms f;
   f.K = d.basis.mu.size();
-  const auto op = find_operator(sub.db(), sub.id(), "eigenvectors", d.stem + "_forms2");
-  if (!op) missing(sub.name() + ": the Hodge-Dirac package '" + d.stem + "' has no 2-form parts (" + d.stem + "_forms2); solve it again with `nxr-neuro run eigenmodes`");
-  std::vector<std::int64_t> shape;
-  const std::vector<float> all = read_all<float>(sub.store(), text(*op, "path"), &shape);
-  if (shape.size() != 2 || shape[1] < f.K) invalid(d.stem + "_forms2: the stored 2-form parts are not [faces x at least " + std::to_string(f.K) + " modes]");
-  f.nF = shape[0];
-  f.forms2.resize(static_cast<std::size_t>(f.nF * f.K));
-  for (std::int64_t r = 0; r < f.nF; ++r) for (std::int64_t k = 0; k < f.K; ++k) f.forms2[static_cast<std::size_t>(r * f.K + k)] = all[static_cast<std::size_t>(r * shape[1] + k)];
-  if (const auto op1 = find_operator(sub.db(), sub.id(), "eigenvectors", d.stem + "_forms1")) {   // the stored 1-form parts, when the package has them
-    std::vector<std::int64_t> shape1;
-    const std::vector<float> all1 = read_all<float>(sub.store(), text(*op1, "path"), &shape1);
-    if (shape1.size() != 2 || shape1[1] < f.K) invalid(d.stem + "_forms1: the stored 1-form parts are not [edges x at least " + std::to_string(f.K) + " modes]");
-    f.nE = shape1[0];
-    f.forms1.resize(static_cast<std::size_t>(f.nE * f.K));
-    for (std::int64_t r = 0; r < f.nE; ++r) for (std::int64_t k = 0; k < f.K; ++k) f.forms1[static_cast<std::size_t>(r * f.K + k)] = all1[static_cast<std::size_t>(r * shape1[1] + k)];
-  }
-  const auto ev = find_operator(sub.db(), sub.id(), "eigenvectors", d.stem + "_eigenvectors");
-  const Json prov = ev ? Json::parse(opt_text(*ev, "producer_json").value_or("{}"), nullptr, false) : Json();
-  if (prov.is_object() && prov.contains("solve") && prov["solve"].is_object() && prov["solve"].contains("options") && prov["solve"]["options"].is_object()) {
-    const Json& o = prov["solve"]["options"];
-    f.mollify = o.value("mollify", f.mollify);
-    f.flip_eps = o.value("flip_eps", f.flip_eps);
-    if (o.contains("star1_floor") && o["star1_floor"].is_number()) f.star1_floor = o["star1_floor"].get<double>();
-  }
+  const StoredEigensolve e = stored_eigensolve(sub, d.stem);
+  if (e.K < f.K) invalid(d.stem + "_eigenvectors holds " + std::to_string(e.K) + " modes, fewer than the " + std::to_string(f.K) + " read");
+  f.nE = e.E; f.nF = e.F;
+  auto block = [&](std::int64_t r0, std::int64_t n, std::vector<float>& out) {
+    const std::vector<float> all = stored_eigensolve_rows(sub, e, r0, r0 + n);
+    out.resize(static_cast<std::size_t>(n * f.K));
+    for (std::int64_t r = 0; r < n; ++r) for (std::int64_t k = 0; k < f.K; ++k) out[static_cast<std::size_t>(r * f.K + k)] = all[static_cast<std::size_t>(r * e.K + k)];
+  };
+  block(e.V, e.E, f.forms1);
+  block(e.V + e.E, e.F, f.forms2);
+  f.mollify = e.mollify; f.flip_eps = e.flip_eps; f.star1_floor = e.star1_floor;
   return f;
 }
 
@@ -962,8 +993,8 @@ LaplaceModes read_laplace_modes(SubjectWriter& sub, const SurfaceInput& S, const
   if (constant) { out.phi.col(0).setConstant(1.0 / std::sqrt(out.mass.sum())); out.lambda(0) = 0.0; j = 1; }
   if (!cols.empty()) {
     std::vector<std::int64_t> eshape;
-    const std::vector<float> ev = read_all<float>(sub.store(), text(pk.opr, "path"), &eshape);
-    if (eshape.size() != 2 || eshape[0] != Vg || eshape[1] != Ktot) invalid(pk.stem + ": the stored eigenvectors are not [" + std::to_string(Vg) + " x " + std::to_string(Ktot) + "]");
+    const std::vector<float> ev = read_rows<float>(sub.store(), text(pk.opr, "path"), 0, Vg, &eshape);   // the 0-form rows only
+    if (eshape.size() != 2 || eshape[0] != Vg + pk.nE + pk.nF || eshape[1] != Ktot) invalid(pk.stem + ": the stored eigenvectors are not [" + std::to_string(Vg + pk.nE + pk.nF) + " x " + std::to_string(Ktot) + "]");
     for (const std::int64_t c : cols) {
       for (std::int64_t v = 0; v < Vg; ++v) out.phi(v, j) = static_cast<double>(ev[static_cast<std::size_t>(v * Ktot + c)]);
       const double mu = pk.mu_all[static_cast<std::size_t>(c)];

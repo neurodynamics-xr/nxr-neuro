@@ -17,6 +17,10 @@
 #include "check.h"
 #include "run_definition.h"
 #include "nxr/io/task/task.h"
+#include "nxr/io/selection_store.h"
+#include "nxr/io/subject_api.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/surface_maps.h"
 #include "nxr/pipelines/eigen.h"
 
@@ -150,10 +154,25 @@ int main() {
     const auto gs = s3.find("manifold", "source/cortex_glued");
     const auto br = s3.find("selection", "source/cortex_glued_bridge");
     const auto op = s3.find("operator", "hodgeDirac__cortex_glued_eigenvectors");
-    CHECK(gs && br && op);
-    CHECK_EQ(text(*op, "to_manifold_id"), text(*gs, "id"));
+    const auto tri = s3.find("manifold", "source/cortex_glued_intrinsic");
+    CHECK(gs && br && op && tri);
+    // ONE operator from the eigenvalue line to the intrinsic triangulation (made from the glued surface, its positions shared), cell key 0+1+2: rows V + E + F
+    CHECK_EQ(text(*op, "to_manifold_id"), text(*tri, "id"));
+    CHECK_EQ(text(*tri, "derived_from_id"), text(*gs, "id"));
+    CHECK(opt_text(*op, "to_cell") == std::optional<std::string>("0+1+2") && opt_text(*op, "from_cell") == std::optional<std::string>("0"));
     CHECK_EQ(integer(*gs, "n_vertices"), Vg);
-    CHECK_EQ(integer(*op, "n_rows"), Vg);
+    CHECK_EQ(integer(*op, "n_rows"), Vg + integer(*tri, "n_edges") + integer(*tri, "n_faces"));
+    {   // the triangulation reads the glued surface's positions (the same array, not copied), through a geometry of its own
+      const auto gg = nxr::io::manifold_row_named(s3, "cortex_glued"), tg = nxr::io::manifold_row_named(s3, "cortex_glued_intrinsic");
+      CHECK(gg && tg && text(*gg, "pp") == text(*tg, "pp") && text(*gs, "geometry_id") != text(*tri, "geometry_id"));
+    }
+    // d0, d1 and the stars are ANALYTIC operators on the triangulation (method dec, no bytes), their shapes in its cells
+    for (const char* nm : {"cortex_glued_intrinsic_d0", "cortex_glued_intrinsic_d1", "cortex_glued_intrinsic_star0", "cortex_glued_intrinsic_star1", "cortex_glued_intrinsic_star2"}) {
+      nxr::io::task::Want w{.cls = nxr::io::task::Cls::operator_}; w.name = std::string(nm);
+      const auto a = nxr::io::task::Subject::of(s3).find(w);
+      CHECK(a && a->row.value("layout", std::string()) == "analytic" && a->method == std::optional<std::string>("dec") && !a->path && a->from_manifold_id == std::optional<std::string>(text(*tri, "id")));
+    }
+    CHECK(!s3.find("operator", "hodgeDirac__cortex_glued_forms1") && !s3.find("operator", "hodgeDirac__cortex_glued_forms2"));
     const std::vector<std::uint8_t> raw = ArrayReader::open(s3.store(), ("source/cortex_glued/faces")).read();
     CHECK(raw.size() == gm.faces.size() * sizeof(std::int32_t) && std::memcmp(raw.data(), gm.faces.data(), raw.size()) == 0);   // the glued faces, as glueMesh gives them
     const std::vector<std::uint8_t> sup = ArrayReader::open(s3.store(), (text(*s3.find("selection", "source/hodgeDirac__cortex_glued_support"), "array_path"))).read();
@@ -181,24 +200,34 @@ int main() {
     CHECK(im.has_value());
     const std::int64_t nE = integer(*im, "n_edges"), nF = integer(*im, "n_faces");
     CHECK_EQ(2 * nE, 3 * nF);
-    auto csr = [&](const std::string& name, std::int64_t rows, std::int64_t cols) {
-      const auto r = s3.find("operator", name);
-      const std::string at = text(*r, "path");
-      const auto ip = as_d(at + "/indptr"), ix = as_d(at + "/indices"), dv = as_d(at + "/data");
-      Eigen::SparseMatrix<double> M(rows, cols);
-      std::vector<Eigen::Triplet<double>> t;
-      for (std::int64_t i = 0; i < rows; ++i) for (auto k = static_cast<std::int64_t>(ip[i]); k < static_cast<std::int64_t>(ip[i + 1]); ++k) t.emplace_back(i, static_cast<int>(ix[k]), dv[k]);
-      M.setFromTriplets(t.begin(), t.end());
-      return M;
-    };
-    const auto d0 = csr("cortex_glued_intrinsic_d0", nE, Vg), d1 = csr("cortex_glued_intrinsic_d1", nF, nE);
+    // the analytic operators evaluated as their method says (the construction on the glued surface, the solve's floor): d0, d1 and the stars
+    const SurfaceInput glued = read_surface(s3, std::string("cortex_glued"));
+    nxr::geometry::DelaunayOptions dopt;
+    const nxr::geometry::SurfaceArrays sa = nxr::geometry::surfaceArrays(glued.vertices.data(), static_cast<int>(Vg), glued.faces.data(), static_cast<int>(glued.n_faces()), nxr::geometry::intrinsicOptions(true, dopt));
+    const nxr::operators::hodgedirac::HodgeDirac hd = nxr::operators::hodgedirac::assemble(sa, 1e-9, 1e-6, 1e-6);
+    CHECK(hd.nE == nE && hd.nF == nF);
+    {
+      const std::vector<std::uint8_t> raw = ArrayReader::open(s3.store(), text(*im, "path") + "/faces").read();   // its stored faces are the construction's
+      std::vector<std::int32_t> fs(raw.size() / 4); std::memcpy(fs.data(), raw.data(), raw.size());
+      CHECK(fs == hd.complex.faces);
+    }
+    const Eigen::SparseMatrix<double> d0 = hd.d0, d1 = hd.d1;
     CHECK(Eigen::SparseMatrix<double>(d1 * d0).norm() == 0.0);
-    auto fieldv = [&](const std::string& name) { return as_d(text(*s3.find("field", "source/" + name), "path")); };
-    const auto st0 = fieldv("cortex_glued_intrinsic_star0"), st1 = fieldv("cortex_glued_intrinsic_star1"), st2 = fieldv("cortex_glued_intrinsic_star2");
+    const std::vector<double> st0(hd.star0.data(), hd.star0.data() + Vg), st1(hd.star1.data(), hd.star1.data() + nE), st2(hd.star2.data(), hd.star2.data() + nF);
     CHECK(*std::min_element(st1.begin(), st1.end()) >= 0);                     // Delaunay: every cotan weight non-negative (after the floor)
     const auto mu = as_d(text(*s3.find("manifold", "eigenvalue/hodgeDirac__cortex_glued"), "path"));
-    const auto kind = [&] { const auto [raw, dt] = arr(text(*s3.find("field", "eigenvalue/hodgeDirac__cortex_glued_kind"), "path")); return std::vector<std::uint8_t>(raw.begin(), raw.end()); }();
-    const auto P = as_d(text(*s3.find("operator", "hodgeDirac__cortex_glued_eigenvectors"), "path")), X2 = as_d(text(*s3.find("operator", "hodgeDirac__cortex_glued_forms2"), "path"));
+    // the kinds: a labelling of the eigenvalue line (label 0 exact, 2 coexact)
+    const auto ks = nxr::io::selection::named_row(s3, "hodgeDirac__cortex_glued_kinds");
+    CHECK(ks.has_value());
+    const nxr::io::selection::ElementMembers em = nxr::io::selection::read_element_members(s3, text(*ks, "id"));
+    std::vector<std::uint8_t> kind(em.member_of.size());
+    for (std::size_t k = 0; k < kind.size(); ++k) kind[k] = static_cast<std::uint8_t>(em.member_codes.empty() ? em.member_of[k] : em.member_codes[static_cast<std::size_t>(em.member_of[k])]);
+    CHECK(kind.size() == mu.size());
+    // the mixed forms: rows 0-forms [0, V) · 1-forms [V, V+E) · 2-forms [V+E, V+E+F)
+    const auto ALL = as_d(text(*s3.find("operator", "hodgeDirac__cortex_glued_eigenvectors"), "path"));
+    const std::int64_t Kall = static_cast<std::int64_t>(mu.size());
+    CHECK(static_cast<std::int64_t>(ALL.size()) == (Vg + nE + nF) * Kall);
+    const std::vector<double> P(ALL.begin(), ALL.begin() + Vg * Kall), X1(ALL.begin() + Vg * Kall, ALL.begin() + (Vg + nE) * Kall), X2(ALL.begin() + (Vg + nE) * Kall, ALL.end());
     const std::int64_t K = static_cast<std::int64_t>(mu.size()), Kc = std::min<std::int64_t>(K, 24);
     Eigen::Map<const Eigen::VectorXd> s0(st0.data(), Vg), s1(st1.data(), nE), s2(st2.data(), nF);
     Eigen::MatrixXd W(nE, Kc);                                                   // the first Kc modes' 1-form parts
@@ -222,9 +251,7 @@ int main() {
     CHECK(norm02 < 1e-4);
     CHECK(diagErr < 1e-4);
     CHECK(off < 1e-4);
-    {   // the stored 1-form parts (`_forms1`, [nE x K], the solve's own 1-form rows) are the parts rebuilt here from the 0- and 2-form parts
-      CHECK(s3.find("operator", "hodgeDirac__cortex_glued_forms1").has_value());
-      const auto X1 = as_d(text(*s3.find("operator", "hodgeDirac__cortex_glued_forms1"), "path"));
+    {   // the stored 1-form rows (the solve's own) are the parts rebuilt here from the 0- and 2-form rows
       CHECK(static_cast<std::int64_t>(X1.size()) == nE * K);
       // A coexact part is ⋆1⁻¹ d1ᵀ ⋆2 χ: on an edge whose ⋆1 is ~0 (the glued bridge) the sum cancels to the same order as ⋆1, so rebuilding it from the float32 2-form parts and ⋆1 loses it;
       // the solve's own double values (stored) are the accurate ones. Compared on the edges with a ⋆1 of at least 1e-3 of the mean (every edge for an exact mode); the others are counted.
@@ -239,24 +266,6 @@ int main() {
       std::printf("  edges with a star1 under 1e-3 of the mean (a coexact part rebuilt from float32 parts is lost there): %lld of %lld\n", (long long)ill, (long long)nE);
       std::printf("  stored 1-form parts vs rebuilt: max |difference| %.1e (scale %.1e)\n", e1, sc);
       CHECK(e1 < 1e-5 * sc);
-      // the definition `hodgeforms1` adds the parts to a package that has none, without solving: here under another name, it makes the numbers the solve stored (the same cells)
-      const auto rep = nxrtest::run_definition(ds, s3, "hodgeforms1", nxr::io::Json{{"package", "hodgeDirac__cortex_glued"}, {"surface", "cortex_glued"}, {"name", "again_forms1"}});
-      CHECK(!rep.empty());
-      const auto again = s3.find("operator", "again_forms1");
-      CHECK(again.has_value());
-      if (again) {
-        const auto X1b = as_d(text(*again, "path"));
-        CHECK(X1b.size() == X1.size());
-        double eb = 0;
-        for (std::size_t i = 0; i < X1.size() && i < X1b.size(); ++i) {   // as above: the edges where a coexact part is not lost to rebuilding from float32 parts
-          const std::int64_t e = static_cast<std::int64_t>(i) / K, k = static_cast<std::int64_t>(i) % K;
-          if (kind[k] == 0 || s1(e) >= 1e-3 * s1mean) eb = std::max(eb, std::abs(X1b[i] - X1[i]));
-        }
-        std::printf("  hodgeforms1 vs the solve's stored parts: max |difference| %.1e\n", eb);
-        CHECK(eb < 1e-5 * sc);
-        CHECK(opt_text(*again, "to_cell") == std::optional<std::string>("1") && opt_text(*again, "from_cell") == std::optional<std::string>("0"));
-        CHECK(opt_text(*s3.find("operator", "hodgeDirac__cortex_glued_forms1"), "to_cell") == std::optional<std::string>("1"));
-      }
     }
   }
   CHECK(eigen_solve(ds, s3, opt).hit);
@@ -273,8 +282,7 @@ int main() {
     CHECK(!r2.hit && r2.info["replaced"].get<bool>());
     CHECK_EQ(text(*s3.find("manifold", "source/cortex_glued"), "id"), gid);
     CHECK(s3.find("field", nxr::io::task::Subject::of(s3).node_path(gid, "other_run")).has_value());
-    CHECK(s3.find("operator", "hodgeDirac__cortex_glued_forms2").has_value());
-    CHECK(s3.find("operator", "hodgeDirac__cortex_glued_forms1").has_value());
+    CHECK(opt_text(*s3.find("operator", "hodgeDirac__cortex_glued_eigenvectors"), "to_cell") == std::optional<std::string>("0+1+2"));
   }
   // the glued sphere pair is ONE closed surface of genus 0: two zero modes dropped, the first exact mode non-constant across the bridge
   CHECK(g.modes.mu.front() > 0);
@@ -290,8 +298,8 @@ int main() {
     const EigenSolveResult r = eigen_solve(dd, dsub, eo);
     CHECK(!r.hit && r.modes.n_exact > 0 && r.modes.n_coexact > 0);
     CHECK(dsub.find("operator", "hodgeDirac_eigenvectors").has_value());
-    CHECK(dsub.find("operator", "hodgeDirac_forms2").has_value());
-    CHECK(dsub.find("operator", "hodgeDirac_forms1").has_value());
+    CHECK(dsub.find("manifold", "source/cortex_pial_intrinsic").has_value());
+    CHECK(opt_text(*dsub.find("operator", "hodgeDirac_eigenvectors"), "to_cell") == std::optional<std::string>("0+1+2"));
     CHECK(dsub.find("manifold", "eigenvalue/hodgeDirac").has_value());
     dd.close();
   }

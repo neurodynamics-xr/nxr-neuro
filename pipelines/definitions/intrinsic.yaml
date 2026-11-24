@@ -1,0 +1,48 @@
+# THE INTRINSIC TRIANGULATION OF A SURFACE: the triangulation the Hodge-Dirac modes are solved on, made by its own definition (the eigensolve has the runner make it first when it is not stored).
+# A manifold with the surface's GEOMETRY (its positions: the same array, not copied) and its OWN TOPOLOGY: the Delaunay-flipped edges and faces are its cells (rank 0 vertices, 1 edges, 2 faces; the
+# schema's chain complex, D92). Its exterior derivatives d0, d1 and its Hodge stars are ANALYTIC operators on it (layout analytic, method 'dec', no bytes: D93), evaluated from the triangulation as the
+# Studio's hodgeDirac.ts dec(m) builds them at setup; the edge lengths (its metric: a flipped edge is not a segment between two positions) and the signposts are fields on its cells.
+# By default the construction of the Studio's intrinsicDelaunay.ts (nxr-compute delaunay.h): mollify (Sharp & Crane 2020, relative to the mean edge length), then flip to Delaunay.
+#
+# THE GRAPH: surface (one closed piece, or the glued surface `run glue` makes) --[geometry.intrinsic: mollify, flip]--> the triangulation, d0, d1, star0, star1, star2, the lengths and signposts
+# Stored (<surface>_intrinsic = the triangulation's name):
+#   <surface>_intrinsic                       manifold (complex): the surface's positions, its own edges [nE x 2] and faces [nF x 3]
+#   <surface>_intrinsic_d0, _d1               analytic operators (dec): d0 vertices -> edges (cell 0 -> 1), d1 edges -> faces (cell 1 -> 2)
+#   <surface>_intrinsic_star0, _star1, _star2 analytic operators (dec): the diagonal Hodge stars (cell k -> k*): *0 the mixed-Voronoi mass of the mollified input, *1 the cotan weights, *2 = 1/area
+#   <surface>_intrinsic_length, _angle_tail, _angle_tip, _angle_sum, _reference   fields on its cells
+#
+# What it cannot resolve: the triangulation is a discretisation of the mesh's metric (mollified, flipped); nothing finer than the mesh.
+#
+#   nxr-neuro run intrinsic --dataset <folder> --subject sub-01 --surface cortex_pial_glued [--mollify 1e-6] [--flip-eps 1e-6] [--replace]
+pipeline: intrinsic
+version: 1
+description: the intrinsic Delaunay triangulation of a stored surface (its own cells on the surface's positions), with d0, d1 and the Hodge stars as analytic operators
+scope: subject
+
+inputs:
+  surface: {manifold: surface, where: {name: $surface}, hint: "name the surface (--surface)"}
+
+parameters:
+  surface: {default: null, meaning: "the subject's stored surface of one closed piece, by name", unit: "-"}
+  mollify: {default: 1e-6, meaning: "the construction's mollification margin, as a fraction of the mean edge length (0: none)", unit: fraction}
+  flip_eps: {default: 1e-6, meaning: "an edge is flipped to Delaunay while its cotan weight is below minus this", unit: "-"}
+
+steps:
+  before:
+    - step: geometry.intrinsic
+      in: {surface: surface}
+      with: {mollify: $mollify, flip_eps: $flip_eps}
+      out: [triangulation, d0, d1, star0, star1, star2, length, angle_tail, angle_tip, angle_sum, reference]
+
+outputs:
+  triangulation: {kind: manifold, type: complex, name: "{surface}_intrinsic", derived_from: surface.manifold.0, geometry_of: surface.manifold.0}
+  d0:          {kind: operator, operator_kind: exterior derivative, name: "{surface}_intrinsic_d0", from: triangulation, to: triangulation, layout: analytic}
+  d1:          {kind: operator, operator_kind: exterior derivative, name: "{surface}_intrinsic_d1", from: triangulation, to: triangulation, layout: analytic}
+  star0:       {kind: operator, operator_kind: hodge star, name: "{surface}_intrinsic_star0", from: triangulation, to: triangulation, layout: analytic}
+  star1:       {kind: operator, operator_kind: hodge star, name: "{surface}_intrinsic_star1", from: triangulation, to: triangulation, layout: analytic}
+  star2:       {kind: operator, operator_kind: hodge star, name: "{surface}_intrinsic_star2", from: triangulation, to: triangulation, layout: analytic}
+  length:      {kind: field, kind_name: intrinsic triangulation, name: "{surface}_intrinsic_length", on: triangulation}
+  angle_tail:  {kind: field, kind_name: intrinsic triangulation, name: "{surface}_intrinsic_angle_tail", on: triangulation}
+  angle_tip:   {kind: field, kind_name: intrinsic triangulation, name: "{surface}_intrinsic_angle_tip", on: triangulation}
+  angle_sum:   {kind: field, kind_name: intrinsic triangulation, name: "{surface}_intrinsic_angle_sum", on: triangulation}
+  reference:   {kind: field, kind_name: intrinsic triangulation, name: "{surface}_intrinsic_reference", on: triangulation}

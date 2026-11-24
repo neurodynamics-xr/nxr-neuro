@@ -1,24 +1,25 @@
-// nxr-pipelines — THE HODGE-DIRAC EIGENMODES AS A REGISTERED STEP (the hand-wired `eigen_solve` it replaces): a surface's modes, solved on its intrinsic Delaunay complex, with the full forms.
+// nxr-pipelines — THE HODGE-DIRAC EIGENSOLVE AND ITS INTRINSIC TRIANGULATION AS REGISTERED STEPS, stored in the four classes on the schema's chain-complex design (D92, D93).
 //
-//   hodge_dirac   setup   surface (a stored surface of one closed piece; a cortex of two hemispheres is the glued surface `surface.glue` made) -> the modes and everything that lies on them (below)
-//   surface.glue  setup   a cortex of two hemispheres -> its glued surface, the map glued vertex -> original (-1 on the bridge) and the bridge (rule 33)
+//   geometry.intrinsic   setup   surface (one closed piece) -> its intrinsic triangulation: a manifold with the surface's positions and its own edges and faces, d0, d1 and the three stars as ANALYTIC
+//                                operators on it (method 'dec', no bytes), its edge lengths and signposts as fields on its cells
+//   hodge_dirac          setup   surface + its intrinsic triangulation -> the eigenvalue line, the eigenvalues, the kinds labelling, the support and ONE eigenvectors operator (the mixed forms)
+//   geometry.glue        setup   a cortex of two hemispheres -> its glued surface and the labelling of its vertices (left, right, bridge)
 //
-// THE GRAPH (written first, docs/specs/2026-11-17-eigenmodes-as-definition.md; the Studio's chain: glue.ts glueMesh -> intrinsicDelaunay.ts -> the Laplace-Beltrami and 2-form ladders -> the package):
-//   surface ──[intrinsic Delaunay: mollify, flip]──> the cell complex (vertices, edges, faces) with d0, d1, the three stars, the signposts
-//           ──[split solve: LB ladder (exact modes) + 2-form ladder (coexact modes), one lambda cut, the constants out]──> mu, kind, the 0-form parts psi/sqrt2 (or <chi/sqrt2, w_v>), the 2-form parts chi/sqrt2
-// The step reads no file and no row: the surface is read by the runner (Bound) and handed over; everything it makes is DESCRIBED (meta.describe) and
-// stored by io from the definition's declared outputs (eigenmodes.yaml): a mode axis (points, the eigenvalues mu as coordinates: the operator's by-product, `of_operator`), its kind field, the
-// eigenvectors and the 2-form parts as operators from that axis, the intrinsic complex (a cell complex manifold) with d0 and d1 as sparse operators and the stars and signposts as fields on
-// its cells ('0' vertices, '1' edges, '2' faces).
+// THE GRAPH (written first, docs/specs/2026-11-17-eigenmodes-as-definition.md; the Studio's chain: glue.ts glueMesh -> intrinsicDelaunay.ts -> hodgeDirac.ts dec(m) -> the two ladders):
+//   surface ──[intrinsic Delaunay: mollify, flip]──> the intrinsic triangulation (cells 0, 1, 2) with d0, d1, the stars (analytic), the lengths and signposts      (`run intrinsic`)
+//   surface + triangulation ──[split solve: LB ladder (exact modes) + 2-form ladder (coexact modes), one lambda cut, the constants out]──> mu, the kinds, each mode's mixed form   (`run eigenmodes`)
+// The steps read no file and no row: the surfaces are read by the runner (Bound) and handed over; everything they make is DESCRIBED (meta.describe) and stored by io from the definitions' declared
+// outputs (intrinsic.yaml, eigenmodes.yaml). The eigensolve checks that the triangulation it is handed is the one the construction makes from the surface with the triangulation's recorded options.
 //
 // The method rule: the default is the REFERENCE method of nxr and Rheome (see eigen.h: SolveMethod); the other methods are named options, every option is in the run's provenance and cache key.
 // What it cannot resolve: the modes are the discrete operator's on the intrinsic triangulation (mollified, flipped to Delaunay): a mode above the mesh's resolution is not a property of the cortex;
-// a surface of two or more pieces is refused (a cortex of two hemispheres is glued by `surface.glue` first, and the glued surface named as the input): the bridge is not cortex.
+// a surface of two or more pieces is refused (a cortex of two hemispheres is glued by `geometry.glue` first, and the glued surface named as the input): the bridge is not cortex.
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
 #include <numeric>
+#include <tuple>
 
 #include "nxr/geometry/curvature.h"
 #include "nxr/operators/factorization.h"
@@ -78,7 +79,8 @@ template <class T>
 std::vector<double> widened(const std::vector<T>& v) { return std::vector<double>(v.begin(), v.end()); }
 
 struct HodgeState {
-  std::string surface;
+  std::string surface, intrinsic;
+  std::int64_t n_edges = 0;
   int modes = 3000;
   SolveMethod method;
 };
@@ -101,47 +103,161 @@ SolveMethod method_of(const Json& p) {
   if (p.contains("slice") && p["slice"].is_number_integer()) sm.solve.slice = p["slice"].get<int>();
   sm.solve.normalize = p.value("normalize", false);
   if (p.contains("star1_floor") && p["star1_floor"].is_number() && p["star1_floor"].get<double>() > 0) sm.star1_floor = p["star1_floor"].get<double>();
-  sm.mollify = p.value("mollify", 1e-6);
-  sm.flip_eps = p.value("flip_eps", 1e-6);
   return sm;
 }
 
-const char* const kOutputs[] = {"modes", "kind", "eigenvalues", "support", "eigenvectors", "forms2", "forms1", "complex", "d0", "d1",
-                                "length", "star0", "star1", "star2", "angle_tail", "angle_tip", "angle_sum", "reference"};
+// ── geometry.intrinsic ──────────────────────────────────────────────────────────────────────────────────────────
+// THE INTRINSIC TRIANGULATION of a surface, by its own definition (`intrinsic`): the surface's GEOMETRY (its positions, the same array) with its OWN TOPOLOGY (the flipped edges and faces are its cells).
+// d0, d1 and the stars are ANALYTIC operators on it (layout analytic, method 'dec', D93: evaluated from the triangulation as the Studio's hodgeDirac.ts dec(m) assembles them at setup); the edge lengths
+// (its metric: a flipped edge's length is not a distance between positions) and the signposts are fields on its cells.
+struct IntrinsicState { std::string surface; double mollify = 1e-6, flip_eps = 1e-6; };
+const char* const kIntrinsicOutputs[] = {"triangulation", "d0", "d1", "star0", "star1", "star2", "length", "angle_tail", "angle_tip", "angle_sum", "reference"};
+
+Json triangulation_record(const IntrinsicTriangulation& t) {
+  Json r = Json{{"construction", "nxr-compute delaunay.h: the Studio's intrinsicDelaunay.ts (mollify, mixed-Voronoi mass of the mollified input, flip to Delaunay)"},
+                {"mollify", t.mollify}, {"flip_eps", t.flip_eps}, {"epsilon", t.mollify_epsilon}, {"flips", t.flips}};
+  if (t.gauge.is_object()) { r["gauge"] = t.gauge["gauge"]; r["gauge_record"] = t.gauge["gauge_record"]; }
+  return r;
+}
+
+StepSpec intrinsic_step() {
+  StepSpec s;
+  s.name = "geometry.intrinsic";
+  s.kind = "setup";
+  s.inputs = {"surface"};
+  for (const char* o : kIntrinsicOutputs) s.outputs.push_back(o);
+  s.parameters = Json{{"mollify", 1e-6}, {"flip_eps", 1e-6}};
+  s.matches = "the Studio's intrinsicDelaunay.ts (intrinsicMesh, mollify, flipToDelaunay) and hodgeDirac.ts dec(m); nxr-compute delaunay.h";
+  s.description = "the intrinsic Delaunay triangulation of a surface of one closed piece: its own edges and faces on the surface's positions, d0, d1 and the Hodge stars as analytic operators (method dec), "
+                  "the edge lengths and the signposts as fields on its cells";
+  s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the surface: positions as the Studio receives them (float32 widened), double");
+  s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
+    need(ins.count("surface") != 0 && ins.at("surface").row, "geometry.intrinsic: the input `surface` is missing");
+    need(p.value("mollify", 1e-6) >= 0 && p.value("flip_eps", 1e-6) >= 0, "geometry.intrinsic: mollify and flip_eps are >= 0");
+    const std::string sid = ins.at("surface").manifolds.empty() ? std::string() : ins.at("surface").manifolds[0];
+    Values out;
+    for (const char* o : kIntrinsicOutputs) {
+      const std::string port = o;
+      Value v;
+      v.cls = port == "triangulation" ? "manifold" : (port == "d0" || port == "d1" || port.rfind("star", 0) == 0) ? "operator" : "field";
+      v.manifolds = v.cls == "operator" ? std::vector<std::string>{sid, sid} : std::vector<std::string>{sid};
+      if (port == "reference") v.value_type = "integer";
+      out[port] = std::move(v);
+    }
+    return out;
+  };
+  s.prepare = [](const Values& ins, const Json& p, ExecContext&) {
+    return std::any(IntrinsicState{nxr::io::text(*ins.at("surface").row, "name"), p.value("mollify", 1e-6), p.value("flip_eps", 1e-6)});
+  };
+  s.resolve = [](const Values& ins, const Json&, const Bound& bound) {
+    const SurfaceInput S = bound.surface(nxr::io::text(*ins.at("surface").row, "name"));
+    return Json{{"mesh", mesh_key(S.faces)}, {"positions", positions_key(S.vertices)}};
+  };
+  s.run = [](const std::any& state, const Arrays&, ExecContext& ctx) {
+    const IntrinsicState& st = std::any_cast<const IntrinsicState&>(state);
+    const SurfaceInput S = ctx.bound.surface(st.surface);
+    const std::int64_t V = S.n_vertices();
+    const int pieces = connected_pieces(S.faces, V);
+    need(pieces == 1, st.surface + " is " + std::to_string(pieces) + " pieces: the intrinsic triangulation is made on a surface of one closed piece (a cortex's two hemispheres are glued first by `run glue`, and the glued surface named)");
+    const IntrinsicTriangulation t = intrinsic_triangulation(S.vertices, S.faces, st.mollify, st.flip_eps);
+    if (ctx.say) ctx.say(Json{{"stage", "triangulated"}, {"surface", S.name}, {"nV", V}, {"nE", t.n_edges()}, {"nF", t.n_faces()}, {"flips", t.flips}});
+    const std::int64_t nE = t.n_edges(), nF = t.n_faces();
+    const std::string iname = S.name + "_intrinsic";
+    const Json rec = triangulation_record(t);
+    const Json producer = Json{{"intrinsic_of", S.name}, {"mesh", mesh_key(S.faces)}, {"delaunay", rec}};
+    Arrays out;
+    // THE TRIANGULATION: the surface's positions (shared: no vertices of its own), its own edges and faces (two edges may join one pair of vertices: read the incidence from face_edges, d0, d1)
+    {
+      Array a;
+      a.rows = V; a.cols = 3;
+      a.meta["describe"] = Json{{"edges", t.edges}, {"faces", t.faces}, {"cs", ctx.bound.coordinate_system_key(S.id)}, {"producer", producer},
+                                {"description", "the intrinsic (mollified) Delaunay triangulation of " + S.name + ": its positions, its own edges (lengths along the surface) and faces"}};
+      out["triangulation"] = std::move(a);
+    }
+    // the ANALYTIC operators (no bytes): their shape in cells, how they are evaluated in params
+    auto analytic = [&](const char* op, std::int64_t rows, std::int64_t cols, const char* from_cell, const char* to_cell, const std::string& what) {
+      Array a;
+      a.meta["describe"] = Json{{"analytic", Json{{"method", "dec"}, {"rows", rows}, {"cols", cols}}}, {"from_cell", from_cell}, {"to_cell", to_cell}, {"description", what},
+                                {"params", Json{{"operator", op}, {"mollify", t.mollify}, {"flip_eps", t.flip_eps},
+                                                {"evaluated", "from the triangulation (its cells, its lengths field) as the Studio's hodgeDirac.ts dec(m) and nxr-compute hodgedirac::assemble build it"}}},
+                                {"producer", producer}};
+      return a;
+    };
+    out["d0"] = analytic("d0", nE, V, "0", "1", "d0 of " + iname + ": vertices -> edges (-1 at an edge's tail, +1 at its tip)");
+    out["d1"] = analytic("d1", nF, nE, "1", "2", "d1 of " + iname + ": edges -> faces (each face's three edges, +1 along the face's winding)");
+    out["star0"] = analytic("star0", V, V, "0", "0*", "the Hodge star *0 of " + iname + ": each vertex's mixed-Voronoi mass of the mollified input (diagonal)");
+    out["star1"] = analytic("star1", nE, nE, "1", "1*", "the Hodge star *1 of " + iname + ": each edge's cotangent weight (diagonal; a solve's floor is the solve's option)");
+    out["star2"] = analytic("star2", nF, nF, "2", "2*", "the Hodge star *2 of " + iname + ": 1 / each face's area (diagonal)");
+    // the signposts per edge: each edge's angle at its tail and at its tip (its twin's angle), each in its vertex's tangent plane
+    std::vector<double> atail(static_cast<std::size_t>(nE), NAN), atip(static_cast<std::size_t>(nE), NAN);
+    for (std::int64_t k = 0; k < 3 * nF && !t.angle.empty(); ++k) {
+      const std::int32_t se = t.face_edges[static_cast<std::size_t>(k)];
+      (se > 0 ? atail : atip)[static_cast<std::size_t>(std::abs(se) - 1)] = t.angle[static_cast<std::size_t>(k)];
+    }
+    auto cells_field = [&](const char* cell, std::int64_t n, std::vector<double> v, const std::string& what, const char* unit = nullptr, const char* dtype = nullptr) {
+      Json d = Json{{"cell", cell}, {"shape", Json::array({n})}, {"description", what}, {"producer", producer}};
+      if (unit) d["unit"] = unit;
+      if (dtype) { d["dtype"] = dtype; d["value_type"] = "integer"; }
+      return made(n, 1, std::move(v), d);
+    };
+    out["length"] = cells_field("1", nE, t.lengths, "each intrinsic edge's length along the surface (the input's units)");
+    out["angle_tail"] = cells_field("1", nE, std::move(atail), "the signpost: each edge's angle at its tail, in the tail's tangent plane (from its reference neighbour)", "rad");
+    out["angle_tip"] = cells_field("1", nE, std::move(atip), "the signpost: each edge's angle at its tip, in the tip's tangent plane", "rad");
+    out["angle_sum"] = cells_field("0", V, t.angle_sum.empty() ? std::vector<double>(static_cast<std::size_t>(V), NAN) : t.angle_sum, "each vertex's cone angle (the sum of its corners)", "rad");
+    out["reference"] = cells_field("0", V, widened(t.reference.empty() ? std::vector<std::int32_t>(static_cast<std::size_t>(V), -1) : t.reference),
+                                   "each vertex's reference neighbour: the head of its angle-0 edge (an input edge)", nullptr, "i32");
+    return out;
+  };
+  s.record = [](const std::any& state) {
+    const IntrinsicState& st = std::any_cast<const IntrinsicState&>(state);
+    return Json{{"mollify", st.mollify}, {"flip_eps", st.flip_eps}};
+  };
+  return s;
+}
+
+// ── hodge_dirac ─────────────────────────────────────────────────────────────────────────────────────────────────
+const char* const kOutputs[] = {"modes", "eigenvalues", "kinds", "support", "eigenvectors"};
+
+// the construction's options a stored triangulation records (its producer's `delaunay`)
+std::pair<double, double> triangulation_options(const nxr::io::Row& row) {
+  const Json pj = Json::parse(nxr::io::opt_text(row, "producer_json").value_or("{}"), nullptr, false);
+  need(pj.is_object() && pj.contains("delaunay") && pj["delaunay"].is_object() && pj["delaunay"].contains("mollify") && pj["delaunay"].contains("flip_eps"),
+       nxr::io::text(row, "name") + ": the intrinsic triangulation records no construction options (made by `run intrinsic`)");
+  return {pj["delaunay"]["mollify"].get<double>(), pj["delaunay"]["flip_eps"].get<double>()};
+}
 
 StepSpec hodge_dirac_step() {
   StepSpec s;
   s.name = "operators.hodge_dirac";
   s.kind = "setup";
-  s.inputs = {"surface"};
+  s.inputs = {"surface", "intrinsic"};
   for (const char* o : kOutputs) s.outputs.push_back(o);
-  s.parameters = Json{{"modes", 3000}, {"shift", "absolute"}, {"sigma", nullptr}, {"slice", 0}, {"normalize", false}, {"star1_floor", nullptr}, {"mollify", 1e-6}, {"flip_eps", 1e-6}};
-  s.matches = "nxr.eigen.hodge_dirac.solve_hodge and nxr.pipelines.hodge.solved_package; Rheome rheome.eigen.hodge_dirac; the Studio's glue.ts glueMesh and intrinsicDelaunay.ts";
+  s.parameters = Json{{"modes", 3000}, {"shift", "absolute"}, {"sigma", nullptr}, {"slice", 0}, {"normalize", false}, {"star1_floor", nullptr}};
+  s.matches = "nxr.eigen.hodge_dirac.solve_hodge and nxr.pipelines.hodge.solved_package; Rheome rheome.eigen.hodge_dirac; the Studio's hodgeDirac.ts (the mixed forms, rows 0-forms · 1-forms · 2-forms)";
   s.description =
-      "The Hodge-Dirac eigenmodes of a surface: the Laplace-Beltrami ladder (exact modes) and the 2-form ladder (coexact modes) of the surface's intrinsic Delaunay complex, cut at one lambda, the constants out. "
-      "The surface is ONE closed piece: a cortex of two hemispheres is solved on its glued surface (made by `geometry.glue`, named as the input). Makes the mode axis (the eigenvalues mu, ascending), each mode's kind (0 exact, 2 coexact), "
-      "the eigenvectors (per mode one vertex potential) the 2-form parts (the faces of the complex) and the 1-form parts (its edges), the complex itself with d0 and d1 and the stars and signposts on its cells.";
+      "The Hodge-Dirac eigenmodes of a surface on its intrinsic triangulation (made first by `geometry.intrinsic`): the Laplace-Beltrami ladder (exact modes) and the 2-form ladder (coexact modes), cut at one lambda, "
+      "the constants out. Makes the eigenvalue line (mu, ascending), the eigenvalues, the kinds labelling (exact, coexact), the support and ONE eigenvectors operator from the line to the triangulation's cells "
+      "0, 1 and 2: each mode's mixed form (the vertex potential, the 1-form part, the 2-form part), rows stacked rank by rank.";
   s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the surface: positions as the Studio receives them (float32 widened), double");
 
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
     need(ins.count("surface") != 0 && ins.at("surface").row, "hodge_dirac: the input `surface` is missing");
+    need(ins.count("intrinsic") != 0 && ins.at("intrinsic").row, "hodge_dirac: the input `intrinsic` (the surface's intrinsic triangulation) is missing");
     need(p.value("modes", 3000) >= 2, "hodge_dirac: modes must be at least 2");
     method_of(p);                                                     // the options refused here, before anything is read
+    triangulation_options(*ins.at("intrinsic").row);
     const auto& row = *ins.at("surface").row;
     const std::string name = nxr::io::text(row, "name"), stem = stem_of(name, nxr::io::integer(row, "is_primary") != 0);
-    const std::string solved = name;
     const std::string sid = ins.at("surface").manifolds.empty() ? std::string() : ins.at("surface").manifolds[0];
+    const std::string tid = ins.at("intrinsic").manifolds.empty() ? std::string() : ins.at("intrinsic").manifolds[0];
     Values out;
     for (const char* o : kOutputs) {
       Value v;
       const std::string port = o;
-      v.cls = (port == "modes" || port == "complex") ? "manifold"
-              : port == "support" ? "selection"
-              : (port == "eigenvectors" || port == "forms2" || port == "forms1" || port == "d0" || port == "d1") ? "operator" : "field";
-      if (v.cls == "operator") v.manifolds = {sid, sid};                  // the places themselves are declared (from, to)
+      v.cls = port == "modes" ? "manifold" : (port == "support" || port == "kinds") ? "selection" : port == "eigenvectors" ? "operator" : "field";
+      if (v.cls == "operator") v.manifolds = {sid, tid};                  // the places themselves are declared (from, to)
       else v.manifolds = {sid};
-      if (port == "kind" || port == "reference") v.value_type = "integer";
-      v.facts["names"] = Json{{"stem", stem}, {"solved", solved}};
+      v.facts["names"] = Json{{"stem", stem}, {"solved", name}};
       out[port] = std::move(v);
     }
     return out;
@@ -150,139 +266,85 @@ StepSpec hodge_dirac_step() {
   s.prepare = [](const Values& ins, const Json& p, ExecContext&) {
     HodgeState st;
     st.surface = nxr::io::text(*ins.at("surface").row, "name");
+    st.intrinsic = nxr::io::text(*ins.at("intrinsic").row, "name");
+    st.n_edges = nxr::io::integer(*ins.at("intrinsic").row, "n_edges");
     st.modes = p.value("modes", 3000);
     st.method = method_of(p);
+    std::tie(st.method.mollify, st.method.flip_eps) = triangulation_options(*ins.at("intrinsic").row);   // the triangulation's own options: the solve is on it
     return std::any(std::move(st));
   };
 
-  // what the request resolves to on what is stored: the surface's mesh and positions (nxr's mesh key) and, glued, its medial wall: they belong to the cache key
-  s.resolve = [](const Values& ins, const Json& p, const Bound& bound) {
+  // what the request resolves to on what is stored: the surface's mesh and positions (nxr's mesh key); the triangulation is an input (its id is in the key)
+  s.resolve = [](const Values& ins, const Json&, const Bound& bound) {
     const SurfaceInput S = bound.surface(nxr::io::text(*ins.at("surface").row, "name"));
-    Json r = Json{{"mesh", mesh_key(S.faces)}, {"positions", positions_key(S.vertices)}, {"forms", "full: the intrinsic complex (d0, d1, stars, signposts) and each mode's 2-form"}};
-    return r;
+    return Json{{"mesh", mesh_key(S.faces)}, {"positions", positions_key(S.vertices)}, {"forms", "the mixed forms: one operator to the intrinsic triangulation's cells 0+1+2"}};
   };
 
   s.run = [](const std::any& state, const Arrays&, ExecContext& ctx) {
     const HodgeState& st = std::any_cast<const HodgeState&>(state);
     auto say = [&](const Json& j) { if (ctx.say) ctx.say(j); };
     const SurfaceInput S = ctx.bound.surface(st.surface);               // float32 widened, as the Studio's GPU-side pipelines receive them
+    const SurfaceInput T = ctx.bound.surface(st.intrinsic);             // the triangulation: the same positions, its own faces
     const std::int64_t V = S.n_vertices();
     const int pieces = connected_pieces(S.faces, V);
     need(pieces == 1, st.surface + " is " + std::to_string(pieces) + " pieces: the Hodge-Dirac solve takes a surface of one closed piece (a cortex's two hemispheres are glued first by `run glue`, and the glued surface named as the input)");
-    nxr::geometry::glue::Glued G;
-    G.positions = S.vertices;
-    G.faces = S.faces;
-    G.keep.resize(static_cast<std::size_t>(V));
-    std::iota(G.keep.begin(), G.keep.end(), 0);
-    const std::int64_t Vg = static_cast<std::int64_t>(G.keep.size());
-    std::vector<std::int32_t> kept;
-    for (const auto k : G.keep) if (k >= 0) kept.push_back(k);
-    const std::string cs = ctx.bound.coordinate_system_key(S.id);
-    const std::string stem = stem_of(S.name, S.primary), solved = S.name, iname = solved + "_intrinsic";
-    const std::string solved_mesh = mesh_key(G.faces);
-    const Json glue_record = Json{{"by", "none: one closed piece"}, {"nV", Vg}};
+    need(T.n_vertices() == V, st.intrinsic + " has " + std::to_string(T.n_vertices()) + " vertices, " + st.surface + " " + std::to_string(V) + ": not its intrinsic triangulation");
+    std::vector<std::int32_t> kept(static_cast<std::size_t>(V));
+    std::iota(kept.begin(), kept.end(), 0);
+    const std::string stem = stem_of(S.name, S.primary), solved = S.name;
+    const std::string solved_mesh = mesh_key(S.faces);
+    const Json glue_record = Json{{"by", "none: one closed piece"}, {"nV", V}};
 
-    say(Json{{"stage", "solve"}, {"surface", S.name}, {"nV", V}, {"nF", S.n_faces()}, {"mesh", mesh_key(S.faces)}});
-    const HodgeDirac h = solve_hodge_dirac(G.positions, G.faces, st.modes, st.method);
+    say(Json{{"stage", "solve"}, {"surface", S.name}, {"intrinsic", st.intrinsic}, {"nV", V}, {"nF", S.n_faces()}, {"mesh", solved_mesh}});
+    HodgeDirac h = solve_hodge_dirac(S.vertices, S.faces, st.modes, st.method);
     say(Json{{"stage", "solved"}, {"exact", h.n_exact}, {"coexact", h.n_coexact}, {"seconds", std::round(h.seconds * 10) / 10}});
+    // the triangulation it was handed is the one the solve is on (the construction with the triangulation's options): its faces and its edge count
+    need(h.faces == T.faces && static_cast<std::int64_t>(h.lengths.size()) == st.n_edges,
+         st.intrinsic + " is not the intrinsic triangulation the construction makes from " + S.name + " with its recorded options (made from another surface or by another construction): make it again with `run intrinsic --replace`");
 
-    const std::int64_t K = h.n_modes(), nE = static_cast<std::int64_t>(h.lengths.size()), nF = static_cast<std::int64_t>(h.faces.size() / 3);
+    const std::int64_t K = h.n_modes(), nE = static_cast<std::int64_t>(h.lengths.size()), nF = static_cast<std::int64_t>(h.faces.size() / 3), N = V + nE + nF;
     const hs::HodgeSolveOptions& so = st.method.solve;
     const Json method = method_json(st.method);
     const bool ref = so.shift == hs::HodgeShift::Absolute && so.slice == 0 && !so.normalize;
-    const Json delaunay = Json{{"construction", "nxr-compute delaunay.h: the Studio's intrinsicDelaunay.ts (mollify, mixed-Voronoi mass of the mollified input, flip to Delaunay)"},
-                               {"mollify", st.method.mollify}, {"flip_eps", st.method.flip_eps}, {"epsilon", h.mollify_epsilon}, {"flips", h.flips}};
     Json solve = Json{{"route", "split: Laplace-Beltrami (d0^T *1 d0, *0) and 2-form (*2 d1 *1^-1 d1^T *2, *2) ladders, shift-invert eigensolve, one lambda cut"},
                       {"reference", ref ? "nxr solve_hodge / Rheome hodge_dirac: one solve per ladder, absolute sigma, no re-orthonormalisation" : "not the reference method (an option differs)"},
                       {"requested", st.modes}, {"exact", h.n_exact}, {"coexact", h.n_coexact}, {"seconds", std::round(h.seconds * 10) / 10},
-                      {"options", method}, {"lambda_top", h.top}, {"star1_clamped", h.star1_clamped}, {"delaunay", delaunay},
+                      {"options", method}, {"lambda_top", h.top}, {"star1_clamped", h.star1_clamped}, {"intrinsic", st.intrinsic},
                       {"tolerance", so.slice == 0 && so.shift == hs::HodgeShift::Absolute ? Json(so.tol) : Json()}};
-    const Json prov = Json{{"mesh", solved_mesh}, {"gluing", glue_record},   // (not `glue`: that key marks a glued surface, {original, map_path})
-                           {"solve", solve}, {"mixing_max", 0.0}};
-    Json complex_rec = delaunay;
-    complex_rec["star1_floor"] = st.method.star1_floor ? Json(*st.method.star1_floor) : Json();
-    complex_rec["star1_clamped"] = h.star1_clamped;
-    if (h.gauge.is_object()) { complex_rec["gauge"] = h.gauge["gauge"]; complex_rec["gauge_record"] = h.gauge["gauge_record"]; }
-    const Json fpj = Json{{"package", stem}, {"delaunay", complex_rec}};
+    const Json prov = Json{{"mesh", solved_mesh}, {"gluing", glue_record}, {"solve", solve}, {"mixing_max", 0.0}};
 
     Arrays out;
-    // THE MODE AXIS (points; coordinate mu = sqrt(lambda), ascending) and what lies on it
-    out["modes"] = made(K, 1, h.mu, Json{{"cs", "eigenvalue:" + stem}, {"operator", "hodgeDirac"}, {"description", "the eigenvalues mu = sqrt(lambda) > 0 of the Hodge-Dirac operator d + delta on " + solved + ", ascending: the mode axis"},
+    // THE EIGENVALUE LINE (points; coordinate mu = sqrt(lambda), ascending) and what lies on it
+    out["modes"] = made(K, 1, h.mu, Json{{"cs", "eigenvalue:" + stem}, {"operator", "hodgeDirac"}, {"description", "the eigenvalues mu = sqrt(lambda) > 0 of the Hodge-Dirac operator d + delta on " + solved + ", ascending: the eigenvalue line"},
                                          {"producer", [&] { Json j = Json{{"variant", "Hodge-Dirac (d + delta)"}, {"fieldType", "potentials"}, {"kept", "mu > 0"}}; for (auto it = prov.begin(); it != prov.end(); ++it) j[it.key()] = it.value(); return j; }()}});
-    {   // the eigenvalues lambda = mu^2 as a FIELD of the operator, beside the mode axis's coordinates mu
+    {   // the eigenvalues lambda = mu^2 as a FIELD of the operator, beside the line's coordinates mu
       std::vector<double> lam(h.mu.size());
       for (std::size_t i = 0; i < lam.size(); ++i) lam[i] = h.mu[i] * h.mu[i];
       out["eigenvalues"] = made(K, 1, std::move(lam), Json{{"value_type", "scalar"}, {"precision", "float64"}, {"description", "per mode: the eigenvalue lambda = mu^2 of the squared operator"}});
     }
-    out["kind"] = made(K, 1, widened(h.kind), Json{{"dtype", "u8"}, {"value_type", "integer"}, {"shape", Json::array({K})},
-                                                   {"description", "per mode: 0 exact (a 0-form potential A) · 2 coexact (a 2-form potential S)"}});
-    out["support"] = made(static_cast<std::int64_t>(kept.size()), 1, widened(kept), Json{{"description", "the " + S.name + " vertices the " + "Hodge-Dirac surface keeps (all of them: one piece)"}});
-    const Json solve_params = Json{{"potentials", "A = psi/sqrt2 (kind 0) · S = <chi/sqrt2, w_v> (kind 2)"}, {"solved", "K x = mu M x, d + delta on the intrinsic-Delaunay complex of " + solved}};
-    out["eigenvectors"] = made(Vg, K, widened(h.eigenvectors), Json{{"precision", "float32"}, {"chunks", Json::array({Vg, 1})}, {"shards", Json::array({Vg, std::min<std::int64_t>(K, 64)})},
-                               {"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"params", solve_params}, {"producer", prov},
-                               {"description", "Hodge-Dirac modes as vertex potentials: A (exact) or S (coexact) per column; 1-form (grad A + n x grad S)/mu"}});
-    out["forms2"] = made(nF, K, widened(h.forms2), Json{{"precision", "float32"}, {"chunks", Json::array({nF, 1})}, {"shards", Json::array({nF, std::min<std::int64_t>(K, 64)})},
-                          {"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"to_cell", "2"}, {"producer", fpj},
-                          {"params", Json{{"forms", "2-form part chi/sqrt2 of each Dirac eigenvector (0, delta chi/mu, chi)/sqrt2; *2-normalised: sum *2 (chi/sqrt2)^2 = 1/2"}, {"complex", iname}}},
-                          {"description", "Hodge-Dirac modes' 2-form parts chi/sqrt2 on the intrinsic faces (0 on an exact mode); with " + stem + "_eigenvectors (the 0-form parts) the full forms"}});
-
-    out["forms1"] = made(nE, K, widened(h.forms1), Json{{"precision", "float32"}, {"chunks", Json::array({nE, 1})}, {"shards", Json::array({nE, std::min<std::int64_t>(K, 64)})},
-                          {"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"from_cell", "0"}, {"to_cell", "1"}, {"producer", fpj},
-                          {"params", Json{{"forms", "1-form part of each Dirac eigenvector (0, delta chi/mu, chi)/sqrt2 or (psi, d psi/mu, 0)/sqrt2: d psi/(mu sqrt2) (exact), *1^-1 d1^T *2 chi/(mu sqrt2) (coexact); *1-orthogonal, sum *1 phi^2 = 1/2"}, {"complex", iname}}},
-                          {"description", "Hodge-Dirac modes' 1-form parts on the intrinsic edges; with " + stem + "_eigenvectors and " + stem + "_forms2 the full forms (a 1-form is read into the modes by inner products with them)"}});
-
-    // THE INTRINSIC COMPLEX the modes were solved on (the same vertices, its own edges and faces; two edges may join one pair of vertices: read the incidence from d0 and d1)
-    out["complex"] = made(Vg, 3, G.positions, Json{{"edges", h.edges}, {"faces", h.faces}, {"cs", cs}, {"producer", Json{{"intrinsic_of", solved}, {"mesh", solved_mesh}, {"delaunay", complex_rec}}},
-                          {"description", "the intrinsic (mollified) Delaunay triangulation of " + solved + " the Hodge-Dirac modes " + stem + " are solved on: the same vertices, its own edges (lengths along the surface) and faces; read its incidence from " + iname + "_d0 and " + iname + "_d1"}});
-    // d0 [nE x nV]: -1 at an edge's tail, +1 at its tip (csr: the columns ascending); d1 [nF x nE]: each face's edges with their signs
+    // THE KINDS: a labelling of the eigenvalue line by the Hodge part (the label is the potential's form degree: 0 exact, 2 coexact; no harmonic part on a closed surface of genus 0)
+    out["kinds"] = made(K, 1, widened(h.kind), Json{{"entries", Json::array({"exact", "harmonic", "coexact"})},
+                                                    {"description", "the kind of each mode: exact (label 0, a 0-form potential) or coexact (label 2, a 2-form potential); no mode is harmonic on a closed surface of genus 0"}});
+    out["support"] = made(V, 1, widened(kept), Json{{"description", "the " + S.name + " vertices the Hodge-Dirac solve covers (all of them: one piece)"}});
+    // THE EIGENVECTORS: ONE operator, the eigenvalue line -> the triangulation's cells 0+1+2, each mode's mixed form stacked rank by rank (the Studio's Hodge-Dirac order). Built mode-major per block, the
+    // solve's float parts released as they are copied (no second copy of all three held at once)
     {
-      std::vector<std::int64_t> ip0(static_cast<std::size_t>(nE + 1)), ip1(static_cast<std::size_t>(nF + 1));
-      std::vector<std::int32_t> ix0(static_cast<std::size_t>(2 * nE)), ix1(static_cast<std::size_t>(3 * nF));
-      std::vector<double> dv0(static_cast<std::size_t>(2 * nE)), dv1(static_cast<std::size_t>(3 * nF));
-      for (std::int64_t e = 0; e <= nE; ++e) ip0[static_cast<std::size_t>(e)] = 2 * e;
-      for (std::int64_t e = 0; e < nE; ++e) {
-        const std::int32_t a = h.edges[static_cast<std::size_t>(2 * e)], b = h.edges[static_cast<std::size_t>(2 * e + 1)];
-        const bool order_ab = a < b;
-        ix0[static_cast<std::size_t>(2 * e)] = order_ab ? a : b; dv0[static_cast<std::size_t>(2 * e)] = order_ab ? -1.0 : 1.0;
-        ix0[static_cast<std::size_t>(2 * e + 1)] = order_ab ? b : a; dv0[static_cast<std::size_t>(2 * e + 1)] = order_ab ? 1.0 : -1.0;
-      }
-      for (std::int64_t f = 0; f <= nF; ++f) ip1[static_cast<std::size_t>(f)] = 3 * f;
-      for (std::int64_t f = 0; f < nF; ++f) {
-        std::array<std::pair<std::int32_t, double>, 3> row;
-        for (int k = 0; k < 3; ++k) { const std::int32_t se = h.face_edges[static_cast<std::size_t>(3 * f + k)]; row[static_cast<std::size_t>(k)] = {std::abs(se) - 1, se > 0 ? 1.0 : -1.0}; }
-        std::sort(row.begin(), row.end());
-        for (int k = 0; k < 3; ++k) { ix1[static_cast<std::size_t>(3 * f + k)] = row[static_cast<std::size_t>(k)].first; dv1[static_cast<std::size_t>(3 * f + k)] = row[static_cast<std::size_t>(k)].second; }
-      }
-      auto sparse = [&](std::int64_t rows, std::int64_t cols, const std::vector<std::int64_t>& indptr, const std::vector<std::int32_t>& indices, const char* from_cell, const char* to_cell, const std::string& what) {
-        return Json{{"precision", "float32"}, {"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"from_cell", from_cell}, {"to_cell", to_cell}, {"producer", fpj}, {"description", what},
-                    {"sparse", Json{{"layout", "csr"}, {"rows", rows}, {"cols", cols}, {"indptr", indptr}, {"indices", indices}}}};
+      std::vector<double> stacked(static_cast<std::size_t>(N * K));
+      auto put = [&](std::vector<float>& part, std::int64_t r0, std::int64_t rows) {
+        for (std::int64_t r = 0; r < rows; ++r) for (std::int64_t k = 0; k < K; ++k) stacked[static_cast<std::size_t>((r0 + r) * K + k)] = part[static_cast<std::size_t>(r * K + k)];
+        std::vector<float>().swap(part);
       };
-      out["d0"] = made(2 * nE, 1, std::move(dv0), sparse(nE, Vg, ip0, ix0, "0", "1", "d0 of the intrinsic complex: vertices -> edges (-1 at an edge's tail, +1 at its tip)"));
-      out["d1"] = made(3 * nF, 1, std::move(dv1), sparse(nF, nE, ip1, ix1, "1", "2", "d1 of the intrinsic complex: edges -> faces (each face's three edges, +1 along the face's winding)"));
+      put(h.eigenvectors, 0, V);
+      put(h.forms1, V, nE);
+      put(h.forms2, V + nE, nF);
+      const Json solve_params = Json{{"rows", "0-forms [0, " + std::to_string(V) + ") · 1-forms [" + std::to_string(V) + ", " + std::to_string(V + nE) + ") · 2-forms [" + std::to_string(V + nE) + ", " + std::to_string(N) + ")"},
+                                     {"forms", "each mode's mixed form: the vertex potential A = psi/sqrt2 (exact) or S = <chi/sqrt2, w_v> (coexact); the 1-form part d psi/(mu sqrt2) or *1^-1 d1^T *2 chi/(mu sqrt2) (*1-orthogonal, energy 1/2); the 2-form part chi/sqrt2 (0 on an exact mode)"},
+                                     {"solved", "K x = mu M x, d + delta on the intrinsic triangulation " + st.intrinsic + " of " + solved},
+                                     {"analysis", "the line <- triangulation map is this operator's D106 pair (its M-adjoint), not stored"}};
+      out["eigenvectors"] = made(N, K, std::move(stacked), Json{{"precision", "float32"}, {"chunks", Json::array({V, 1})}, {"shards", Json::array({V, std::min<std::int64_t>(K, 64)})},
+                                 {"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"from_cell", "0"}, {"to_cell", "0+1+2"}, {"params", solve_params}, {"producer", prov},
+                                 {"description", "Hodge-Dirac modes as mixed forms on " + st.intrinsic + ": rows 0-forms (the vertex potentials), 1-forms (the edges), 2-forms (the faces), one column a mode"}});
     }
-    // the signposts per edge: each edge's angle at its tail and at its tip (its twin's angle), each in its vertex's tangent plane
-    std::vector<double> atail(static_cast<std::size_t>(nE), NAN), atip(static_cast<std::size_t>(nE), NAN);
-    if (!h.angle.empty())
-      for (std::int64_t k = 0; k < 3 * nF; ++k) {
-        const std::int32_t se = h.face_edges[static_cast<std::size_t>(k)];
-        (se > 0 ? atail : atip)[static_cast<std::size_t>(std::abs(se) - 1)] = h.angle[static_cast<std::size_t>(k)];
-      }
-    const std::vector<double> asum = h.angle_sum.empty() ? std::vector<double>(static_cast<std::size_t>(Vg), NAN) : h.angle_sum;
-    const std::vector<std::int32_t> ref_nb = h.reference.empty() ? std::vector<std::int32_t>(static_cast<std::size_t>(Vg), -1) : h.reference;
-    auto cells_field = [&](const char* cell, std::int64_t n, std::vector<double> v, const std::string& what, const char* unit = nullptr, const char* dtype = nullptr) {
-      Json d = Json{{"cell", cell}, {"shape", Json::array({n})}, {"description", what}, {"producer", fpj}};
-      if (unit) d["unit"] = unit;
-      if (dtype) { d["dtype"] = dtype; d["value_type"] = "integer"; }
-      return made(n, 1, std::move(v), d);
-    };
-    out["length"] = cells_field("1", nE, h.lengths, "each intrinsic edge's length along the surface (the input's units)");
-    out["star0"] = cells_field("0", Vg, h.star0, "star0: each vertex's mixed-Voronoi mass of the (mollified) input, as the pencil used it");
-    out["star1"] = cells_field("1", nE, h.star1, "star1: each intrinsic edge's cotangent weight (>= 0: Delaunay), as the pencil used it");
-    out["star2"] = cells_field("2", nF, h.star2, "star2: 1 / each intrinsic face's area");
-    out["angle_tail"] = cells_field("1", nE, std::move(atail), "the signpost: each edge's angle at its tail, in the tail's tangent plane (from its reference neighbour)", "rad");
-    out["angle_tip"] = cells_field("1", nE, std::move(atip), "the signpost: each edge's angle at its tip, in the tip's tangent plane", "rad");
-    out["angle_sum"] = cells_field("0", Vg, asum, "each vertex's cone angle (the sum of its corners)", "rad");
-    out["reference"] = cells_field("0", Vg, widened(ref_nb), "each vertex's reference neighbour: the head of its angle-0 edge (an input edge)", nullptr, "i32");
     return out;
   };
 
@@ -360,6 +422,6 @@ StepSpec surface_glue_step() {
 
 }  // namespace
 
-void add_eigen_steps(std::vector<StepSpec>& r) { r.push_back(hodge_dirac_step()); r.push_back(surface_glue_step()); }
+void add_eigen_steps(std::vector<StepSpec>& r) { r.push_back(intrinsic_step()); r.push_back(hodge_dirac_step()); r.push_back(surface_glue_step()); }
 
 }  // namespace nxr::pipelines::graph

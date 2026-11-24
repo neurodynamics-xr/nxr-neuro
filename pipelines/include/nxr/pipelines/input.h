@@ -65,6 +65,20 @@ struct HodgePackageForms {
   double mollify = 1e-6, flip_eps = 1e-6, star1_floor = 0.0;
 };
 HodgePackageForms hodge_package_forms(nxr::io::SubjectWriter& sub, const HodgePackageData& package);
+/** A STORED HODGE-DIRAC EIGENSOLVE in the four classes (eigen.h): the eigenvectors operator (eigenvalue line -> intrinsic triangulation, cell key '0+1+2', rows stacked 0-forms [0, V) ·
+ *  1-forms [V, V+E) · 2-forms [V+E, V+E+F)), the eigenvalue line (mu, ascending), the kinds labelling read per mode (0 exact, 2 coexact), the triangulation and the surface it is made from, and the
+ *  options the solve recorded. A solve in the earlier form (three operators, a kind field) is refused, naming `nxr-neuro migrate eigensolve`. Reads no eigenvector bytes. */
+struct StoredEigensolve {
+  std::string stem;
+  nxr::io::Row eigenvectors, line, triangulation, surface;
+  std::int64_t V = 0, E = 0, F = 0, K = 0;
+  std::vector<double> mu;
+  std::vector<std::uint8_t> kind;
+  double mollify = 1e-6, flip_eps = 1e-6, star1_floor = 0.0;
+};
+StoredEigensolve stored_eigensolve(nxr::io::SubjectWriter& sub, const std::string& stem);
+/** the eigenvectors' rows [r0, r1), every mode (row-major, float32 as stored): only those rows are read */
+std::vector<float> stored_eigensolve_rows(nxr::io::SubjectWriter& sub, const StoredEigensolve& e, std::int64_t r0, std::int64_t r1);
 // The type of each channel of a channels manifold (its 'type' labelling); empty when there is none.
 /** the positions of a points manifold with no channel types (the landmarks of a template: nasion, LPA, RPA): [n x 3] and each point's name from its `<manifold>_names` labelling (empty when it has none) */
 struct NamedPoints { std::string id, name; std::vector<double> positions; std::vector<std::string> names; };

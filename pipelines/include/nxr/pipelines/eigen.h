@@ -1,40 +1,28 @@
-// nxr-pipelines — a subject's Hodge–Dirac eigenmodes. THE VERB IS A DEFINITION (definitions/eigenmodes.yaml: `nxr-neuro run eigenmodes`, the registered step `hodge_dirac` in eigen_steps.cpp, stored by
-// io's declared outputs: a mode axis, cell complexes, sparse operators, fields on cells). What stays here: `solve_hodge_dirac` (the pure solve the step calls, and tests call) and `eigen_solve`, the library's
-// thin caller of the definition (the spatial bands make missing eigenmodes with it, `dataset create --modes` the default subject's). The stored layout below is unchanged.
-// Before the conversion: read from its stored surface (nxr-io), solved (nxr-compute), stored (nxr-io), CACHED.
-// The twin of `nxr eigen solve` (nxr.pipelines.hodge: solve / solved_package, nxr.io.eigen: store_package) for a surface of one closed piece, or a cortex glued by anatomy (below):
-// intrinsic Delaunay, the split solve — the Laplace–Beltrami ladder (d0^T *1 d0, *0: exact modes) and the 2-form ladder (*2 d1 *1^-1 d1^T *2, *2:
-// coexact modes), cut at ONE lambda, the constants out — and the package stored in nxr's layout (see `nxr/io/eigen.py`):
+// nxr-pipelines — a subject's Hodge–Dirac eigensolve, stored in the four classes (Manifold, Field, Selection, Operator) on the schema's chain-complex design (D92, D93).
+// THE VERBS ARE DEFINITIONS: `nxr-neuro run intrinsic` (definitions/intrinsic.yaml, the step `geometry.intrinsic`) makes a surface's INTRINSIC TRIANGULATION, and `nxr-neuro run eigenmodes`
+// (definitions/eigenmodes.yaml, the step `operators.hodge_dirac`) solves on it (the runner makes the triangulation first when it is not stored). What stays here: the pure functions the steps
+// call (`intrinsic_triangulation`, `solve_hodge_dirac`, which tests call too) and `eigen_solve`, the library's thin caller of the definitions.
+// The twin of `nxr eigen solve` (nxr.pipelines.hodge) for a surface of one closed piece (a cortex of two hemispheres is glued first by `run glue`, and the glued surface named): intrinsic Delaunay,
+// the split solve (the Laplace–Beltrami ladder d0^T *1 d0 with *0: exact modes; the 2-form ladder *2 d1 *1^-1 d1^T *2 with *2: coexact modes), cut at ONE lambda, the constants out.
 //
-//     eigenvalue/hodgeDirac           Manifold  points [K]       mu = sqrt(lambda) > 0, ascending
-//     eigenvalue/hodgeDirac_kind      Field     uint8  [K]       0 exact · 2 coexact
-//     hodgeDirac_eigenvectors         Operator  float32 [V x K]  axis -> the surface: per mode ONE vertex potential (psi/sqrt2, or <chi/sqrt2, w_v>)
-//     hodgeDirac_support              Selection indices          the surface's vertices the solve covers (all of them for one piece)
+// THE INTRINSIC TRIANGULATION (its own step, on the surface; a manifold with the surface's geometry and its OWN topology: the flipped edges and faces are its cells):
+//     source/<surface>_intrinsic             Manifold  surface    the surface's positions (the same array, not copied), its own edges [nE x 2] (rank 1) and faces [nF x 3] (rank 2)
+//     <intrinsic>_d0, _d1                    Operator  analytic   method 'dec': d0 vertices -> edges (cell 0 -> 1), d1 edges -> faces (cell 1 -> 2): no bytes (D93), evaluated from the triangulation
+//     <intrinsic>_star0, _star1, _star2      Operator  analytic   method 'dec': the diagonal Hodge stars (cell k -> k*): *0 the mixed-Voronoi mass of the mollified input, *1 the cotan weights, *2 = 1/area
+//     <intrinsic>_length, _angle_tail, _angle_tip   Field (cell 1)   the edge lengths (the triangulation's metric) and the signposts at each end
+//     <intrinsic>_angle_sum, _reference      Field (cell 0)        cone angles, reference neighbours
 //
-// (another surface of the subject: the same names with `__<surface>` after `hodgeDirac`). A surface of TWO pieces (a cortex's hemispheres) is GLUED BY
-// ANATOMY first (nxr.pipelines.hodge.solve; the Studio's glue.ts, nxr-compute's glueMesh): each medial wall (its stored Desikan-Killiany atlas'
-// `unassigned`) cut as a disk, a bridge grown between the rims; the solve is on the glued surface, stored as nxr stores one:
-//
-//     source/<surface>_glued          Manifold  surface           the kept vertices (in support order), then the bridge's
-//     source/<surface>_glued_bridge   Selection indices           the bridge (not cortex)
-//     hodgeDirac_eigenvectors         Operator  [V_glued x K]     onto the glued surface; hodgeDirac_support the input's kept vertices
-//
-// The medial wall belongs to the cache key. Three or more pieces are refused.
-//
-// THE FULL FORMS are stored with the package: the INTRINSIC COMPLEX the modes are solved on (the operator mesh: the same vertices, its own
-// edges and faces; two edges may join one pair of vertices, so it is read by its incidence, never by vertex pairs) and each mode's 2-form:
-//
-//     source/<surface>[_glued]_intrinsic          Manifold  surface          its vertices, edges [nE x 2] (rank-1 cells) and faces [nF x 3] (rank-2 cells)
-//     <intrinsic>_d0, <intrinsic>_d1               Operator  csr              d0: vertices → edges (cell 0 → 1), d1: edges → faces (cell 1 → 2)
-//     <intrinsic>_length, _star1, _angle_tail, _angle_tip   Field (cell 1)    edge lengths, ⋆1 (cotan weights, ≥ 0), the signposts at each end
-//     <intrinsic>_star0, _angle_sum, _reference   Field (cell 0)    ⋆0 (the mixed-Voronoi mass), cone angles, reference neighbours
-//     <intrinsic>_star2                            Field (cell 2)    ⋆2 = 1 / area
-//     hodgeDirac_forms2                            Operator  [nF x K]         axis → the faces (cell 2): each mode's 2-form part χ/√2 (0 on an exact mode)
-//     hodgeDirac_forms1                            Operator  [nE x K]         axis → the edges (cell 1): each mode's 1-form part dψ/(μ√2) (exact) or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2) (coexact)
-//
-// The 1-form parts are ⋆1-orthogonal with energy 1/2 each (test_pipelines), so a 1-form on the intrinsic edges is read into the modes by inner products.
-// They are stored (`_forms1`), made by the solve with `signal::oneFormFromParts` (the node `operators.hodge_one_form_parts` makes them for a package solved without them, the same numbers);
-// a reading takes the stored parts when the package has them, else makes them from the 0- and 2-form parts.
+// THE EIGENSOLVE (stem `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not the primary one):
+//     eigenvalue/<stem>                      Manifold  points [K]    the EIGENVALUE LINE: mu = sqrt(lambda) > 0, ascending
+//     <stem>_eigenvalues                     Field     [K]           lambda = mu^2, a field of the operator (`of_operator`)
+//     <stem>_kinds                           Selection partition     the LABELLING of the eigenvalue line by the Hodge part: 0 exact (a 0-form potential) · 2 coexact (a 2-form potential)
+//     <stem>_support                         Selection indices       the surface's vertices the solve covers (all of them for one piece)
+//     <stem>_eigenvectors                    Operator  float32 [(V + E + F) x K]   SYNTHESIS: the eigenvalue line (cell 0) -> the intrinsic triangulation (cell key '0+1+2'): each mode's
+//                                                                    MIXED FORM, rows stacked 0-forms [0, V) · 1-forms [V, V+E) · 2-forms [V+E, V+E+F) (the Studio's Hodge–Dirac order):
+//                                                                    the vertex potential psi/sqrt2 (or <chi/sqrt2, w_v>), the 1-form part d psi/(mu sqrt2) or *1^-1 d1^T *2 chi/(mu sqrt2), the 2-form part chi/sqrt2
+// One mode a chunk of V rows, so a vertex reader reads the first row chunk of each mode. The analysis (line <- triangulation) is this operator's D106 pair, never stored twice.
+// The 1-form parts are *1-orthogonal with energy 1/2 each (test_pipelines), so a 1-form on the intrinsic edges is read into the modes by inner products.
+// A solve stored in the earlier form (three operators _eigenvectors, _forms1, _forms2, a kind field, stored d0/d1/stars) is converted in place by `nxr-neuro migrate eigensolve`.
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -107,6 +95,25 @@ struct SolveMethod {
   double mollify = 1e-6;                           // delta = mollify x the mean edge length (the Studio's `mollify`)
   double flip_eps = 1e-6;                          // the Studio's `flipEps`
 };
+
+// THE INTRINSIC TRIANGULATION of a surface (no rows): THE one Delaunay construction (mollify, flip to Delaunay) the solve is built on, its cells and their signposts.
+struct IntrinsicTriangulation {
+  std::int64_t n_vertices = 0;
+  std::vector<std::int32_t> edges;           // [nE x 2] each edge's (tail, tip): d0's orientation (−1 at the tail, +1 at the tip)
+  std::vector<std::int32_t> faces;           // [nF x 3] the faces' vertices (two edges may join one pair of vertices: read the incidence from face_edges)
+  std::vector<std::int32_t> face_edges;      // [nF x 3] each face's edges in corner order, signed: e + 1 along the edge, −(e + 1) against (d1's signs)
+  std::vector<double> lengths;               // [nE] the edge lengths (input units): the triangulation's metric
+  std::vector<double> angle;                 // [nF x 3] the signposts: each halfedge's angle at its tail (corner order)
+  std::vector<double> angle_sum;             // [nV] each vertex's cone angle
+  std::vector<std::int32_t> reference;       // [nV] each vertex's reference neighbour (the head of its angle-0 halfedge, an input edge)
+  double mollify = 1e-6, flip_eps = 1e-6;    // the construction's options
+  double mollify_epsilon = 0;                // the length mollification added to every edge
+  std::int64_t flips = 0;
+  nxr::io::Json gauge;                       // {gauge, gauge_record}
+  std::int64_t n_edges() const { return static_cast<std::int64_t>(lengths.size()); }
+  std::int64_t n_faces() const { return static_cast<std::int64_t>(faces.size() / 3); }
+};
+IntrinsicTriangulation intrinsic_triangulation(const std::vector<double>& vertices, const std::vector<std::int32_t>& faces, double mollify = 1e-6, double flip_eps = 1e-6);
 
 // nxr-compute, no rows: the surface (vertices [nV x 3] float64, faces [nF x 3]) of one closed piece -> its Hodge–Dirac modes.
 HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vector<std::int32_t>& faces, int modes, const SolveMethod& method = {});

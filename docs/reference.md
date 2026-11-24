@@ -447,8 +447,9 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run fingerprint_features` | A person's two features over a span (steps 18 and 19): the bands' region spectra cut to their bands side by side (68 x 301 by default), and their envelope correlations on a band axis. | (the definition) |
 | `nxr-neuro run headmodel` | The sphere head model (gain matrix) for a subject's cortex, MEG and EEG. | `headmodel compute` |
 | `nxr-neuro run pointspread` | The instrument's blur: unit currents at sample vertices through the head model and inverse kernel. | `pointspread compute` |
-| `nxr-neuro run eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface, with the intrinsic complex and the modes' full forms (cached); `--glued` for a cortex of two hemispheres. | `eigen solve` |
-| `nxr-neuro run hodgeforms1` | The modes' 1-form parts (`<stem>_forms1`) added to a stored Hodge-Dirac package that has none, without solving again. | - |
+| `nxr-neuro run eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface on its intrinsic triangulation (made first when missing): the eigenvalue line, the kinds, and each mode's mixed form as one operator (cached). | `eigen solve` |
+| `nxr-neuro run intrinsic` | The intrinsic Delaunay triangulation of a stored surface: its own cells on the surface's positions, d0, d1 and the Hodge stars as analytic operators, the lengths and signposts as fields. | - |
+| `nxr-neuro migrate eigensolve` | A stored eigensolve of the earlier form (`_eigenvectors`, `_forms1`, `_forms2`, a kind field) converted in place to the four classes, with no solve. | `package migrate-eigensolve` |
 | `nxr-neuro run surface_frames` | The canonical (north, west) and anatomical frames of a surface. | `frames compute`, `run surface_frames` |
 | `nxr-neuro run select_dyadic_surface` | The dyadic equal-area tiles of a surface as one grid with closed-form levels, from a stated finest tile (subject, group tree or transfer). | `tiles compute`, `run select_dyadic_surface`, `run select_dyadic_surface --rule group`, `run group_tiles` |
 | `nxr-neuro run select_time_grid` | The dyadic time grid of a recording's line: tiles, band, frames (density and origin are options), constant-Q, segments, windows, chunks. | `constantq compute`, `run select_time_grid --rule frames` |
@@ -1072,17 +1073,26 @@ name such as `band power`) are stored as before. A `node:` use (grouped names su
 A statistic's `describe` may carry `producer`, what its readers ask of the provenance beside the run's own record (a spectrum's `frequency_resolution_hz` and `sfreq`, its segments, the share of samples left out, the scaling
 record). A native node that applies a stored dense Operator (`signal.linear_map`) is handed its matrix and the channels it lies over by the runner (`meta.channels`); it reads no store.
 
-## The Hodge-Dirac eigenmodes (`run eigenmodes`, the step `hodge_dirac`; spec `docs/specs/2026-11-17-eigenmodes-as-definition.md`)
+## The Hodge-Dirac eigenmodes (`run eigenmodes`, the step `hodge_dirac`; `run intrinsic`, the step `geometry.intrinsic`; spec `docs/specs/2026-11-17-eigenmodes-as-definition.md`)
 
-`run eigenmodes --surface NAME [--modes K] [--glued]` solves the Hodge-Dirac modes of a stored surface on its intrinsic Delaunay complex (the split solve: the Laplace-Beltrami ladder gives the exact modes, the 2-form
-ladder the coexact modes; one lambda cut, the constants out) and stores them with their full forms. Default: the reference method of nxr and Rheome; the other methods are named options (`--shift`, `--sigma`, `--slice`,
-`--normalize`, `--star1-floor`, `--mollify`, `--flip-eps`), all in the provenance and the cache key. `--glued` is for a cortex of TWO pieces (its hemispheres): each medial wall cut, a bridge grown, solved on the glued
-surface; a surface of two pieces without it, or of one piece with it, is refused with the reason; three or more pieces are refused. Eigenmodes come first: a spatial band that needs modes that are not stored has the runner
-make them with this run, said in a message. What it cannot resolve: a mode above the mesh's resolution is not a property of the cortex, and the bridge is not cortex.
-Stored (stem `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not the primary one; the layout is unchanged from `eigen solve`): the mode axis `<stem>` (points, coordinate mu = sqrt(lambda), ascending), the field
-`<stem>_kind` (0 exact, 2 coexact; of the eigenvectors operator), the operators `<stem>_eigenvectors` (axis to surface, [V x K] float32) `<stem>_forms2` (axis to the complex's faces, cell 2) and `<stem>_forms1` (axis to its edges, cell 1), the selection `<stem>_support`; the
-glued surface `<surface>_glued` with its bridge `<surface>_glued_bridge`; and the cell complex `<solved>_intrinsic` (vertices, edges, faces) with the sparse operators `_d0` (cell 0 to 1) and `_d1` (cell 1 to 2) and the fields
-`_length`, `_star0`, `_star1`, `_star2`, `_angle_tail`, `_angle_tip`, `_angle_sum`, `_reference` on its cells. The library's `eigen_solve` (`pipelines/eigen.h`) is a thin caller of this definition.
+`run eigenmodes --surface NAME [--modes K]` solves the Hodge-Dirac modes of a stored surface of one closed piece on its INTRINSIC TRIANGULATION (the split solve: the Laplace-Beltrami ladder gives the exact
+modes, the 2-form ladder the coexact modes; one lambda cut, the constants out). Default: the reference method of nxr and Rheome; the other methods are named options (`--shift`, `--sigma`, `--slice`, `--normalize`,
+`--star1-floor`), all in the provenance and the cache key. A cortex of two hemispheres is glued first (`run glue`) and the glued surface named. Eigenmodes come first: a spatial band that needs modes that are not
+stored has the runner make them with this run, said in a message. What it cannot resolve: a mode above the mesh's resolution is not a property of the cortex, and the bridge is not cortex.
+
+The intrinsic triangulation is made by its own definition, `run intrinsic --surface NAME [--mollify 1e-6] [--flip-eps 1e-6]` (the Studio's intrinsicDelaunay.ts; the runner makes it first, with its defaults, when an
+eigensolve reads it and none is stored: the input's `made_by`). It is a manifold with the surface's geometry (the same positions array) and its OWN topology (the flipped edges and faces are its cells, D92):
+`source/<surface>_intrinsic`; d0, d1 and the stars ⋆0, ⋆1, ⋆2 are ANALYTIC operators on it (`_d0` cell 0 to 1, `_d1` 1 to 2, `_star<k>` k to k*; layout analytic, method `dec`, no bytes: D93, evaluated
+from the triangulation as the Studio's `hodgeDirac.ts dec(m)` builds them); the edge lengths and signposts are fields on its cells (`_length`, `_angle_tail`, `_angle_tip`, `_angle_sum`, `_reference`).
+
+Stored by the eigensolve (stem `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not the primary one), in the four classes: the EIGENVALUE LINE `<stem>` (a manifold of points, coordinate
+mu = sqrt(lambda), ascending), the field `<stem>_eigenvalues` (lambda; of the eigenvectors operator), the selection `<stem>_kinds` (a labelling of the line: exact, label 0; coexact, label 2), the selection
+`<stem>_support`, and ONE operator `<stem>_eigenvectors` from the line (cell 0) to the intrinsic triangulation (cell key `0+1+2`, schema 55): [(V + E + F) x K] float32, each column a mode's MIXED FORM, rows
+stacked 0-forms [0, V) (the vertex potential ψ/√2, or ⟨χ/√2, w_v⟩) · 1-forms [V, V+E) (dψ/(μ√2), or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2)) · 2-forms [V+E, V+E+F) (χ/√2), the Studio's Hodge-Dirac order. One mode a chunk of V
+rows: a vertex reader reads the first rows only. It is the synthesis (line to triangulation); the analysis is its D106 pair, never stored twice. The library's `eigen_solve` (`pipelines/eigen.h`) is a thin caller
+of the two definitions. A solve stored in the earlier form (three operators `_eigenvectors` to the surface, `_forms1`, `_forms2`; a kind field; stored d0, d1 and stars) is refused by the readers, naming
+`nxr-neuro migrate eigensolve --dataset D --subject S [--name STEM]`: it converts it in place with no solve (absent 1-form parts are made from the stored parts and operators by `signal::oneFormFromParts`),
+moves the replaced items aside, records `migrated_from` in the new items, is idempotent and refuses a form it does not know.
 
 ## The sensor surface (`run sensor_surface`; the nodes `meeg.channel_positions`, `geometry.point_set_mesh`, `geometry.surface_from_parts`)
 
@@ -2393,16 +2403,14 @@ nxr-neuro solves the Hodge–Dirac modes **exactly as nxr and Rheome do** (`nxr.
 - `source/<surface>_glued_bridge`: the bridge's vertices (not cortex: no sources, a forward zero there);
 - `<stem>_eigenvectors`: [glued vertices × K], onto the glued surface; `<stem>_support`: the input's kept vertices.
 
-**The full forms are stored with the package**. The modes are solved on the intrinsic Delaunay triangulation: the same vertices, its own
+**The full forms are stored with the eigensolve**. The modes are solved on the intrinsic Delaunay triangulation: the same vertices, its own
 edges (lengths along the surface) and faces, and on the cortex some pairs of vertices are joined by two different edges, so it is not a mesh of vertex
-triples. Stored as its own manifold `source/<surface>[_glued]_intrinsic` (edges and faces as its cells), with d0 and d1 as sparse operators between its
-cells, the edge lengths, the stars ⋆0, ⋆1, ⋆2 and the signposts as fields on its cells, and each mode's 2-form part χ/√2 on its faces
-(`hodgeDirac_forms2`, axis → faces) and its 1-form part, dψ/(μ√2) (exact) or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2) (coexact), on its edges
-(`hodgeDirac_forms1`, axis → edges, float32, one mode a chunk like the others; about 4 bytes × edges a mode, three times the vertex count of edges). The 1-form parts are orthonormal in ⋆1:
+triples. Stored as its own manifold `source/<surface>[_glued]_intrinsic` (edges and faces as its cells, the surface's positions), with d0, d1 and the stars as analytic operators on it, the edge lengths
+and the signposts as fields on its cells; each mode's 2-form part χ/√2 and its 1-form part, dψ/(μ√2) (exact) or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2) (coexact), are the 2-form and 1-form rows of the one
+eigenvectors operator (about 4 bytes × (V + E + F) a mode). The 1-form parts are orthonormal in ⋆1:
 reading a 1-form on the intrinsic edges into the modes is a set of inner products (tested: the 1-form Gram matrix is I/2 to 1e-7). The readings (`signal.phase_split`, `projectOneForm`, `synthesizeOneForm`) take the stored
-parts; a package solved before they were stored has none, and the readings make them from the 0- and 2-form parts (the same numbers to float precision). The node `operators.hodge_one_form_parts` and the definition
-`hodgeforms1` add `<stem>_forms1` to such a package without solving again: `nxr-neuro run hodgeforms1 --subject <s> --package hodgeDirac`. **Why:** the modes
-live on that complex; reading or synthesising fields with the input mesh's operators mixes two triangulations (the readings it gave were not
+rows. **Why:** the modes
+live on that triangulation; reading or synthesising fields with the input mesh's operators mixes two triangulations (the readings it gave were not
 orthonormal and, on rough fields, not projections).
 
 The medial wall is part of the cache key (another atlas, another glued surface). A surface with no Desikan-Killiany atlas is refused by name; a surface of one piece (a mesh, a sphere) is solved as

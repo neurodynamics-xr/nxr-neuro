@@ -44,16 +44,26 @@ namespace fs = std::filesystem;
 
 namespace {
 
-template <class T>
-std::vector<T> read_vector(const nxr::io::Store& store, const std::string& key) {
-  ArrayReader r = ArrayReader::open(store, key);
-  const std::vector<std::uint8_t> raw = r.read();
-  std::vector<T> v(raw.size() / sizeof(T));
-  std::memcpy(v.data(), raw.data(), v.size() * sizeof(T));
-  return v;
-}
-
 }  // namespace
+
+IntrinsicTriangulation intrinsic_triangulation(const std::vector<double>& vertices, const std::vector<std::int32_t>& faces, double mollify, double flip_eps) {
+  const int nV = static_cast<int>(vertices.size() / 3), nF = static_cast<int>(faces.size() / 3);
+  // THE one Delaunay construction, exactly as the solve builds it (solve_hodge_dirac below): the same arrays, the same assembly, so the solve on this triangulation is the solve's own
+  nxr::geometry::DelaunayOptions dopt;
+  dopt.mollify = mollify; dopt.flipEps = flip_eps;
+  const nxr::geometry::SurfaceArrays surface = nxr::geometry::surfaceArrays(vertices.data(), nV, faces.data(), nF, nxr::geometry::intrinsicOptions(true, dopt));
+  const nxr::operators::hodgedirac::HodgeDirac hd = nxr::operators::hodgedirac::assemble(surface, 0.0, mollify, flip_eps);
+  const auto& cx = hd.complex;
+  IntrinsicTriangulation t;
+  t.n_vertices = nV;
+  t.edges = cx.edges; t.faces = cx.faces; t.face_edges = cx.faceEdges; t.lengths = cx.length;
+  t.angle = cx.angle; t.angle_sum = cx.angleSum; t.reference = cx.reference;
+  t.mollify = mollify; t.flip_eps = flip_eps;
+  t.mollify_epsilon = hd.record.epsilon; t.flips = hd.record.flips;
+  t.gauge = Json{{"gauge", hd.record.gauge}, {"gauge_record", Json{{"mollify", hd.record.mollify}, {"epsilon", hd.record.epsilon}, {"flipEps", hd.record.flipEps}, {"mass", hd.record.mass},
+                                                                   {"boundary_vertices", hd.record.boundaryVertices}, {"fingerprint", hd.record.fingerprint}}}};
+  return t;
+}
 
 HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vector<std::int32_t>& faces, int modes, const SolveMethod& method) {
   const auto t0 = std::chrono::steady_clock::now();
@@ -201,8 +211,10 @@ EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenS
     solved = in.name + "_glued";
   }
   const SolveMethod& sm = opt.method;
+  // the intrinsic triangulation first, by its own definition (stored once, found by name; its options are the method's)
+  run_shipped(ds, sub, "intrinsic", Json{{"surface", solved}, {"mollify", sm.mollify}, {"flip_eps", sm.flip_eps}}, opt.replace, progress);
   const nxr::operators::HodgeSolveOptions dflt;
-  Json set = Json{{"surface", solved}, {"modes", opt.modes}, {"mollify", sm.mollify}, {"flip_eps", sm.flip_eps},
+  Json set = Json{{"surface", solved}, {"modes", opt.modes},
                   {"shift", sm.solve.shift == nxr::operators::HodgeShift::Absolute ? "absolute" : "relative"}, {"slice", sm.solve.slice}, {"normalize", sm.solve.normalize}};
   if (sm.solve.sigma != dflt.sigma) set["sigma"] = sm.solve.sigma;       // a default stays unset, as on the command line: the same run, the same cache key
   if (sm.star1_floor) set["star1_floor"] = *sm.star1_floor;
@@ -210,30 +222,22 @@ EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenS
   if (reports.empty()) throw Error(code::no_such_row, "eigen_solve: the run made no report");
   const Json& rep = reports.front();
 
-  // the stored package, by name
+  // the stored eigensolve, by name: mu, the kinds and the 0-form rows of the eigenvectors (the vertex potentials)
   const std::string stem = glue ? "hodgeDirac__" + solved : (in.primary ? "hodgeDirac" : "hodgeDirac__" + in.name);
-  const nxr::io::task::Subject sj = nxr::io::task::Subject::of(sub);
-  auto node = [&](nxr::io::task::Cls c, const std::string& name) {
-    nxr::io::task::Want w{.cls = c};
-    w.name = name;
-    const auto n = sj.find(w);
-    if (!n || !n->path) throw Error(code::no_such_row, in.name + ": the stored Hodge–Dirac package is incomplete (" + name + " is missing)");
-    return *n;
-  };
-  const auto axis = node(nxr::io::task::Cls::manifold, stem), kind = node(nxr::io::task::Cls::field, stem + "_kind"), vecs = node(nxr::io::task::Cls::operator_, stem + "_eigenvectors");
+  const StoredEigensolve e = stored_eigensolve(sub, stem);
   EigenSolveResult r;
   r.hit = rep.value("hit", false);
   HodgeDirac& h = r.modes;
-  h.mu = read_vector<double>(sub.store(), *axis.path);
-  h.kind = read_vector<std::uint8_t>(sub.store(), *kind.path);
-  h.eigenvectors = read_vector<float>(sub.store(), *vecs.path);
+  h.mu = e.mu;
+  h.kind = e.kind;
+  h.eigenvectors = stored_eigensolve_rows(sub, e, 0, e.V);
   for (auto k : h.kind) (k == 0 ? h.n_exact : h.n_coexact)++;
   const std::int64_t K = h.n_modes();
-  if (K < 1 || static_cast<std::int64_t>(h.eigenvectors.size()) % K != 0) throw Error(code::invalid_argument, in.name + ": the stored eigenvectors do not fit the modes");
-  h.n_vertices = static_cast<std::int64_t>(h.eigenvectors.size()) / K;
+  if (K < 1) throw Error(code::invalid_argument, in.name + ": the stored eigensolve has no modes");
+  h.n_vertices = e.V;
   r.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-  r.info = Json{{"axis", *axis.path}, {"surface", in.name}, {"glued", glue}, {"rows", h.n_vertices}, {"moved_aside", Json()}, {"n_modes", K}, {"n_exact", h.n_exact}, {"n_coexact", h.n_coexact},
-                {"mu", Json::array({h.mu.front(), h.mu.back()})}, {"of", V}, {"replaced", opt.replace && !r.hit}, {"operator_id", vecs.id}, {"cache", r.hit ? "hit" : "miss"}, {"run", rep}};
+  r.info = Json{{"axis", text(e.line, "path")}, {"surface", in.name}, {"glued", glue}, {"rows", h.n_vertices}, {"moved_aside", Json()}, {"n_modes", K}, {"n_exact", h.n_exact}, {"n_coexact", h.n_coexact},
+                {"mu", Json::array({h.mu.front(), h.mu.back()})}, {"of", V}, {"replaced", opt.replace && !r.hit}, {"operator_id", text(e.eigenvectors, "id")}, {"cache", r.hit ? "hit" : "miss"}, {"run", rep}};
   return r;
 }
 

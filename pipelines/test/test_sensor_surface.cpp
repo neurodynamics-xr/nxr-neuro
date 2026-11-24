@@ -173,20 +173,13 @@ int main() {
   {
     const auto er = nxrtest::run_definition(ds, sub, "eigenmodes", Json{{"surface", "helmet"}, {"modes", 40}, {"star1_floor", 1e-6}});
     CHECK(!er.empty());
-    for (const char* o : {"hodgeDirac__helmet_eigenvectors", "hodgeDirac__helmet_forms1", "hodgeDirac__helmet_forms2"}) CHECK(sub.find("operator", o).has_value());
-    const auto axis = nxr::io::find_manifold(sub, "hodgeDirac__helmet");
-    CHECK(axis.has_value());
-    const auto kf = sub.find("field", nxr::io::task::Subject::of(sub).node_path(axis ? text(*axis, "id") : std::string(), "hodgeDirac__helmet_kind"));
-    CHECK(kf.has_value());
-    if (kf) {
-      const auto kind = read_as<int>(sub, text(*kf, "path"));
-      int exact = 0, coexact = 0;
-      for (const int k : kind) { exact += k == 0; coexact += k == 2; }
-      std::printf("  helmet modes: %zu (exact %d, coexact %d)\n", kind.size(), exact, coexact);
-      CHECK(exact > 0 && coexact > 0 && exact + coexact == static_cast<int>(kind.size()));
-    }
-    const auto ev = sub.find("operator", "hodgeDirac__helmet_eigenvectors");
-    if (ev) CHECK(opt_text(*ev, "to_manifold_id") == std::optional<std::string>(S.id));
+    const nxr::pipelines::StoredEigensolve e = nxr::pipelines::stored_eigensolve(sub, "hodgeDirac__helmet");   // the line, the kinds labelling, the one eigenvectors operator to the triangulation
+    int exact = 0, coexact = 0;
+    for (const auto k : e.kind) { exact += k == 0; coexact += k == 2; }
+    std::printf("  helmet modes: %zu (exact %d, coexact %d)\n", e.kind.size(), exact, coexact);
+    CHECK(exact > 0 && coexact > 0 && exact + coexact == static_cast<int>(e.kind.size()));
+    CHECK(text(e.surface, "id") == S.id && text(e.triangulation, "name") == "helmet_intrinsic");
+    CHECK_EQ(integer(e.eigenvectors, "n_rows"), e.V + e.E + e.F);
     const std::string nofloor = refusal([&] { nxrtest::run_definition(ds, sub, "eigenmodes", Json{{"surface", "helmet"}, {"modes", 40}}, true); });
     std::printf("  without a *1 floor: %s\n", nofloor.empty() ? "solved (no negative rim weight)" : nofloor.substr(0, 160).c_str());
   }
