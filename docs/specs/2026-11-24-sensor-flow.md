@@ -243,7 +243,8 @@ with no file, chunk loop or subject inside.
    are practically uncorrelated: the neighbour correlation of the group sums (the unit fields summed over each whole group of k cells; the mean over neighbouring groups of
    the cosine of their sums; for k = 1 the neighbouring cells' correlation) below `decorrelation_threshold` (0.1), searched while at least `minimum_groups` (10, so 2^10
    sign patterns keep a family-wise p of 0.001 reachable) whole groups remain; not reached, the largest grouping tried is used and the row flagged. Every band of the atom
-   flips in groups of that many. `cells_per_flip: measured` in the definition; a whole number fixes it. Stored per row: k, the correlation on the atom's whole field and on
+   flips in groups of that many. The null stays nxr's flow analysis's by default (`cells_per_flip: 1`, each cell its own, numpy `default_rng` parity); the grouping
+   rule is a named option (`cells_per_flip: measured`), not what nxr does, and changes the null; the neighbour correlation is stored with every result either way. Stored per row: k, the correlation on the atom's whole field and on
    the row, whether reached, every k's correlation tried, k in seconds (compared with nxr's flow analysis's 2 s and 4 s segments for parity in the development notes).
 3. **Which field the time-cell test reads:** both. Each band alone (nxr's flow analysis's cells, for parity) and the whole field (every coordinate at gain one): the time
    cells hold, per atom, the bands' groups then the whole field's (`field: whole`).

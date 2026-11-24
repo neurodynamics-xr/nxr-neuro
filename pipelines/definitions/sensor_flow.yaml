@@ -6,8 +6,8 @@
 # taper, no zero padding, the bins of [0, 60) Hz]--> the chunk's spectrum --[signal.chunk_spectra]--> the cross-spectrum in its factored form, stored.
 # after: --[signal.spectral_flow: the atoms (Gaussians normalised by the sum of their squared gains) x the cos² eigenvalue bands and their pairs]--> power, phase current per edge and
 # per vertex, Hodge-Dirac flow coefficients (the split of the edge phase current; the vertex phase current's split beside it for parity), potential and stream;
-# --[signal.atom_time_cells]--> the same per time cell of each atom, each band alone and the whole field; --[stats.sign_flip_consistency, one flip per the fewest cells whose sums are
-# practically uncorrelated]--> R1 per edge;
+# --[signal.atom_time_cells]--> the same per time cell of each atom, each band alone and the whole field; --[stats.sign_flip_consistency, nxr's flow analysis's null: one flip a cell;
+# the grouping rule a named option]--> R1 per edge;
 # optional (aperiodic: true): --[signal.sensor_power]--> --[stats.aperiodic_fit]--> each sensor's aperiodic background.
 # Every value below is a stated choice of this definition (the nodes default nothing). The atoms and bands are kernel sets made first by `select_kernels` (nxr's flow analysis's atoms: centres
 # 4 x 2^(k/5) Hz, k = 0..16, gaussian, chart linear, width_rule proportional, width 0.19622 (FWHM = 2 sqrt(2 ln 2) / 12 x the centre: a standard deviation of centre / 12), gain 2;
@@ -45,7 +45,7 @@ parameters:
   flip_elements: {default: edges, meaning: "the sign-flip test's elements: edges (the edge phase current) | vertices (the vertex phase current, three components)", unit: "-", choices: [edges, vertices]}
   patterns: {default: 2000, meaning: "the sign-flip test's random patterns (nxr's flow analysis's maps: 2000)", unit: "-"}
   seed: {default: 0, meaning: "the seed of numpy's default_rng for the sign patterns (nxr's flow analysis: 0)", unit: "-"}
-  cells_per_flip: {default: measured, meaning: "consecutive time cells one sign flips together: measured (the grouping rule: per atom, the fewest consecutive cells whose group sums' neighbour correlation on the atom's whole field is below decorrelation_threshold) or a whole number the caller fixes", unit: cells}
+  cells_per_flip: {default: 1, meaning: "consecutive time cells one sign flips together: 1 (each cell its own: nxr's flow analysis's null, the default) | a whole number | measured (a named option, not nxr's: the grouping rule, per atom the fewest consecutive cells whose group sums' neighbour correlation on the atom's whole field is below decorrelation_threshold; the measured correlation is stored with every result either way)", unit: cells}
   decorrelation_threshold: {default: 0.1, meaning: "with cells_per_flip measured: group sums whose neighbour correlation is below this count as practically uncorrelated", unit: "-"}
   minimum_groups: {default: 10, meaning: "with cells_per_flip measured: the search stops before fewer whole groups would remain (2^10 sign patterns: a family-wise p of 0.001 stays reachable); not reached, the largest grouping tried is used and flagged", unit: groups}
   aperiodic: {default: false, meaning: "also fit each sensor's aperiodic background (a control)", unit: "-"}

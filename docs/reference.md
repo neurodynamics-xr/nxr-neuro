@@ -1170,7 +1170,8 @@ edges by `flat`), the exact potential (Neumann on an open surface) and the coexa
 per chunk, for each band alone (nxr's flow analysis's cells) and for the whole field (every coordinate, gain one), (the synthesis composed on the atom's bins, one inverse
 transform) and sums the same quantities over cells of the atom's own width (the power of two of samples nearest `--cell-width` time standard deviations);
 `stats.sign_flip_consistency` tests the direction's consistency over those cells (nxr's flow analysis's R1 with numpy's `default_rng(--seed)`, `--patterns`, a
-family-wise maximum). One sign flips a group of consecutive cells: `--cells-per-flip measured` (the definition) applies THE GROUPING RULE, per atom the fewest
+family-wise maximum). One sign flips each cell (`--cells-per-flip 1`, the definition: nxr's flow analysis's null exactly). A named option, not nxr's, changes the null:
+`--cells-per-flip measured` applies THE GROUPING RULE, per atom the fewest
 consecutive cells whose group sums' neighbour correlation (the mean cosine of neighbouring groups' sums of unit fields, measured on the atom's whole-field cells) is below
 `--decorrelation-threshold` (0.1), searched while at least `--minimum-groups` (10) whole groups remain (not reached: the largest grouping tried, flagged); or a whole
 number the caller fixes. Stored per row: the cells a flip, the group sums' correlation on the atom's whole field and on the row, whether the rule was reached, and each
