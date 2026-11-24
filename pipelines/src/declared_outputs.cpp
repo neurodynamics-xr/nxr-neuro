@@ -172,10 +172,12 @@ const Value* base_input(const Plan& P, const std::string& ref) {
 task::Values values_of(const ng::Array& a, const std::vector<std::int64_t>& shape, bool single, const std::string& o) {
   std::int64_t n = 1;
   for (const auto d : shape) n *= d;
-  if (n != static_cast<std::int64_t>(a.data.size())) bad(o, std::to_string(a.data.size()) + " values for the shape the node describes (" + std::to_string(n) + ")");
+  if (n != static_cast<std::int64_t>(a.size())) bad(o, std::to_string(a.size()) + " values for the shape the node describes (" + std::to_string(n) + ")");
   task::Values v;
   v.shape = shape;
-  if (single) v.f32.assign(a.data.begin(), a.data.end());
+  if (a.is_single()) {                                                      // a node that held its values in single precision (precision follows the input): no double copy
+    if (single) v.f32 = a.single; else v.f64.assign(a.single.begin(), a.single.end());
+  } else if (single) v.f32.assign(a.data.begin(), a.data.end());
   else v.f64 = a.data;
   return v;
 }

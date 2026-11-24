@@ -1264,11 +1264,15 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         constants[name] = std::move(a);
       } else if (v.cls == "statistic") {                                 // its values, its axes; a first axis over a pick of channels: those channels and their types
         std::vector<std::int64_t> shape;
-        const std::vector<double> f = bound.array_double(text(row, "path"), &shape);
         nxr::graph::Array a;
+        // the mode-space Fourier coefficients (the flow analysis's one heavy array) stay in their stored float32 (no double copy); every other statistic is handed in double as before
+        // (the nodes that read them index `data`: a general move to `single` waits for the audit of those readers)
+        const bool stored_single = nxr::io::opt_text(row, "measure").value_or("") == "fourier_coefficient" && !nxr::io::is_null(row, "path") &&
+                                   nxr::io::ArrayReader::open(sub.store(), text(row, "path")).dtype() == nxr::io::DType::Float32;
+        if (stored_single) a.single = bound.array_float(text(row, "path"), &shape);
+        else a.data = bound.array_double(text(row, "path"), &shape);
         a.rows = shape.empty() ? 0 : shape[0];
-        a.cols = a.rows > 0 ? static_cast<std::int64_t>(f.size()) / a.rows : 0;
-        a.data.assign(f.begin(), f.end());
+        a.cols = a.rows > 0 ? static_cast<std::int64_t>(a.size()) / a.rows : 0;
         a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["shape"] = shape;
         a.meta["value_type"] = nxr::io::opt_text(row, "value_type").value_or("scalar");
         if (const auto u = nxr::io::opt_text(row, "unit"); u && !u->empty()) a.meta["unit"] = *u;

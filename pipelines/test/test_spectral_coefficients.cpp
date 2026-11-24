@@ -127,7 +127,7 @@ int main() {
     for (std::int64_t k = 0; k < bins; ++k)
       for (std::int64_t r = 0; r < R; ++r) {
         const std::size_t at = static_cast<std::size_t>(((i * bins + k) * R + r) * 2);
-        worst = std::max(worst, std::abs(std::complex<double>(A.data[at], A.data[at + 1]) - ref(r, k)));
+        worst = std::max(worst, std::abs(std::complex<double>(A.at(at), A.at(at + 1)) - ref(r, k)));
         scale = std::max(scale, std::abs(ref(r, k)));
       }
   }

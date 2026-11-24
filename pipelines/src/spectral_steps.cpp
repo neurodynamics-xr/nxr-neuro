@@ -276,7 +276,7 @@ ng::NodeSpec spectral_coefficients() {
   };
   n.finish = [](const std::any& prepared, std::any state) {
     const CoefPrepared& pr = std::any_cast<const CoefPrepared&>(prepared);
-    const CoefState& s = std::any_cast<const CoefState&>(state);
+    CoefState& s = std::any_cast<CoefState&>(state);
     if (s.filled != 0)
       ng::refuse(std::string(kCoefficients) + ": the span ends inside a tile (" + std::to_string(s.filled) + " of " + std::to_string(pr.tile) +
                  " samples): a part tile lies on another frequency line; state a span of whole tiles");
@@ -284,7 +284,7 @@ ng::NodeSpec spectral_coefficients() {
     const std::int64_t T = static_cast<std::int64_t>(s.tiles.size()), R = pr.op.rows();
     ng::Array a;
     a.rows = T * pr.bins * R; a.cols = 2;
-    a.data.assign(s.values.begin(), s.values.end());
+    a.single = std::move(s.values);                                          // float32 values (precision follows the input), moved: no double copy
     const double df = pr.sfreq / static_cast<double>(pr.tile);
     Json tiles = Json::array();
     for (const auto m : s.tiles) tiles.push_back(Json{{"member", m}, {"span", Json::array({static_cast<double>(m * pr.tile) / pr.sfreq, static_cast<double>((m + 1) * pr.tile) / pr.sfreq})}});

@@ -357,7 +357,7 @@ ng::NodeSpec flow_map() {
         const double sq = std::sqrt(w[q]);
         for (std::int64_t r = 0; r < R; ++r) {
           const std::size_t at = static_cast<std::size_t>(((t * B + bins[q]) * R + r) * 2);
-          Y(r, t * static_cast<Eigen::Index>(bins.size()) + static_cast<Eigen::Index>(q)) = sq * std::complex<double>(A.data[at], A.data[at + 1]);
+          Y(r, t * static_cast<Eigen::Index>(bins.size()) + static_cast<Eigen::Index>(q)) = sq * std::complex<double>(A.at(at), A.at(at + 1));
         }
       }
       for (std::int64_t s2 = 0; s2 < NS; ++s2) {
