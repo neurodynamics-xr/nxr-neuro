@@ -213,6 +213,8 @@ void typed_from_rows(ng::PortType& t, const Value& v) {
     const auto from = domain({v.manifolds.at(0)}), to = domain({v.manifolds.at(1)});
     if (!from || !to) return;
     t.domain = *from; t.target = *to;
+    t.domain.cells = nxr::io::opt_text(r, "from_cell").value_or("0");   // the cells at each end (D92): d0 maps '0' -> '1'; the Hodge-Dirac eigenvectors the line's '0' -> the triangulation's '0+1+2'
+    t.target.cells = nxr::io::opt_text(r, "to_cell").value_or("0");
     t.quantity = nxr::io::opt_text(r, "kind").value_or("");
     if (v.facts.contains("transition") && v.facts["transition"].contains("from") && v.facts["transition"].contains("to")) {   // T5: a transition's two systems
       auto cs_of = [](const Json& c) { return ng::CoordinateSystem{c.value("space", std::string()), c.value("name", std::string()), c.value("unit", std::string())}; };
