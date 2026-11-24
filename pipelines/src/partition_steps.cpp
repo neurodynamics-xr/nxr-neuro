@@ -12,6 +12,7 @@
 #include "nxr/pipelines/flow_steps.h"
 #include "nxr/pipelines/form_steps.h"
 #include "nxr/pipelines/sensor_flow_steps.h"
+#include "nxr/pipelines/source_flow_steps.h"
 #include "nxr/pipelines/spectral_steps.h"
 #include "nxr/pipelines/identification_steps.h"
 #include "nxr/pipelines/pca_steps.h"
@@ -85,6 +86,7 @@ void register_partition_nodes() {
   register_flow_nodes();
   register_form_nodes();
   register_sensor_flow_nodes();
+  register_source_flow_nodes();
   register_spectral_nodes();
 }
 

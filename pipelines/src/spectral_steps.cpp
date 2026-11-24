@@ -18,6 +18,8 @@
 #include "nxr/operators/hodge_synthesis_weights.h"
 #include "nxr/signal/fourier.h"
 #include "nxr/signal/mode_spectrum.h"
+#include "nxr/signal/source_flow.h"
+#include "source_flow_readers.h"
 
 namespace nxr::pipelines::graph {
 
@@ -66,7 +68,7 @@ ng::NodeSpec mode_analysis() {
   n.name = kAnalysis;
   n.kind = ng::Kind::array;
   n.inputs = {{"package", "a Hodge-Dirac package (its eigenvectors, as the runner hands them over): the modes the coefficients are on", false},
-              {"kernel", "a free-orientation inverse kernel on the package's input surface (channels -> vertices, x y z): the cortex. Exactly one of kernel, channel_map", true},
+              {"kernel", "a free-orientation inverse kernel (channels -> vertices, x y z) on the package's input surface or on the cortex a hemisphere's package is a part of (its rows selected): the cortex. Exactly one of kernel, channel_map", true},
               {"channel_map", "the sensor surface's vertex-to-channel map (`<surface>_map`): the helmet, whose vertices are channels. Exactly one of kernel, channel_map", true}};
   n.outputs = {{"operator", "the composed spatial operator, rows x the channels it reads: the modes' analysis rows (the selected modes' 0-form parts, normalised as stated, times the vertex mass), "
                             "composed with the kernel carried onto the package's surface (one block of rows per Cartesian component) or with the vertex-to-channel map", false}};
@@ -75,7 +77,7 @@ ng::NodeSpec mode_analysis() {
       {"normalisation", Json(), "unit_mass (each mode rescaled to unit vertex-mass norm: rows x synthesis = I, the nxr flow scripts) | as_stored (the package's parts as stored) (no default)", "-", {"unit_mass", "as_stored"}, false},
       {"mode_count", Json(), "the first modes of the package read; null: all", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "made in double, once a run, from the package and the kernel");
-  n.matches = "the nxr flow scripts' expansion of each Cartesian current component on the exact modes; compute nxr::signal::modeAnalysis, modeAnalysisOfComponents, nxr::operators::gluedKernel";
+  n.matches = "the nxr flow scripts' expansion of each Cartesian current component on the exact modes; compute nxr::signal::modeAnalysis, modeAnalysisOfComponents, selectVertexRows (the kernel's rows selected onto the package's surface: a hemisphere's range, or the glued surface with the bridge zero)";
   n.description = "the composed spatial operator of the mode-space coefficients: the selected modes' analysis rows composed with a free kernel (each component) or with the sensor surface's channel map";
   n.plan = [](const ng::Types& in, const Json& p) {
     if (!in.count("package")) ng::refuse(std::string(kAnalysis) + ": package is not given");
@@ -119,15 +121,12 @@ ng::NodeSpec mode_analysis() {
     if (a.has_kernel) {
       const ng::Array& KA = a.kernel;
       channels = KA.meta.value("channels", std::vector<std::int32_t>());
-      const std::vector<double> pin = a.package.meta.at("input_positions").get<std::vector<double>>();
-      const std::int64_t Vin = static_cast<std::int64_t>(pin.size() / 3), M = static_cast<std::int64_t>(channels.size());
-      if (KA.meta.value("to_value_type", std::string("vector3")) == "scalar" || KA.rows != 3 * Vin || KA.cols != M)
-        ng::refuse(std::string(kAnalysis) + ": " + KA.meta.value("name", std::string()) + " is not a free-orientation kernel of the package's input surface (" + std::to_string(KA.rows) + " rows for " +
-                   std::to_string(Vin) + " vertices; a hemisphere's package needs the kernel restricted to that hemisphere, which is not made here)");
+      // the kernel's rows SELECTED onto the package's surface (the glue is a selection): the input surface's own rows, a hemisphere's vertex range of the cortex, or the glued
+      // surface's kept vertices with the bridge rows zero; never a blend
+      const KernelSelection selection = kernel_rows_for_package(KA, a.package, kAnalysis);
       const std::vector<double> kv = KA.values();
-      const Eigen::MatrixXd W = Eigen::Map<const RowMajor>(kv.data(), KA.rows, M);
-      const Eigen::MatrixXd Wg = nxr::operators::gluedKernel(W, basis, Eigen::Map<const nxr::operators::RowMat3>(pin.data(), Vin, 3));   // mergeHemispheres (identity on a surface that is not glued)
-      O = nxr::signal::modeAnalysisOfComponents(ma.rows, Wg, 3);
+      const Eigen::MatrixXd W = Eigen::Map<const RowMajor>(kv.data(), KA.rows, KA.cols);
+      O = nxr::signal::modeAnalysisOfComponents(ma.rows, nxr::signal::selectVertexRows(W, selection.source_vertex, 3), 3);
       components = 3;
     } else {
       const std::vector<double> mv = a.channel_map.values();

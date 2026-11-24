@@ -1390,6 +1390,11 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.meta["keep"] = h.basis.keep;
         a.meta["input_positions"] = h.input_positions;
         a.meta["input_surface_id"] = h.input_surface_id;
+        // a component surface (a hemisphere): the surface it is a part of and its first vertex there, so a node can SELECT a kernel's rows of that surface for it
+        if (const auto input = sub.db().read("manifold", h.input_surface_id); input && !nxr::io::is_null(*input, "component_of_id") && !nxr::io::is_null(*input, "from_index")) {
+          a.meta["input_component_of"] = text(*input, "component_of_id");
+          a.meta["input_from_index"] = nxr::io::integer(*input, "from_index");
+        }
         a.meta["name"] = h.stem; a.meta["id"] = h.id; a.meta["axis_id"] = h.axis_id;
         if (n.spec->reads_package_forms) {                                  // the full forms: the 2-form parts (as stored, float32 bytes) and the options of the package's complex
           const nxr::pipelines::HodgePackageForms f = nxr::pipelines::hodge_package_forms(sub, h);

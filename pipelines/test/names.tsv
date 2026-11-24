@@ -89,6 +89,9 @@ node	signal.atom_time_cells	-	composite
 node	stats.sign_flip_consistency	-	composite
 node	signal.sensor_power	-	composite
 node	stats.aperiodic_fit	-	composite
+node	signal.source_mode_operator	-	composite
+node	signal.cortical_flow	-	composite
+node	signal.cortical_time_cells	-	composite
 node	select.kernels	-	composite
 node	signal.flow_max_amplitude	-	composite
 node	signal.flow_series	-	composite

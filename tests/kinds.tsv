@@ -165,6 +165,7 @@ test_intrinsic_delaunay	unit
 test_intrinsic_forms	unit
 test_mode_spectrum	unit
 test_spectral_flow	unit
+test_source_flow	unit
 test_sign_flip	golden
 test_aperiodic	golden
 test_intrinsic_surface	unit
@@ -317,4 +318,5 @@ test_glue_onto	integration
 test_import_covariance	integration
 test_flow_map	integration
 test_sensor_flow	integration
+test_source_flow_nodes	integration
 test_migrate_eigensolve	integration
