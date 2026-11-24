@@ -89,7 +89,15 @@ SEL: dict = {"kinds": None, "fast": False}   # set from the command line (--kind
 def registered_commands() -> dict[str, list[str]]:
     """name -> command of every add_test in the build's CTestTestfile.cmake files: ctest's JSON omits the command of a test whose executable is not built yet"""
     out: dict[str, list[str]] = {}
-    for f in BUILD.rglob("CTestTestfile.cmake"):
+    files, todo = [], [BUILD / "CTestTestfile.cmake"]      # follow ctest's own chain (subdirs(...)), never a walk of the whole build tree
+    while todo:                                            # (a walk of the build folder, its dependencies and scratch data, hung on a slow drive)
+        f = todo.pop()
+        if not f.exists():
+            continue
+        files.append(f)
+        todo += [f.parent / d for d in re.findall(r'^\s*subdirs\("([^"]+)"\)', f.read_text(errors="ignore"), re.M)]
+        todo = [d / "CTestTestfile.cmake" if d.is_dir() else d for d in todo]
+    for f in files:
         for m in re.finditer(r'^\s*add_test\(\[=\[(.+?)\]=\]\s+(.*?)\)\s*$', f.read_text(errors="ignore"), re.M):
             out[m.group(1)] = [x or y or z for x, y, z in re.findall(r'"([^"]*)"|\[=\[(.*?)\]=\]|(\S+)', m.group(2))]
     return out

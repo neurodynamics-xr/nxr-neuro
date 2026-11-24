@@ -93,7 +93,7 @@ cheap and suited to a GPU, so the same graph runs on a CPU or a GPU, in nxr-neur
    recomputed there) to make it comparable; it stays in the template it was computed in.
 
 ## The rules most often broken, all in those documents
-- NO WASTE in builds and tests (CONTRIBUTING.md, *No waste*): build only the targets you changed; `tools/tests.py run REGEX` builds and runs only
+- NO WASTE in builds and tests (CONTRIBUTING.md, *No waste*): build only the targets you changed; `tools/tests.py status` and `run REGEX` never build (`tools/tests.py build REGEX`, asked for first, is the only command that compiles); `run` runs only
   the named tests and never reruns a green one; edit, build once, test once; the full build and suite only with `--suite`, at the end of a round.
 - io, orchestration and compute are separate. Only io writes SQL or touches the database; pipelines and the command line use io's task API.
 - Every pipeline is a YAML definition of registered nodes. Never write or extend a hand-wired C++ pipeline.

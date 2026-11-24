@@ -152,8 +152,9 @@ CMake 3.20+, Ninja, C++17. Clone with `--recurse-submodules` (geometry-central).
 
     cmake -S . -B build -G Ninja                         # configure once
     cmake --build build --target <the targets you changed> 2>&1 | tail -20
-    tools/tests.py status REGEX         # builds ONLY the matching tests' targets; lists green, stale, failed or new; runs nothing
-    tools/tests.py run REGEX            # builds ONLY the matching tests' targets; runs the stale, failed and new ones among them; records them
+    tools/tests.py status REGEX         # lists green, stale, failed, new or NOT BUILT; builds nothing and runs nothing (seconds)
+    tools/tests.py build REGEX          # the ONLY command that compiles: the matching tests' targets (ask first: no build without the maintainers' OK)
+    tools/tests.py run REGEX            # runs the stale, failed and new ones among them and records them; never builds: refuses tests not built
     tools/tests.py run '^(layering_.*|test_names_across_layers|<your tests>)$'   # ALWAYS with the guards: seconds, and they catch what CI finds after minutes
     tools/tests.py show TEST            # a test's last result and what it printed
     tools/tests.py run --suite          # the full build and suite: once, at the end of a round, never during development
