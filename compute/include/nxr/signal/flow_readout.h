@@ -3,6 +3,12 @@
 // rotation, for every flow (the sensor surface's field coordinates, the source mapping's composed kernel, the connectome's tiles). PURE MATHS: arrays in, arrays out;
 // nothing here knows a file, a chunk, a subject or where a readout came from.
 //
+//   pairFlow                per pair (p, q) of readouts U_p, U_q [components V x columns] the second-order readings of a cross-spectrum C = Y Yᴴ [columns x columns], summed
+//                           over the components: power per vertex Re(U_p,v conj(C) U_q,vᵀ); per pair of vertices (tail, tip) the sum U_p,tail conj(C) U_q,tipᵀ = Σ conj(z_tail) z_tip
+//                           over the draws (its imaginary part is the phase current; its real part the in-phase sum, which a normalised flow reads); and, when the pairs are
+//                           a mesh's edges and its sharp operator is given, the phase current per vertex Im(U_p,v conj(C) (grad U_q)_vᵀ) (3 components), the gradient never
+//                           formed (sharp acts on each vertex's own edges). Readouts: the sensor surface's synthesis Psi diag(h_q); a composed source kernel; tile averages.
+//                           Order: the cheaper of conj(C) U_qᵀ (dense) and conj(Y) (Yᵀ U_qᵀ) (factored: when Y has fewer than half as many draws as columns), once per band
 //   flowSplit               an edge current [E x m] split on the STORED Hodge-Dirac edge rows: its coefficients (projectOneForm: inner products, no solve), the travel
 //                           potential Σ_exact (c / mu) mode and the rotation stream Σ_coexact (c / mu) mode (the 1/mu gain: the full Poisson split when the basis is
 //                           complete), its ⋆1 energy; and, when a remainder split is given, the part beyond the kept modes split by sparse solves (a cortex)
@@ -29,6 +35,16 @@ private:
   const IntrinsicComplex* complex_;
   Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> vertexLaplacian_, faceLaplacian_;
 };
+
+struct PairFlow {
+  Eigen::MatrixXd power;                       // [V x bands²] pair p bands + q
+  Eigen::MatrixXd pairReal, pairImaginary;     // [P x bands²] Re and Im of Σ conj(z_tail) z_tip; the imaginary part is the phase current (travel tail -> tip gives < 0)
+  Eigen::MatrixXd vertexCurrent;               // [3V x bands²] rows 3 v + component; empty when no sharp operator is given
+};
+/** `weightedColumns` Y [columns x draws] (the cross-spectrum is Y Yᴴ, a sum), `readouts` each [components V x columns] component-major (rows c V + v), `pairs` [P x 2] flat
+ *  (tail, tip), `sharpWeights` [3V x P] (sharpOperator, only when the pairs are the complex's edges) or null. Throws std::invalid_argument on sizes that disagree. */
+PairFlow pairFlow(const Eigen::MatrixXcd& weightedColumns, const std::vector<Eigen::MatrixXd>& readouts, int components, const std::vector<std::int32_t>& pairs,
+                  const Eigen::SparseMatrix<double>* sharpWeights);
 
 struct FlowSplit {
   Eigen::MatrixXd coefficients;                          // [M x m] on the stored edge rows (exact: travel; coexact: rotation)
