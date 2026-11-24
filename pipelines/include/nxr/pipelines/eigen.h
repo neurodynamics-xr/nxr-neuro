@@ -62,7 +62,8 @@ struct HodgeDirac {
   std::int64_t n_vertices = 0;
   std::int64_t n_exact = 0, n_coexact = 0;
   double seconds = 0;                        // the solve
-  double top = 0;                            // the single lambda cut
+  double top = 0;                            // the single lambda cut (the complete solve: the largest lambda, no cut)
+  bool dense = false;                        // the complete dense solve of a small mesh was used (every mode)
   std::int64_t star1_clamped = 0;            // edges whose *1 was raised to the floor (0 without a floor)
   double mollify_epsilon = 0;                // the length mollification added to every edge (0 = none needed)
   std::int64_t flips = 0;                    // edge flips of the intrinsic Delaunay construction

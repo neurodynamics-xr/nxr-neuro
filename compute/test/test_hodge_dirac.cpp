@@ -262,6 +262,57 @@ static void testTopologyAndGuards() {
     }
 }
 
+// THE COMPLETE SOLVE of a small mesh (HodgeSolveOptions::denseLimit, asked for every mode): a disc gives nV − 1 exact and nF coexact modes, a closed sphere nV − 1 and nF − 1;
+// together nE modes (every edge 1-form), and the constant with the exact vertex rows is an M-orthonormal basis of the vertex functions (as many as vertices). The iterative
+// solve of the same count stops short (the issue it fixes); its lowest modes agree with the dense ones.
+static void testCompleteSolve() {
+    std::cout << "\n=== hodgeDiracModes: the complete dense solve of a small mesh ===\n";
+    // residualTolerance: the grid's diagonal edges have a cotan weight of 0, raised to the floor (1e-9 of the mean): the coexact ladder's condition is about 1e11, and its
+    // residual about eps times that
+    auto check = [](const char* what, const std::vector<double>& V, const std::vector<int32_t>& F, bool closed, double residualTolerance) {
+        const auto m = surfaceOf(V.data(), (int)V.size() / 3, F.data(), (int)F.size() / 3);
+        const HodgeDirac h = nxr::operators::hodgedirac::assemble(m);
+        nxr::operators::HodgeSolveOptions dense; dense.denseLimit = 3000;
+        const int count = h.nV + h.nF;
+        const nxr::operators::EigenResult r = nxr::operators::hodgeDiracModes(h, count, false, dense);
+        const int exact = (int)(r.kind.array() == 0).count(), coexact = (int)(r.kind.array() == 2).count();
+        std::printf("  %s: nV %d nE %d nF %d: exact %d coexact %d\n", what, h.nV, h.nE, h.nF, exact, coexact);
+        EXPECT(exact == h.nV - 1, std::string(what) + ": every exact mode (nV - 1)");
+        EXPECT(coexact == (closed ? h.nF - 1 : h.nF), std::string(what) + ": every coexact mode (the rank of d1)");
+        EXPECT(exact + coexact == h.nE, std::string(what) + ": as many modes as edges (the 1-forms are complete)");
+        // the field coordinates: the constant at unit star0 norm, then each exact mode's vertex rows psi (the stored rows are psi / sqrt 2)
+        Eigen::MatrixXd Psi(h.nV, exact + 1);
+        Psi.col(0).setConstant(1.0 / std::sqrt(h.star0.sum()));
+        int j = 1;
+        for (int c = 0; c < r.k; ++c) if (r.kind(c) == 0) Psi.col(j++) = r.eigenvectors.col(c).head(h.nV) * std::sqrt(2.0);
+        const double orth = (Psi.transpose() * h.star0.asDiagonal() * Psi - Eigen::MatrixXd::Identity(h.nV, h.nV)).cwiseAbs().maxCoeff();
+        EXPECT(Psi.cols() == h.nV && orth < 1e-8, std::string(what) + ": the constant and the exact vertex rows are an orthonormal basis of the vertex functions " + std::to_string(orth));
+        // the 1-form parts: orthonormal in star1 to 1/2, nE of them (relative to the largest entry: an edge whose cotan weight is at its floor carries large 1-form values)
+        const Eigen::MatrixXd W = r.eigenvectors.middleRows(h.nV, h.nE);
+        const double orth1 = (W.transpose() * h.star1.asDiagonal() * W - 0.5 * Eigen::MatrixXd::Identity(r.k, r.k)).cwiseAbs().maxCoeff();
+        EXPECT(orth1 < 1e-6, std::string(what) + ": the 1-form parts orthonormal to 1/2 " + std::to_string(orth1));
+        // every mode an eigenvector of the Dirac operator: K x = mu M x (relative residual)
+        double residual = 0;
+        for (int c = 0; c < r.k; ++c) {
+            const Eigen::VectorXd x = r.eigenvectors.col(c), Mx = h.M.cwiseProduct(x);
+            residual = std::max(residual, (h.K * x - r.eigenvalues(c) * Mx).norm() / (r.eigenvalues(c) * Mx.norm()));
+        }
+        EXPECT(residual < residualTolerance, std::string(what) + ": every mode solves K x = mu M x, relative residual " + std::to_string(residual));
+        // the iterative solve of the same count: short of complete; its lowest exact modes agree (its coexact ladder may lose low modes to its null rule when the ladder's top is
+        // very large, as on this grid's floored diagonal weights: an issue of the reference rule)
+        const nxr::operators::EigenResult it = nxr::operators::hodgeDiracModes(h, count);
+        EXPECT(it.k < r.k, std::string(what) + ": the iterative solve is short of complete");
+        std::vector<double> denseExact, iterativeExact;
+        for (int c = 0; c < r.k; ++c) if (r.kind(c) == 0) denseExact.push_back(r.eigenvalues(c));
+        for (int c = 0; c < it.k; ++c) if (it.kind(c) == 0) iterativeExact.push_back(it.eigenvalues(c));
+        double worst = 0;
+        for (int c = 0; c < 10; ++c) worst = std::max(worst, std::abs(iterativeExact[c] - denseExact[c]) / denseExact[c]);
+        EXPECT(worst < 1e-8, std::string(what) + ": the lowest ten exact mu agree with the iterative solve " + std::to_string(worst));
+    };
+    { std::vector<double> V; std::vector<int32_t> F; squareGrid(9, false, V, F); check("disc", V, F, false, 1e-4); }
+    { std::vector<double> V; std::vector<int32_t> F; icosphere(2, V, F); check("sphere", V, F, true, 1e-8); }
+}
+
 int main() {
     testStructure();
     testSpectrumAndSplit();
@@ -269,6 +320,7 @@ int main() {
     testRemoveDCAndRegistry();
     testReferenceMethod();
     testTopologyAndGuards();
+    testCompleteSolve();
     std::cout << (g_failures ? "\nFAILURES\n" : "\nALL PASSED\n");
     return g_failures ? 1 : 0;
 }
