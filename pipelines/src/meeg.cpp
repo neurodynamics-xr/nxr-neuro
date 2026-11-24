@@ -850,11 +850,11 @@ std::vector<float> stored_vertex_potentials(SubjectWriter& sub, const StoredEige
     const double sp = 0.5 * (l[0] + l[1] + l[2]);
     star2(f) = 1.0 / std::sqrt(std::max(sp * (sp - l[0]) * (sp - l[1]) * (sp - l[2]), 0.0));
   }
-  const std::int64_t r0 = e.V + e.E, block = 64;
+  const std::int64_t r0 = e.V + e.E, r1 = r0 + e.F, block = 64;   // the face rows
   for (std::size_t i = 0; i < coexact.size();) {
     const std::int64_t c0 = coexact[i], c1 = std::min<std::int64_t>(K, c0 + block);
     ArrayReader r = ArrayReader::open(sub.store(), path);
-    const std::vector<float> x2 = as_vector<float>(r.read({r0, c0}, {r0 + e.F, c1}), r.dtype());
+    const std::vector<float> x2 = as_vector<float>(r.read({r0, c0}, {r1, c1}), r.dtype());
     const std::int64_t w = c1 - c0;
     Eigen::MatrixXd X2(e.F, w);
     for (std::int64_t f = 0; f < e.F; ++f) for (std::int64_t j = 0; j < w; ++j) X2(f, j) = x2[static_cast<std::size_t>(f * w + j)];

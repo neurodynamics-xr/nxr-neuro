@@ -77,7 +77,7 @@ int main() {
     CHECK(g["medial_wall"].value("entry", std::string()) == "unassigned" && g["medial_wall"].value("code", -1) == 0 && !g["medial_wall"].value("id", std::string()).empty());
     CHECK(g.value("cortex_vertices", std::int64_t(-1)) == m && g.value("bridge_vertices", std::int64_t(-1)) == Vg - m);
     CHECK(g.value("rule", std::string()).find("ascending index") != std::string::npos);
-    CHECK(text(*sub.db().read("manifold", glued->id), "derived_from_id") == cortex->id);
+    CHECK(glued->row.value("derived_from_id", std::string()) == cortex->id);
   }
 
   // a field on the original [V x 2] and an operator to it [3V x 4] (a free orientation's three rows a vertex)
@@ -151,7 +151,7 @@ int main() {
     const Json& g = g2->producer["glue"];
     CHECK(g.value("hemispheres", std::string()) == "cortex_glued_hemispheres" && g.contains("rule") && g["medial_wall"].value("entry", std::string()) == "unassigned");
     CHECK(g2->producer.contains("edits") && g2->producer["edits"].size() == 2);
-    CHECK(opt_text(*sub.db().read("manifold", glued->id), "comment").value_or("").find("off the wall (ascending index)") != std::string::npos);
+    CHECK(g2->row.value("comment", std::string()).find("off the wall (ascending index)") != std::string::npos);
   }
   CHECK(migrate_glue(sub, std::string("cortex_glued"), "Structures", "Cortex L", "Cortex R")["glued"][0]["status"] == "already in the new form");
 
