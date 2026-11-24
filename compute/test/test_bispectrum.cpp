@@ -9,6 +9,7 @@
 #include <cmath>
 #include <complex>
 #include <functional>
+#include <algorithm>
 #include <iostream>
 #include <random>
 
@@ -43,6 +44,19 @@ ns::TripleSums direct(const Eigen::MatrixXd& g, std::int64_t f0, const std::vect
           s.productPower(r, t) += w * std::norm(X(r, i) * X(r, j)); s.sumPower(r, t) += w * std::norm(X(r, k));
         }
   return s;
+}
+// the direct cross sums: the first axis on X1, the second on X2, the sum on X3
+Eigen::MatrixXcd directCross(const Eigen::MatrixXd& g, std::int64_t f0, const std::vector<ns::AtomTriple>& triples, const Eigen::MatrixXcd& X1, const Eigen::MatrixXcd& X2, const Eigen::MatrixXcd& X3) {
+  const Eigen::Index R = X1.rows(), B = X1.cols(), T = static_cast<Eigen::Index>(triples.size());
+  Eigen::MatrixXcd b = Eigen::MatrixXcd::Zero(R, T);
+  for (Eigen::Index t = 0; t < T; ++t)
+    for (Eigen::Index r = 0; r < R; ++r)
+      for (Eigen::Index i = 0; i < B; ++i)
+        for (Eigen::Index j = 0; i + j + f0 < B; ++j) {
+          const auto& tr = triples[static_cast<std::size_t>(t)];
+          b(r, t) += g(tr.first, i) * g(tr.second, j) * g(tr.sum, i + j + f0) * X1(r, i) * X2(r, j) * std::conj(X3(r, i + j + f0));
+        }
+  return b;
 }
 double relative(const Eigen::MatrixXcd& a, const Eigen::MatrixXcd& b) { return (a - b).norm() / std::max(1e-300, b.norm()); }
 
@@ -102,6 +116,25 @@ int main() {
           }
         EXPECT(top <= 1 + 1e-12, label + ": both bicoherences are at most 1 (largest " + std::to_string(top) + ")");
       }
+    // every triple of bands: the first axis on band p's spectrum, the second on q's, the sum on r's
+    Eigen::MatrixXcd Y(R, B);
+    for (Eigen::Index r = 0; r < R; ++r) for (Eigen::Index k = 0; k < B; ++k) Y(r, k) = cd(nd(rng), nd(rng));
+    const std::vector<Eigen::MatrixXcd> bandSpectra{X, Y};
+    for (const auto* triples : {&coupling, &harmonic}) {
+      const ns::AtomTriples at = ns::atomTriples(g, 1, *triples);
+      const std::vector<ns::TripleSums> each = ns::bandTripleBispectrum(at, bandSpectra, ns::BicoherenceNormalisation::kim_powers);
+      double e = 0;
+      for (int p = 0; p < 2; ++p) for (int q = 0; q < 2; ++q) for (int r = 0; r < 2; ++r)
+        e = std::max(e, relative(each[static_cast<std::size_t>((p * 2 + q) * 2 + r)].bispectrum, directCross(g, 1, *triples, bandSpectra[p], bandSpectra[q], bandSpectra[r])));
+      EXPECT(e < 1e-12, std::string(triples == &coupling ? "(second, sum)" : "(first, second)") + " grouping: every band triple equals the direct cross sum (relative error " + std::to_string(e) + ")");
+    }
+    // the null's draw keeps every cross-spectrum between rows, bin by bin
+    Eigen::VectorXd phases(B);
+    for (Eigen::Index k = 0; k < B; ++k) phases(k) = 2 * M_PI * ud(rng);
+    const Eigen::MatrixXcd turned = ns::randomisePhases(X, phases);
+    double crossError = 0;
+    for (Eigen::Index k = 0; k < B; ++k) crossError = std::max(crossError, (turned.col(k) * turned.col(k).adjoint() - X.col(k) * X.col(k).adjoint()).norm());
+    EXPECT(crossError < 1e-12 && (turned - X).norm() > 1, "a phase-randomised chunk keeps every cross-spectrum between rows and changes the spectrum");
     ns::TripleSums twice = ns::atomBispectrum(ns::atomTriples(g, 0, coupling), X, ns::BicoherenceNormalisation::threenorm);
     twice += twice;
     EXPECT(relative(twice.bispectrum, 2.0 * direct(g, 0, coupling, X).bispectrum) < 1e-12, "the sums of two chunks are the sum of each");
@@ -160,6 +193,41 @@ int main() {
     EXPECT(threenormBicoherence(r, 0) > 0.15 && threenormBicoherence(r, 0) > 5 * threenormBicoherence(z, 0), "a sawtooth's harmonic gives a bicoherence on (8, 8, 16) over 5 times noise's");
     EXPECT(std::abs(biphase(r) - 90) < 5 && std::abs(biphase(f) + 90) < 5, "rise-decay asymmetry is the imaginary part: +90 degrees for a slow rise, -90 for a fast rise");
     EXPECT(std::abs(biphase(p)) < 5 && std::abs(std::abs(biphase(q)) - 180) < 5, "peak-trough asymmetry is the real part: 0 for sharp peaks, 180 for sharp troughs");
+  }
+
+  // ── the null: phase-randomised segments; on Gaussian noise the p values are uniform ──
+  {
+    Eigen::MatrixXd g(2, bins);
+    g.row(0) = ns::gaussianAtomGains(frequency, {6.0}, {0.6}, 1.0);
+    g.row(1) = ns::gaussianAtomGains(frequency, {40.0}, {5.0}, 1.0);
+    const ns::AtomTriples at = ns::atomTriples(g, 0, {{0, 1, 1}});
+    const Eigen::Index rows = 200, draws = 99, segs = 20;
+    std::vector<Eigen::MatrixXcd> spectra;
+    for (Eigen::Index s = 0; s < segs; ++s) {
+      Eigen::MatrixXd x(n, rows);
+      for (Eigen::Index r = 0; r < rows; ++r) for (int t = 0; t < n; ++t) x(t, r) = nd(rng);
+      spectra.push_back(Eigen::MatrixXcd(ns::rfft(x, 0).topRows(bins).transpose()));
+    }
+    auto bicoherence = [&](const Eigen::MatrixXd* phases) {
+      ns::TripleSums total;
+      for (Eigen::Index s = 0; s < segs; ++s) total += ns::atomBispectrum(at, phases ? ns::randomisePhases(spectra[s], phases->row(s).transpose()) : spectra[s], ns::BicoherenceNormalisation::threenorm);
+      return Eigen::VectorXd(ns::bicoherenceOf(total, ns::BicoherenceNormalisation::threenorm).col(0));
+    };
+    Eigen::MatrixXd null(draws, rows);
+    for (Eigen::Index d = 0; d < draws; ++d) {
+      Eigen::MatrixXd phases(segs, bins);
+      for (Eigen::Index s = 0; s < segs; ++s) for (Eigen::Index k = 0; k < bins; ++k) phases(s, k) = 2 * M_PI * ud(rng);
+      null.row(d) = bicoherence(&phases).transpose();
+    }
+    const ns::ExceedancePValues pv = ns::exceedancePValues(bicoherence(nullptr), null);
+    std::vector<double> p(pv.p.data(), pv.p.data() + rows);
+    std::sort(p.begin(), p.end());
+    double ks = 0;
+    for (std::size_t i = 0; i < p.size(); ++i) ks = std::max({ks, std::abs(p[i] - double(i) / rows), std::abs(p[i] - double(i + 1) / rows)});
+    const double below = std::count_if(p.begin(), p.end(), [](double v) { return v <= 0.05; }) / double(rows);
+    std::cout << "    null on noise: Kolmogorov-Smirnov distance of the p values from uniform " << ks << ", share p <= 0.05 " << below << ", smallest family-wise p " << pv.familyP.minCoeff() << "\n";
+    // the smallest family-wise p over the cells is itself uniform under the null (it falls below 0.05 one time in twenty): bounded at 0.01
+    EXPECT(ks < 0.12 && below > 0.01 && below < 0.1 && pv.familyP.minCoeff() > 0.01, "on Gaussian noise the null's p values are uniform and the family-wise p is not small");
   }
 
   // ── the flow across frequencies ──

@@ -62,4 +62,22 @@ struct TripleSums {
 /** one chunk's sums: `spectrum` [rows x bins] (the bins of `triples.gains`). Throws std::invalid_argument on bins that disagree. */
 TripleSums atomBispectrum(const AtomTriples& triples, const Eigen::MatrixXcd& spectrum, BicoherenceNormalisation normalisation);
 
+/** COUPLING ACROSS SPATIAL SCALES: one chunk's sums for every TRIPLE OF BANDS (p, q, r), the first axis read on band p's field, the second on band q's, the sum on band r's
+ *  (`bands` [Q] each [rows x bins]: the same rows, e.g. the vertices of each band's field, its gains composed with the synthesis first). Index (p Q + q) Q + r. The correlation of
+ *  (second, sum) is formed once per pair of bands (q, r) and read with every first band (or the convolution of (first, second) once per (p, q)): Q² transforms per distinct pair
+ *  of gains, never Q³. `atomBispectrum` is the one-band case. Throws std::invalid_argument on sizes that disagree. */
+std::vector<TripleSums> bandTripleBispectrum(const AtomTriples& triples, const std::vector<Eigen::MatrixXcd>& bands, BicoherenceNormalisation normalisation);
+
+/** THE NULL'S DRAW: a spectrum [rows x bins] with each bin turned by its phase (`phases` [bins], radians), the same turn for every row, so the magnitudes and every
+ *  cross-spectrum between rows are kept and only the phase relations between bins (what a bispectrum reads) are destroyed */
+Eigen::MatrixXcd randomisePhases(const Eigen::MatrixXcd& spectrum, const Eigen::VectorXd& phases);
+
+/** the bicoherence of summed triples [rows x triples]: threenorm |B| / cbrt(c1 c2 c3), kim_powers |B|² / (product power x sum power), none |B| (0 where the normaliser is 0) */
+Eigen::MatrixXd bicoherenceOf(const TripleSums& sums, BicoherenceNormalisation normalisation);
+
+/** THE NULL'S p VALUES: `observed` [cells], `null` [draws x cells]. p = (#(null >= observed) + 1) / (draws + 1) per cell; the family-wise p over the cells
+ *  (#(the draw's largest cell >= observed) + 1) / (draws + 1); the 95th percentile of the draws' largest cell. Throws on sizes that disagree or no draw. */
+struct ExceedancePValues { Eigen::VectorXd p, familyP; double familyThreshold = 0; };
+ExceedancePValues exceedancePValues(const Eigen::VectorXd& observed, const Eigen::MatrixXd& null);
+
 }  // namespace nxr::signal

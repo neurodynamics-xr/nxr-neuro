@@ -23,27 +23,30 @@ scope: subject
 inputs:
   spectra: {statistic: any, where: {name: $spectra}, hint: "the chunk spectra the sensor flow pipeline stored (`nxr-neuro run sensor_flow` first: <name>_chunk_spectra)"}
   atoms:   {selection: any, where: {name: $atoms}, hint: "the frequency atoms, a kernel set on the spectra's frequency line (the flow's: `nxr-neuro run select_kernels --profile gaussian`)"}
-  package: {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, when: {space: surface}, hint: "the sensor surface's Hodge-Dirac solve the coordinates are on"}
+  package: {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, required: false, hint: "the sensor surface's Hodge-Dirac solve the coordinates are on (space surface or band_triples)"}
   bands:   {selection: any, where: {name: $bands}, when: {banded: true}, hint: "the eigenvalue bands, a kernel set on the eigenvalue line (`nxr-neuro run select_kernels --profile cos2_partition`)"}
 
 parameters:
   spectra: {default: null, meaning: "the stored chunk spectra's name", unit: "-"}
   atoms: {default: null, meaning: "the frequency atoms' kernel set by name", unit: "-"}
-  package: {default: null, meaning: "the Hodge-Dirac solve's stem (space surface)", unit: "-"}
+  package: {default: null, meaning: "the Hodge-Dirac solve's stem (space surface or band_triples)", unit: "-"}
   bands: {default: null, meaning: "the eigenvalue bands' kernel set by name (banded true)", unit: "-"}
   readings: {default: [phase_amplitude_coupling, harmonics], meaning: "the triples read: phase_amplitude_coupling (low, high, high; Zandvoort and Nolte 2021) and harmonics (atom, atom, atom at twice its frequency; Bartz et al. 2019)", unit: "-"}
   normalisation: {default: threenorm, meaning: "the sums kept for the bicoherence: threenorm (Shahbazi Avarvand et al. 2018) | kim_powers (Kim and Powers 1979; Hagihira et al. 2001) | none", unit: "-", choices: [threenorm, kim_powers, none]}
-  space: {default: coordinates, meaning: "coordinates (each field coordinate with itself) | surface (each vertex of the sensor surface; per band with banded true)", unit: "-", choices: [coordinates, surface]}
-  banded: {default: false, meaning: "space surface: the field of each eigenvalue band read on its own (the synthesis composed with the band's gains first)", unit: "-"}
+  space: {default: coordinates, meaning: "coordinates (each field coordinate with itself) | surface (each vertex of the sensor surface; per band with banded true) | band_triples (each vertex, every triple of eigenvalue bands: coupling across spatial scales; needs banded true)", unit: "-", choices: [coordinates, surface, band_triples]}
+  banded: {default: false, meaning: "space surface or band_triples: the eigenvalue bands named in bands are read (the synthesis composed with each band's gains first)", unit: "-"}
+  null_draws: {default: 100, meaning: "the phase-randomised chunks drawn for the null (each chunk's spectrum kept, each bin's phase randomised, common to every coordinate): p per reading and family-wise over the readings; 0: no null", unit: draws}
+  seed: {default: 0, meaning: "the seed of numpy's default_rng for the null's phases", unit: "-"}
   frequency_normalisation: {default: sum_of_squared_gains, meaning: "the atoms as the flow weights them: sum_of_squared_gains | none", unit: "-", choices: [sum_of_squared_gains, none]}
   support_floor: {default: 0.001, meaning: "with sum_of_squared_gains: a bin whose atoms' squared gains sum to less than this fraction of their largest sum lies outside the atoms", unit: "-"}
   name: {default: "{spectra}_bispectrum", meaning: "the stored statistic's name", unit: "-"}
 
 steps:
   before:
-    - {node: signal.bispectrum, in: {spectra: spectra, frequency: atoms}, with: {readings: $readings, normalisation: $normalisation, space: coordinates, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: bispectrum, when: {space: coordinates}}
-    - {node: signal.bispectrum, in: {spectra: spectra, frequency: atoms, package: package}, with: {readings: $readings, normalisation: $normalisation, space: surface, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: bispectrum, when: {space: surface, banded: false}}
-    - {node: signal.bispectrum, in: {spectra: spectra, frequency: atoms, package: package, scale: bands}, with: {readings: $readings, normalisation: $normalisation, space: surface, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: bispectrum, when: {space: surface, banded: true}}
+    - {node: signal.bispectrum, in: {spectra: spectra, frequency: atoms}, with: {readings: $readings, normalisation: $normalisation, space: coordinates, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, null_draws: $null_draws, seed: $seed}, out: bispectrum, when: {space: coordinates}}
+    - {node: signal.bispectrum, in: {spectra: spectra, frequency: atoms, package: package}, with: {readings: $readings, normalisation: $normalisation, space: surface, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, null_draws: $null_draws, seed: $seed}, out: bispectrum, when: {space: surface, banded: false}}
+    - {node: signal.bispectrum, in: {spectra: spectra, frequency: atoms, package: package, scale: bands}, with: {readings: $readings, normalisation: $normalisation, space: surface, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, null_draws: $null_draws, seed: $seed}, out: bispectrum, when: {space: surface, banded: true}}
+    - {node: signal.bispectrum, in: {spectra: spectra, frequency: atoms, package: package, scale: bands}, with: {readings: $readings, normalisation: $normalisation, space: band_triples, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, null_draws: $null_draws, seed: $seed}, out: bispectrum, when: {space: band_triples, banded: true}}
 
 outputs:
   bispectrum: {kind: statistic, name: $name, of: spectra}

@@ -139,7 +139,7 @@ int main() {
   auto frac = [](double v) { return v - std::floor(v); };
   const ng::Array saw = serve([&](int v, double t) { return (1.0 + 0.5 * V[3 * v + 2]) * (2.0 * frac(8.0 * t) - 1.0) + noise(); });
   const Json bp = Json{{"readings", Json::array({"phase_amplitude_coupling", "harmonics"})}, {"normalisation", "threenorm"}, {"space", "coordinates"},
-                       {"frequency_normalisation", "sum_of_squared_gains"}, {"support_floor", 1e-3}};
+                       {"frequency_normalisation", "sum_of_squared_gains"}, {"support_floor", 1e-3}, {"null_draws", 0}};
   const ng::Arrays coords = run_array(ng::registry().at("signal.bispectrum"), ng::Arrays{{"spectra", saw}, {"frequency", kernel_set(atoms_at({4.0, 8.0, 16.0}))}}, bp);
   const ng::Array& bc = coords.at("bispectrum");
   const Json triples = bc.meta.at("describe").at("attributes").at("triples");
@@ -156,7 +156,7 @@ int main() {
   std::printf("  sawtooth, 8 Hz harmonics, constant coordinate: biphase %.1f degrees\n", constant);
   CHECK(std::abs(constant - 90.0) < 10.0);
   const ng::Arrays onSurface = run_array(ng::registry().at("signal.bispectrum"), ng::Arrays{{"spectra", saw}, {"frequency", kernel_set(atoms_at({4.0, 8.0, 16.0}))}, {"package", H}},
-                                         Json{{"readings", Json::array({"harmonics"})}, {"normalisation", "kim_powers"}, {"space", "surface"}, {"frequency_normalisation", "none"}});
+                                         Json{{"readings", Json::array({"harmonics"})}, {"normalisation", "kim_powers"}, {"space", "surface"}, {"frequency_normalisation", "none"}, {"null_draws", 0}});
   const ng::Array& bs = onSurface.at("bispectrum");
   CHECK(bs.rows == nV * 3 && bs.cols == 4);
   std::vector<double> off;
@@ -167,8 +167,34 @@ int main() {
   for (const double c : {1.0, 4.0}) bands.push_back(Json{{"start", c}, {"stop", c}, {"family", "cos2_partition"}, {"chart", "log2"}, {"gain", 1.0}});
   const ng::Arrays banded = run_array(ng::registry().at("signal.bispectrum"),
                                       ng::Arrays{{"spectra", saw}, {"frequency", kernel_set(atoms_at({4.0, 8.0, 16.0}))}, {"package", H}, {"scale", kernel_set(bands)}},
-                                      Json{{"readings", Json::array({"harmonics"})}, {"normalisation", "none"}, {"space", "surface"}, {"frequency_normalisation", "none"}});
+                                      Json{{"readings", Json::array({"harmonics"})}, {"normalisation", "none"}, {"space", "surface"}, {"frequency_normalisation", "none"}, {"null_draws", 0}});
   CHECK(banded.at("bispectrum").rows == nV * 3 * 2 && banded.at("bispectrum").cols == 2);
+
+  // ── coupling across spatial scales: a 6 Hz rhythm on a coarse pattern whose phase sets the amplitude of a 30 Hz rhythm on a fine pattern ──
+  {
+    auto fine = [&](int v) { const double z = V[3 * v + 2]; return (35 * z * z * z * z - 30 * z * z + 3) / 8.0; };   // a degree-4 zonal pattern (mu about 4.5)
+    const ng::Array planted = serve([&](int v, double t) {
+      const double low = std::cos(2 * M_PI * 6 * t);
+      return V[3 * v + 2] * low + fine(v) * (1 + 0.8 * low) * std::cos(2 * M_PI * 30 * t) + noise(); });
+    const ng::Arrays triples3 = run_array(ng::registry().at("signal.bispectrum"),
+                                          ng::Arrays{{"spectra", planted}, {"frequency", kernel_set(atoms_at({6.0, 30.0}))}, {"package", H}, {"scale", kernel_set(bands)}},
+                                          Json{{"readings", Json::array({"phase_amplitude_coupling"})}, {"normalisation", "threenorm"}, {"space", "band_triples"},
+                                               {"frequency_normalisation", "none"}, {"null_draws", 39}, {"seed", 0}});
+    const ng::Array& bt = triples3.at("bispectrum");
+    CHECK(bt.rows == nV * 8 && bt.cols == 7);                                    // one coupling triple x 8 band triples; B, three cube sums, two p values
+    std::vector<double> total(8, 0.0);
+    double smallestFamilyP = 1;
+    for (int v = 0; v < nV; ++v)
+      for (int m = 0; m < 8; ++m) {
+        const double* x = &bt.data[static_cast<std::size_t>((v * 8 + m) * bt.cols)];
+        total[static_cast<std::size_t>(m)] += std::hypot(x[0], x[1]);
+        if (m == 3) smallestFamilyP = std::min(smallestFamilyP, x[6]);
+      }
+    const int strongest = static_cast<int>(std::max_element(total.begin(), total.end()) - total.begin());
+    std::printf("  planted coarse-phase / fine-amplitude coupling: the strongest band triple %d (want 3 = coarse, fine, fine); its smallest family-wise p %.3f\n", strongest, smallestFamilyP);
+    CHECK(strongest == 3);                                                       // (p, q, r) = (0, 1, 1): index (0 x 2 + 1) x 2 + 1
+    CHECK(smallestFamilyP <= 0.025 + 1e-12);
+  }
 
   // ── the flow across frequencies: waves travelling at 8 and 16 Hz ──
   const Json fp = Json{{"frequency_weighting", "kernels"}, {"frequency_normalisation", "sum_of_squared_gains"}, {"support_floor", 1e-3}};
@@ -190,7 +216,7 @@ int main() {
   // ── refusals ──
   CHECK(refused([&] { run_array(ng::registry().at("signal.bispectrum"), ng::Arrays{{"spectra", saw}, {"frequency", kernel_set(atoms_at({8.0}))}}, Json{{"readings", Json::array({"harmonics"})}}); }));
   ng::Types t2; t2["spectra"] = pk; t2["frequency"] = pk;
-  CHECK(refused([&] { ng::registry().at("signal.bispectrum").plan(t2, Json{{"readings", Json::array({"harmonics"})}, {"normalisation", "threenorm"}, {"space", "surface"}, {"frequency_normalisation", "none"}}); }));
+  CHECK(refused([&] { ng::registry().at("signal.bispectrum").plan(t2, Json{{"readings", Json::array({"harmonics"})}, {"normalisation", "threenorm"}, {"space", "surface"}, {"frequency_normalisation", "none"}, {"null_draws", 0}}); }));
   CHECK(refused([&] { ng::registry().at("signal.bispectrum").plan(t2, Json{{"readings", Json::array({"skewness"})}, {"normalisation", "threenorm"}, {"space", "coordinates"}, {"frequency_normalisation", "none"}}); }));
   return nxrtest::finish("test_sensor_bispectrum");
 }

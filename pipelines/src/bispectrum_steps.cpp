@@ -25,6 +25,7 @@
 #include "nxr/signal/flow_across_frequencies.h"
 #include "nxr/signal/intrinsic_forms.h"
 #include "nxr/signal/spectral_flow.h"
+#include "nxr/stats/sign_flip.h"
 
 namespace nxr::pipelines::graph {
 
@@ -184,7 +185,9 @@ void check_bispectrum_parameters(const Json& p) {
   for (const auto& r : p["readings"]) if (r != "phase_amplitude_coupling" && r != "harmonics") ng::refuse(std::string(kBispectrum) + ": a reading is phase_amplitude_coupling or harmonics");
   try { nxr::signal::bicoherenceNormalisationOf(text_of(p, "normalisation", kBispectrum)); } catch (const std::invalid_argument& e) { ng::refuse(std::string(kBispectrum) + ": " + e.what()); }
   const std::string space = text_of(p, "space", kBispectrum);
-  if (space != "coordinates" && space != "surface") ng::refuse(std::string(kBispectrum) + ": space is coordinates or surface");
+  if (space != "coordinates" && space != "surface" && space != "band_triples") ng::refuse(std::string(kBispectrum) + ": space is coordinates, surface or band_triples");
+  if (!p.contains("null_draws") || !p["null_draws"].is_number_integer() || p["null_draws"].get<std::int64_t>() < 0) ng::refuse(std::string(kBispectrum) + ": null_draws has no default: name it (0: no null)");
+  if (p["null_draws"].get<std::int64_t>() > 0 && !(p.contains("seed") && p["seed"].is_number_integer() && p["seed"].get<std::int64_t>() >= 0)) ng::refuse(std::string(kBispectrum) + ": seed has no default: name it (>= 0)");
   const std::string fn = text_of(p, "frequency_normalisation", kBispectrum);
   if (fn == "sum_of_squared_gains" && !(p.contains("support_floor") && p["support_floor"].is_number())) ng::refuse(std::string(kBispectrum) + ": support_floor has no default: name it");
 }
@@ -205,7 +208,11 @@ ng::NodeSpec bispectrum() {
       {"normalisation", Json(), "the sums kept for the bicoherence: threenorm (Shahbazi Avarvand et al. 2018: the cube sums) | kim_powers (Kim and Powers 1979, Hagihira et al. 2001: the product "
                                 "and sum powers) | none (no default)", "-", {"threenorm", "kim_powers", "none"}, false},
       {"space", Json(), "where the triple products are read: coordinates (each field coordinate with itself) | surface (each vertex of the surface: the coordinates synthesised, per band "
-                        "when bands are given; the synthesis composed with the band's gains first) (no default)", "-", {"coordinates", "surface"}, false},
+                        "when bands are given; the synthesis composed with the band's gains first) | band_triples (each vertex, every TRIPLE of eigenvalue bands: the first axis read on band "
+                        "p's field, the second on band q's, the sum on band r's: coupling across spatial scales) (no default)", "-", {"coordinates", "surface", "band_triples"}, false},
+      {"null_draws", Json(), "the phase-randomised chunks drawn for the null (each chunk's spectrum kept, each bin turned by a random phase common to every coordinate): p per reading and "
+                             "family-wise over the readings; 0: no null (no default)", "draws", {}, false},
+      {"seed", Json(), "the seed of numpy's default_rng for the null's phases (no default with draws)", "-", {}, true},
       {"frequency_normalisation", Json(), "the atoms as signal.spectral_flow weights them: sum_of_squared_gains | none (no default)", "-", {"sum_of_squared_gains", "none"}, false},
       {"support_floor", Json(), "with sum_of_squared_gains: as signal.spectral_flow's (no default)", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64,
@@ -219,7 +226,8 @@ ng::NodeSpec bispectrum() {
     for (const char* k : {"spectra", "frequency"}) if (!in.count(k)) ng::refuse(std::string(kBispectrum) + ": " + k + " is not given");
     check_bispectrum_parameters(p);
     const std::string space = p["space"].get<std::string>();
-    if (space == "surface" && !in.count("package")) ng::refuse(std::string(kBispectrum) + ": space surface needs the package (the coordinates' synthesis)");
+    if (space != "coordinates" && !in.count("package")) ng::refuse(std::string(kBispectrum) + ": space " + space + " needs the package (the coordinates' synthesis)");
+    if (space == "band_triples" && !in.count("scale")) ng::refuse(std::string(kBispectrum) + ": space band_triples needs the eigenvalue bands (scale)");
     if (space == "coordinates" && in.count("scale")) ng::refuse(std::string(kBispectrum) + ": bands apply on the surface only (per coordinate, a band is a selection of the coordinate rows at read)");
     ng::Planned out;
     ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "statistic"; out.out["bispectrum"] = t;
@@ -231,7 +239,7 @@ ng::NodeSpec bispectrum() {
     pr.spectra = handed(c, "spectra", kBispectrum);
     pr.atoms = members_of(handed(c, "frequency", kBispectrum), kBispectrum, "frequency");
     pr.p = p;
-    if (p.at("space") == "surface") {
+    if (p.at("space") != "coordinates") {
       const BoundPackage b = bind_hodge_package(handed(c, "package", kBispectrum), kBispectrum);
       pr.complex = b.complex; pr.modes = b.modes;
       if (given(c, "scale")) {
@@ -275,7 +283,8 @@ ng::NodeSpec bispectrum() {
     const nxr::signal::AtomTriples plan = nxr::signal::atomTriples(gains, s.first, triples);
     for (std::size_t t = 0; t < triples.size(); ++t) listed[t]["weight"] = plan.weight(static_cast<Eigen::Index>(t));
     const auto normalisation = nxr::signal::bicoherenceNormalisationOf(pr.p.at("normalisation").get<std::string>());
-    const bool surface = pr.p.at("space") == "surface";
+    const std::string space = pr.p.at("space").get<std::string>();
+    const bool surface = space != "coordinates", bandTriples = space == "band_triples";
     // the operators from the coordinates to the rows read: none (each coordinate), or the synthesis composed with each band's gains (one [S x K] each, applied to the coefficients)
     std::vector<Eigen::MatrixXd> operators;
     if (surface) {
@@ -284,18 +293,58 @@ ng::NodeSpec bispectrum() {
       if (pr.bands.rows() == 0) operators.push_back(Psi);
       for (Eigen::Index q = 0; q < pr.bands.rows(); ++q) operators.push_back(Psi * pr.bands.row(q).transpose().asDiagonal());
     }
-    const Eigen::Index groups = surface ? static_cast<Eigen::Index>(operators.size()) : 1;
-    std::vector<nxr::signal::TripleSums> sums(static_cast<std::size_t>(groups));
-    for (std::int64_t t = 0; t < s.chunks; ++t) {
-      const Eigen::MatrixXcd X = s.chunk(t);
-      if (!surface) { sums[0] += nxr::signal::atomBispectrum(plan, X, normalisation); continue; }
-      for (Eigen::Index q = 0; q < groups; ++q) sums[static_cast<std::size_t>(q)] += nxr::signal::atomBispectrum(plan, Eigen::MatrixXcd(operators[static_cast<std::size_t>(q)].cast<cd>() * X), normalisation);
+    const Eigen::Index Q = static_cast<Eigen::Index>(operators.size());
+    const Eigen::Index groups = !surface ? 1 : bandTriples ? Q * Q * Q : Q;              // the members beside the triples: each band (surface), each band triple (band_triples)
+    // the sums over the chunks, each chunk's phases turned when `phases` is given (a draw of the null: [chunks x bins])
+    auto sums_of = [&](const Eigen::MatrixXd* phases) {
+      std::vector<nxr::signal::TripleSums> sums(static_cast<std::size_t>(groups));
+      for (std::int64_t t = 0; t < s.chunks; ++t) {
+        Eigen::MatrixXcd X = s.chunk(t);
+        if (phases) X = nxr::signal::randomisePhases(X, phases->row(t).transpose());
+        if (!surface) { sums[0] += nxr::signal::atomBispectrum(plan, X, normalisation); continue; }
+        std::vector<Eigen::MatrixXcd> fields;
+        for (const auto& op : operators) fields.push_back(op.cast<cd>() * X);
+        if (bandTriples) {
+          const std::vector<nxr::signal::TripleSums> each = nxr::signal::bandTripleBispectrum(plan, fields, normalisation);
+          for (std::size_t g = 0; g < each.size(); ++g) sums[g] += each[g];
+        } else {
+          for (Eigen::Index q = 0; q < Q; ++q) sums[static_cast<std::size_t>(q)] += nxr::signal::atomBispectrum(plan, fields[static_cast<std::size_t>(q)], normalisation);
+        }
+      }
+      return sums;
+    };
+    const std::vector<nxr::signal::TripleSums> sums = sums_of(nullptr);
+    const Eigen::Index R = sums[0].bispectrum.rows(), T = static_cast<Eigen::Index>(triples.size()), cells = T * groups;
+    // every reading's bicoherence, in the stored order (element, then member: the triple fastest)
+    auto readings_of = [&](const std::vector<nxr::signal::TripleSums>& g) {
+      Eigen::VectorXd v(R * cells);
+      for (Eigen::Index q = 0; q < groups; ++q) {
+        const Eigen::MatrixXd b = nxr::signal::bicoherenceOf(g[static_cast<std::size_t>(q)], normalisation);
+        for (Eigen::Index r = 0; r < R; ++r) for (Eigen::Index t = 0; t < T; ++t) v(r * cells + q * T + t) = b(r, t);
+      }
+      return v;
+    };
+    // THE NULL: phase-randomised chunks (each chunk's spectrum kept, each bin turned by a phase common to every coordinate), numpy default_rng(seed).random() x 2 pi,
+    // drawn draw by draw, chunk by chunk, bin by bin
+    const std::int64_t draws = pr.p.at("null_draws").get<std::int64_t>();
+    nxr::signal::ExceedancePValues pvalues;
+    if (draws > 0) {
+      nxr::stats::NumpyGenerator rng(pr.p.at("seed").get<std::uint64_t>());
+      Eigen::MatrixXd null(draws, R * cells);
+      for (std::int64_t d = 0; d < draws; ++d) {
+        Eigen::MatrixXd phases(s.chunks, s.bins);
+        for (std::int64_t t = 0; t < s.chunks; ++t) for (std::int64_t k = 0; k < s.bins; ++k) phases(t, k) = 2.0 * M_PI * rng.random();
+        null.row(d) = readings_of(sums_of(&phases)).transpose();
+      }
+      pvalues = nxr::signal::exceedancePValues(readings_of(sums), null);
     }
-    // the stored array: element x (triple, band: the triple fastest) x measure
+    // the stored array: element x (triple, member: the triple fastest) x measure
     std::vector<std::string> measures = {"bispectrum_real", "bispectrum_imaginary"};
     if (normalisation == nxr::signal::BicoherenceNormalisation::threenorm) for (const char* m : {"first_cube", "second_cube", "sum_cube"}) measures.push_back(m);
     if (normalisation == nxr::signal::BicoherenceNormalisation::kim_powers) for (const char* m : {"product_power", "sum_power"}) measures.push_back(m);
-    const Eigen::Index R = sums[0].bispectrum.rows(), T = static_cast<Eigen::Index>(triples.size()), cells = T * groups, Mn = static_cast<Eigen::Index>(measures.size());
+    const std::size_t sumsMeasures = measures.size();
+    if (draws > 0) for (const char* m : {"null_p", "null_p_family"}) measures.push_back(m);
+    const Eigen::Index Mn = static_cast<Eigen::Index>(measures.size());
     ng::Array out;
     out.rows = R * cells; out.cols = Mn;
     out.data.assign(static_cast<std::size_t>(R * cells * Mn), 0.0);
@@ -303,10 +352,12 @@ ng::NodeSpec bispectrum() {
       const nxr::signal::TripleSums& g = sums[static_cast<std::size_t>(q)];
       for (Eigen::Index r = 0; r < R; ++r)
         for (Eigen::Index t = 0; t < T; ++t) {
-          double* row = &out.data[static_cast<std::size_t>(((r * cells) + q * T + t) * Mn)];
+          const Eigen::Index cell = r * cells + q * T + t;
+          double* row = &out.data[static_cast<std::size_t>(cell * Mn)];
           row[0] = g.bispectrum(r, t).real(); row[1] = g.bispectrum(r, t).imag();
           if (normalisation == nxr::signal::BicoherenceNormalisation::threenorm) { row[2] = g.firstCube(r, t); row[3] = g.secondCube(r, t); row[4] = g.sumCube(r, t); }
           if (normalisation == nxr::signal::BicoherenceNormalisation::kim_powers) { row[2] = g.productPower(r, t); row[3] = g.sumPower(r, t); }
+          if (draws > 0) { row[sumsMeasures] = pvalues.p(cell); row[sumsMeasures + 1] = pvalues.familyP(cell); }
         }
     }
     Json measureList = Json::array(), measureNames = Json::array();
@@ -328,13 +379,16 @@ ng::NodeSpec bispectrum() {
                                                            "Shahbazi Avarvand et al. 2018 (NeuroImage 174:352)", "Bartz et al. 2019 (NeuroImage 188:833)", "Zandvoort and Nolte 2021 (J Neurosci Methods 350:109032)"})},
                                {"normalisation", pr.p.at("normalisation")}, {"space", pr.p.at("space")}, {"frequency_normalisation", pr.p.value("frequency_normalisation", Json())},
                                {"grouping", plan.groupedBySecondAndSum ? "(second, sum) correlated once per pair, read with each first atom" : "(first, second) convolved once per pair, read with each sum atom"},
-                               {"distinct_pairs", plan.groups.size()}, {"chunks", s.chunks}, {"bins", s.bins}, {"sfreq", s.sfreq}, {"transform_samples", s.transform},
+                               {"distinct_pairs", plan.groups.size()}, {"bands", Q}, {"null", draws > 0 ? Json{{"method", "phase-randomised chunks: each chunk's spectrum kept, each bin turned by a phase common to every coordinate (every cross-spectrum kept)"},
+                                                                                   {"draws", draws}, {"seed", pr.p.at("seed")}, {"rng", "numpy default_rng(seed).random() x 2 pi, draw by draw, chunk by chunk, bin by bin"},
+                                                                                   {"statistic", "the bicoherence of the normalisation (|B| with none)"}, {"family", "every reading of the run (element x member)"},
+                                                                                   {"family_threshold_95", pvalues.familyThreshold}} : Json()}, {"chunks", s.chunks}, {"bins", s.bins}, {"sfreq", s.sfreq}, {"transform_samples", s.transform},
                                {"sign", "numpy's forward transform (exp(-2 pi i j k / n)); B = x(f1) x(f2) conj(x(f1 + f2)) is invariant to the chunk's time origin"}};
     out.meta["describe"] = Json{{"method", "bispectrum"}, {"measure", "bispectrum"}, {"shape", Json::array({R, cells, Mn})},
                                 {"axes", Json::array({indexed_axis("element", R, surface ? Json() : elements), indexed_axis("member", cells), indexed_axis("measure", Mn, measureNames)})},
                                 {"measures", measureList}, {"values_shape", Json::array({R, cells})}, {"unit", "(spectra unit)^3"},
                                 {"attributes", Json{{"rows", surface ? "the vertices of the surface" : "the field coordinates (each with itself)"},
-                                                    {"members", groups > 1 ? "triple x band, the triple fastest" : "the triples"}, {"triples", listed}, {"bands", surface ? pr.bands.rows() : 0},
+                                                    {"members", bandTriples ? "triple x band triple (p, q, r: index (p Q + q) Q + r), the triple fastest" : groups > 1 ? "triple x band, the triple fastest" : "the triples"}, {"triples", listed}, {"bands", surface ? pr.bands.rows() : 0},
                                                     {"sum_over", "the chunks and every pair of bins (f1, f2) with f1 + f2 a kept bin, weighted by the triple's three gains"},
                                                     {"derived_at_read", derived}}},
                                 {"producer", producer},
