@@ -1,7 +1,7 @@
 // nxr::signal spectral_flow on synthetic data (generated signals, random coordinates, an icosphere's edges):
 //   overlappedSpectrum: the operator applied before the transform equals after it; the left side reflected at a recording's start equals the transform of the
 //     explicitly reflected samples (numpy `reflect`); a chunk with its whole overlap present is the plain transform of those samples;
-//   gaussianAtomGains, normaliseBySumOfSquaredGains: the squared gains sum to one on the support; cosineSquaredPartition: the gains sum to one at every point;
+//   normaliseBySumOfSquaredGains (on Gaussian atoms): the squared gains sum to one on the support; cosineSquaredPartition: the gains sum to one at every point;
 //   bandPairFlow: the pairs of an amplitude partition sum to the whole field's values; the whole field's values equal the direct sums over the draws of the
 //     cross-spectrum (power |z|², phaseCurrent(z), Im(conj(z) G y));
 //   timeCellFlow: the cells' sums equal the direct sums of the inverse transform's samples.
@@ -15,6 +15,17 @@
 #include "nxr/signal/fourier.h"
 #include "nxr/signal/intrinsic_forms.h"
 #include "nxr/signal/spectral_flow.h"
+
+// Gaussian gains on a frequency line, standard deviations in Hz, 0 at f <= 0: the test's own synthetic atoms (a kernel set's gains are nxr::signal::kernelGains)
+static Eigen::MatrixXd gaussianGains(const Eigen::VectorXd& frequencies, const std::vector<double>& centres, const std::vector<double>& standardDeviations, double gain) {
+  Eigen::MatrixXd g = Eigen::MatrixXd::Zero(static_cast<Eigen::Index>(centres.size()), frequencies.size());
+  for (std::size_t a = 0; a < centres.size(); ++a)
+    for (Eigen::Index k = 0; k < frequencies.size(); ++k) {
+      const double f = frequencies(k), sd = standardDeviations[a];
+      if (f > 0) g(static_cast<Eigen::Index>(a), k) = gain * std::exp(-(f - centres[a]) * (f - centres[a]) / (2.0 * sd * sd));
+    }
+  return g;
+}
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
@@ -62,7 +73,7 @@ int main() {
     Eigen::VectorXd f = Eigen::VectorXd::LinSpaced(2000, 0.0, 60.0);
     std::vector<double> centres, sds;
     for (int k = 0; k < 17; ++k) { centres.push_back(4.0 * std::pow(2.0, k / 5.0)); sds.push_back(centres.back() / 12.0); }
-    const Eigen::MatrixXd g = ns::gaussianAtomGains(f, centres, sds, 2.0);
+    const Eigen::MatrixXd g = gaussianGains(f, centres, sds, 2.0);
     EXPECT(g(0, 0) == 0.0 && std::abs(g.row(5).maxCoeff() - 2.0) < 1e-2, "Gaussian atoms: 0 at 0 Hz, gain 2 at the centre");
     const Eigen::MatrixXd n = ns::normaliseBySumOfSquaredGains(g, 1e-3);
     const Eigen::RowVectorXd s2 = n.cwiseAbs2().colwise().sum();

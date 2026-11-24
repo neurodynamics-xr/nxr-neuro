@@ -10,7 +10,9 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include "nxr/signal/timefilterbank.h"
 using namespace nxr::signal::graphfilterbank;
+using nxr::signal::timefilterbank::meyerBand;
 using namespace nxr::signal::graphtransforms;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;

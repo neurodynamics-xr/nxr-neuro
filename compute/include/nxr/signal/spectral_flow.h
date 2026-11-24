@@ -5,7 +5,6 @@
 //   overlappedSpectrum      one chunk with its overlap (samples taken in from the neighbouring chunks) → the serving operator's rows, then ONE Fourier transform of
 //                           `transformSamples` samples (no window, no taper, no zero padding), the bins [firstBin, firstBin + binCount) kept. A side the samples do not
 //                           reach (a recording's end) is the samples reflected about their outermost sample (numpy `reflect`: the edge sample not repeated)
-//   gaussianAtomGains       Gaussian gains on a frequency line: gain · exp(−(f − centre)² / (2 sd²)) for f > 0, 0 elsewhere (one-sided: the inverse transform is the analytic signal)
 //   normaliseBySumOfSquaredGains   gains [members x points] divided at each point by the square root of the set's sum of squared gains there, so the squared gains sum to one
 //                           wherever that sum is at least `floor` x its largest value (0 elsewhere: outside the set's support)
 //   cosineSquaredPartition  an AMPLITUDE partition on a line given in a log2 chart: member b rises as sin² from centre b−1 to centre b and falls as cos² from centre b to b+1;
@@ -30,8 +29,6 @@ namespace nxr::signal {
 Eigen::MatrixXcd overlappedSpectrum(const Eigen::MatrixXd& servingOperator, const Eigen::MatrixXd& samples, std::int64_t left, std::int64_t right, std::int64_t overlap,
                                     std::int64_t transformSamples, std::int64_t firstBin, std::int64_t binCount);
 
-/** [centres x frequencies]. Throws std::invalid_argument on centres and deviations of different counts or a deviation <= 0. */
-Eigen::MatrixXd gaussianAtomGains(const Eigen::VectorXd& frequencies, const std::vector<double>& centres, const std::vector<double>& standardDeviations, double gain);
 Eigen::MatrixXd normaliseBySumOfSquaredGains(const Eigen::MatrixXd& gains, double floor);
 /** `log2Coordinate` [points] (−infinity allowed), `log2Centres` ascending [members] (at least 2). [members x points] */
 Eigen::MatrixXd cosineSquaredPartition(const Eigen::VectorXd& log2Coordinate, const std::vector<double>& log2Centres);

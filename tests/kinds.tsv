@@ -165,6 +165,7 @@ test_intrinsic_delaunay	unit
 test_intrinsic_forms	unit
 test_mode_spectrum	unit
 test_spectral_flow	unit
+test_kernel_gains	unit
 test_bispectrum	unit
 test_tile_flow	unit
 test_tile_network	unit

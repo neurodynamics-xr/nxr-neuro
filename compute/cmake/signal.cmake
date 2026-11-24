@@ -17,7 +17,6 @@ target_sources(nxr_compute PRIVATE
   src/signal/gabor.cpp
   src/signal/graphfilterbank.cpp
   src/signal/graphtransforms.cpp
-  src/signal/graphfilterbank_operator.cpp
   src/signal/graphwavelet.cpp
   src/signal/istft.cpp
   src/signal/jointtransforms.cpp
@@ -27,6 +26,7 @@ target_sources(nxr_compute PRIVATE
   src/signal/intrinsic_forms.cpp
   src/signal/mode_spectrum.cpp
   src/signal/spectral_flow.cpp
+  src/signal/kernel_gains.cpp
   src/signal/source_flow.cpp
   src/signal/aperiodic.cpp
   src/signal/bispectrum.cpp
@@ -72,6 +72,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_spectral_flow test/test_spectral_flow.cpp)
   target_link_libraries(test_spectral_flow PRIVATE nxr_compute)
   add_test(NAME test_spectral_flow COMMAND test_spectral_flow)
+  add_executable(test_kernel_gains test/test_kernel_gains.cpp)   # kernelGains: the one evaluator of a kernel set; the flow's old gains bit for bit, the banks' own shapes
+  target_link_libraries(test_kernel_gains PRIVATE nxr_compute)
+  add_test(NAME test_kernel_gains COMMAND test_kernel_gains)
   add_executable(test_source_flow test/test_source_flow.cpp)
   target_link_libraries(test_source_flow PRIVATE nxr_compute)
   add_test(NAME test_source_flow COMMAND test_source_flow)

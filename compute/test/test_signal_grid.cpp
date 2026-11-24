@@ -1,4 +1,4 @@
-// The windowed graph Fourier transform, jft / ijft, fromOperator, TimeFilterbank kinds, xwt and wcoherence. Goldens from golden/gen_signal_grid_golden.py (NumPy applied to the
+// The windowed graph Fourier transform, jft / ijft, a bank on an operator's Chebyshev bound, TimeFilterbank kinds, xwt and wcoherence. Goldens from golden/gen_signal_grid_golden.py (NumPy applied to the
 // published formulas of Shuman et al. 2016, GSPBox's jft, Grinsted et al. 2004; synthetic data only).
 #include "nxr/signal/graphfilterbank.h"
 #include "nxr/signal/graphtransforms.h"
@@ -71,13 +71,15 @@ int main() {
         EXPECT((jointtransforms::ijftReal(t, Fh) - F).cwiseAbs().maxCoeff() < 1e-12 && (jointtransforms::ijft(t, jointtransforms::jft(t, Fc)) - Fc).cwiseAbs().maxCoeff() < 1e-12, "ijft(jft(F)) == F, real and complex");
         EXPECT(std::abs(Fh.cwiseAbs2().sum() - F.cwiseAbs2().sum()) < 1e-10 * F.cwiseAbs2().sum(), "jft is unitary (Parseval)");
     }
-    std::cout << "=== fromOperator ===\n";
+    std::cout << "=== a bank on an operator's Chebyshev bound ===\n";
     {
         Eigen::SparseMatrix<double> L = Ld.sparseView(1e-300, 1);
-        auto ob = gfb::fromOperator(L, gfb::Family::Heat);
+        // a bank on the operator's Chebyshev bound: the transform estimates lambda_max (Lanczos), the bank is designed on [0, that bound]
+        struct { gfb::GraphFilterbank bank; gt::ChebyshevOperator transform; } ob{{}, gt::ChebyshevOperator(L, {}, 0.0, 40)};
+        ob.bank = gfb::design(gfb::Family::Heat, gfb::Range::fromLmax(ob.transform.lmax()));
         const double lmaxTrue = g.vec("graph.lmax")(0);
-        EXPECT(ob.transform.lmax() >= lmaxTrue && ob.transform.lmax() < 1.2 * lmaxTrue, "fromOperator: the Chebyshev bound " + std::to_string(ob.transform.lmax()) + " covers the true lambda_max " + std::to_string(lmaxTrue) + " (Lanczos)");
-        EXPECT(ob.bank.size() > 0 && std::abs(ob.bank.lmax - ob.transform.lmax()) < 1e-12 && ob.transform.order() == 40, "fromOperator: the bank is designed on [0, bound]; the transform has Rheome's default order 40");
+        EXPECT(ob.transform.lmax() >= lmaxTrue && ob.transform.lmax() < 1.2 * lmaxTrue, "a bank on the Chebyshev bound: the Chebyshev bound " + std::to_string(ob.transform.lmax()) + " covers the true lambda_max " + std::to_string(lmaxTrue) + " (Lanczos)");
+        EXPECT(ob.bank.size() > 0 && std::abs(ob.bank.lmax - ob.transform.lmax()) < 1e-12 && ob.transform.order() == 40, "a bank on the Chebyshev bound: the bank is designed on [0, bound]; the transform has Rheome's default order 40");
         // the polynomial route stands for the exact one: g(L) f by the Chebyshev series vs through the eigenbasis, for the bank's members
         const Eigen::VectorXd f = g.vec("wgft.f");
         double worst = 0;
@@ -89,9 +91,10 @@ int main() {
             for (int k = 0; k < c.size(); ++k) c(k) *= gain(lam(k));
             worst = std::max(worst, (poly - t.phi * c).cwiseAbs().maxCoeff());
         }
-        EXPECT(worst < 1e-3, "fromOperator: the polynomial transform equals the exact eigenbasis filter for every member (max " + sci(worst) + ")");
-        gfb::OperatorBank itersine = gfb::fromOperator(L, gfb::Family::LogItersine, {}, 60);
-        EXPECT(itersine.transform.order() == 60 && itersine.bank.kind == "logitersine", "fromOperator: the family and the order are the caller's");
+        EXPECT(worst < 1e-3, "a bank on the Chebyshev bound: the polynomial transform equals the exact eigenbasis filter for every member (max " + sci(worst) + ")");
+        struct { gfb::GraphFilterbank bank; gt::ChebyshevOperator transform; } itersine{{}, gt::ChebyshevOperator(L, {}, 0.0, 60)};
+        itersine.bank = gfb::design(gfb::Family::LogItersine, gfb::Range::fromLmax(itersine.transform.lmax()));
+        EXPECT(itersine.transform.order() == 60 && itersine.bank.kind == "logitersine", "a bank on the Chebyshev bound: the family and the order are the caller's");
     }
     std::cout << "=== TimeFilterbank kinds ===\n";
     {

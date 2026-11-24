@@ -85,12 +85,6 @@ GraphFilterbank design(Family family, const Range& range, const DesignOptions& o
 
 /** Meyer's auxiliary ν: 0 → 1 on [0, 1], ν(x) + ν(1 − x) = 1, four derivatives flat at the ends. */
 double meyerNu(double x);
-/** A band with Meyer edges: sin of the rise at `lo`, cos of the fall at `hi`, each over ±halfWidth octaves. lo ≤ 0: no rise; hi = ∞: no fall. */
-double meyerBand(double x, double lo, double hi, double halfWidth = 1.0 / 3.0);
-/** A band's MORLET gain: a Gaussian in frequency, UNIT peak, centred on the
- *  band's ARITHMETIC centre (lo + hi)/2, the band's width hi − lo its FULL WIDTH AT HALF MAXIMUM, so σ = (hi − lo)/(2√(2 ln 2)). Even in x (the real band; the analytic signal's
- *  one-sided gain is twice it, as the taps route's odd taps give). Not a tight frame: neighbouring bands overlap and do not add up (Meyer's do). lo < hi required. */
-double morletBand(double x, double lo, double hi);
 /** The MEXICAN HAT of a spatial level: g(λ) = λs²·e^(−λs²/2) / max with s² = 2/centre, i.e. g = (λ/c)·e^(1 − λ/c): UNIT peak at λ = `centre`
  *  (> 0), 0 at λ = 0, a long tail e^(−λ/c) (no compact support: neighbouring levels overlap and do not add up; Meyer's do). It is the same shape as the bank's MexHat family tλe^(−tλ), t = 1/c, normalised. */
 double mexicanHat(double lambda, double centre);
@@ -159,17 +153,7 @@ using CoefficientsC = std::vector<Eigen::MatrixXcd>;
 /** Synthesis weights: the canonical Dual g/S (exact wherever the bank covers) or the Tight g (the frame operator: A·f). */
 enum class Synthesis { Dual, Tight };
 
-// ── a bank straight from an operator (Rheome's graphfilterbank.fromOperator) ──
-
-/** A bank and the Chebyshev transform built with it. */
-struct OperatorBank {
-    GraphFilterbank bank;
-    graphtransforms::ChebyshevOperator transform;
-};
-/** Build a bank straight from the operator: λmax by Lanczos (one eigenvalue, no decomposition; the series' bound, with the margin ChebyshevOperator keeps), the family designed on [0, λmax],
- *  and the Chebyshev transform of the pencil (L, mass) of degree `order`: GSPBox's ergonomics, and the safe path (the polynomial's λmax bounds the operator's spectrum by construction).
- *  Family::Itersine and the others as `design`; throws as design and ChebyshevOperator do. */
-OperatorBank fromOperator(const Eigen::SparseMatrix<double>& L, Family family, const Eigen::SparseMatrix<double>& mass = {}, int order = 40, const DesignOptions& options = {});
+// A bank on an operator's spectrum without solving it: graphtransforms::ChebyshevOperator(L, mass, 0, order) estimates λmax (Lanczos); design(family, Range::fromLmax(transform.lmax())).
 
 // THE ENERGIES (scaleEnergy, memberEnergy, bandMoments, bandPower) are measurements: nxr/measurement/band_energy.h.
 

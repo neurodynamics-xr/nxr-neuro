@@ -6,7 +6,7 @@
 //   wt(bank, x)             every member on the bank's grid, [nfft x C] a member: one FFT of the array given, each member's gain, an inverse FFT at the full length; a real signal for an
 //                           Analytic bank, a complex one for a TwoSided bank.
 //   wt(bank, member, x, at) the full-rate analytic signal of ONE member, evaluated at instants the CALLER gives (a frame selection's); exact, a sum over the member's bins, no resampling.
-//   wtBlock(design, block, fs, left, own): the full-rate transform of a haloed block, the own columns kept.
+//   wtBlock(bank, block, left, own): the full-rate transform of a haloed block, the own columns kept (the bank designed once, on the block's grid, by the caller).
 // iwt(bank, W, n, mode) / iwtComplex: synthesis from full-rate coefficients.
 //
 // The bank is a nxr::signal::timefilterbank::TimeFilterbank, ANALYTIC (a real recording). Its family, gain and sides are REQUIRED by timebank::Design (no default). The bank is
@@ -16,6 +16,23 @@
 #include "nxr/signal/timefilterbank.h"
 #include <cstdint>
 #include <vector>
+
+namespace nxr::signal::timefilterbank {
+
+// ── the time-domain primitives the transforms are built from (wt / iwt and the joint transform); they take the bank for its grid and sides ─────────────────────────────────────────────────────────────
+
+/** Forward spectrum of a record on the bank's grid: rfft (Analytic, real) or fft (TwoSided) of x zero-padded to nfft → [bins × C]. */
+Eigen::MatrixXcd spectrum(const TimeFilterbank& bank, const Eigen::MatrixXd& x);
+Eigen::MatrixXcd spectrum(const TimeFilterbank& bank, const Eigen::MatrixXcd& x);   // Analytic refuses
+/** ifft of (spec ⊙ gain) on the grid → [nfft × C] (Analytic: the negative bins are zero). `gain` has one entry per bin. */
+Eigen::MatrixXcd filterSpectrum(const TimeFilterbank& bank, const Eigen::VectorXd& gain, const Eigen::MatrixXcd& spec);
+/** Back to the record: irfft (Analytic) or ifft (TwoSided) of a spectrum [bins × C], cropped to n rows. Analytic returns the real part in `real`. */
+Eigen::MatrixXd inverseReal(const TimeFilterbank& bank, const Eigen::MatrixXcd& spec, std::size_t n);
+Eigen::MatrixXcd inverseComplex(const TimeFilterbank& bank, const Eigen::MatrixXcd& spec, std::size_t n);
+/** Spectrum of a member's coefficients [nfft × C] on the bank's grid (fft, first `bins` rows). */
+Eigen::MatrixXcd coefficientSpectrum(const TimeFilterbank& bank, const Eigen::MatrixXcd& coefficients);
+
+}  // namespace nxr::signal::timefilterbank
 
 namespace nxr::signal {
 
@@ -37,14 +54,15 @@ timefilterbank::Coefficients bandAnalytic(const Eigen::MatrixXd& x, double fs, c
 /** The bands' ENVELOPES: |bandAnalytic(x, ...)|, one [n × C] real block per band. */
 std::vector<Eigen::MatrixXd> bandEnvelope(const Eigen::MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, timefilterbank::Family shape, double halfWidth = 1.0 / 3.0);
 
-/** The transform of a haloed block: a block [channels x width] whose own columns are [left, left + own). The bank is designed on the BLOCK's grid (gridLength(width, FastLen): zero-padded, no wrap), the block
- *  transformed, and only the own columns kept: one [channels x own] complex block per member. With a halo of at least timefilterbank::haloOf(bank, member) on each side the own columns are what the whole record
- *  gives there; where a recording ENDS the block has no context and the transform zero-pads (the taps route reflects there). The band's choice is the caller's Design; the member a run keeps is the caller's too. */
+/** The transform of a haloed block: a block [channels x width] whose own columns are [left, left + own). The bank is the caller's, DESIGNED ONCE on the block's grid
+ *  (timefilterbank::timeBank(design, gridLength(width, FastLen), fs): zero-padded, no wrap) and reused for every block of that width; a bank on another grid is
+ *  refused, naming both lengths. Only the own columns are kept: one [channels x own] complex block per member. With an overlap of at least
+ *  timefilterbank::haloOf(bank, member) on each side the own columns are what the whole record's transform gives there; where a recording ENDS the block has no
+ *  context and the transform zero-pads (the taps route reflects there). */
 struct BlockTransform {
-  timefilterbank::TimeFilterbank bank;              // the bank as designed on the block's grid (its members, their nominal bands)
   timefilterbank::Coefficients own;                 // per member: [channels x own] complex, the block's own columns
 };
-BlockTransform wtBlock(const timefilterbank::Design& design, const Eigen::MatrixXd& block, double fs, std::size_t left, std::size_t own);
+BlockTransform wtBlock(const timefilterbank::TimeFilterbank& bank, const Eigen::MatrixXd& block, std::size_t left, std::size_t own);
 
 /** wt of ONE member of an Analytic bank EVALUATED AT GIVEN INSTANTS (a frame Selection's: samples from column 0 of the window, not whole numbers): x [channels x width] a window (a chunk with its halo, zero outside),
  *  `at` [J] the instants; returns the member's analytic signal a(t_j) = (1/N) sum_b X_b g(f_b) e^{2 pi i b t_j / N} exactly (a sum over the member's bins, no interpolation), [channels x J], on the window's own grid N =
