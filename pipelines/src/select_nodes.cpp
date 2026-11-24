@@ -529,7 +529,7 @@ ng::NodeSpec select_product() {
       std::int64_t m = 0;
       if (f["kind"] == "time") m = f["count"].get<std::int64_t>();
       else if (f["kind"] == "dyadic") m = f["tiles"].get<std::int64_t>();
-      else if (f["kind"] == "elements") m = f["size"].get<std::int64_t>();
+      else if (f["kind"] == "elements" || f["kind"] == "kernels") m = f["size"].get<std::int64_t>();   // a kernel set: its members (a frequency or scale filterbank)
       else if (f["kind"] == "span" || f["kind"] == "whole") m = 1;
       need(m > 0, "select.product: the factor " + f.value("name", std::string("?")) + " has no members");
       pp.counts.push_back(m);
@@ -794,9 +794,93 @@ StepSpec elements_step() {
   return s;
 }
 
+// ── select.kernels (native) ──────────────────────────────────────────────────────────────────────────────────────
+// A KERNEL SET on a line (a frequency line, a mode axis): the selection system's kernel members (an anchor + a profile + a chart), stored as ONE selection whose members are kernels, so
+// a measurement over them (alone, or over a product with another set: the cells of a joint filterbank) is found by its member. Every member is stated as a QUANTITY on the line's coordinate:
+// a frequency in Hz on a frequency line; on a mode axis (its coordinate the wavenumber mu) a wavelength 2 pi / mu or the wavenumber itself. Centres listed, or a grid of `voices` per octave
+// from `from` to `to` (the grid resolution); every profile parameter is the caller's (no default).
+struct KernelsPrepared { std::vector<Json> members; std::string quantity; Json params; };
+KernelsPrepared kernels_of(const Json& p) {
+  const char* who = "select.kernels";
+  for (const char* k : {"profile", "chart", "quantity"}) need(p.contains(k) && p[k].is_string(), std::string(who) + ": " + k + " has no default: name it");
+  for (const char* k : {"width", "gain"}) need(p.contains(k) && p[k].is_number(), std::string(who) + ": " + k + " has no default: name it");
+  const std::string profile = p["profile"], chart = p["chart"], quantity = p["quantity"];
+  need(profile == "gaussian" || profile == "box", std::string(who) + ": profile is gaussian or box");
+  need(chart == "log2" || chart == "linear", std::string(who) + ": chart is log2 (octaves) or linear");
+  need(quantity == "frequency" || quantity == "wavelength" || quantity == "wavenumber", std::string(who) + ": quantity is frequency (Hz), wavelength (2 pi / mu) or wavenumber (mu)");
+  std::vector<double> centres;
+  if (p.contains("centres") && p["centres"].is_array() && !p["centres"].empty()) {
+    for (const auto& c : p["centres"]) { need(c.is_number() && c.get<double>() > 0, std::string(who) + ": a centre is a positive number"); centres.push_back(c.get<double>()); }
+  } else {
+    need(p.contains("grid_from") && p.contains("grid_to") && p.contains("voices") && p["grid_from"].is_number() && p["grid_to"].is_number() && p["voices"].is_number_integer(),
+         std::string(who) + ": name the centres, or a grid: grid_from, grid_to and voices (per octave)");
+    const double lo = p["grid_from"], hi = p["grid_to"]; const int v = p["voices"];
+    need(lo > 0 && hi > lo && v >= 1, std::string(who) + ": a grid is 0 < grid_from < grid_to, voices >= 1");
+    for (int k = 0;; ++k) { const double c = lo * std::pow(2.0, static_cast<double>(k) / v); if (c > hi * (1 + 1e-12)) break; centres.push_back(c); }
+  }
+  std::vector<std::string> names;
+  if (p.contains("names") && p["names"].is_array()) for (const auto& n : p["names"]) names.push_back(n.get<std::string>());
+  need(names.empty() || names.size() == centres.size(), std::string(who) + ": one name a member");
+  KernelsPrepared k;
+  k.quantity = quantity;
+  const std::string unit = quantity == "frequency" ? "Hz" : quantity == "wavelength" ? "length unit of the surface" : "1 / length unit";
+  for (std::size_t i = 0; i < centres.size(); ++i) {
+    const double at = quantity == "wavelength" ? 2.0 * M_PI / centres[i] : centres[i];          // the anchor on the line's own coordinate (a mode axis's: mu)
+    char buf[64]; std::snprintf(buf, sizeof buf, "%.4g %s", centres[i], quantity == "frequency" ? "Hz" : quantity == "wavelength" ? "wavelength" : "mu");
+    k.members.push_back(Json{{"start", at}, {"stop", at}, {"code", static_cast<std::int64_t>(i)}, {"family", profile}, {"chart", chart}, {"gain", p["gain"]},
+                             {"params", Json{{"fwhm", p["width"]}}}, {"name", names.empty() ? std::string(buf) : names[i]}, {"centre", centres[i]}, {"unit", unit}});
+  }
+  k.params = Json{{"kernels", Json{{"quantity", quantity}, {"unit", unit}, {"profile", profile}, {"chart", chart}, {"width", p["width"]}, {"gain", p["gain"]}, {"members", k.members}}},
+                  // a factor of a product (the cells of a joint filterbank): its member count; a regular ladder (voices per octave) is a grid, listed centres an irregular set
+                  {"grid", Json{{"kind", "kernels"}, {"size", static_cast<std::int64_t>(k.members.size())}, {"quantity", quantity},
+                                {"family", p.contains("voices") && p["voices"].is_number_integer() && !(p.contains("centres") && p["centres"].is_array() && !p["centres"].empty()) ? "grid" : "irregular"}}}};
+  return k;
+}
+ng::NodeSpec select_kernels() {
+  ng::NodeSpec n;
+  n.name = "select.kernels";
+  n.kind = ng::Kind::array;
+  n.inputs = {{"line", "the line the kernels lie on (a stored frequency line, or a mode axis): its record", true}};
+  n.outputs = {{"kernels", "the kernel set: one member a kernel (anchor on the line's coordinate, profile, chart, gain), named", false}};
+  n.parameters = {{"quantity", Json(), "what the centres are: frequency (Hz) | wavelength (2 pi / mu, on a mode axis) | wavenumber (mu) (no default)", "-", {"frequency", "wavelength", "wavenumber"}, false},
+                  {"profile", Json(), "gaussian | box (no default)", "-", {"gaussian", "box"}, false},
+                  {"chart", Json(), "the chart the width is in: log2 (octaves) | linear (the quantity's unit) (no default)", "-", {"log2", "linear"}, false},
+                  {"width", Json(), "each member's FWHM (gaussian) or full width (box), in the chart (no default)", "-", {}, false},
+                  {"gain", Json(), "each member's peak amplitude g (no default)", "-", {}, false},
+                  {"centres", Json(), "the members' centres, in the quantity's unit; or a grid (grid_from, grid_to, voices)", "-", {}, true},
+                  {"grid_from", Json(), "a grid's first centre", "-", {}, true}, {"grid_to", Json(), "a grid's last centre (at most)", "-", {}, true},
+                  {"voices", Json(), "a grid's members per octave (the grid resolution)", "-", {}, true},
+                  {"names", Json(), "one name a member (none: the quantity as written)", "-", {}, true}};
+  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "a selection made from parameters: no data flows");
+  n.matches = "the selection system's kernel members (anchor + profile + chart; compute nxr::selection::resolve_weights); nxr's frequency and spatial filter banks (Gaussian on log2)";
+  n.description = "a kernel set on a line (a frequency line, a mode axis): one selection whose members are kernels, every centre a quantity, every profile parameter the caller's";
+  n.plan = [](const ng::Types&, const Json& p) {
+    const KernelsPrepared k = kernels_of(p);
+    ng::Planned out;
+    ng::PortType t = constant_port("selection");
+    Json names = Json::array();
+    for (const auto& m : k.members) names.push_back(m["name"]);
+    t.facts["set"] = Json{{"type", "kernels"}, {"members", names}, {"family", "irregular"}};
+    out.out["kernels"] = t;
+    return out;
+  };
+  n.prepare = [](const ng::Types&, const ng::Arrays&, const Json& p, ng::Shared&) { return std::any(kernels_of(p)); };
+  n.run = [](const std::any& prepared, const ng::Arrays&) {
+    const KernelsPrepared& k = std::any_cast<const KernelsPrepared&>(prepared);
+    ng::Array a;
+    a.rows = static_cast<std::int64_t>(k.members.size()); a.cols = 1;
+    Json kernels = Json::array(), entries = Json::array();
+    for (const auto& m : k.members) { kernels.push_back(m); entries.push_back(m["name"]); a.data.push_back(m["code"].get<double>()); }
+    a.meta["describe"] = Json{{"kernels", kernels}, {"entries", entries}, {"family", "irregular"}, {"params", k.params}, {"n_members", static_cast<std::int64_t>(k.members.size())},
+                              {"description", "a kernel set of " + std::to_string(k.members.size()) + " members (" + k.quantity + ")"}};
+    return ng::Arrays{{"kernels", std::move(a)}};
+  };
+  return n;
+}
+
 void register_select_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {select_bands(), select_product()})
+  for (ng::NodeSpec n : {select_bands(), select_product(), select_kernels()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 

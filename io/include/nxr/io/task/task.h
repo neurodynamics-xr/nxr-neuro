@@ -9,6 +9,7 @@
 // Conventions: `find` returns one node or none and throws Error(ambiguous) when several match (the message names them); `require` throws Error(no_such_row) naming
 // what was asked for; only complete nodes are found unless `Want::status` says otherwise; `find_all` is ordered by name, then id.
 #pragma once
+#include <map>
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -234,6 +235,14 @@ struct GridOut {
   std::vector<GridLevelOut> levels;
 };
 // a Selection on a manifold: a partition or set (a code per element), spans (on a time line), or a tiling (a closed-form spans Selection)
+// one KERNEL member of a kernel set: its anchor, a span [start, stop) on the manifold's coordinate (an instant when start == stop: the profile's centre), and its profile
+struct KernelOut {
+  double start = 0, stop = 0;
+  std::int64_t code = 0;
+  std::string family, chart;                       // gaussian | box ...; log2 | linear | log10
+  double gain = 1;
+  std::map<std::string, double> params;            // the family's parameters (gaussian: fwhm, in the chart's units)
+};
 struct SelectionOut {
   std::string name, output, type, manifold_id;     // type: partition · set · indices · spans · tiling · cells (a closed-form set: codes by a rule, no element stored) · grid (a dyadic grid with levels, or a line's time grid: `grid`) · product (`factor_ids`)
   std::optional<GridOut> grid;                     // grid
@@ -252,6 +261,7 @@ struct SelectionOut {
   Json params;                                     // the selection's parameters (null: none)
   Json producer;
   Values weights;                                  // one weight a member, float32 or float64 (empty: none): stored beside the selection and named in its parameters (`weights`)
+  std::vector<KernelOut> kernels;                  // kernels: one member a kernel (type `kernels`): stored as a set whose members are kernel selections
 };
 // a closed-form line (a frequency axis, a bin axis): n points of `spacing` from `origin`, in `unit`; found by name and reused when it fits
 struct LineOut {

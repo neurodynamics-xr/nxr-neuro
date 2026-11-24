@@ -967,6 +967,17 @@ std::string Unit::selection(const SelectionOut& s) {
       m.extents.push_back(selection::Extent{0, x.start, x.stop});
       d.members.push_back(std::move(m));
     }
+  } else if (s.type == "kernels") {                 // a KERNEL SET: each member an anchor (a span or an instant on the manifold's coordinate) with a profile and a chart, stored as a kernel selection
+    if (s.kernels.empty()) throw Error(code::invalid_argument, "selection " + s.name + ": a kernel set has one member or more (kernels)");
+    d.type = selection::Type::set;
+    for (const auto& k : s.kernels) {
+      selection::Description m;
+      m.type = selection::Type::span;
+      m.code = k.code;
+      m.extents.push_back(selection::Extent{0, k.start, k.stop});
+      m.profile = selection::Profile{k.family, k.params, k.chart, k.gain};
+      d.members.push_back(std::move(m));
+    }
   } else if (s.type == "tiling") {
     if (!s.tiling) throw Error(code::invalid_argument, "selection " + s.name + ": a tiling needs its origin, width, hop and count");
     const Tiling& t = *s.tiling;
@@ -976,7 +987,7 @@ std::string Unit::selection(const SelectionOut& s) {
     params["end"] = t.end;
     params["segments_skipped"] = t.skipped;
   } else {
-    throw Error(code::invalid_argument, "selection " + s.name + ": type " + s.type + " (partition, set, indices, spans, tiling, cells, grid or product)");
+    throw Error(code::invalid_argument, "selection " + s.name + ": type " + s.type + " (partition, set, indices, spans, kernels, tiling, cells, grid or product)");
   }
   for (std::size_t k = 0; k < s.entries.size(); ++k) d.lookup.push_back(selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});   // the codes' names
   if (!s.weights.shape.empty()) {   // one weight a member, beside the selection's array and named in its parameters (as a kernel's `weights` array is)

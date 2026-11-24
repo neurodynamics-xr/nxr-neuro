@@ -497,7 +497,7 @@ void check_declared(const Plan& P, const std::string& o) {
     if (!typed || spec.contains("to")) link_of(P, spec, "to", nullptr, o);
   } else if (k == "selection") {
     const std::string t = spec.value("type", std::string());
-    if (t != "partition" && t != "set" && t != "indices" && t != "spans" && t != "tiling" && t != "ladder" && t != "cells" && t != "grid" && t != "product") bad(o, "type: partition, set, indices, spans, tiling, ladder, cells, grid or product");
+    if (t != "partition" && t != "set" && t != "indices" && t != "spans" && t != "kernels" && t != "tiling" && t != "ladder" && t != "cells" && t != "grid" && t != "product") bad(o, "type: partition, set, indices, spans, kernels, tiling, ladder, cells, grid or product");
     if (t == "product") {                                                   // a product of selections (a grid when every factor is): its factors, each a link and, for a grid, the level it is at
       if (!spec.contains("factors") || !spec["factors"].is_array() || spec["factors"].size() < 2) bad(o, "a product selection's factors: a list of two or more {selection: LINK, level: N} (or LINK)");
       for (const auto& f : spec["factors"]) link(P, f.is_object() ? f.value("selection", std::string()) : f.get<std::string>(), nullptr, o);
@@ -983,6 +983,16 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
         s.member_of = set.member_of;
         s.member_codes = set.member_codes;
       } catch (const std::invalid_argument& e) { bad(o, e.what()); }
+    }
+    else if (t == "kernels") {                     // a KERNEL SET: the node describes each member's anchor and profile
+      for (const auto& k : d.value("kernels", Json::array())) {
+        task::KernelOut x;
+        x.start = k.at("start").get<double>(); x.stop = k.at("stop").get<double>(); x.code = k.at("code").get<std::int64_t>();
+        x.family = k.at("family").get<std::string>(); x.chart = k.at("chart").get<std::string>(); x.gain = k.value("gain", 1.0);
+        for (const auto& [pk, pv] : k.value("params", Json::object()).items()) x.params[pk] = pv.get<double>();
+        s.kernels.push_back(std::move(x));
+      }
+      if (s.kernels.empty()) bad(o, "a kernel set needs its node's kernels (describe.kernels)");
     }
     else if (t == "grid") s.grid = grid_of(a, d, o);
     else if (t == "product") {
