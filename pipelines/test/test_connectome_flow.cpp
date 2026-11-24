@@ -123,13 +123,15 @@ int main() {
   atoms.meta["params"] = Json{{"kernels", Json{{"members", Json::array({Json{{"start", f}, {"stop", f}, {"family", "gaussian"}, {"chart", "linear"}, {"gain", 2.0}, {"params", Json{{"fwhm_per_centre", fwhm}}}}})}}}};
   const Json fp = Json{{"frequency_normalisation", "none"}};
   const auto flow = run_array("signal.tile_flow", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}}, fp);
-  const ng::Array& F = flow.at("flow");
-  CHECK(F.rows == 1 && F.cols == 2 * 6 + 4);
+  // measurements over the atoms: [pairs x atoms x (Re, Im)] and [tiles x atoms x power], value (row atoms + atom) measures + measure
+  const ng::Array& F = flow.at("pair_flow");
+  const ng::Array& Fp = flow.at("tile_power");
+  CHECK(F.rows == 6 && F.cols == 2 && Fp.rows == 4 && Fp.cols == 1);
   const std::int64_t q01 = nxr::meeg::pairIndex(0, 1, 4);
-  const double lag = -std::atan2(at(F, 0, 6 + q01), at(F, 0, q01)) / (2 * M_PI * f);
+  const double lag = -std::atan2(at(F, q01, 1), at(F, q01, 0)) / (2 * M_PI * f);
   std::printf("  planted lag %.4f s, read %.4f s\n", tau, lag);
   CHECK(std::abs(lag + tau) < 1e-3);
-  CHECK(at(F, 0, 6 + q01) / std::sqrt(at(F, 0, 12) * at(F, 0, 13)) > 0.3);                 // the edge flow: tile 1 lags tile 0
+  CHECK(at(F, q01, 1) / std::sqrt(at(Fp, 0, 0) * at(Fp, 1, 0)) > 0.3);                     // the edge flow: tile 1 lags tile 0
   ng::Array wrongSpectra = spectra; wrongSpectra.meta["producer"]["modes"] = Json::array({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 99});
   CHECK(refused([&] { run_array("signal.tile_flow", {{"spectra", wrongSpectra}, {"operator", M}, {"frequency", atoms}}, fp); }));
 
@@ -145,12 +147,12 @@ int main() {
   const Json flipParameters = Json{{"patterns", 500}, {"seed", 0}, {"min_streamlines", 10}, {"distance_bin_edges", Json::array({0, 0.03, 0.045, 0.06, 0.08, 0.1, 0.13, 0.17, 0.25})}};
   const auto flip = run_array("stats.network_sign_flip", {{"cells", Z}, {"pairs", pairs}}, flipParameters);
   const ng::Array& R = flip.at("consistency");
-  CHECK(R.rows == 1 && R.cols == 5 * 6);
-  CHECK(at(R, 0, q01) > 0.3 && at(R, 0, 6 + q01) < 0.01 && at(R, 0, 12 + q01) < 0.05);     // the lagged pair: a positive mean flow, p and family-wise p small
-  CHECK(std::abs(-at(R, 0, 24 + q01) / (2 * M_PI * f) + tau) < 1e-3);                      // the phase of the cells' summed cross-spectrum gives the lag back
+  CHECK(R.rows == 6 && R.cols == 5);                                                          // [pairs x 1 atom x (mean flow, p, family-wise p, control, phase)]
+  CHECK(at(R, q01, 0) > 0.3 && at(R, q01, 1) < 0.01 && at(R, q01, 2) < 0.05);               // the lagged pair: a positive mean flow, p and family-wise p small
+  CHECK(std::abs(-at(R, q01, 4) / (2 * M_PI * f) + tau) < 1e-3);                            // the phase of the cells' summed cross-spectrum gives the lag back
   // the control: the joined pairs (0-1 at 0.03, 2-3 at 0.03) occupy one distance bin; the not-joined pairs in it: none here (0-2 0.1, 0-3 0.13, 1-2 0.07, 1-3 0.1)
   double controls = 0;
-  for (int q = 0; q < 6; ++q) controls += at(R, 0, 18 + q);
+  for (int q = 0; q < 6; ++q) controls += at(R, q, 3);
   CHECK(controls == 0);
   const auto again = run_array("stats.network_sign_flip", {{"cells", Z}, {"pairs", pairs}}, flipParameters);
   CHECK(again.at("consistency").data == R.data);                                            // one seed, one result
@@ -158,10 +160,11 @@ int main() {
   CHECK(std::abs(at(replication.at("replication"), 0, 0) - 1) < 1e-12);
 
   const auto network = run_array("meeg.network_flow", {{"pairs", pairs}, {"eigenmodes", modes.at("eigenmodes")}, {"flow", R}}, Json{{"min_streamlines", 10}});
-  const ng::Array& W = network.at("network");
-  CHECK(W.rows == 1 && W.cols == 3 * 4 + 2);
-  CHECK(at(W, 0, 0) < 0 && at(W, 0, 1) > 0 && std::abs(at(W, 0, 0) + at(W, 0, 1)) < 1e-12);  // out of tile 0, into tile 1
-  CHECK(std::abs(at(W, 0, 12) / at(W, 0, 13) - 1) < 1e-9);                                  // a tree: every flow is a gradient
-  CHECK(refused([&] { run_array("meeg.network_flow", {{"pairs", pairs}, {"eigenmodes", modes.at("eigenmodes")}, {"flow", F}}, Json{{"min_streamlines", 2}}); }));   // eigenmodes made with 10
+  const ng::Array& W = network.at("network_tiles");
+  const ng::Array& Wt = network.at("network_totals");
+  CHECK(W.rows == 4 && W.cols == 2 && network.at("network_modes").rows == 4 && Wt.rows == 1 && Wt.cols == 2);
+  CHECK(at(W, 0, 0) < 0 && at(W, 1, 0) > 0 && std::abs(at(W, 0, 0) + at(W, 1, 0)) < 1e-12);  // the divergence: out of tile 0, into tile 1
+  CHECK(std::abs(at(Wt, 0, 0) / at(Wt, 0, 1) - 1) < 1e-9);                                  // a tree: every flow is a gradient
+  CHECK(refused([&] { run_array("meeg.network_flow", {{"pairs", pairs}, {"eigenmodes", modes.at("eigenmodes")}, {"flow", R}}, Json{{"min_streamlines", 2}}); }));   // eigenmodes made with 10
   return nxrtest::finish("test_connectome_flow");
 }

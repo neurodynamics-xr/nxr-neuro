@@ -50,6 +50,7 @@ const ng::Array& handed(const ng::Arrays& c, const char* port, const char* who) 
 }
 bool was_handed(const ng::Arrays& c, const char* port) { const auto it = c.find(port); return it != c.end() && !it->second.meta.value("placeholder", false); }
 ng::PortType statistic_port() { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "statistic"; return t; }
+ng::PortType measurement_port() { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "measurement"; return t; }
 ng::PortType array_port() { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "array"; return t; }
 double number_param(const Json& p, const char* key, const char* who) {
   if (!p.contains(key) || !p[key].is_number()) ng::refuse(std::string(who) + ": " + key + " has no default: name it (a number)");
@@ -77,6 +78,37 @@ ng::Array table(const std::vector<std::vector<double>>& columns, std::int64_t ro
   return a;
 }
 double cell(const ng::Array& a, std::int64_t row, std::int64_t column) { return a.at(static_cast<std::size_t>(row * a.cols + column)); }
+
+// THE FLOW'S MEASUREMENTS over the atoms (a value over a selection's members is a measurement): a per-atom array [atoms x columns] whose columns hold blocks of
+// `rows` values, one block a measure, from column `first` -> [rows x atoms x measures], value (r atoms + a) measures + k; its meta (the producer) kept
+ng::Array measurement_of_blocks(const ng::Array& perAtom, std::int64_t first, std::int64_t rows, const std::vector<std::string>& measures, const char* rowsAre) {
+  const std::int64_t atoms = perAtom.rows, K = static_cast<std::int64_t>(measures.size());
+  ng::Array m;
+  m.rows = rows * atoms; m.cols = K;
+  m.data.assign(static_cast<std::size_t>(rows * atoms * K), 0.0);
+  for (std::int64_t r = 0; r < rows; ++r)
+    for (std::int64_t a = 0; a < atoms; ++a)
+      for (std::int64_t k = 0; k < K; ++k) m.data[static_cast<std::size_t>((r * atoms + a) * K + k)] = cell(perAtom, a, first + k * rows + r);
+  if (perAtom.meta.contains("producer")) m.meta["producer"] = perAtom.meta["producer"];
+  Json ms = Json::array();
+  for (const auto& name : measures) ms.push_back(Json{{"measure", name}});
+  m.meta["describe"] = Json{{"measures", ms}, {"shape", Json::array({rows, atoms, K})}, {"values_shape", Json::array({rows, atoms})},
+                            {"attributes", Json{{"rows", rowsAre}, {"members", "the atoms"}}}};
+  return m;
+}
+// one value of a flow measurement: in a run [rows x atoms x measures] (its describe's shape), or a STORED measurement read by its measure [rows x atoms]
+double measured(const ng::Array& a, std::int64_t row, std::int64_t atom, std::int64_t measure) {
+  if (a.meta.contains("measure") && !a.meta.contains("describe")) return a.at(static_cast<std::size_t>(row * a.cols + atom));
+  const Json shape = a.meta.at("describe").at("shape");
+  const std::int64_t atoms = shape[1].get<std::int64_t>(), K = shape[2].get<std::int64_t>();
+  return a.at(static_cast<std::size_t>((row * atoms + atom) * K + measure));
+}
+// the atoms and rows of a flow measurement
+std::pair<std::int64_t, std::int64_t> atoms_rows(const ng::Array& a) {
+  if (a.meta.contains("measure") && !a.meta.contains("describe")) return {a.cols, a.rows};
+  const Json shape = a.meta.at("describe").at("shape");
+  return {shape[1].get<std::int64_t>(), shape[0].get<std::int64_t>()};
+}
 
 // ── the tiles: the grid's finest codes shifted to the level of the stated tiles per piece ───────────────────────────
 struct Tiles { std::vector<std::int64_t> codes; int level = 0, depth = 0; std::int64_t parts = 0; };
@@ -383,7 +415,8 @@ ng::NodeSpec tile_flow() {
   n.inputs = {{"spectra", "the chunk spectra in the served coordinates (signal.chunk_spectra)", false},
               {"operator", "the tile operator (signal.tile_operator)", false},
               {"frequency", "the atoms: a kernel set on the spectra's frequency line", false}};
-  n.outputs = {{"flow", "per atom: Re S_ij and Im S_ij per pair i < j, S_ii per tile (the whole run's tile cross-spectrum, the components traced)", false}};
+  n.outputs = {{"pair_flow", "a MEASUREMENT over the atoms: per tile pair i < j, Re S_ij and Im S_ij (the whole run's tile cross-spectrum, the components traced)", false},
+               {"tile_power", "a MEASUREMENT over the atoms: per tile, S_ii", false}};
   n.parameters = {{"frequency_normalisation", Json(), "sum_of_squared_gains | none (as signal.spectral_flow's; no default)", "-", {"sum_of_squared_gains", "none"}, false},
                   {"support_floor", Json(), "with sum_of_squared_gains: as signal.spectral_flow's (no default)", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64,
@@ -393,7 +426,7 @@ ng::NodeSpec tile_flow() {
   n.plan = [](const ng::Types& in, const Json& p) {
     for (const char* k : {"spectra", "operator", "frequency"}) if (!in.count(k)) ng::refuse(std::string(kFlow) + ": " + k + " is not given");
     text_param(p, "frequency_normalisation", kFlow);
-    ng::Planned out; out.out["flow"] = statistic_port(); return out;
+    ng::Planned out; out.out["pair_flow"] = measurement_port(); out.out["tile_power"] = measurement_port(); return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_flow(c, p)); };
   n.run = [](const std::any& prepared, const ng::Arrays& in) {
@@ -426,7 +459,8 @@ ng::NodeSpec tile_flow() {
                                                           Json{{"measure", "power"}, {"columns", Json::array({2 * P, 2 * P + T})}}})},
                                 {"producer", producer},
                                 {"description", "per atom, the whole run's cross-spectrum of the tiles' currents (Σ over chunks and the atom's bins of g² Σ_c z_i conj(z_j)): Re and Im per pair i < j, then each tile's power"}};
-    return ng::Arrays{{"flow", std::move(out)}};
+    return ng::Arrays{{"pair_flow", measurement_of_blocks(out, 0, P, {"cross_spectrum_real", "cross_spectrum_imaginary"}, "the tile pairs i < j (S_ij = sum z_i conj(z_j); Im > 0 when tile j lags tile i)")},
+                      {"tile_power", measurement_of_blocks(out, 2 * P, T, {"power"}, "the tiles (S_ii)")}};
   };
   n.record = [](const std::any& prepared) { return Json{{"kernel", std::any_cast<const FlowPrepared&>(prepared).op.meta.value("kernel", std::string())}}; };
   return n;
@@ -553,7 +587,7 @@ ng::NodeSpec network_sign_flip() {
     for (const char* k : {"cells", "pairs"}) if (!in.count(k)) ng::refuse(std::string(kFlip) + ": " + k + " is not given");
     number_param(p, "patterns", kFlip); number_param(p, "seed", kFlip); number_param(p, "min_streamlines", kFlip);
     if (!p.contains("distance_bin_edges") || !p["distance_bin_edges"].is_array()) ng::refuse(std::string(kFlip) + ": distance_bin_edges has no default: name them");
-    ng::Planned out; out.out["consistency"] = statistic_port(); return out;
+    ng::Planned out; out.out["consistency"] = measurement_port(); return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(std::make_tuple(handed(c, "cells", kFlip), handed(c, "pairs", kFlip), p)); };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
@@ -608,7 +642,7 @@ ng::NodeSpec network_sign_flip() {
                                                           Json{{"measure", "phase"}, {"columns", Json::array({4 * P, 5 * P})}}})},
                                 {"producer", producer},
                                 {"description", "per atom and pair i < j: the mean over the cells of Im C_ij / sqrt(C_ii C_jj) (> 0: tile j lags tile i), its sign-flip p and family-wise p, 1 for a distance-matched control pair, arg of Σ_cells C_ij"}};
-    return ng::Arrays{{"consistency", std::move(out)}};
+    return ng::Arrays{{"consistency", measurement_of_blocks(out, 0, P, {"mean_edge_flow", "p", "familywise_p", "control", "phase"}, "the tile pairs i < j")}};
   };
   n.record = [](const std::any& prepared) { const Json& p = std::get<2>(std::any_cast<const std::tuple<ng::Array, ng::Array, Json>&>(prepared)); return Json{{"patterns", p["patterns"]}, {"seed", p["seed"]}}; };
   return n;
@@ -635,13 +669,16 @@ ng::NodeSpec run_replication() {
   n.run = [](const std::any& prepared, const ng::Arrays&) {
     const auto& [first, second, pairs, p] = std::any_cast<const std::tuple<ng::Array, ng::Array, ng::Array, Json>&>(prepared);
     const PairsRead pr = pairs_read(pairs, p["min_streamlines"].get<double>(), kReplication);
-    const Json a = producer_of(first), b = producer_of(second);
-    if (a.value("codes", Json()) != pr.codes || b.value("codes", Json()) != pr.codes) ng::refuse(std::string(kReplication) + ": the runs and the pairs are not on the same tiles");
-    if (first.rows != second.rows || a.value("frequencies_hz", Json()) != b.value("frequencies_hz", Json())) ng::refuse(std::string(kReplication) + ": the two runs were read with different atoms");
-    const std::int64_t P = pr.pairs, A = first.rows;
+    // each run's mean edge flow: stats.network_sign_flip's measurement in a run, or the stored measurement mean_edge_flow (read by its measure) of each run
+    const std::pair<std::int64_t, std::int64_t> firstShape = atoms_rows(first), secondShape = atoms_rows(second);
+    const std::int64_t A = firstShape.first, firstRows = firstShape.second, secondAtoms = secondShape.first, secondRows = secondShape.second;
+    if (firstRows != pr.pairs || secondRows != pr.pairs) ng::refuse(std::string(kReplication) + ": the runs' flows are not on the pairs' tiles");
+    if (secondAtoms != A || (first.meta.contains("id") && second.meta.contains("id") && first.meta["id"] != second.meta["id"]))
+      ng::refuse(std::string(kReplication) + ": the two runs were read with different atoms (measured over different selections)");
+    const std::int64_t P = pr.pairs;
     auto pearson = [&](std::int64_t atom, bool wantJoined) {
       std::vector<double> x, y;
-      for (std::int64_t q = 0; q < P; ++q) if ((pr.weight(q) > 0) == wantJoined) { x.push_back(cell(first, atom, q)); y.push_back(cell(second, atom, q)); }
+      for (std::int64_t q = 0; q < P; ++q) if ((pr.weight(q) > 0) == wantJoined) { x.push_back(measured(first, q, atom, 0)); y.push_back(measured(second, q, atom, 0)); }
       const Eigen::Map<const Eigen::VectorXd> X(x.data(), static_cast<Eigen::Index>(x.size())), Y(y.data(), static_cast<Eigen::Index>(y.size()));
       const Eigen::VectorXd dx = X.array() - X.mean(), dy = Y.array() - Y.mean();
       return dx.dot(dy) / std::sqrt(dx.squaredNorm() * dy.squaredNorm());
@@ -649,10 +686,10 @@ ng::NodeSpec run_replication() {
     ng::Array out;
     out.rows = A; out.cols = 2;
     for (std::int64_t atom = 0; atom < A; ++atom) { out.data.push_back(pearson(atom, true)); out.data.push_back(pearson(atom, false)); }
-    const Json producer = Json{{"min_streamlines", p["min_streamlines"]}, {"frequencies_hz", a.value("frequencies_hz", Json())}, {"codes", pr.codes}};
+    const Json producer = Json{{"min_streamlines", p["min_streamlines"]}, {"frequencies_hz", first.meta.contains("producer") ? producer_of(first).value("frequencies_hz", Json()) : Json()}, {"codes", pr.codes}};
     out.meta["shape"] = Json::array({A, 2}); out.meta["producer"] = producer;
     out.meta["describe"] = Json{{"method", "run_replication"}, {"measure", "replication"}, {"shape", Json::array({A, 2})},
-                                {"axes", Json::array({indexed_axis("atom", A, a.value("frequencies_hz", Json())), indexed_axis("column", 2, Json::array({"joined_correlation", "not_joined_correlation"}))})},
+                                {"axes", Json::array({indexed_axis("atom", A, producer.value("frequencies_hz", Json())), indexed_axis("column", 2, Json::array({"joined_correlation", "not_joined_correlation"}))})},
                                 {"producer", producer}, {"description", "per atom: Pearson's r of the two runs' mean edge flows over the joined pairs, then over the not-joined pairs"}};
     return ng::Arrays{{"replication", std::move(out)}};
   };
@@ -668,7 +705,9 @@ ng::NodeSpec network_flow() {
   n.inputs = {{"pairs", "the tile pairs (meeg.tile_pairs)", false},
               {"eigenmodes", "the connectome eigenmodes (meeg.laplacian_eigenmodes), made with the same min_streamlines", false},
               {"flow", "the edge flow per atom: the mean over the cells (stats.network_sign_flip, the reference's) or the whole run's tile cross-spectrum (signal.tile_flow: Im S_ij / sqrt(S_ii S_jj))", false}};
-  n.outputs = {{"network", "per atom: divergence per tile, graph potential per tile, its coefficient per connectome eigenmode, Σ w (B phi)², Σ w F²", false}};
+  n.outputs = {{"network_tiles", "a MEASUREMENT over the atoms: per tile its divergence and graph potential", false},
+               {"network_modes", "a MEASUREMENT over the atoms: the potential's coefficient per connectome eigenmode", false},
+               {"network_totals", "a MEASUREMENT over the atoms, one row: Σ w (B phi)², Σ w F²", false}};
   n.parameters = {{"min_streamlines", Json(), "a pair is an edge when at least this many streamlines join it (the eigenmodes' own; no default)", "streamlines", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "once: linear algebra on the T tiles, from the stored edge flows");
   n.matches = "nxr flownet's div = Beᵀ Fj, phi = lstsq(sqrt(w) Be, sqrt(w) Fj), gshare, spec_ = (Uᵀ (phi - mean))²; here phi as the 1/eigenvalue gain on the complete eigenmodes; compute nxr::meeg::networkFlow";
@@ -676,7 +715,7 @@ ng::NodeSpec network_flow() {
   n.plan = [](const ng::Types& in, const Json& p) {
     for (const char* k : {"pairs", "eigenmodes", "flow"}) if (!in.count(k)) ng::refuse(std::string(kNetwork) + ": " + k + " is not given");
     number_param(p, "min_streamlines", kNetwork);
-    ng::Planned out; out.out["network"] = statistic_port(); return out;
+    ng::Planned out; for (const char* o : {"network_tiles", "network_modes", "network_totals"}) out.out[o] = measurement_port(); return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) {
     return std::any(std::make_tuple(handed(c, "pairs", kNetwork), handed(c, "eigenmodes", kNetwork), handed(c, "flow", kNetwork), p));
@@ -688,9 +727,10 @@ ng::NodeSpec network_flow() {
     const Json ep = producer_of(eigen), fp = producer_of(flow);
     if (ep.value("min_streamlines", -1.0) != minStreamlines) ng::refuse(std::string(kNetwork) + ": the eigenmodes were made with min_streamlines " + ep.value("min_streamlines", Json()).dump() + ", not " + std::to_string(minStreamlines));
     if (ep.value("codes", Json()) != r.codes || fp.value("codes", Json()) != r.codes) ng::refuse(std::string(kNetwork) + ": the pairs, the eigenmodes and the flow are not on the same tiles");
-    const std::int64_t T = r.tiles, P = r.pairs, A = flow.rows;
-    const bool meanOverCells = flow.cols == 5 * P;                                               // stats.network_sign_flip: column 0 .. P the mean edge flow
-    if (eigen.rows != T || eigen.cols != T + 1 || (!meanOverCells && flow.cols != 2 * P + T)) ng::refuse(std::string(kNetwork) + ": the eigenmodes or the flow do not fit the pairs' tiles");
+    const std::int64_t T = r.tiles, P = r.pairs;
+    const std::pair<std::int64_t, std::int64_t> flowShape = atoms_rows(flow);
+    const std::int64_t A = flowShape.first, flowRows = flowShape.second;                                                // stats.network_sign_flip's measurement: the mean edge flow per pair and atom
+    if (eigen.rows != T || eigen.cols != T + 1 || flowRows != P) ng::refuse(std::string(kNetwork) + ": the eigenmodes or the flow do not fit the pairs' tiles");
     nxr::meeg::LaplacianModes modes;
     modes.eigenvalues.resize(T); modes.eigenvectors.resize(T, T);
     for (std::int64_t k = 0; k < T; ++k) { modes.eigenvalues(k) = cell(eigen, k, 0); for (std::int64_t i = 0; i < T; ++i) modes.eigenvectors(i, k) = cell(eigen, k, 1 + i); }
@@ -702,9 +742,7 @@ ng::NodeSpec network_flow() {
       for (std::int64_t i = 0; i < T; ++i)
         for (std::int64_t j = i + 1; j < T; ++j) {
           const std::int64_t q = nxr::meeg::pairIndex(i, j, T);
-          if (meanOverCells) { edgeFlow(q) = cell(flow, a, q); continue; }
-          const double denominator = std::sqrt(cell(flow, a, 2 * P + i) * cell(flow, a, 2 * P + j));   // derived at read: Im S_ij / sqrt(S_ii S_jj)
-          edgeFlow(q) = denominator > 0 ? cell(flow, a, P + q) / denominator : 0.0;
+          edgeFlow(q) = measured(flow, q, a, 0);
         }
       const nxr::meeg::NetworkFlow nf = nxr::meeg::networkFlow(edgeFlow, r.weight, modes);
       for (std::int64_t i = 0; i < T; ++i) out.data.push_back(nf.divergence(i));
@@ -713,7 +751,7 @@ ng::NodeSpec network_flow() {
       out.data.push_back(nf.weightedGradientSquares); out.data.push_back(nf.weightedFlowSquares);
     }
     const Json producer = Json{{"tiles", T}, {"atoms", A}, {"min_streamlines", minStreamlines}, {"null_modes", modes.nullModes}, {"codes", r.codes}, {"frequencies_hz", fp.value("frequencies_hz", Json::array())},
-                               {"edge_flow", meanOverCells ? "the mean over the cells of Im C_ij / sqrt(C_ii C_jj) (stats.network_sign_flip: the reference's)" : "Im S_ij / sqrt(S_ii S_jj) of the whole run (signal.tile_flow)"},
+                               {"edge_flow", "the mean over the cells of Im C_ij / sqrt(C_ii C_jj) (stats.network_sign_flip: the reference's)"},
                                {"weights", "the edges' streamline counts"},
                                {"derived_at_read", Json{{"gradient_share", "Σ w (B phi)² / Σ w F²"}, {"potential_energy_per_mode", "coefficient²"}}}, {"warnings", warnings()}};
     out.meta["shape"] = Json::array({A, 3 * T + 2}); out.meta["producer"] = producer;
@@ -724,7 +762,9 @@ ng::NodeSpec network_flow() {
                                                           Json{{"measure", "weighted_flow_squares"}, {"columns", Json::array({3 * T + 1, 3 * T + 2})}}})},
                                 {"producer", producer},
                                 {"description", "per atom on the network's edges: divergence Bᵀ F per tile, the graph potential phi (L phi = Bᵀ W F, the 1/eigenvalue gain on the connectome eigenmodes, the null modes left out), its coefficients, the gradient part's and the flow's weighted sums of squares"}};
-    return ng::Arrays{{"network", std::move(out)}};
+    return ng::Arrays{{"network_tiles", measurement_of_blocks(out, 0, T, {"divergence", "potential"}, "the tiles")},
+                      {"network_modes", measurement_of_blocks(out, 2 * T, T, {"potential_coefficient"}, "the connectome eigenmodes")},
+                      {"network_totals", measurement_of_blocks(out, 3 * T, 1, {"weighted_gradient_squares", "weighted_flow_squares"}, "one row: the atom's totals")}};
   };
   return n;
 }
