@@ -120,7 +120,7 @@ int main() {
 
   ng::Array atoms;
   const double fwhm = 2.0 * std::sqrt(2.0 * std::log(2.0)) / 12.0;                           // standard deviation centre / 12
-  atoms.meta["params"] = Json{{"kernels", Json{{"members", Json::array({Json{{"start", f}, {"stop", f}, {"family", "gaussian"}, {"chart", "linear"}, {"gain", 2.0}, {"params", Json{{"fwhm", fwhm}, {"width_rule", "proportional"}}}}})}}}};
+  atoms.meta["params"] = Json{{"kernels", Json{{"members", Json::array({Json{{"start", f}, {"stop", f}, {"family", "gaussian"}, {"chart", "linear"}, {"gain", 2.0}, {"params", Json{{"fwhm_per_centre", fwhm}}}}})}}}};
   const Json fp = Json{{"frequency_normalisation", "none"}};
   const auto flow = run_array("signal.tile_flow", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}}, fp);
   const ng::Array& F = flow.at("flow");

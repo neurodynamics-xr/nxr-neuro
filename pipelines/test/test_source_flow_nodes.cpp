@@ -222,7 +222,7 @@ int main() {
   auto kernel_set = [](const Json& members) { ng::Array a; a.meta["params"] = Json{{"kernels", Json{{"members", members}}}}; a.meta["type"] = "set"; return a; };
   Json atoms = Json::array();
   for (const double c : {5.0, 10.0, 20.0})
-    atoms.push_back(Json{{"start", c}, {"stop", c}, {"family", "gaussian"}, {"chart", "linear"}, {"gain", 2.0}, {"params", Json{{"fwhm", 2.0 * std::sqrt(2.0 * std::log(2.0)) / 12.0 * 3.0}, {"width_rule", "proportional"}}}});
+    atoms.push_back(Json{{"start", c}, {"stop", c}, {"family", "gaussian"}, {"chart", "linear"}, {"gain", 2.0}, {"params", Json{{"fwhm_per_centre", 2.0 * std::sqrt(2.0 * std::log(2.0)) / 12.0 * 3.0}}}});
   Json bands = Json::array();
   for (const double c : {1.5, 3.0, 5.0}) bands.push_back(Json{{"start", c}, {"stop", c}, {"family", "cos2_partition"}, {"chart", "log2"}, {"gain", 1.0}});
   const Json fp = Json{{"frequency_weighting", "kernels"}, {"frequency_normalisation", "sum_of_squared_gains"}, {"support_floor", 1e-3}};

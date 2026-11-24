@@ -2239,6 +2239,23 @@ is a STATISTIC: "field -> selection/measurements -> statistic. the statistic is 
 - **Next** (the spec's order): the other spectral producers, the histogram, Brainstorm's sensor-level timefreq on import. (`run psd`'s PSD is a statistic since 2026-11-13; checked
   against the code 2026-11-14: the `<recording>_psd_welch` Field of the spec's table is already gone.)
 
+## Kernel sets: bands, scale bands and atoms (`run select_kernels`; `compute/include/nxr/signal/kernel_gains.h`)
+
+A kernel set is ONE stored selection on a line (a frequency line in Hz, or an eigenvalue line in mu) whose members are kernels: an anchor, a profile (its family and
+numbers), a chart and a peak gain. `select_kernels` makes it; every node that uses one evaluates it with `nxr::signal::kernelGains`, the one evaluator, which
+calls the filterbanks' own shapes. Every parameter is the caller's (no default). The families:
+
+| family | anchor | parameters | gain at x (x > 0; a coordinate <= 0 has gain 0) |
+|---|---|---|---|
+| `gaussian` | the centre | `--width` (FWHM in the chart) and `--width-rule absolute`, or `--width-rule proportional` (the width per unit of centre: constant Q) | gain exp(-u² / (2 sd²)), u in the chart (linear or log2) |
+| `box` | the centre | as gaussian | gain where \|u\| <= FWHM / 2 |
+| `cos2_partition` | the centres | none (log2 chart) | an amplitude partition: sin² rising from the previous centre, cos² falling to the next; the gains sum to one |
+| `morlet_band` | `--bands [[lo, hi], ...]` Hz | none (linear chart) | gain times the time bank's Morlet band (FWHM hi - lo) |
+| `meyer_band` | `--bands` | `--half-width` octaves (log2 chart) | gain times the time bank's Meyer band |
+| `mexican_hat` | the centre | none (linear chart) | gain times the graph bank's hat, unit peak at the centre |
+
+Atoms are the cells of a frequency kernel set times a scale kernel set: the two are evaluated apart and applied as two gains in turn, never as a product matrix.
+
 ## One selection and measurement system (spec `docs/specs/2026-11-17-consolidation.md`; definitions in `pipelines/definitions/`)
 
 **Why.** Selections and reductions had grown several competing definitions (tiles, joint cells, frame tilings, pyramids, per-verb sums). There is now ONE of each: five
