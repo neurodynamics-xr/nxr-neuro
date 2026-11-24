@@ -455,8 +455,8 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run select_time_grid` | The dyadic time grid of a recording's line: tiles, band, frames (density and origin are options), constant-Q, segments, windows, chunks. | `constantq compute`, `run select_time_grid --rule frames` |
 | `nxr-neuro run select_bands` | A band set on the Frequency or Eigenvalue line, each band a quantity. | `run pyramid_bands`, `run spatial_bands` |
 | `nxr-neuro run select_product` | A product of grids and band sets (a box, cells, the joint partition), levels coupled to a band. | `joint compute`, `run select_product` |
-| `nxr-neuro run glue` | The two hemispheres of a cortex (read from the caller's hemisphere labelling) glued by a bridge: a derived manifold with its hemispheres labelling and the original's kept vertices. | `--glued` of `run eigenmodes` |
-| `nxr-neuro migrate glue` | A glued cortex of the earlier form (a map field and a bridge selection) converted in place to the hemispheres labelling and the kept vertices. | `package migrate-glue` |
+| `nxr-neuro run glue` | The two hemispheres of a cortex (read from the caller's hemisphere labelling) glued by a bridge after exactly their medial walls are cut: a derived manifold with its hemispheres labelling. | `--glued` of `run eigenmodes` |
+| `nxr-neuro migrate glue` | A glued cortex of an earlier form (a map field and a bridge selection, or kept vertices beside the labelling) converted in place to the hemispheres labelling alone; a glue that removed more than the medial wall is refused (re-run glue). | `package migrate-glue` |
 | `nxr-neuro run sensor_surface` | The channels as a surface: a triangulated helmet whose vertices are the picked channels, a derived manifold with its vertex-to-channel map. | (new) |
 | `nxr-neuro run spectral_coefficients` | The mode-space Fourier coefficients of a recording per time tile, through a composed spatial operator (a package's modes and a free kernel, or the sensor surface's channel map). | (new) |
 | `nxr-neuro run roll_up` | A measurement rolled up through its grid's hierarchy, or across a group's subjects (scope group). | `run roll_up` |
@@ -2121,10 +2121,13 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
   - `select.events.spans|regions|cores|tracks`: irregular selections made by detection (nodes inside `band_bursts`, `global_bursts`, `patches`, `spatial_events`, `vortex_cores`).
 - **The glued cortex is made by its own definition** (2026-11-17; its result as selections, 2026-11-23): `run glue --surface cortex_pial [--hemispheres Structures] [--left "Cortex L"] [--right "Cortex R"]`
   READS the hemispheres from the caller's labelling of the original (Brainstorm's `Structures` by default; a left or right member that is not one connected piece, cortex outside its own `unassigned`,
-  or a face in both is refused) and stores the glued surface as a manifold, ONE labelling of it `<glued>_hemispheres` (the input's entries, names, codes and colours, and `bridge`) and on the original
-  the kept vertices `<glued>_kept` (indices, ascending): glued vertex i < n_kept is the i-th kept vertex, the rest the bridge, so the correspondence is derived from these two, with no index field.
-  A glue stored before (the field `<glued>_map`, the selection `<glued>_bridge`) is refused by the readers, naming `nxr-neuro migrate glue`, which converts it in place (the map checked against
-  the glue's rule, the labelling against the original surface). The imported two-hemisphere mesh stays the manifold of record (atlases, kernels, exports,
+  or a face in both is refused) and stores the glued surface as a manifold and ONE labelling of it `<glued>_hemispheres` (the input's entries, names, codes and colours, and `bridge`). The cut
+  removes EXACTLY the medial wall (its vertices and the faces touching them, nothing more): the glued vertices are the original's vertices off the wall, ascending, then the bridge's, so the
+  correspondence is derived from the labelling and the original's wall, with no index field and no kept-vertex selection. The rim the exact cut leaves is stitched as it is, a vertex it passes
+  twice included (a pinch: a cortex vertex whose faces all touched the wall is kept, reached along its one edge); a wall of several pieces, a rim of several loops (cortex enclosed by the wall) or a
+  cortex vertex enclosed by it is refused with the reason, naming the hemisphere: the glue never removes cortex nor keeps wall. A glue stored before (the field `<glued>_map` and the selection
+  `<glued>_bridge`, or the selection `<glued>_kept`) is refused by the readers, naming `nxr-neuro migrate glue`, which converts it in place (the map checked against the glue's rule, the
+  labelling against the original surface) and refuses one whose kept vertices are not exactly those off the medial wall (an earlier glue widened its cut: re-run glue). The imported two-hemisphere mesh stays the manifold of record (atlases, kernels, exports,
   figures); the glued surface is the default computational manifold for spatiotemporal patterns, results are restricted back to the original hemispheres, and orientations are
   also reported in the anatomical frame as a check of the bridge's transport. `eigenmodes` and `meeg.apply_kernel` take the glued surface by name; `--glued` is gone.
 - **The four measurement operations**, one implementation each (`compute/include/nxr/measurement/`):
@@ -2401,11 +2404,11 @@ nxr-neuro solves the Hodge–Dirac modes **exactly as nxr and Rheome do** (`nxr.
 - the package: ψ/√2 (exact), W·χ/√2 (coexact; W = the ⋆2-weighted mean of χ over the faces round the vertex), stored as float32.
 
 **A cortex is glued by anatomy first**, as nxr's `solve` and the Studio glue one. A surface of two closed pieces
-(the hemispheres, read from the caller's hemisphere labelling) has each MEDIAL WALL (the vertices its stored Desikan-Killiany atlas codes `unassigned`) cut out as a disk, and a BRIDGE of new vertices grown between the two rims
-(nxr-compute's `glueMesh`, a line port of the Studio's `glue.ts`, bit-exact with its golden). The solve runs on the glued surface, and the package is stored as nxr stores one:
+(the hemispheres, read from the caller's hemisphere labelling) has each MEDIAL WALL (the vertices its stored Desikan-Killiany atlas codes `unassigned`) cut out exactly (nothing more), and a BRIDGE of new vertices grown between the two rims
+(nxr-compute's `glueMesh`, a line port of the Studio's `glue.ts`, bit-exact with its golden where the exact cut is one simple loop; the reference widens a cut that is not, nxr refuses or stitches it as it is). The solve runs on the glued surface, and the package is stored as nxr stores one:
 
-- `source/<surface>_glued`: the glued surface; vertex i < n_kept is `<stem>_support[i]` (the kept vertices, ascending), the rest the bridge;
-- `<surface>_glued_hemispheres`: the labelling of the glued vertices: the original's hemisphere entries and `bridge` (not cortex: no sources, a forward zero there); `<surface>_glued_kept` on the original: the kept vertices;
+- `source/<surface>_glued`: the glued surface; vertex i < n_kept is `<stem>_support[i]` (the vertices off the medial wall, ascending), the rest the bridge;
+- `<surface>_glued_hemispheres`: the labelling of the glued vertices: the original's hemisphere entries and `bridge` (not cortex: no sources, a forward zero there);
 - `<stem>_eigenvectors`: [glued vertices × K], onto the glued surface; `<stem>_support`: the input's kept vertices.
 
 **The full forms are stored with the eigensolve**. The modes are solved on the intrinsic Delaunay triangulation: the same vertices, its own
