@@ -47,6 +47,7 @@ add_library(nxr_pipelines
   src/sensor_flow_steps.cpp
   src/bispectrum_steps.cpp
   src/connectome_flow_steps.cpp
+  src/source_flow_steps.cpp
   src/spectral_steps.cpp
   src/verb_steps.cpp
   src/steps_measure.cpp
@@ -453,6 +454,10 @@ add_executable(test_sensor_bispectrum test/test_sensor_bispectrum.cpp)   # the b
   target_link_libraries(test_sensor_bispectrum PRIVATE nxr_pipelines)
   target_include_directories(test_sensor_bispectrum PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_sensor_bispectrum COMMAND test_sensor_bispectrum)
+add_executable(test_source_flow_nodes test/test_source_flow_nodes.cpp)   # the source-flow nodes: the MNE kernel projected onto the cortex's eigenmodes, options A and B, per hemisphere and glued; synthetic
+  target_link_libraries(test_source_flow_nodes PRIVATE nxr_pipelines)
+  target_include_directories(test_source_flow_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_source_flow_nodes COMMAND test_source_flow_nodes)
   add_executable(test_connectome_nodes test/test_connectome_nodes.cpp)
   target_link_libraries(test_connectome_nodes PRIVATE nxr_pipelines)
   target_include_directories(test_connectome_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)

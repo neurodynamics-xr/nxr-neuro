@@ -21,6 +21,7 @@
 
 #include "nxr/graph/node.h"
 #include "nxr/pipelines/form_steps.h"
+#include "chunk_spectra_readers.h"
 #include "nxr/signal/aperiodic.h"
 #include "nxr/signal/intrinsic_forms.h"
 #include "nxr/signal/spectral_flow.h"
@@ -244,19 +245,10 @@ ng::NodeSpec chunk_spectra() {
   return n;
 }
 
-// ── what the readers of the chunk spectra share ─────────────────────────────────────────────────────────────────
-struct Spectra {
-  std::int64_t chunks = 0, bins = 0, rows = 0, first = 0, transform = 0, overlap = 0;
-  double sfreq = 0;
-  std::vector<std::int64_t> modes, owns;
-  bool unit_mass = true;
-  const ng::Array* array = nullptr;
-  cd at(std::int64_t t, std::int64_t k, std::int64_t r) const {
-    const std::size_t i = static_cast<std::size_t>(((t * bins + k) * rows + r) * 2);
-    return cd(array->at(i), array->at(i + 1));
-  }
-  double frequency(std::int64_t k) const { return static_cast<double>(first + k) * sfreq / static_cast<double>(transform); }
-};
+}  // namespace
+
+// ── what the readers of the chunk spectra share (declared in chunk_spectra_readers.h: the source-flow nodes read them too) ────────────────────────────
+namespace spectra_readers {
 Spectra spectra_of(const ng::Array& A, const char* who) {
   const Json& d = A.meta.contains("shape") ? A.meta : A.meta.value("describe", Json::object());
   const Json pr = A.meta.contains("producer") ? A.meta["producer"] : d.value("producer", Json::object());
@@ -325,7 +317,7 @@ Eigen::MatrixXd gains_of(const std::vector<Json>& members, const Eigen::VectorXd
   return g;
 }
 // the frequency weighting's members: each a gain per bin (the atoms; normalised as the parameter says) or every bin alone
-Eigen::MatrixXd frequency_gains(const Spectra& s, const ng::Arrays& c, const Json& p, const char* who, std::vector<double>* standardDeviations = nullptr) {
+Eigen::MatrixXd frequency_gains(const Spectra& s, const ng::Arrays& c, const Json& p, const char* who, std::vector<double>* standardDeviations) {
   const std::string weighting = text_param(p, "frequency_weighting", who);
   Eigen::VectorXd f(s.bins);
   for (std::int64_t k = 0; k < s.bins; ++k) f(k) = s.frequency(k);
@@ -352,7 +344,7 @@ Eigen::MatrixXd frequency_gains(const Spectra& s, const ng::Arrays& c, const Jso
   return g;
 }
 // one frequency member's weighted columns Y [K x chunks.bins] (each bin's column times its gain; the cross-spectrum it weights is Y Yᴴ)
-Eigen::MatrixXcd weighted_columns(const Spectra& s, const Eigen::RowVectorXd& gain, double floorFraction = 1e-12) {
+Eigen::MatrixXcd weighted_columns(const Spectra& s, const Eigen::RowVectorXd& gain, double floorFraction) {
   const double top = gain.cwiseAbs().maxCoeff();
   std::vector<std::int64_t> bins;
   for (std::int64_t k = 0; k < s.bins; ++k) if (std::abs(gain(k)) > floorFraction * top && gain(k) != 0) bins.push_back(k);
@@ -362,6 +354,10 @@ Eigen::MatrixXcd weighted_columns(const Spectra& s, const Eigen::RowVectorXd& ga
       for (std::int64_t r = 0; r < s.rows; ++r) Y(r, t * static_cast<std::int64_t>(bins.size()) + static_cast<std::int64_t>(q)) = gain(bins[q]) * s.at(t, bins[q], r);
   return Y;
 }
+}  // namespace spectra_readers
+using namespace spectra_readers;
+
+namespace {
 
 struct FlowPrepared {
   nxr::pipelines::graph::BoundPackage package;
