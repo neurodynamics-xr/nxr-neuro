@@ -187,13 +187,28 @@ double meanEdge(const std::vector<double>& P, const std::vector<I>& F) {
   return s / static_cast<double>(F.size());
 }
 
-L euler(const std::vector<I>& F, std::size_t n) {
-  std::unordered_set<L> e;
+// Why faces F on n vertices are NOT a sphere (empty: they are one): the first property that fails, in this order: CLOSED (every edge on exactly two faces),
+// CONSISTENTLY ORIENTED (the two faces of an edge traverse it in opposite directions), CONNECTED (one piece; a vertex on no face is a piece of its own),
+// and the Euler characteristic V - E + F = 2 (a closed, connected, orientable surface of genus 0).
+std::string notSphere(const std::vector<I>& F, std::size_t n) {
+  std::unordered_map<L, int> facesOn;                                   // an undirected edge (low * n + high): the faces it is on
+  std::unordered_set<L> halfEdges;                                      // a directed edge (from * n + to), each face's three in its winding
+  L reused = 0;
   for (std::size_t f = 0; f < F.size(); f += 3) for (int k = 0; k < 3; ++k) {
     const L a = F[f + static_cast<size_t>(k)], b = F[f + static_cast<size_t>((k + 1) % 3)];
-    e.insert(std::min(a, b) * static_cast<L>(n) + std::max(a, b));
+    ++facesOn[std::min(a, b) * static_cast<L>(n) + std::max(a, b)];
+    if (!halfEdges.insert(a * static_cast<L>(n) + b).second) ++reused;
   }
-  return static_cast<L>(n) - static_cast<L>(e.size()) + static_cast<L>(F.size() / 3);
+  L one = 0, more = 0;
+  for (const auto& [edge, count] : facesOn) { (void)edge; if (count == 1) ++one; else if (count > 2) ++more; }
+  if (one || more)
+    return "not closed: every edge must lie on exactly two faces; " + std::to_string(one) + " edges lie on one face and " + std::to_string(more) + " on three or more";
+  if (reused) return "not consistently oriented: " + std::to_string(reused) + " edges are traversed in the same direction by both their faces";
+  { const std::vector<I> lb = labels(n, F, nullptr); const std::unordered_set<I> pieces(lb.begin(), lb.end());
+    if (pieces.size() != 1) return "not connected: " + std::to_string(pieces.size()) + " pieces (a vertex on no face counts as one)"; }
+  const L chi = static_cast<L>(n) - static_cast<L>(facesOn.size()) + static_cast<L>(F.size() / 3);
+  if (chi != 2) return "Euler characteristic V - E + F = " + std::to_string(chi) + ", not 2 (a sphere's)";
+  return {};
 }
 }  // namespace
 
@@ -205,15 +220,6 @@ Glued glueMesh(const std::vector<double>& P, const std::vector<I>& F, const std:
   if (wall.size() != n) fail("glue: the medial-wall mask has " + std::to_string(wall.size()) + " entries for " + std::to_string(n) + " vertices");
   std::vector<std::vector<std::uint8_t>> pieces;
   for (I r : roots) { std::vector<std::uint8_t> p(n); for (std::size_t i = 0; i < n; ++i) p[i] = lab[i] == r ? 1 : 0; pieces.push_back(std::move(p)); }
-  auto facesOf = [&](const std::vector<std::uint8_t>& p) { std::vector<I> o; for (std::size_t f = 0; f < F.size(); f += 3) if (p[static_cast<size_t>(F[f])]) { o.push_back(F[f]); o.push_back(F[f + 1]); o.push_back(F[f + 2]); } return o; };
-  L chi[2];
-  for (int q = 0; q < 2; ++q) {
-    const std::vector<I> fs = facesOf(pieces[static_cast<size_t>(q)]);
-    std::unordered_map<I, I> remap; std::vector<I> m2;
-    for (I v : fs) if (!remap.count(v)) { const I k = static_cast<I>(remap.size()); remap[v] = k; }
-    for (I v : fs) m2.push_back(remap[v]);
-    chi[q] = euler(m2, remap.size());
-  }
   std::vector<Disk> disks;
   for (int q = 0; q < 2; ++q) disks.push_back(cutExactly(F, pieces[static_cast<size_t>(q)], wall, q));
   auto pt = [&](I v) -> Pt { const auto u = static_cast<size_t>(v); return {P[3 * u], P[3 * u + 1], P[3 * u + 2]}; };
@@ -276,16 +282,10 @@ Glued glueMesh(const std::vector<double>& P, const std::vector<I>& F, const std:
   g.keep.resize(total);
   for (std::size_t i = 0; i < total; ++i) g.keep[i] = i < m ? used[i] : -1;
   g.positions = X;
-  // the checks
-  std::unordered_set<L> half;
-  for (std::size_t f = 0; f < g.faces.size(); f += 3) for (int k = 0; k < 3; ++k) {
-    const L hk = static_cast<L>(g.faces[f + static_cast<size_t>(k)]) * static_cast<L>(total) + g.faces[f + static_cast<size_t>((k + 1) % 3)];
-    if (!half.insert(hk).second) fail("glue: a half-edge is used twice");
-  }
-  for (L hk : half) if (!half.count((hk % static_cast<L>(total)) * static_cast<L>(total) + hk / static_cast<L>(total))) fail("glue: an edge has one face");
-  { const std::vector<I> lb = labels(total, g.faces, nullptr); std::unordered_set<I> s(lb.begin(), lb.end()); if (s.size() != 1) fail("glue: the result is not one piece"); }
-  const L want = chi[0] + chi[1] - 2, got = euler(g.faces, total);
-  if (got != want) fail("glue: \xcf\x87 = " + std::to_string(got) + ", not " + std::to_string(want));
+  // THE RESULT IS A SPHERE: closed, consistently oriented, connected, V - E + F = 2; otherwise refused, naming the property that failed (two hemispheres that are not each
+  // a sphere, or a bridge that does not close them up, never pass as a cortex of one piece)
+  if (const std::string why = notSphere(g.faces, total); !why.empty()) fail("glue: the glued surface is not a sphere: " + why);
+  g.edges = static_cast<L>(total) + static_cast<L>(g.faces.size() / 3) - 2;   // a sphere's: V - E + F = 2
   double area = 0, longest = 0;
   for (std::size_t f = 0; f < bridge.size(); f += 3) {
     const Pt p = at(bridge[f]), q = at(bridge[f + 1]), r = at(bridge[f + 2]), u = sub3(q, p), w = sub3(r, p);

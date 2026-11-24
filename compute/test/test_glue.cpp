@@ -135,6 +135,35 @@ int main() {
   std::vector<std::uint8_t> W3 = lastW; W3.insert(W3.end(), lastW.begin(), lastW.end());
   EXPECT(throws([&] { nxr::geometry::glue::glueMesh(P3, F3, W3); }), "three pieces: refused");
   EXPECT(throws([&] { nxr::geometry::glue::glueMesh(lastP, lastF, std::vector<std::uint8_t>(3, 1)); }), "a wall of the wrong length: refused");
+  std::cout << "=== the result must be a sphere ===\n";
+  {
+    // two TORI (genus 1) side by side, each with a wall of 2 x 2 vertices on the side facing the other: each cut leaves one simple rim loop, the bridge joins them,
+    // and the result is closed, oriented and connected but of genus 2 (V - E + F = -2): refused, naming the Euler characteristic
+    const int nu = 16, nv = 8;
+    const double R = 3, r = 1, pi = 3.14159265358979323846;
+    std::vector<double> P; std::vector<std::int32_t> F; std::vector<std::uint8_t> W;
+    for (int t = 0; t < 2; ++t) {
+      const auto base = static_cast<std::int32_t>(P.size() / 3);
+      const int facing = t == 0 ? 0 : nu / 2;                           // the first torus' wall at u = 0 (x largest), the second's at u = pi (x smallest)
+      for (int i = 0; i < nu; ++i) for (int j = 0; j < nv; ++j) {
+        const double u = 2 * pi * i / nu, v = 2 * pi * j / nv;
+        P.push_back((R + r * std::cos(v)) * std::cos(u) + (t ? 10.0 : 0.0)); P.push_back((R + r * std::cos(v)) * std::sin(u)); P.push_back(r * std::sin(v));
+        W.push_back((i == facing || i == facing + 1) && (j == 0 || j == 1) ? 1 : 0);
+      }
+      auto at = [&](int i, int j) { return base + static_cast<std::int32_t>(((i + nu) % nu) * nv + (j + nv) % nv); };
+      for (int i = 0; i < nu; ++i) for (int j = 0; j < nv; ++j) {
+        const std::int32_t a = at(i, j), b = at(i + 1, j), c = at(i + 1, j + 1), d = at(i, j + 1);
+        F.insert(F.end(), {a, b, c, a, c, d});
+      }
+    }
+    std::string why = "glued";
+    try { nxr::geometry::glue::glueMesh(P, F, W); } catch (const std::runtime_error& e) { why = e.what(); }
+    std::cout << "  two tori: " << why.substr(0, 240) << "\n";
+    EXPECT(why.find("not a sphere") != std::string::npos && why.find("Euler characteristic") != std::string::npos && why.find("-2") != std::string::npos,
+           "two tori glued: refused as not a sphere, naming the Euler characteristic -2");
+    const nxr::geometry::glue::Glued ok = nxr::geometry::glue::glueMesh(lastP, lastF, lastW);
+    EXPECT(static_cast<std::int64_t>(ok.keep.size()) - ok.edges + static_cast<std::int64_t>(ok.faces.size() / 3) == 2, "a glued sphere's edge count: V - E + F = 2");
+  }
   std::cout << (fails ? "FAILED " : "ok ") << fails << "\n";
   return fails ? 1 : 0;
 }
