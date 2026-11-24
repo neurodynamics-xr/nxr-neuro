@@ -828,6 +828,48 @@ std::optional<std::string> channels_matched_to(nxr::io::SubjectWriter& sub, cons
   return std::nullopt;
 }
 
+// THE CHANNEL MAP MATCHED BY NAME (preparation): a surface's vertex-to-channel map (a field of kind 'channel map', `sensor_surface`) holds indices into the channel set its surface was
+// made from (the surface's derived_from). Handed beside a streamed recording on ANOTHER channel set of the subject (an empty-room recording read on a run's sensor surface), each index is
+// re-pointed to the channel of the same name in the recording's set (rematch_channel_map). Returns {the map's set, the recording's set}; nullopt: not a channel map, the same set, or no
+// recording streamed.
+std::optional<std::pair<std::string, std::string>> channel_map_matched_to(nxr::io::SubjectWriter& sub, const Plan& P, const Row& row) {
+  if (nxr::io::opt_text(row, "kind").value_or("") != "channel map") return std::nullopt;
+  const auto surface = sub.db().read("manifold", text(row, "manifold_id"));
+  const std::string from = surface ? nxr::io::opt_text(*surface, "derived_from_id").value_or("") : std::string();
+  if (from.empty()) return std::nullopt;
+  for (const auto& [k, v] : P.values) {
+    if (v.cls != "field" || !v.time || !P.found.count(k) || !P.found.at(k).row) continue;
+    const std::vector<std::string> dims = nxr::io::factor_manifolds(sub.db(), text(*P.found.at(k).row, "manifold_id"));
+    if (dims.size() == 2 && !dims[0].empty() && dims[0] != from) return std::make_pair(from, dims[0]);
+  }
+  return std::nullopt;
+}
+// each vertex's channel index in `from` re-pointed to the channel of the same name in `to`; a vertex whose channel `to` lacks is refused, naming the channels. The match in meta.channels_matched.
+void rematch_channel_map(nxr::io::SubjectWriter& sub, nxr::graph::Array& a, const std::string& from, const std::string& to) {
+  const std::string map = a.meta.value("name", std::string());
+  const auto from_row = sub.db().read("manifold", from), to_row = sub.db().read("manifold", to);
+  const std::string from_name = from_row ? text(*from_row, "name") : from, to_name = to_row ? text(*to_row, "name") : to;
+  const std::vector<std::string> from_names = nxr::pipelines::channel_names_of(sub, from), to_names = nxr::pipelines::channel_names_of(sub, to);
+  if (from_names.empty() || to_names.empty()) refuse("steps: " + map + " points into " + from_name + ", the recording is on " + to_name + ", and " + (from_names.empty() ? from_name : to_name) + " stores no channel names to match them by");
+  std::map<std::string, std::int64_t> in_to;
+  for (std::size_t i = 0; i < to_names.size(); ++i) if (!in_to.emplace(to_names[i], static_cast<std::int64_t>(i)).second) refuse("steps: " + to_name + ": the channel name '" + to_names[i] + "' is not unique");
+  std::vector<std::string> missing;
+  for (double& c : a.data) {
+    if (!(c >= 0)) continue;                                               // a vertex with no channel stays so (the node refuses it)
+    const auto i = static_cast<std::size_t>(c);
+    if (i >= from_names.size()) refuse("steps: " + map + ": a channel index outside " + from_name);
+    const auto it = in_to.find(from_names[i]);
+    if (it == in_to.end()) { missing.push_back(from_names[i]); continue; }
+    c = static_cast<double>(it->second);
+  }
+  if (!missing.empty()) {
+    std::string list;
+    for (std::size_t i = 0; i < missing.size(); ++i) list += (i ? ", " : "") + missing[i];
+    refuse("steps: the recording's channel set " + to_name + " does not hold " + std::to_string(missing.size()) + " channel(s) of the surface's map " + map + " (" + from_name + "), matched by name: " + list);
+  }
+  a.meta["channels_matched"] = Json{{"by", "name"}, {"channels", from_name}, {"channels_id", from}, {"matched_to", to_name}, {"matched_to_id", to}};
+}
+
 // THE MATCH BY NAME: the statistic [channels x channels] over its pick of `from` (its own channel set) restricted and reordered to the channels of `to` (the operator's set), in `to`'s order:
 // a permutation and selection of its rows and columns, nothing computed. Every channel of `to` of a type the statistic covers must be in `from` (else refused, naming the missing ones); the
 // statistic's channels not in `to` are dropped; channels of `to` that `from` holds but its pick left out (bad in the statistic's recording) are not covered. The match is in meta.channels_matched.
@@ -1044,6 +1086,9 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     // the projectors handed with a statistic over channels (handed_projectors): the choice and the stored statuses are data a node uses, so they are in the key (a status edited is a new result)
     // a statistic matched by name to an operator's channel set (channels_matched_to): its own set and the one it is matched to are in the key, and the projectors handed are the latter's
     Json handed = Json::object(), matched = Json::object();
+    for (const auto& [k, v] : P.found)                                     // a channel map matched by name to the recording's channel set (channel_map_matched_to)
+      if (v.cls == "field" && v.row)
+        if (const auto m = channel_map_matched_to(sub, P, *v.row)) matched[k] = Json{{"channels", m->first}, {"matched_to", m->second}, {"by", "name"}};
     for (const auto& [k, v] : P.found) {
       if (v.cls != "statistic" || !v.row || (group && group->ids.count(k))) continue;
       auto mid = channel_manifold_of(sub, *v.row);
@@ -1330,6 +1375,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.cols = a.rows > 0 ? static_cast<std::int64_t>(f.size()) / a.rows : 0;
         a.data.assign(f.begin(), f.end());
         a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["shape"] = shape;
+        if (const auto matched = channel_map_matched_to(sub, P, row)) rematch_channel_map(sub, a, matched->first, matched->second);   // a channel map beside a recording on another channel set
         constants[name] = std::move(a);
       } else if (v.cls == "manifold" && text(row, "type") == "curve") {     // a fiber bundle: its points [nF*nP x 3], fiber-major, held as double to carry them, `precision` in meta (its stored one: no node widens)
         const nxr::io::task::Subject subject = nxr::io::task::Subject::of(sub);
