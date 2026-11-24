@@ -21,6 +21,7 @@ inputs:
   sensor_package: {operator: eigenvectors, where: {name: "${sensor_package}_eigenvectors"}, when: {columns: sensor_coordinates}, hint: "the sensor surface's Hodge-Dirac solve (option A)"}
   channel_map:    {field: any, where: {name: $channel_map}, when: {columns: sensor_coordinates}, hint: "the sensor surface's vertex-to-channel map (option A)"}
   groups:         {selection: any, where: {name: $groups}, when: $grouped, hint: "sharp groups of bins: a kernel set of boxes on the frequency line (`nxr-neuro run select_kernels --profile box --chart linear`)"}
+  pairs:          {selection: any, where: {name: $pairs}, when: {grouped: true, banded: true}, hint: "grouped and banded: the product groups x bands x bands (`nxr-neuro run select_kernel_product --factors 3`), the band pairs' members"}
   bands:          {selection: any, where: {name: $bands}, when: $banded, hint: "the cortical eigenvalue bands, a kernel set (`nxr-neuro run select_kernels --profile cos2_partition`)"}
 
 parameters:
@@ -35,6 +36,7 @@ parameters:
   channel_map: {default: null, meaning: "option A: the sensor surface's vertex-to-channel map's name", unit: "-"}
   groups: {default: null, meaning: "sharp groups of bins by name (with grouped true); null: every bin alone", unit: "-"}
   bands: {default: null, meaning: "the cortical eigenvalue bands by name (with banded true); null: the whole field only", unit: "-"}
+  pairs: {default: null, meaning: "grouped and banded: the product groups x bands x bands by name (the band pairs are measured over its members)", unit: "-"}
   grouped: {default: false, meaning: "true: the bins grouped by the sharp kernel set named in groups", unit: "-"}
   banded: {default: false, meaning: "true: also every pair of the cortical bands named in bands", unit: "-"}
   overlap_samples: {default: 16384, meaning: "the overlap on each side of a chunk: half a chunk", unit: samples}
@@ -62,34 +64,53 @@ steps:
   after:
     - {node: signal.cortical_flow, in: {spectra: spectra, package: left, operator: left_operator, kernel_columns: left_kernel_columns}, with: {frequency_weighting: every_bin}, out: [left_whole_vertices, left_whole_edges, left_whole_modes, left_pair_vertices, left_pair_edges, left_pair_modes], when: {cortex: per_hemisphere, grouped: false, banded: false}}
     - {node: signal.cortical_flow, in: {spectra: spectra, package: left, operator: left_operator, kernel_columns: left_kernel_columns, scale: bands}, with: {frequency_weighting: every_bin}, out: [left_whole_vertices, left_whole_edges, left_whole_modes, left_pair_vertices, left_pair_edges, left_pair_modes], when: {cortex: per_hemisphere, grouped: false, banded: true}}
-    - {node: signal.cortical_flow, in: {spectra: spectra, package: left, operator: left_operator, kernel_columns: left_kernel_columns, frequency: groups}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [left_whole_vertices, left_whole_edges, left_whole_modes, left_pair_vertices, left_pair_edges, left_pair_modes], when: {cortex: per_hemisphere, grouped: true, banded: false}}
-    - {node: signal.cortical_flow, in: {spectra: spectra, package: left, operator: left_operator, kernel_columns: left_kernel_columns, frequency: groups, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [left_whole_vertices, left_whole_edges, left_whole_modes, left_pair_vertices, left_pair_edges, left_pair_modes], when: {cortex: per_hemisphere, grouped: true, banded: true}}
+    - {node: signal.cortical_flow, in: {spectra: spectra, package: left, operator: left_operator, kernel_columns: left_kernel_columns, frequency: groups}, with: {measure_suffix: _left, frequency_weighting: kernels, frequency_normalisation: none}, out: [left_group_vertices, left_group_edges, left_group_modes, left_group_pair_vertices, left_group_pair_edges, left_group_pair_modes], when: {cortex: per_hemisphere, grouped: true, banded: false}}
+    - {node: signal.cortical_flow, in: {spectra: spectra, package: left, operator: left_operator, kernel_columns: left_kernel_columns, frequency: groups, scale: bands}, with: {measure_suffix: _left, frequency_weighting: kernels, frequency_normalisation: none}, out: [left_group_vertices, left_group_edges, left_group_modes, left_group_pair_vertices, left_group_pair_edges, left_group_pair_modes], when: {cortex: per_hemisphere, grouped: true, banded: true}}
     - {node: signal.cortical_flow, in: {spectra: spectra, package: right, operator: right_operator, kernel_columns: right_kernel_columns}, with: {frequency_weighting: every_bin}, out: [right_whole_vertices, right_whole_edges, right_whole_modes, right_pair_vertices, right_pair_edges, right_pair_modes], when: {cortex: per_hemisphere, grouped: false, banded: false}}
     - {node: signal.cortical_flow, in: {spectra: spectra, package: right, operator: right_operator, kernel_columns: right_kernel_columns, scale: bands}, with: {frequency_weighting: every_bin}, out: [right_whole_vertices, right_whole_edges, right_whole_modes, right_pair_vertices, right_pair_edges, right_pair_modes], when: {cortex: per_hemisphere, grouped: false, banded: true}}
-    - {node: signal.cortical_flow, in: {spectra: spectra, package: right, operator: right_operator, kernel_columns: right_kernel_columns, frequency: groups}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [right_whole_vertices, right_whole_edges, right_whole_modes, right_pair_vertices, right_pair_edges, right_pair_modes], when: {cortex: per_hemisphere, grouped: true, banded: false}}
-    - {node: signal.cortical_flow, in: {spectra: spectra, package: right, operator: right_operator, kernel_columns: right_kernel_columns, frequency: groups, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [right_whole_vertices, right_whole_edges, right_whole_modes, right_pair_vertices, right_pair_edges, right_pair_modes], when: {cortex: per_hemisphere, grouped: true, banded: true}}
+    - {node: signal.cortical_flow, in: {spectra: spectra, package: right, operator: right_operator, kernel_columns: right_kernel_columns, frequency: groups}, with: {measure_suffix: _right, frequency_weighting: kernels, frequency_normalisation: none}, out: [right_group_vertices, right_group_edges, right_group_modes, right_group_pair_vertices, right_group_pair_edges, right_group_pair_modes], when: {cortex: per_hemisphere, grouped: true, banded: false}}
+    - {node: signal.cortical_flow, in: {spectra: spectra, package: right, operator: right_operator, kernel_columns: right_kernel_columns, frequency: groups, scale: bands}, with: {measure_suffix: _right, frequency_weighting: kernels, frequency_normalisation: none}, out: [right_group_vertices, right_group_edges, right_group_modes, right_group_pair_vertices, right_group_pair_edges, right_group_pair_modes], when: {cortex: per_hemisphere, grouped: true, banded: true}}
     - {node: signal.cortical_flow, in: {spectra: spectra, package: glued, operator: glued_operator, kernel_columns: glued_kernel_columns}, with: {frequency_weighting: every_bin}, out: [glued_whole_vertices, glued_whole_edges, glued_whole_modes, glued_pair_vertices, glued_pair_edges, glued_pair_modes], when: {cortex: glued, grouped: false, banded: false}}
     - {node: signal.cortical_flow, in: {spectra: spectra, package: glued, operator: glued_operator, kernel_columns: glued_kernel_columns, scale: bands}, with: {frequency_weighting: every_bin}, out: [glued_whole_vertices, glued_whole_edges, glued_whole_modes, glued_pair_vertices, glued_pair_edges, glued_pair_modes], when: {cortex: glued, grouped: false, banded: true}}
-    - {node: signal.cortical_flow, in: {spectra: spectra, package: glued, operator: glued_operator, kernel_columns: glued_kernel_columns, frequency: groups}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [glued_whole_vertices, glued_whole_edges, glued_whole_modes, glued_pair_vertices, glued_pair_edges, glued_pair_modes], when: {cortex: glued, grouped: true, banded: false}}
-    - {node: signal.cortical_flow, in: {spectra: spectra, package: glued, operator: glued_operator, kernel_columns: glued_kernel_columns, frequency: groups, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [glued_whole_vertices, glued_whole_edges, glued_whole_modes, glued_pair_vertices, glued_pair_edges, glued_pair_modes], when: {cortex: glued, grouped: true, banded: true}}
+    - {node: signal.cortical_flow, in: {spectra: spectra, package: glued, operator: glued_operator, kernel_columns: glued_kernel_columns, frequency: groups}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [glued_group_vertices, glued_group_edges, glued_group_modes, glued_group_pair_vertices, glued_group_pair_edges, glued_group_pair_modes], when: {cortex: glued, grouped: true, banded: false}}
+    - {node: signal.cortical_flow, in: {spectra: spectra, package: glued, operator: glued_operator, kernel_columns: glued_kernel_columns, frequency: groups, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [glued_group_vertices, glued_group_edges, glued_group_modes, glued_group_pair_vertices, glued_group_pair_edges, glued_group_pair_modes], when: {cortex: glued, grouped: true, banded: true}}
 
 outputs:
+  # per hemisphere: each side's measures carry its suffix (measure_suffix _left / _right: one recording, one selection, two surfaces; #264)
   spectra: {kind: statistic, name: "{name}_chunk_spectra", of: recording}
-  left_whole_vertices: {kind: statistic, name: "{name}_left_flow_vertices", of: recording, when: {cortex: per_hemisphere}}
-  left_whole_edges: {kind: statistic, name: "{name}_left_flow_edges", of: recording, when: {cortex: per_hemisphere}}
-  left_whole_modes: {kind: statistic, name: "{name}_left_flow_modes", of: recording, when: {cortex: per_hemisphere}}
-  left_pair_vertices: {kind: statistic, name: "{name}_left_band_pair_vertices", of: recording, when: {cortex: per_hemisphere, banded: true}}
-  left_pair_edges: {kind: statistic, name: "{name}_left_band_pair_edges", of: recording, when: {cortex: per_hemisphere, banded: true}}
-  left_pair_modes: {kind: statistic, name: "{name}_left_band_pair_modes", of: recording, when: {cortex: per_hemisphere, banded: true}}
-  right_whole_vertices: {kind: statistic, name: "{name}_right_flow_vertices", of: recording, when: {cortex: per_hemisphere}}
-  right_whole_edges: {kind: statistic, name: "{name}_right_flow_edges", of: recording, when: {cortex: per_hemisphere}}
-  right_whole_modes: {kind: statistic, name: "{name}_right_flow_modes", of: recording, when: {cortex: per_hemisphere}}
-  right_pair_vertices: {kind: statistic, name: "{name}_right_band_pair_vertices", of: recording, when: {cortex: per_hemisphere, banded: true}}
-  right_pair_edges: {kind: statistic, name: "{name}_right_band_pair_edges", of: recording, when: {cortex: per_hemisphere, banded: true}}
-  right_pair_modes: {kind: statistic, name: "{name}_right_band_pair_modes", of: recording, when: {cortex: per_hemisphere, banded: true}}
-  glued_whole_vertices: {kind: statistic, name: "{name}_glued_flow_vertices", of: recording, when: {cortex: glued}}
-  glued_whole_edges: {kind: statistic, name: "{name}_glued_flow_edges", of: recording, when: {cortex: glued}}
-  glued_whole_modes: {kind: statistic, name: "{name}_glued_flow_modes", of: recording, when: {cortex: glued}}
-  glued_pair_vertices: {kind: statistic, name: "{name}_glued_band_pair_vertices", of: recording, when: {cortex: glued, banded: true}}
-  glued_pair_edges: {kind: statistic, name: "{name}_glued_band_pair_edges", of: recording, when: {cortex: glued, banded: true}}
-  glued_pair_modes: {kind: statistic, name: "{name}_glued_band_pair_modes", of: recording, when: {cortex: glued, banded: true}}
+  left_whole_vertices: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, grouped: false}}
+  left_group_vertices: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, grouped: true}}
+  left_whole_edges: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, grouped: false}}
+  left_group_edges: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, grouped: true}}
+  left_whole_modes: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, grouped: false}}
+  left_group_modes: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, grouped: true}}
+  left_pair_vertices: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, banded: true, grouped: false}}
+  left_group_pair_vertices: {kind: measurement, over: pairs, of: recording, when: {cortex: per_hemisphere, banded: true, grouped: true}}
+  left_pair_edges: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, banded: true, grouped: false}}
+  left_group_pair_edges: {kind: measurement, over: pairs, of: recording, when: {cortex: per_hemisphere, banded: true, grouped: true}}
+  left_pair_modes: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, banded: true, grouped: false}}
+  left_group_pair_modes: {kind: measurement, over: pairs, of: recording, when: {cortex: per_hemisphere, banded: true, grouped: true}}
+  right_whole_vertices: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, grouped: false}}
+  right_group_vertices: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, grouped: true}}
+  right_whole_edges: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, grouped: false}}
+  right_group_edges: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, grouped: true}}
+  right_whole_modes: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, grouped: false}}
+  right_group_modes: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, grouped: true}}
+  right_pair_vertices: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, banded: true, grouped: false}}
+  right_group_pair_vertices: {kind: measurement, over: pairs, of: recording, when: {cortex: per_hemisphere, banded: true, grouped: true}}
+  right_pair_edges: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, banded: true, grouped: false}}
+  right_group_pair_edges: {kind: measurement, over: pairs, of: recording, when: {cortex: per_hemisphere, banded: true, grouped: true}}
+  right_pair_modes: {kind: measurement, over: groups, of: recording, when: {cortex: per_hemisphere, banded: true, grouped: false}}
+  right_group_pair_modes: {kind: measurement, over: pairs, of: recording, when: {cortex: per_hemisphere, banded: true, grouped: true}}
+  glued_whole_vertices: {kind: statistic, name: "{name}_glued_flow_vertices", of: recording, when: {cortex: glued, grouped: false}}
+  glued_group_vertices: {kind: measurement, over: groups, of: recording, when: {cortex: glued, grouped: true}}
+  glued_whole_edges: {kind: statistic, name: "{name}_glued_flow_edges", of: recording, when: {cortex: glued, grouped: false}}
+  glued_group_edges: {kind: measurement, over: groups, of: recording, when: {cortex: glued, grouped: true}}
+  glued_whole_modes: {kind: statistic, name: "{name}_glued_flow_modes", of: recording, when: {cortex: glued, grouped: false}}
+  glued_group_modes: {kind: measurement, over: groups, of: recording, when: {cortex: glued, grouped: true}}
+  glued_pair_vertices: {kind: statistic, name: "{name}_glued_band_pair_vertices", of: recording, when: {cortex: glued, banded: true, grouped: false}}
+  glued_group_pair_vertices: {kind: measurement, over: pairs, of: recording, when: {cortex: glued, banded: true, grouped: true}}
+  glued_pair_edges: {kind: statistic, name: "{name}_glued_band_pair_edges", of: recording, when: {cortex: glued, banded: true, grouped: false}}
+  glued_group_pair_edges: {kind: measurement, over: pairs, of: recording, when: {cortex: glued, banded: true, grouped: true}}
+  glued_pair_modes: {kind: statistic, name: "{name}_glued_band_pair_modes", of: recording, when: {cortex: glued, banded: true, grouped: false}}
+  glued_group_pair_modes: {kind: measurement, over: pairs, of: recording, when: {cortex: glued, banded: true, grouped: true}}

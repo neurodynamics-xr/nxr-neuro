@@ -21,6 +21,7 @@ inputs:
   package:     {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, hint: "the sensor surface's Hodge-Dirac solve (`nxr-neuro run eigenmodes --surface SURFACE` first)"}
   channel_map: {field: any, where: {name: $channel_map}, hint: "the sensor surface's vertex-to-channel map (`nxr-neuro run sensor_surface` first)"}
   groups:      {selection: any, where: {name: $groups}, required: false, hint: "sharp groups of bins: a kernel set of boxes on the frequency line (`nxr-neuro run select_kernels --profile box --chart linear`)"}
+  pairs:       {selection: any, where: {name: $pairs}, required: false, hint: "with frequency_weighting kernels and bands: the product groups x bands x bands (`nxr-neuro run select_kernel_product --factors 3`), the band pairs' members"}
   bands:       {selection: any, where: {name: $bands}, required: false, hint: "the eigenvalue bands, a kernel set (`nxr-neuro run select_kernels --profile cos2_partition`)"}
 
 parameters:
@@ -28,6 +29,7 @@ parameters:
   package: {default: null, meaning: "the Hodge-Dirac solve's stem", unit: "-"}
   channel_map: {default: null, meaning: "the sensor surface's vertex-to-channel map's name", unit: "-"}
   groups: {default: null, meaning: "sharp groups of bins by name (with frequency_weighting kernels)", unit: "-"}
+  pairs: {default: null, meaning: "with frequency_weighting kernels and bands named: the product groups x bands x bands by name (the band pairs are measured over its members)", unit: "-"}
   bands: {default: null, meaning: "the eigenvalue bands by name: every band pair is read and stored too; null: the whole field only (no band-pair outputs)", unit: "-"}
   frequency_weighting: {default: every_bin, meaning: "every_bin (each bin alone: the whole-recording flow per bin) | kernels (the bins grouped by the sharp kernel set named in groups, their gains not normalised)", unit: "-", choices: [every_bin, kernels]}
   overlap_samples: {default: 16384, meaning: "the overlap on each side of a chunk: half a chunk", unit: samples}
@@ -44,13 +46,22 @@ steps:
       - {node: signal.overlapped_spectrum, in: {x: recording, operator: operator}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectrum}
       - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: operator}, out: spectra}
   after:
-    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: groups, scale: bands}, with: {frequency_weighting: $frequency_weighting, frequency_normalisation: none}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes]}
+    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, scale: bands}, with: {frequency_weighting: every_bin}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {frequency_weighting: every_bin}}
+    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: groups, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [group_vertices, group_edges, group_modes, group_pair_vertices, group_pair_edges, group_pair_modes], when: {frequency_weighting: kernels}}
 
 outputs:
   spectra:        {kind: statistic, name: "{name}_chunk_spectra", of: recording, axes: [{name: chunk, on: recording.time}, {name: frequency, line: "{recording}_freq_overlapped", of_time: recording.time}, {name: coordinate, on: package.from}]}
-  whole_vertices: {kind: statistic, name: "{name}_flow_vertices", of: recording}
-  whole_edges:    {kind: statistic, name: "{name}_flow_edges", of: recording}
-  whole_modes:    {kind: statistic, name: "{name}_flow_modes", of: recording}
-  pair_vertices:  {kind: statistic, name: "{name}_band_pair_vertices", of: recording}
-  pair_edges:     {kind: statistic, name: "{name}_band_pair_edges", of: recording}
-  pair_modes:     {kind: statistic, name: "{name}_band_pair_modes", of: recording}
+  # every bin: the frequency line's bins are an axis (no selection's members): statistics
+  whole_vertices: {kind: statistic, name: "{name}_flow_vertices", of: recording, when: {frequency_weighting: every_bin}}
+  whole_edges:    {kind: statistic, name: "{name}_flow_edges", of: recording, when: {frequency_weighting: every_bin}}
+  whole_modes:    {kind: statistic, name: "{name}_flow_modes", of: recording, when: {frequency_weighting: every_bin}}
+  pair_vertices:  {kind: statistic, name: "{name}_band_pair_vertices", of: recording, when: {frequency_weighting: every_bin}}
+  pair_edges:     {kind: statistic, name: "{name}_band_pair_edges", of: recording, when: {frequency_weighting: every_bin}}
+  pair_modes:     {kind: statistic, name: "{name}_band_pair_modes", of: recording, when: {frequency_weighting: every_bin}}
+  # sharp groups of bins: per member of the groups (and of the band pairs' product): measurements
+  group_vertices: {kind: measurement, over: groups, of: recording, when: {frequency_weighting: kernels}}
+  group_edges:    {kind: measurement, over: groups, of: recording, when: {frequency_weighting: kernels}}
+  group_modes:    {kind: measurement, over: groups, of: recording, when: {frequency_weighting: kernels}}
+  group_pair_vertices: {kind: measurement, over: pairs, of: recording, when: {frequency_weighting: kernels}}
+  group_pair_edges:    {kind: measurement, over: pairs, of: recording, when: {frequency_weighting: kernels}}
+  group_pair_modes:    {kind: measurement, over: pairs, of: recording, when: {frequency_weighting: kernels}}

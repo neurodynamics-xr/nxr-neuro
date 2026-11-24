@@ -279,9 +279,13 @@ int main() {
     const ng::Array& tc = cells.at("cells");
     const Json groups = tc.meta.at("describe").at("attributes").at("groups");
     CHECK(groups.size() == 12 && tc.cols == left.complex.nE + 4 * nV);
-    const ng::Array fc = run_array("stats.sign_flip_consistency", ng::Arrays{{"cells", tc}}, Json{{"elements", "edges"}, {"patterns", 200}, {"seed", 0}, {"cells_per_flip", 1}}).at("consistency");
+    const ng::Arrays flip = run_array("stats.sign_flip_consistency", ng::Arrays{{"cells", tc}}, Json{{"elements", "edges"}, {"patterns", 200}, {"seed", 0}, {"cells_per_flip", 1}});
     const std::int64_t E = left.complex.nE;
-    const double median = fc.data[static_cast<std::size_t>(1 * fc.cols + 3 * E + 1)], medianP = fc.data[static_cast<std::size_t>(1 * fc.cols + 3 * E + 3)];
+    // the whole field's groups (band -1) are a measurement over the atoms, the bands' over atoms x bands: [E x members x 3] and [1 x members x 7]
+    const ng::Array& whole = flip.at("whole_consistency_summary");
+    CHECK(flip.at("whole_consistency").rows == E * 3 && flip.at("consistency").rows == E * 9 && whole.rows == 3 && flip.at("consistency_summary").rows == 9);
+    // member 1 of the atoms: the 10 Hz atom's whole field
+    const double median = whole.data[static_cast<std::size_t>(1 * 7 + 1)], medianP = whole.data[static_cast<std::size_t>(1 * 7 + 3)];
     std::printf("  10 Hz, whole field: median R1 %.3f, its p %.4f\n", median, medianP);
     CHECK(median > 0.8 && medianP < 0.05);
   }

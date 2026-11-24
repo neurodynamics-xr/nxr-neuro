@@ -92,7 +92,14 @@ Json indexed_axis(const char* name, std::int64_t size, const Json& values = Json
   return Json{{"name", name}, {"size", size}, {"values", v}};
 }
 ng::PortType operator_port() { ng::PortType t; t.cls = ng::PortClass::operator_; t.facts["cls"] = "operator"; return t; }
+// a stated suffix on every measure an output describes (e.g. "_left", "_right"): two measurements of one recording over one selection, made on two surfaces
+// (the hemispheres), stay two (the store's key has no surface: #264). Empty: the names as they are.
+void suffix_measures(ng::Array& a, const std::string& suffix) {
+  if (suffix.empty() || !a.meta.contains("describe") || !a.meta["describe"].contains("measures")) return;
+  for (auto& m : a.meta["describe"]["measures"]) m["measure"] = m["measure"].get<std::string>() + suffix;
+}
 ng::PortType statistic_port() { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "statistic"; return t; }
+ng::PortType measurement_port() { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "measurement"; return t; }
 // the numerical rank of a matrix with few columns: the eigenvalues of Mᵀ M above 1e-20 of the largest (singular values above 1e-10 of the largest)
 std::int64_t rank_of(const Eigen::MatrixXd& m) {
   const Eigen::VectorXd ev = Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd>(m.transpose() * m, Eigen::EigenvaluesOnly).eigenvalues();
@@ -294,6 +301,7 @@ ng::NodeSpec cortical_flow() {
                {"pair_edges", "per frequency member x band x band: the band pair's phase current per edge", false},
                {"pair_modes", "per frequency member x band x band: the band pair's flow coefficients, its star1 energy and the remainder's", false}};
   n.parameters = {
+      {"measure_suffix", Json(""), "a suffix on every measure name (e.g. _left, _right: per-hemisphere runs of one recording over one selection); empty: none", "-", {}, false},
       {"frequency_weighting", Json(), "kernels (the atoms) | every_bin (each bin alone, weight 1) (no default)", "-", {"kernels", "every_bin"}, false},
       {"frequency_normalisation", Json(), "sum_of_squared_gains | none: as signal.spectral_flow's (no default with kernels)", "-", {"sum_of_squared_gains", "none"}, true},
       {"support_floor", Json(), "with sum_of_squared_gains: as signal.spectral_flow's (no default)", "-", {}, true}};
@@ -309,7 +317,8 @@ ng::NodeSpec cortical_flow() {
     if (w == "kernels" && !in.count("frequency")) ng::refuse(std::string(kFlow) + ": frequency_weighting kernels needs the frequency kernel set");
     if (w == "kernels") text_param(p, "frequency_normalisation", kFlow);
     ng::Planned out;
-    for (const char* o : {"whole_vertices", "whole_edges", "whole_modes", "pair_vertices", "pair_edges", "pair_modes"}) out.out[o] = statistic_port();
+    // per member of the frequency kernel set (and of the band pairs): MEASUREMENTS over those members; every_bin's axis is the frequency line's bins: statistics
+    for (const char* o : {"whole_vertices", "whole_edges", "whole_modes", "pair_vertices", "pair_edges", "pair_modes"}) out.out[o] = w == "kernels" ? measurement_port() : statistic_port();
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_cortical(c, p, kFlow, false)); };
@@ -386,6 +395,8 @@ ng::NodeSpec cortical_flow() {
     describe(pv, vertexMeasures, V, A * pairs, "the vertices of the cortex package", pairsAre);
     describe(pe, Json::array({Json{{"measure", "phase_current"}}}), E, A * pairs, "the edges of the cortex's intrinsic complex (tail -> tip)", pairsAre);
     describe(pm, modeMeasures, M + 2, A * pairs, modeRows, pairsAre);
+    const std::string suffix = pr.p.value("measure_suffix", std::string());
+    for (ng::Array* a : {&wv, &we, &wm, &pv, &pe, &pm}) suffix_measures(*a, suffix);
     return ng::Arrays{{"whole_vertices", std::move(wv)}, {"whole_edges", std::move(we)}, {"whole_modes", std::move(wm)},
                       {"pair_vertices", std::move(pv)}, {"pair_edges", std::move(pe)}, {"pair_modes", std::move(pm)}};
   };
