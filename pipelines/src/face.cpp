@@ -324,6 +324,19 @@ Json measurement_query(const fs::path& dataset, const std::string& subject, cons
     if (!q.subjects.empty()) jq["subjects"] = q.subjects;
     return Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "io"}, {"rows", ts.read_measurements(jq)}};
   }
+  // a selection holding no ingredients but the measure itself (or the stored sums a derived measure is a ratio of): the values member by member, as stored or derived at read
+  {
+    bool has_ingredients = true;
+    try { (void)measurement_ingredients_of(sub, sel->id, field_id.empty() ? std::nullopt : std::optional<std::string>(field_id), q.measure); }
+    catch (const Error& e) { if (e.code() != code::no_such_row) throw; has_ingredients = false; }
+    if (!has_ingredients && q.subjects.size() <= 1 && !q.to) {
+      const MeasurementValues mv = member_measure_values(sub, sel->id, q.measure);
+      if (mv.rows != 1) throw Error(code::invalid_argument, "measurement query: '" + q.measure + "' holds " + std::to_string(mv.rows) + " values a member (a map): query a measure of one value a member");
+      Json rows = Json::array();
+      for (std::int64_t m = 0; m < mv.members; ++m) rows.push_back(Json{{"code", m}, {"value", mv.values[static_cast<std::size_t>(m)]}});
+      return Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "compute"}, {"unit", mv.unit ? Json(*mv.unit) : Json()}, {"rows", rows}};
+    }
+  }
   // compute: the finest ingredients (of each subject asked), summed code for code across subjects, rolled up through the grid's closed form, the measure derived from them
   std::vector<Json> fines{measurement_ingredients_of(sub, sel->id, field_id.empty() ? std::nullopt : std::optional<std::string>(field_id), q.measure)};
   for (const auto& other : q.subjects) {

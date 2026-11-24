@@ -86,6 +86,9 @@ MeasurementValues measurement_values(SubjectWriter& sub, const std::string& sele
 
 // A DERIVED measure of ARRAY-BACKED or scalar-row ingredients, member by member as stored (no roll-up): each ingredient read by `measurement_values` (of the same Field or statistic), then the measure's formula applied
 // elementwise (a ratio of the stored sums, derived at read, never stored); NaN where an ingredient is NaN or the formula is undefined. Refuses a measure that is not derived.
+// A MEASURE PER MEMBER of a selection, stored or derived (a ratio of stored sums, at read), whatever it was measured of: the field or statistic its rows (or its first ingredient's) are of,
+// found among the selection's measurements (refused when they are of several). [rows x members], as `measurement_values` gives it.
+MeasurementValues member_measure_values(SubjectWriter& sub, const std::string& selection_id, const std::string& measure);
 MeasurementValues derived_measurement_values(SubjectWriter& sub, const std::string& selection_id, const std::optional<std::string>& of_field_id,
                                              const std::optional<std::string>& of_statistic_id, const std::optional<std::int64_t>& of_index, const std::string& measure);
 
