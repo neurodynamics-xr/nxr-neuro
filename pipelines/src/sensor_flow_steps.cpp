@@ -413,7 +413,7 @@ ng::NodeSpec spectral_flow() {
       {"support_floor", Json(), "with sum_of_squared_gains: a bin whose squared gains' sum is below this fraction of its largest is outside the set (gain 0) (no default)", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64,
                              "once a run: per frequency member one weighted cross-spectrum (a sum over the chunks and the member's bins), then per band the readings' right factor, per pair only the entries read");
-  n.matches = "the flow analysis's per-atom readout (dev check: Im(Psi_tail C Psi_tipᵀ), its projection on the Hodge-Dirac edge rows; the golden's P = grad k Im(C) kᵀ); compute nxr::signal::bandPairFlow, projectOneForm, exactPotential, coexactStream";
+  n.matches = "the flow analysis's per-atom readout (dev check: Im(Psi_tail C Psi_tipᵀ), its projection on the Hodge-Dirac edge rows; nxr's flow analysis's P = grad k Im(C) kᵀ); compute nxr::signal::bandPairFlow, projectOneForm, exactPotential, coexactStream";
   n.description = "the flow of a weighted cross-spectrum in a surface's field coordinates: per frequency member (an atom, or a bin), the whole field's and every band pair's power, phase current per edge and per vertex, "
                   "Hodge-Dirac flow coefficients, potential and stream";
   n.plan = [](const ng::Types& in, const Json& p) {
@@ -574,11 +574,11 @@ ng::NodeSpec sign_flip_consistency() {
   n.outputs = {{"consistency", "per atom x band: R1 per element, its p and family-wise p, the threshold, the median and its null, the neighbouring cells' correlation", false}};
   n.parameters = {
       {"elements", Json(), "which values are tested: edges (the edge phase current, one component) | vertices (the vertex phase current, three components) (no default)", "-", {"edges", "vertices"}, false},
-      {"patterns", Json(), "the random sign patterns over the cells (no default; the golden: 500 for its spectrum, 2000 for its maps)", "-", {}, false},
-      {"seed", Json(), "the seed of numpy's default_rng, created once a run and drawn in the groups' order (no default; the golden: 0)", "-", {}, false},
+      {"patterns", Json(), "the random sign patterns over the cells (no default; nxr's flow analysis: 500 for its spectrum, 2000 for its maps)", "-", {}, false},
+      {"seed", Json(), "the seed of numpy's default_rng, created once a run and drawn in the groups' order (no default; nxr's flow analysis: 0)", "-", {}, false},
       {"cells_per_flip", Json(), "consecutive cells one sign flips together (no default)", "cells", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "a statistic of the cells: unit vectors, resultants, sign patterns");
-  n.matches = "nxr's flow maps flip_test (the golden's step 11: R1, per-vertex p, family-wise maximum, numpy default_rng); compute nxr::stats::signFlipConsistency, NumpyGenerator";
+  n.matches = "nxr's flow maps flip_test (nxr's flow analysis: R1, per-vertex p, family-wise maximum, numpy default_rng); compute nxr::stats::signFlipConsistency, NumpyGenerator";
   n.description = "the sign-flip (time-reversal) test of the direction's consistency over each atom's time cells, per element, with a family-wise maximum";
   n.plan = [](const ng::Types& in, const Json& p) {
     if (!in.count("cells")) ng::refuse(std::string(kFlip) + ": cells is not given");
@@ -675,8 +675,8 @@ ng::NodeSpec aperiodic_fit() {
   n.kind = ng::Kind::array;
   n.inputs = {{"power", "spectra [rows x bins] with their frequencies (signal.sensor_power)", false}};
   n.outputs = {{"fit", "per row: offset, exponent, knee, r^2, points used (the aperiodic background; the periodic share 1 - background / power is derived at read)", false}};
-  n.parameters = {{"knee", Json(), "true: offset - log10(knee + f^exponent); false: offset - exponent log10 f (no default; the golden ran both)", "-", {}, false},
-                  {"fit_range", Json(), "[low, high] the frequencies fitted (no default; the golden: [1, 45])", "Hz", {}, false},
+  n.parameters = {{"knee", Json(), "true: offset - log10(knee + f^exponent); false: offset - exponent log10 f (no default; nxr's flow analysis ran both)", "-", {}, false},
+                  {"fit_range", Json(), "[low, high] the frequencies fitted (no default; nxr's flow analysis: [1, 45])", "Hz", {}, false},
                   {"iterations", Json(), "the fit's passes, points above the fit dropped between them (no default; specparam's port: 3)", "-", {}, false},
                   {"threshold", Json(), "a point above the fit by more than this many standard deviations is dropped (no default; specparam's port: 2)", "-", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "a statistic of each spectrum");

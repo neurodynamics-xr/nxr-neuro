@@ -1160,7 +1160,7 @@ per member the weighted sum C = Y Yᴴ once, and reads per member the whole fiel
 J = Im(conj(z_tail) z_tip) (travel tail to tip gives J < 0), phase current per vertex Im(conj(z) grad z), the edge current's Hodge-Dirac coefficients
 (`projectOneForm`), the exact potential (Neumann on an open surface) and the coexact stream (Dirichlet). `signal.atom_time_cells` reads each atom and band back in time
 per chunk (the synthesis composed on the atom's bins, one inverse transform) and sums the same quantities over cells of the atom's own width (the power of two of
-samples nearest `--cell-width` time standard deviations); `stats.sign_flip_consistency` tests the direction's consistency over those cells (the golden's R1 with
+samples nearest `--cell-width` time standard deviations); `stats.sign_flip_consistency` tests the direction's consistency over those cells (nxr's flow analysis's R1 with
 numpy's `default_rng(--seed)`, `--patterns`, a family-wise maximum, `--cells-per-flip`; the measured correlation of neighbouring cells is stored as the check).
 With `--aperiodic true`: `signal.sensor_power` (each sensor's power per bin, the mean over chunks) and `stats.aperiodic_fit` (nxr's specparam port, `--aperiodic-knee`,
 `--aperiodic-range`). Derived at read, never stored: travel and rotation shares (squared flow coefficients by kind), band-pair shares, the apparent speed

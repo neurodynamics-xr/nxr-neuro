@@ -7,7 +7,7 @@
 # after: --[signal.spectral_flow: the atoms (Gaussians normalised by the sum of their squared gains) x the cos² eigenvalue bands and their pairs]--> power, phase current per edge and
 # per vertex, Hodge-Dirac flow coefficients, potential and stream; --[signal.atom_time_cells]--> the same per time cell of each atom; --[stats.sign_flip_consistency]--> R1 per edge;
 # optional (aperiodic: true): --[signal.sensor_power]--> --[stats.aperiodic_fit]--> each sensor's aperiodic background.
-# Every value below is a stated choice of this definition (the nodes default nothing). The atoms and bands are kernel sets made first by `select_kernels` (the golden's atoms: centres
+# Every value below is a stated choice of this definition (the nodes default nothing). The atoms and bands are kernel sets made first by `select_kernels` (nxr's flow analysis's atoms: centres
 # 4 x 2^(k/5) Hz, k = 0..16, gaussian, chart linear, width_rule proportional, width 0.19622 (FWHM = 2 sqrt(2 ln 2) / 12 x the centre: a standard deviation of centre / 12), gain 2;
 # the bands: profile cos2_partition on the eigenvalue line, chart log2, centres as wavelengths).
 #
@@ -36,16 +36,16 @@ parameters:
   overlap_samples: {default: 16384, meaning: "the overlap on each side of a chunk: half a chunk (the chunk 2^15 samples), so each transform is 2^16 samples of data and every sample is taken in twice", unit: samples}
   transform_samples: {default: 65536, meaning: "each chunk's one transform: the chunk and its two overlaps (a part chunk at the recording's end reflected to the same length: one frequency line)", unit: samples}
   frequency_span: {default: [0, 60], meaning: "[lo, hi) the bins kept of each chunk's transform (the physiological bands)", unit: Hz}
-  frequency_normalisation: {default: sum_of_squared_gains, meaning: "the atoms divided at each bin by the square root of their squared gains' sum (they add back to the whole span) | none (the golden's gains as they are)", unit: "-", choices: [sum_of_squared_gains, none]}
+  frequency_normalisation: {default: sum_of_squared_gains, meaning: "the atoms divided at each bin by the square root of their squared gains' sum (they add back to the whole span) | none (nxr's flow analysis's gains as they are)", unit: "-", choices: [sum_of_squared_gains, none]}
   support_floor: {default: 0.001, meaning: "a bin whose atoms' squared gains sum to less than this fraction of their largest sum lies outside the atoms (gain 0)", unit: "-"}
   cell_width: {default: 2.0, meaning: "a time cell's width in the atom's time standard deviations (1 / (2 pi sigma_f)), snapped to the nearest power of two of samples", unit: "-"}
   flip_elements: {default: edges, meaning: "the sign-flip test's elements: edges (the edge phase current) | vertices (the vertex phase current, three components)", unit: "-", choices: [edges, vertices]}
-  patterns: {default: 2000, meaning: "the sign-flip test's random patterns (the golden's maps: 2000)", unit: "-"}
-  seed: {default: 0, meaning: "the seed of numpy's default_rng for the sign patterns (the golden: 0)", unit: "-"}
+  patterns: {default: 2000, meaning: "the sign-flip test's random patterns (nxr's flow analysis's maps: 2000)", unit: "-"}
+  seed: {default: 0, meaning: "the seed of numpy's default_rng for the sign patterns (nxr's flow analysis: 0)", unit: "-"}
   cells_per_flip: {default: 1, meaning: "consecutive time cells one sign flips together (1: each cell its own; the measured correlation of neighbouring cells is stored with the result as the check)", unit: cells}
   aperiodic: {default: false, meaning: "also fit each sensor's aperiodic background (a control)", unit: "-"}
-  aperiodic_knee: {default: false, meaning: "the aperiodic model with a knee (the golden ran both: run once each)", unit: "-"}
-  aperiodic_range: {default: [1, 45], meaning: "[low, high] the frequencies the aperiodic fit reads (the golden's)", unit: Hz}
+  aperiodic_knee: {default: false, meaning: "the aperiodic model with a knee (nxr's flow analysis ran both: run once each)", unit: "-"}
+  aperiodic_range: {default: [1, 45], meaning: "[low, high] the frequencies the aperiodic fit reads (nxr's flow analysis')", unit: Hz}
   name: {default: "{recording}_{package}", meaning: "the stem of the stored names", unit: "-"}
 
 steps:

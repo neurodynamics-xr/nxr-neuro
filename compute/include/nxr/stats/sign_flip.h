@@ -1,10 +1,10 @@
 #pragma once
 // nxr::stats — THE SIGN-FLIP (TIME-REVERSAL) TEST OF A DIRECTION'S CONSISTENCY over the cells of a time level, and the random draws it uses. PURE MATHS on arrays.
-// Reference: nxr's flow maps (`nxr.flow.flowmap.flip_test`), the golden flow analysis's step 11: time reversal conjugates a cross-spectrum, so each cell's phase
+// Reference: nxr's flow maps (`nxr.flow.flowmap.flip_test`), the reference flow analysis's sign-flip test: time reversal conjugates a cross-spectrum, so each cell's phase
 // current changes sign; the cells' unit vectors are summed per element and their resultant length R1 compared with random sign patterns over the cells.
 //
 //   NumpyGenerator          numpy's `default_rng(seed)`: the SeedSequence of the seed, PCG64 (XSL-RR, 128-bit state), and `random()` = (next 64 bits >> 11) / 2^53.
-//                           The same draws as numpy, bit for bit, so a statistic's p values reproduce a reference that drew with numpy (the golden's default_rng(0))
+//                           The same draws as numpy, bit for bit, so a statistic's p values reproduce a reference that drew with numpy (nxr's flow analysis's default_rng(0))
 //   signFlipConsistency     values [cells x elements·components] (an element's components consecutive): U = each cell's vector cut to unit length per element (0 stays 0);
 //                           R1_e = |Σ_cells U| / cells; `patterns` sign vectors over groups of `cellsPerFlip` consecutive cells, drawn as numpy's
 //                           random((patterns, groups)) < 0.5 → −1 (else +1), in that order; per element p = (#(null R1 ≥ R1) + 1)/(patterns + 1); the family-wise
