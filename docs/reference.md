@@ -460,6 +460,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run sensor_surface` | The channels as a surface: a triangulated helmet whose vertices are the picked channels, a derived manifold with its vertex-to-channel map. | (new) |
 | `nxr-neuro run spectral_coefficients` | The mode-space Fourier coefficients of a recording per time tile, through a composed spatial operator (a package's modes and a free kernel, or the sensor surface's channel map). | (new) |
 | `nxr-neuro run sensor_flow` | The flow of the field on the sensor surface per atom of the joint frequency x eigenvalue level: chunk spectra with overlap, power, phase currents, Hodge-Dirac flow, band pairs, time cells and their sign-flip test, an optional aperiodic fit. | (new) |
+| `nxr-neuro run source_flow`, `source_flow_bins` | The flow of the cortical current: a minimum-norm kernel projected onto the cortex's eigenmodes (option A on the sensor field coordinates, option B on the channels; per hemisphere or glued), per atom (or per bin of the whole recording), with cortical band pairs, the remainder beyond the kept modes, time cells and their sign-flip test. | (new) |
 | `nxr-neuro run roll_up` | A measurement rolled up through its grid's hierarchy, or across a group's subjects (scope group). | `run roll_up` |
 | `nxr-neuro run band_analytic`, `cortical_band`, `member_activation`, `band_outer` | Field chains: pointwise fields (a band's analytic signal, the band on the cortex, one filter-bank member's activation, z z^H), run alone or composed into `measure`. | the steps of `pyramid`, `cortical_band_cells`, `opticalflow` |
 | `nxr-neuro run lowpass` | A zero-phase low-pass filter, written as a new recording. | `lowpass` |
@@ -1170,6 +1171,33 @@ two sensor spacings; a whole-run cross-spectrum keeps the net quadrature only; a
 flow depends on the eigenvalue bands (always stated). Memory: the chunk spectra (coordinates x bins x chunks complex float32, about 7 MB a chunk for 268 sensors
 and [0, 60) Hz at 1200 Hz) and, in the time cells, one atom's band signal of one chunk (vertices x transform samples complex). Tests: `test_spectral_flow`,
 `test_sign_flip` (golden: numpy and nxr's flip_test), `test_aperiodic` (golden: nxr), `test_sensor_flow` (the nodes on a synthetic sphere).
+
+## The source mapping of the flow (`run source_flow`, `run source_flow_bins`; the nodes `signal.source_mode_operator`, `signal.cortical_flow`, `signal.cortical_time_cells`; compute `nxr/signal/source_flow.h`; spec `docs/specs/2026-11-24-source-flow.md`)
+
+Why: the sensor-space flow describes the field on the helmet only. The source step carries the same cross-spectrum onto the cortex through an EXISTING minimum-norm kernel
+written in the cortex's eigenmode coordinates: a change of coordinates, composed once, with no inverse derived here and no prior over modes. Graph: `signal.mode_analysis`
+(`modes exact_and_constant`, `unit_mass`) composes the cortex's analysis rows with the kernel, each Cartesian component as a scalar field (no orientation assumed); the
+kernel's rows are SELECTED onto the cortex package's vertices (a hemisphere's vertex range, or the glued cortex's kept vertices with the bridge rows zero; never a blend).
+`signal.source_mode_operator` gives option B (`--columns channels`: the operator acts on the channels; the default, as the reference's kernel does) or option A
+(`--columns sensor_coordinates`: composed with the sensor surface's field coordinates' synthesis back to the channels, so it acts on the served chunk spectra; what the
+sensor solve leaves out, B (I - Q P), is stated as a share), the kernel's rows in the same columns, and the serving operator of the chunk spectra. The chunk spectra are
+served as in `sensor_flow`. `signal.cortical_flow` weights them per frequency member (atoms, or `every_bin` / sharp groups in `source_flow_bins`) and reads, through the
+readout of the whole field (the kernel) and of each cortical band (a cos² amplitude partition on the cortex's eigenvalue line; band q < last is
+(I ⊗ Phi diag(g_q)) times the mode operator, the LAST band the complement: the kernel minus every other band, holding the content outside the kept modes), per band pair:
+power per vertex, the phase current per intrinsic edge (the three components summed), the phase current per vertex (its gradient by the sparse sharp operator, never
+formed), the flow coefficients on the cortex's STORED Hodge-Dirac edge rows, the potential and stream (sum of coefficient / mu times the mode), and the REMAINDER of the
+flow beyond the kept modes split by sparse Poisson solves (stored as its own potential and stream; its star1 energy beside the flow's, so its share is derived at read).
+The cross-spectrum stays in sensor coordinates: per band one product conj(C) U_qᵀ (or conj(Y) (Yᵀ U_qᵀ) when the member has fewer draws than columns), then only the
+entries read. `signal.cortical_time_cells` inverts each atom's spectrum on the columns' side (one inverse transform of the columns, not of the vertices), then reads the
+cells through the readout; `stats.sign_flip_consistency` tests them unchanged. Per hemisphere (`--cortex per_hemisphere --left L --right R`, the reference) or glued
+(`--cortex glued --glued G`). What it cannot resolve: it is the kernel's estimate in other coordinates (point spread, depth bias, field spread inherited; flow at
+wavelengths the kernel cannot resolve is leakage, not travel); rank at most the sensor coordinates (A) or the kernel's (B); wavelengths shorter than the last kept mode
+appear only in the complement band; per hemisphere no flow across the midline, glued no medial-wall sources; the three components summed make no claim about the normal
+or tangent direction; the apparent speed is an upper bound. Cost: the time cells are a product of 3 x vertices x columns x the cell's samples per cell (about 0.5 T
+multiply-adds per chunk, atom and band on a 20 000-vertex cortex); `--time-cells false` skips them. The operator is bound per run, not stored (issue). Tests:
+`test_source_flow` (compute: equal to `bandPairFlow` and `timeCellFlow` for one component, the bands add back to the kernel, the remainder split) and
+`test_source_flow_nodes` (two spheres as hemispheres and a 42-channel sheet: hemisphere selection, a glued package's zero bridge, option A = option B with a complete
+sensor basis, a travelling source mapped to an exact flow, the band pairs adding back, the time cells' sign-flip test).
 
 ## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 
