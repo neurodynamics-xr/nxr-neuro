@@ -16,7 +16,6 @@
 //     eigenvalue/<stem>                      Manifold  points [K]    the EIGENVALUE LINE: mu = sqrt(lambda) > 0, ascending
 //     <stem>_eigenvalues                     Field     [K]           lambda = mu^2, a field of the operator (`of_operator`)
 //     <stem>_kinds                           Selection partition     the LABELLING of the eigenvalue line by the Hodge part: 0 exact (a 0-form potential) · 2 coexact (a 2-form potential)
-//     <stem>_support                         Selection indices       the surface's vertices the solve covers (all of them for one piece)
 //     <stem>_eigenvectors                    Operator  float32 [(V + E + F) x K]   SYNTHESIS: the eigenvalue line (cell 0) -> the intrinsic triangulation (cell key '0+1+2'): each mode's
 //                                                                    MIXED FORM, rows stacked 0-forms [0, V) · 1-forms [V, V+E) · 2-forms [V+E, V+E+F) (the Studio's Hodge–Dirac order):
 //                                                                    the vertex potential psi/sqrt2 (or <chi/sqrt2, w_v>), the 1-form part d psi/(mu sqrt2) or *1^-1 d1^T *2 chi/(mu sqrt2), the 2-form part chi/sqrt2

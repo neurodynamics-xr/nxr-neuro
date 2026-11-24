@@ -756,7 +756,7 @@ CrossSpectrumWindows crossspectrum_windows_read(SubjectWriter& sub, const std::s
 
 namespace {
 
-// The subject's stored Hodge–Dirac EIGENSOLVE of a surface (its eigenvectors operator, the eigenvalue line, the kinds labelling, the support), the surface it was solved on and its intrinsic
+// The subject's stored Hodge–Dirac EIGENSOLVE of a surface (its eigenvectors operator, the eigenvalue line, the kinds labelling), the surface it was solved on and its intrinsic
 // triangulation. The eigenvectors are ONE operator from the eigenvalue line to the triangulation, cell key '0+1+2': rows [0, V) the 0-form parts (the vertex potentials), [V, V+E) the 1-form
 // parts, [V+E, V+E+F) the 2-form parts. A solve stored in the earlier form (three operators and a kind field) is refused, naming `nxr-neuro migrate eigensolve`.
 struct HodgePackage {
@@ -824,17 +824,24 @@ HodgePackage resolve_hodge_package(SubjectWriter& sub, const Row& smf, const std
   const SurfaceInput in = read_surface(sub, text(smf, "name"));
   const std::string stem_pkg = package ? *package : hodge_package_stem(in);
   const StoredEigensolve e = stored_eigensolve(sub, stem_pkg);
-  const auto supp = nxr::io::selection::named_row(sub.db(), sub.id(), stem_pkg + "_support");   // by NAME, never by path
-  if (!supp) missing(sub.name() + ": the stored eigensolve '" + stem_pkg + "' has no support (" + stem_pkg + "_support)");
   const SurfaceInput glued = read_surface(sub, text(e.surface, "name"));   // the surface solved on: the glued surface (the input itself for a surface of one piece)
   const std::int64_t Vg = glued.n_vertices();
   if (Vg != e.V) invalid(stem_pkg + ": its intrinsic triangulation has " + std::to_string(e.V) + " vertices, the surface it is made from " + std::to_string(Vg));
   const std::int64_t K = modes ? std::min<std::int64_t>(*modes, e.K) : e.K;
   if (K < 2) invalid(who + ": at least 2 modes");
-  const std::vector<std::int32_t> support = read_all<std::int32_t>(sub.store(), text(*supp, "array_path"));
+  // THE SUPPORT: the input's vertex under each solved vertex, the bridge's left out (they come last). Solved on the input itself: every vertex, in order. Solved on its glued surface: the glue's
+  // correspondence, derived from the glued surface's hemispheres labelling and the input's medial wall (nothing stored for it)
+  std::vector<std::int32_t> support;
+  if (glued.id == in.id) {
+    support.resize(static_cast<std::size_t>(Vg));
+    for (std::int64_t i = 0; i < Vg; ++i) support[static_cast<std::size_t>(i)] = static_cast<std::int32_t>(i);
+  } else {
+    const auto map = glue_map_of(sub, glued.id);
+    if (!map || map->original_id != in.id) invalid(stem_pkg + ": it is solved on " + glued.name + ", which is neither " + in.name + " nor the surface glued from it");
+    for (const auto o : map->original_of) { if (o < 0) break; support.push_back(o); }
+  }
   const std::int64_t kept = static_cast<std::int64_t>(support.size());
   if (kept > Vg || kept > Vin) invalid(stem_pkg + ": its support does not fit the surfaces");
-  for (auto s : support) if (s < 0 || s >= Vin) invalid(stem_pkg + ": its support indexes outside " + in.name);
   pk.in = in; pk.glued = glued; pk.stem = stem_pkg; pk.axis_id = text(e.line, "id"); pk.opr = e.eigenvectors; pk.axis = e.line;
   pk.Vg = Vg; pk.nE = e.E; pk.nF = e.F; pk.Ktot = e.K; pk.K = K; pk.kept = kept; pk.mu_all = e.mu; pk.kind_all = e.kind; pk.support = support;
   return pk;

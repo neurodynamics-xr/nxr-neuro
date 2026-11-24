@@ -5,13 +5,12 @@
 # option is in the provenance and the cache key. The triangulation's construction options (mollify, flip_eps) are the triangulation's own (`run intrinsic`).
 #
 # THE GRAPH (docs/specs/2026-11-17-eigenmodes-as-definition.md; the Studio's chain glueMesh -> intrinsicDelaunay -> hodgeDirac dec -> the two ladders):
-#   surface + its intrinsic triangulation --[hodge_dirac: split solve]--> the eigenvalue line (mu: points), the eigenvalues, the kinds (a labelling of the line), the support and ONE eigenvectors
+#   surface + its intrinsic triangulation --[hodge_dirac: split solve]--> the eigenvalue line (mu: points), the eigenvalues, the kinds (a labelling of the line) and ONE eigenvectors
 #   operator from the line to the triangulation's cells 0, 1 and 2 (each mode's mixed form).
 # Stored (stem = `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not the primary one):
 #   <stem>                      the eigenvalue line: points, one per mode, coordinate mu = sqrt(lambda) > 0 ascending (the operator's eigenvalues)
 #   <stem>_eigenvalues          field on the line: lambda = mu^2 (of_operator: the eigenvectors)
 #   <stem>_kinds                selection (partition) of the line: exact (label 0) or coexact (label 2)
-#   <stem>_support              the surface's vertices the solve covers (all of them for one piece)
 #   <stem>_eigenvectors         operator, the line (cell 0) -> the intrinsic triangulation (cell key 0+1+2) [(V + E + F) x K], float32: each mode's mixed form, rows 0-forms [0, V) (the vertex potential
 #                               psi/sqrt2 or <chi/sqrt2, w_v>) · 1-forms [V, V+E) (d psi/(mu sqrt2) or *1^-1 d1^T *2 chi/(mu sqrt2)) · 2-forms [V+E, V+E+F) (chi/sqrt2); synthesis (the line -> the
 #                               triangulation); the analysis is its D106 pair, not stored
@@ -47,11 +46,10 @@ steps:
     - step: operators.hodge_dirac
       in: {surface: surface, intrinsic: intrinsic}
       with: {modes: $modes, shift: $shift, sigma: $sigma, slice: $slice, normalize: $normalize, star1_floor: $star1_floor}
-      out: [modes, eigenvalues, kinds, support, eigenvectors]
+      out: [modes, eigenvalues, kinds, eigenvectors]
 
 outputs:
   modes:        {kind: manifold, type: points, name: "{stem}", derived_from: surface.manifold.0}
   eigenvalues:  {kind: field, kind_name: eigenvalue, name: "{stem}_eigenvalues", on: modes, of_operator: eigenvectors, unit: "1/m^2"}
   kinds:        {kind: selection, type: partition, name: "{stem}_kinds", on: modes}
-  support:      {kind: selection, type: indices, name: "{stem}_support", on: surface.manifold.0}
   eigenvectors: {kind: operator, operator_kind: eigenvectors, name: "{stem}_eigenvectors", from: modes, to: intrinsic.manifold.0}

@@ -444,7 +444,9 @@ Row SubjectWriter::prov(const std::optional<std::string>& created_utc) const {
 
 std::string SubjectWriter::topology(const TopologySpec& spec) {
   const std::string tid = uuid7();
-  db_->insert("topology", {{"id", tid}, {"subject_id", id_}, {"kind", spec.kind}, {"rank", V(spec.rank)}, {"n_components", V(spec.n_components)}, {"winding", V(spec.winding)}});
+  auto flag = [](const std::optional<bool>& b) { return b ? V(*b ? 1 : 0) : V(nullptr); };   // measured by the maker, or null
+  db_->insert("topology", {{"id", tid}, {"subject_id", id_}, {"kind", spec.kind}, {"rank", V(spec.rank)}, {"n_components", V(spec.n_components)}, {"winding", V(spec.winding)},
+                           {"closed", flag(spec.closed)}, {"orientable", flag(spec.orientable)}});
   for (const auto& c : spec.cells) db_->insert("topology_cell", {{"topology_id", tid}, {"rank", V(c.rank)}, {"path", c.path}});
   return tid;
 }

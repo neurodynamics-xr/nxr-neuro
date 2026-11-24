@@ -156,6 +156,7 @@ struct TopologySpec {
   int n_components = 1;
   std::optional<std::string> winding;
   std::vector<CellSpec> cells;
+  std::optional<bool> closed, orientable;   // measured by its maker (the glue checks a sphere); unset: not measured
 };
 struct DimensionSpec {
   std::optional<std::string> name;

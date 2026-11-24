@@ -2,7 +2,7 @@
 //
 //   geometry.intrinsic   setup   surface (one closed piece) -> its intrinsic triangulation: a manifold with the surface's positions and its own edges and faces, d0, d1 and the three stars as ANALYTIC
 //                                operators on it (method 'dec', no bytes), its edge lengths and signposts as fields on its cells
-//   hodge_dirac          setup   surface + its intrinsic triangulation -> the eigenvalue line, the eigenvalues, the kinds labelling, the support and ONE eigenvectors operator (the mixed forms)
+//   hodge_dirac          setup   surface + its intrinsic triangulation -> the eigenvalue line, the eigenvalues, the kinds labelling and ONE eigenvectors operator (the mixed forms)
 //   geometry.glue        setup   a cortex of two hemispheres -> its glued surface and the labelling of its vertices (left, right, bridge)
 //
 // THE GRAPH (written first, docs/specs/2026-11-17-eigenmodes-as-definition.md; the Studio's chain: glue.ts glueMesh -> intrinsicDelaunay.ts -> hodgeDirac.ts dec(m) -> the two ladders):
@@ -217,7 +217,7 @@ StepSpec intrinsic_step() {
 }
 
 // ── hodge_dirac ─────────────────────────────────────────────────────────────────────────────────────────────────
-const char* const kOutputs[] = {"modes", "eigenvalues", "kinds", "support", "eigenvectors"};
+const char* const kOutputs[] = {"modes", "eigenvalues", "kinds", "eigenvectors"};
 
 // the construction's options a stored triangulation records (its producer's `delaunay`)
 std::pair<double, double> triangulation_options(const nxr::io::Row& row) {
@@ -237,7 +237,7 @@ StepSpec hodge_dirac_step() {
   s.matches = "nxr.eigen.hodge_dirac.solve_hodge and nxr.pipelines.hodge.solved_package; Rheome rheome.eigen.hodge_dirac; the Studio's hodgeDirac.ts (the mixed forms, rows 0-forms · 1-forms · 2-forms)";
   s.description =
       "The Hodge-Dirac eigenmodes of a surface on its intrinsic triangulation (made first by `geometry.intrinsic`): the Laplace-Beltrami ladder (exact modes) and the 2-form ladder (coexact modes), cut at one lambda, "
-      "the constants out. Makes the eigenvalue line (mu, ascending), the eigenvalues, the kinds labelling (exact, coexact), the support and ONE eigenvectors operator from the line to the triangulation's cells "
+      "the constants out. Makes the eigenvalue line (mu, ascending), the eigenvalues, the kinds labelling (exact, coexact) and ONE eigenvectors operator from the line to the triangulation's cells "
       "0, 1 and 2: each mode's mixed form (the vertex potential, the 1-form part, the 2-form part), rows stacked rank by rank.";
   s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the surface: positions as the Studio receives them (float32 widened), double");
 
@@ -255,7 +255,7 @@ StepSpec hodge_dirac_step() {
     for (const char* o : kOutputs) {
       Value v;
       const std::string port = o;
-      v.cls = port == "modes" ? "manifold" : (port == "support" || port == "kinds") ? "selection" : port == "eigenvectors" ? "operator" : "field";
+      v.cls = port == "modes" ? "manifold" : port == "kinds" ? "selection" : port == "eigenvectors" ? "operator" : "field";
       if (v.cls == "operator") v.manifolds = {sid, tid};                  // the places themselves are declared (from, to)
       else v.manifolds = {sid};
       v.facts["names"] = Json{{"stem", stem}, {"solved", name}};
@@ -290,8 +290,6 @@ StepSpec hodge_dirac_step() {
     const int pieces = connected_pieces(S.faces, V);
     need(pieces == 1, st.surface + " is " + std::to_string(pieces) + " pieces: the Hodge-Dirac solve takes a surface of one closed piece (a cortex's two hemispheres are glued first by `run glue`, and the glued surface named as the input)");
     need(T.n_vertices() == V, st.intrinsic + " has " + std::to_string(T.n_vertices()) + " vertices, " + st.surface + " " + std::to_string(V) + ": not its intrinsic triangulation");
-    std::vector<std::int32_t> kept(static_cast<std::size_t>(V));
-    std::iota(kept.begin(), kept.end(), 0);
     const std::string stem = stem_of(S.name, S.primary), solved = S.name;
     const std::string solved_mesh = mesh_key(S.faces);
     const Json glue_record = Json{{"by", "none: one closed piece"}, {"nV", V}};
@@ -326,7 +324,6 @@ StepSpec hodge_dirac_step() {
     // THE KINDS: a labelling of the eigenvalue line by the Hodge part (the label is the potential's form degree: 0 exact, 2 coexact; no harmonic part on a closed surface of genus 0)
     out["kinds"] = made(K, 1, widened(h.kind), Json{{"entries", Json::array({"exact", "harmonic", "coexact"})},
                                                     {"description", "the kind of each mode: exact (label 0, a 0-form potential) or coexact (label 2, a 2-form potential); no mode is harmonic on a closed surface of genus 0"}});
-    out["support"] = made(V, 1, widened(kept), Json{{"description", "the " + S.name + " vertices the Hodge-Dirac solve covers (all of them: one piece)"}});
     // THE EIGENVECTORS: ONE operator, the eigenvalue line -> the triangulation's cells 0+1+2, each mode's mixed form stacked rank by rank (the Studio's Hodge-Dirac order). Built mode-major per block, the
     // solve's float parts released as they are copied (no second copy of all three held at once)
     {
@@ -435,7 +432,7 @@ StepSpec surface_glue_step() {
     for (std::int64_t i = 0; i < Vg; ++i) glued_labels[static_cast<std::size_t>(i)] = i < m ? static_cast<double>(H.labels[static_cast<std::size_t>(kept[static_cast<std::size_t>(i)])]) : static_cast<double>(bcode);
     Arrays out;
     // the producer's `glue` marks a glued surface: the original manifold and the hemispheres labelling (named, found beside it); results on it are restricted back through the labelling and the original's wall
-    out["glued"] = made(Vg, 3, G.positions, Json{{"faces", G.faces}, {"cs", ctx.bound.coordinate_system_key(S.id)},
+    out["glued"] = made(Vg, 3, G.positions, Json{{"faces", G.faces}, {"edges_count", G.edges}, {"closed", true}, {"cs", ctx.bound.coordinate_system_key(S.id)},
                         {"description", S.name + " glued by anatomy: exactly its medial walls cut (the Desikan-Killiany atlas), a bridge grown between the rims; vertex i < " + std::to_string(m) + " is the i-th vertex of " + S.name + " off the wall, the rest the bridge"},
                         {"producer", Json{{"glued_from", S.name}, {"mesh", mesh_key(G.faces)}, {"gluing", glue_record}, {"glue", Json{{"original", S.id}, {"form", "labelling"}}}}}});
     out["labels"] = made(Vg, 1, std::move(glued_labels), Json{{"lookup", lookup}, {"glue_map", true},

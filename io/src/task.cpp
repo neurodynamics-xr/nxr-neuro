@@ -1166,11 +1166,14 @@ std::string Unit::surface(const SurfaceOut& o) {
   ms.type = "surface";
   ms.n_vertices = n;
   ms.topology = {"simplicial", 2, 1, std::string("ccw-outward"), {{2, path + "/faces"}}};
+  if (o.closed) { ms.topology.closed = *o.closed; ms.topology.orientable = *o.closed; }   // the maker's check: closed and consistently oriented together
   GeometrySpec g;
   g.form = "stored";
   g.cs_key = o.cs_key;
   g.positions_path = path + "/vertices";
   ms.geometry = g;
+  ms.cols.set("n_faces", m);                                              // the f-vector: the faces it stores, and the edges when the maker counted them
+  if (o.n_edges) ms.cols.set("n_edges", *o.n_edges);
   if (o.acquisition_id) ms.cols.set("acquisition_id", *o.acquisition_id);
   if (o.derived_from_id) ms.cols.set("derived_from_id", *o.derived_from_id);
   if (o.description) ms.cols.set("comment", *o.description);

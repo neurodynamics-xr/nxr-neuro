@@ -3,7 +3,7 @@
 // The earlier form (what `run eigenmodes` stored before): the eigenvalue line; a kind FIELD on it; three operators from it, `_eigenvectors` (-> the surface, cell 0: the vertex potentials), `_forms1`
 // (-> the triangulation's edges; absent in a solve made before the 1-form parts were stored) and `_forms2` (-> its faces); the triangulation with its own copy of the positions, d0 and d1 as stored
 // csr operators and the stars and signposts as fields. The new form: ONE eigenvectors operator (line -> triangulation, cell key '0+1+2', rows 0-forms · 1-forms · 2-forms, the same float32 numbers),
-// the kinds as a LABELLING selection of the line, the eigenvalues as a field of the new operator, the triangulation sharing the surface's positions, d0, d1 and the stars as ANALYTIC rows (method
+// the kinds as a LABELLING selection of the line, the eigenvalues as a field of the new operator, no support (the glue's correspondence is derived), the triangulation sharing the surface's positions, d0, d1 and the stars as ANALYTIC rows (method
 // 'dec'), the lengths and signposts kept as fields. Absent 1-form parts are made from the stored parts and operators (`signal::oneFormFromParts`, the solve's own expression: no solve).
 // One unit a stem (all of it or nothing); the replaced items are moved aside by io (their arrays kept in a `_replaced-*` folder, never deleted). Each new item records `migrated_from` (the old ids and
 // names, the date). Idempotent: a stem already in the new form is reported and left. A form it does not know (a missing part, shapes that do not fit, anything else lying on the triangulation) is refused.
@@ -106,7 +106,17 @@ Json migrate_one(SubjectWriter& sub, const std::string& stem, const std::functio
   const auto ev = row_named(sub, "operator", stem + "_eigenvectors");
   if (!ev) unknown(stem, stem + "_eigenvectors is not stored");
   const std::string to_cell = jo(*ev, "to_cell").value_or("0");
-  if (to_cell == "0+1+2" && row_named(sub, "selection", stem + "_kinds")) return Json{{"stem", stem}, {"status", "already in the new form"}};
+  const auto support = row_named(sub, "selection", stem + "_support");   // the earlier forms' support: the glue's correspondence, derived now from the glued cortex's labelling and the medial wall
+  if (to_cell == "0+1+2" && row_named(sub, "selection", stem + "_kinds")) {
+    if (!support) return Json{{"stem", stem}, {"status", "already in the new form"}};
+    const tk::Subject ts = tk::Subject::of(sub);
+    tk::Unit u = ts.unit(tk::By{"nxr-neuro migrate eigensolve", Json{{"migrated_from", Json{{"date", now_utc(false)}, {"from", "the support selection (the glue's correspondence, derived instead)"},
+                                                                                                 {"items", Json{{stem + "_support", Json{{"class", "selection"}, {"id", js(*support, "id")}}}}}}}}});
+    u.replace(tk::Cls::selection, js(*support, "path"), true, "the support of the eigensolve " + stem + ": derived from the glued cortex's hemispheres labelling and the medial wall");
+    u.commit();
+    if (say) say(Json{{"stage", "migrate"}, {"stem", stem}, {"removed", stem + "_support"}});
+    return Json{{"stem", stem}, {"status", "migrated"}, {"removed", stem + "_support"}};
+  }
   if (to_cell != "0") unknown(stem, stem + "_eigenvectors maps to cell '" + to_cell + "'");
   const auto f2 = row_named(sub, "operator", stem + "_forms2");
   if (!f2) unknown(stem, stem + "_forms2 (the 2-form parts) is not stored");
@@ -209,6 +219,7 @@ Json migrate_one(SubjectWriter& sub, const std::string& stem, const std::functio
   note(*ev, "operator"); note(*f2, "operator"); if (f1) note(*f1, "operator"); note(*kindf, "field"); if (lamf) note(*lamf, "field"); note(*tri, "manifold");
   for (const auto& [n, r] : tfields) note(r, "field");
   for (const auto& [n, r] : tops) note(r, "operator");
+  if (support) note(*support, "selection");
   if (say) say(Json{{"stage", "migrate"}, {"stem", stem}, {"V", nV}, {"E", nE}, {"F", nF}, {"modes", K}, {"forms1", f1 ? "stored" : "made"}});
 
   const tk::Subject ts = tk::Subject::of(sub);
@@ -221,6 +232,7 @@ Json migrate_one(SubjectWriter& sub, const std::string& stem, const std::functio
   u.replace(tk::Cls::field, js(*kindf, "path"), true, what);
   u.replace(tk::Cls::operator_, js(*ev, "path"), true, what);
   u.replace(tk::Cls::manifold, js(*tri, "path"), true, what);
+  if (support) { u.replace(tk::Cls::selection, js(*support, "path"), true, what); }
 
   // THE INTRINSIC TRIANGULATION: the surface's positions, its own cells
   tk::ComplexOut c;

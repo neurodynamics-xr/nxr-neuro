@@ -642,6 +642,8 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       s.vertices = values_of(a, {a.rows, a.cols}, false, o);
       if (a.cols != 3) bad(o, "a surface's vertices are [n x 3]");
       for (const auto& f : d.value("faces", Json::array())) s.faces.push_back(f.get<std::int32_t>());
+      if (d.contains("edges_count") && d["edges_count"].is_number_integer()) s.n_edges = d["edges_count"].get<std::int64_t>();   // the maker's edge count, when it knows it (the glue: a sphere's)
+      if (d.contains("closed") && d["closed"].is_boolean()) s.closed = d["closed"].get<bool>();
       if (d.contains("producer") && d["producer"].is_object()) s.producer = d["producer"];
       if (d.contains("description") && d["description"].is_string()) s.description = d["description"].get<std::string>();
       id = unit.surface(s);

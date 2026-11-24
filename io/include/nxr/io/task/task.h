@@ -287,6 +287,8 @@ struct SurfaceOut {
   std::optional<std::string> derived_from_id, acquisition_id, description;
   Values vertices;                                 // [n x 3], float64
   std::vector<std::int32_t> faces;                 // [m x 3], counter-clockwise seen from outside
+  std::optional<std::int64_t> n_edges;             // its edge count, when the maker knows it (the glue: a sphere's, V + F - 2); the face count is always the faces'
+  std::optional<bool> closed;                      // whether the maker checked it closed (every edge on two faces) and consistently oriented (the glue does)
   Json producer;
 };
 // a manifold of POINTS with ONE coordinate each (an operator's mode axis: the eigenvalues): found by path and REPLACED when asked, its coordinates [n] in float64

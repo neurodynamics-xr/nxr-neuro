@@ -169,6 +169,22 @@ int main() {
   const HodgePackageForms fm = hodge_package_forms(sub, d);
   CHECK(fm.nE == E && fm.nF == F && fm.forms2 == f2_before);
 
+  // no support: the earlier form's is moved aside (the readers above derived it); a new-form solve still holding one has it moved aside alone
+  auto support_stored = [&] { tk::Want w{.cls = tk::Cls::selection}; w.name = stem + "_support"; return tk::Subject::of(sub).find(w).has_value(); };
+  CHECK(!support_stored());
+  {
+    const tk::Subject ts = tk::Subject::of(sub);
+    tk::Unit u = ts.unit(tk::By{"a support left behind", Json::object()});
+    tk::SelectionOut sp; sp.name = stem + "_support"; sp.output = "support"; sp.type = "indices"; sp.manifold_id = surf_id;
+    for (std::int64_t v = 0; v < V; ++v) sp.codes.push_back(v);
+    u.selection(sp);
+    u.commit();
+  }
+  CHECK(support_stored());
+  const Json dropped = migrate_eigensolve(sub, stem);
+  std::printf("  a support left behind: %s\n", dropped.dump().substr(0, 160).c_str());
+  CHECK(dropped["stems"][0]["status"] == "migrated" && dropped["stems"][0]["removed"] == stem + "_support" && !support_stored());
+
   // idempotent
   const Json again = migrate_eigensolve(sub, stem);
   CHECK(again["stems"][0]["status"] == "already in the new form");
