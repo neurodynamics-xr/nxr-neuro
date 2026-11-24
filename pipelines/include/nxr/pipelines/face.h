@@ -114,6 +114,9 @@ struct ReadRequest {
   // say what each array read. A time-resolved field is read by rows and a time range instead, a sparse operator or field whole.
   std::vector<std::array<std::int64_t, 2>> region;
   double budget = 1e9;                     // bytes: a read whose arrays would hold more is refused before any is read, naming the size (default 1 GB)
+  // CARRIED ONTO A GLUED CORTEX (an operator, or a field, whose rows are the vertices of a two-hemisphere surface): its rows SELECTED onto the glued cortex `onto` (by name or id) by the glue's rule
+  // (input.h glue_relation): each glued vertex the rows of its original vertex, a bridge vertex's rows zero. Vertex-major rows (k consecutive rows a vertex: a free orientation's 3). Not with region or rows.
+  std::optional<std::string> onto;
 };
 /** The stored thing `name` of the subject (a statistic, field, operator, selection or manifold, by name or id). Nothing is written (the dataset is opened for reading).
  *  - a statistic, an operator, a field with no time line: read whole (`values`, in the stored precision; a sparse operator `data`, `indices`, `indptr`); a field's meta names its
@@ -153,6 +156,7 @@ struct ReadNodeRequest {
   std::vector<std::string> templates;
   std::vector<std::array<std::int64_t, 2>> region;   // [start, stop) per leading axis of each array (`--region`; not with a time-resolved field: its rows and time range)
   double budget = 1e9;                     // bytes (`--budget`): a larger read is refused before anything is read, naming its size and suggesting `--region`
+  std::optional<std::string> onto;         // operator, field: its rows carried onto this glued cortex (ReadRequest::onto)
 };
 CommandResult read_field(const ReadNodeRequest& request);
 CommandResult read_statistic(const ReadNodeRequest& request);

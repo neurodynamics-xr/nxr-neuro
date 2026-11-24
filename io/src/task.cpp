@@ -1340,6 +1340,21 @@ void Unit::edit_manifold(const std::string& manifold_id, const std::optional<boo
   db.execute("UPDATE manifold SET modified_utc = ?, modified_by = ? WHERE id = ?", {V(now_utc(false)), V(by_.tool), V(manifold_id)});
 }
 
+void Unit::edit_manifold_producer(const std::string& manifold_id, const std::string& key, const Json& value, const std::string& note) {
+  need_open(open_);
+  Database& db = *impl_->db;
+  const auto m = db.one("SELECT producer_json FROM manifold WHERE id = ?", {V(manifold_id)});
+  if (!m) throw Error(code::no_such_row, "manifold " + manifold_id + ": no such row");
+  if (key.empty() || key == "edits") throw Error(code::invalid_argument, "a manifold's provenance entry is named (not 'edits', the record of edits)");
+  Json producer = Json::parse(opt_text(*m, "producer_json").value_or("{}"), nullptr, false);
+  if (!producer.is_object()) producer = Json::object();
+  producer[key] = value;
+  if (!producer.contains("edits") || !producer["edits"].is_array()) producer["edits"] = Json::array();
+  const std::string now = now_utc(false);
+  producer["edits"].push_back(Json{{"edit", key}, {"utc", now}, {"tool", by_.tool}, {"note", note}});
+  db.execute("UPDATE manifold SET producer_json = ?, modified_utc = ?, modified_by = ? WHERE id = ?", {V(jdump(producer)), V(now), V(by_.tool), V(manifold_id)});
+}
+
 Json Unit::edit_projector_status(const std::string& operator_id, int status, const std::optional<std::string>& note, const std::optional<std::string>& by) {
   need_open(open_);
   Database& db = *impl_->db;

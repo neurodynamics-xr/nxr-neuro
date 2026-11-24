@@ -28,6 +28,7 @@
 #include "nxr/pipelines/selection_bridge.h"
 #include "nxr/quantity/quantity.h"
 #include "nxr/pipelines/definition.h"
+#include "nxr/pipelines/input.h"
 #include "nxr/pipelines/listing.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/reading.h"
@@ -703,6 +704,40 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
   DatasetWriter& ds = *lease;
   SubjectWriter sub = SubjectWriter::open(ds, subject);
   const task::Subject ts = task::Subject::of(sub);
+  if (rq.onto) {
+    // CARRIED ONTO THE GLUED CORTEX: the node read as stored, then its rows selected by the glue's rule (input.h carried_onto_glued): a selection, no maths
+    if (!rq.cls.empty() && rq.cls != "field" && rq.cls != "operator") refuse("read: onto carries the rows of an operator or a field onto a glued cortex (read operator or read field)");
+    if (!rq.region.empty() || !rq.rows.empty()) refuse("read: onto selects the rows itself: not with a region or rows");
+    std::optional<task::Node> n;
+    if (rq.cls.empty() || rq.cls == "field") n = ts.by_id_or_name(task::Cls::field, name);
+    if (!n && (rq.cls.empty() || rq.cls == "operator")) n = ts.by_id_or_name(task::Cls::operator_, name);
+    if (!n) throw Error(code::no_such_row, "subject " + subject + " holds no " + (rq.cls.empty() ? std::string("field or operator") : rq.cls) + " named '" + name + "'");
+    const auto glued = ts.by_id_or_name(task::Cls::manifold, *rq.onto);
+    if (!glued) throw Error(code::no_such_row, "subject " + subject + " holds no manifold named '" + *rq.onto + "' (onto names a glued cortex)");
+    const auto map = glue_map_of(sub, glued->id);
+    if (!map) refuse("read: '" + glued->name + "' is not a glued cortex (a surface made by `run glue`): nothing to carry onto");
+    const bool is_op = n->cls == task::Cls::operator_;
+    const std::optional<std::string> rows_on = is_op ? n->to_manifold_id : n->manifold_id;
+    const auto original = ts.by_id(task::Cls::manifold, map->original_id);
+    if (!original || !original->n_vertices) throw Error(code::no_such_row, glued->name + ": its original manifold is not stored");
+    if (rows_on != std::optional<std::string>(map->original_id))
+      refuse("read: the rows of '" + n->name + "' are not the vertices of " + original->name + ", the surface " + glued->name + " is glued from" + (is_op ? " (an operator's rows are its target's: to_manifold)" : ""));
+    ReadRequest inner = rq;
+    inner.onto.reset();
+    inner.cls = is_op ? "operator" : "field";
+    Stored st = read(dataset, subject, n->name, inner);
+    if (st.arrays.size() != 1) refuse("read: '" + n->name + "' is stored sparse (data, indices, indptr): onto carries a dense operator or field");
+    StoredArray& a = st.arrays[0];
+    if (a.shape.empty() || a.shape[0] % *original->n_vertices != 0)
+      refuse("read: '" + n->name + "' has " + (a.shape.empty() ? std::string("no rows") : std::to_string(a.shape[0]) + " rows") + ", not k rows for each of the " + std::to_string(*original->n_vertices) + " vertices of " + original->name);
+    const std::int64_t k = a.shape[0] / *original->n_vertices;
+    a.bytes = carried_onto_glued(a.bytes, a.shape[0], *map, *original->n_vertices);
+    a.shape[0] = k * map->n_glued();
+    const Json rel = glued->producer.is_object() && glued->producer.contains("glue") ? glued->producer["glue"] : Json();
+    st.meta["onto"] = Json{{"glued", glued->name}, {"glued_id", glued->id}, {"original", original->name}, {"rows_per_vertex", k}, {"glued_vertices", map->n_glued()},
+                           {"bridge_rows", "zero"}, {"rule", rel.is_object() && rel.contains("rule") ? rel["rule"] : Json("each glued vertex the rows of its original vertex (the original's vertices off the medial wall, ascending), the bridge's rows zero")}};
+    return st;
+  }
   const std::optional<std::string>& measure = rq.measure;
   const std::optional<std::string>& of_field = rq.of_field;
   const bool series_options = rq.start || rq.stop || rq.from || rq.to || rq.all || !rq.rows.empty() || rq.reading != "samples" || rq.projectors != "active";
@@ -874,6 +909,8 @@ CommandResult read_class(const std::string& cls, const ReadNodeRequest& r) {
   } else if (r.measure || r.field) {
     throw task::Refused("--measure and --field read a selection's measurement table: options of `read selection`");
   }
+  if (cls == "field" || cls == "operator") rq.onto = r.onto;
+  else if (r.onto) throw task::Refused("--onto carries the rows of an operator or a field onto a glued cortex: an option of `read operator` and `read field`");
   if (cls == "manifold") rq.family = r.family;
   else if (r.family) throw task::Refused("--family reads a labelling of a manifold: an option of `read manifold`");
   const Stored st = read(r.dataset, r.subject, r.name, rq);

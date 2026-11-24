@@ -310,6 +310,7 @@ test_wt_at	unit
 test_bst_binary	unit
 test_component_surface	unit
 test_derived_origin	integration
+test_glue_onto	integration
 test_import_covariance	integration
 test_flow_map	integration
 test_migrate_eigensolve	integration

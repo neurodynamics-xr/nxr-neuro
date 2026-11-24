@@ -502,6 +502,9 @@ class Unit {
   // EDITS of what is stored (each inside the unit, a node's description only, never its arrays): a manifold's label, description and primary flag (making a surface primary clears the one before it,
   // in the same unit); a dictionary's entry or its whole entry list
   void edit_manifold(const std::string& manifold_id, const std::optional<bool>& primary, const std::optional<std::string>& label, const std::optional<std::string>& description);
+  // one entry of a manifold's provenance record (`producer_json[key]`) set to `value`, with an edit entry appended (`producer_json.edits`: the key, who, when, the note): what a migration adds to a
+  // record made by an earlier version (the glue's relation); the manifold's arrays are not touched
+  void edit_manifold_producer(const std::string& manifold_id, const std::string& key, const Json& value, const std::string& note);
   struct EntryEdit { std::optional<std::string> name, label, description; std::optional<std::array<int, 3>> colour; Json params; };
   void edit_dictionary_entry(const std::string& dictionary_id, std::int64_t code, const EntryEdit& edit);
   void replace_dictionary_entries(const std::string& dictionary_id, const std::vector<DictionaryOut::Entry>& entries);

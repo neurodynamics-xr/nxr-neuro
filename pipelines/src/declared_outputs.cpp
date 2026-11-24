@@ -645,6 +645,12 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       if (d.contains("edges_count") && d["edges_count"].is_number_integer()) s.n_edges = d["edges_count"].get<std::int64_t>();   // the maker's edge count, when it knows it (the glue: a sphere's)
       if (d.contains("closed") && d["closed"].is_boolean()) s.closed = d["closed"].get<bool>();
       if (d.contains("producer") && d["producer"].is_object()) s.producer = d["producer"];
+      // a glued surface's relation names its hemispheres labelling by the output that stores it ({output: PORT}): its stored name
+      if (s.producer.is_object() && s.producer.contains("glue") && s.producer["glue"].is_object() && s.producer["glue"].contains("hemispheres") && s.producer["glue"]["hemispheres"].is_object()) {
+        const std::string port = s.producer["glue"]["hemispheres"].value("output", std::string());
+        if (!P.definition.outputs.contains(port)) bad(o, "its glue record names the output '" + port + "', which the definition does not declare");
+        s.producer["glue"]["hemispheres"] = declared_name(P, port);
+      }
       if (d.contains("description") && d["description"].is_string()) s.description = d["description"].get<std::string>();
       id = unit.surface(s);
     } else if (t == "points") {

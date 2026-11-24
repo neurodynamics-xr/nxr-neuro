@@ -129,6 +129,15 @@ StoredLabelling stored_labelling(nxr::io::SubjectWriter& sub, const std::string&
 /** why a HEMISPHERE LABELLING of a two-hemisphere surface disagrees with it (empty: it agrees): the entries `left` and `right` must exist, each be ONE connected piece of the surface (joined by the faces
  *  all of whose vertices carry it), every vertex outside the labelling's own `unassigned` be in one of them, and no face have vertices in both */
 std::string hemispheres_disagree(const std::vector<std::int32_t>& faces, const StoredLabelling& labelling, const std::string& left, const std::string& right);
+/** THE MEDIAL WALL'S SELECTION on a surface, as the glue reads it: {labelling (`<surface>_atlases`), member (`Desikan-Killiany`), id (the member's), entry (`unassigned`, or `unknown`), code}. */
+nxr::io::Json medial_wall_record(nxr::io::SubjectWriter& sub, const std::string& surface_id, const std::string& surface_name);
+/** THE GLUE'S RELATION as a glued cortex's description records it (its producer's `glue`): the original manifold (id and name), the hemispheres labelling of the glued cortex (by name) and its
+ *  `bridge` entry (its name; a definition's step gives {output: PORT}, the runner stores the name of that output), the medial wall's selection on the original (`medial_wall_record`), the counts and the RULE in words: glued vertex i < n_cortex is the i-th vertex of the original outside the wall,
+ *  in ascending index; the rest is the bridge. What a reader outside nxr-neuro needs to carry a node onto the glued cortex, which `read operator|field --onto` does. */
+nxr::io::Json glue_relation(const std::string& original_id, const std::string& original_name, const nxr::io::Json& hemispheres, const nxr::io::Json& wall, std::int64_t n_cortex, std::int64_t n_glued);
+/** a node's rows carried onto the glued cortex: `rows` [k x n_original] values of `bytes_per_row` bytes each (vertex-major: k consecutive rows a vertex) -> [k x n_glued], each glued vertex the rows of
+ *  its original vertex, a bridge vertex's rows zero (all-zero bytes: 0 in every number type). A selection of rows, never an interpolation. */
+std::vector<std::uint8_t> carried_onto_glued(const std::vector<std::uint8_t>& rows, std::int64_t n_rows, const GlueMap& map, std::int64_t n_original);
 // The glue map of a manifold when it is a derived glued surface (made by `glue`), else nothing.
 std::optional<GlueMap> glue_map_of(nxr::io::SubjectWriter& sub, const std::string& manifold_id);
 // Vertex-major values [n_glued x comps] restricted to the original [n_original x comps]: each original vertex takes its glued counterpart's values; an original vertex with no counterpart (the medial wall,

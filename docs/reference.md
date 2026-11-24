@@ -555,7 +555,7 @@ A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<val
 | `nxr-neuro read crossspectrum` | Read coherency, phase, delay or phase-slope index from a stored band-resolved cross-spectrum. | `crossspectrum read` |
 | `nxr-neuro read field` | A stored field by name: its values (a time-resolved field over a stated time range), its manifold and cells. | |
 | `nxr-neuro read statistic` | A stored statistic by name: its values on its axes. | |
-| `nxr-neuro read operator` | A stored operator by name: dense values, or a sparse operator's `data`, `indices`, `indptr`. | |
+| `nxr-neuro read operator` | A stored operator by name: dense values, or a sparse operator's `data`, `indices`, `indptr`; with `--onto GLUED` its rows carried onto a glued cortex. | |
 | `nxr-neuro read selection` | A stored selection by name: its per-element array, its spans and dictionary, or (`--measure M [--field F]`) its measurement table. | |
 | `nxr-neuro read manifold` | A stored manifold by name: positions, cells, axes, element names, coordinate system; or (`--family NAME`) one labelling. | |
 
@@ -2139,6 +2139,13 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
   labelling against the original surface) and refuses one whose kept vertices are not exactly those off the medial wall (an earlier glue widened its cut: re-run glue). The imported two-hemisphere mesh stays the manifold of record (atlases, kernels, exports,
   figures); the glued surface is the default computational manifold for spatiotemporal patterns, results are restricted back to the original hemispheres, and orientations are
   also reported in the anatomical frame as a check of the bridge's transport. `eigenmodes` and `meeg.apply_kernel` take the glued surface by name; `--glued` is gone.
+- **The glued cortex states its relation** (its description, the producer record's `glue`): `original` and `original_name` (also the manifold's `derived_from`), `hemispheres` (the name of its
+  labelling on the glued cortex) and `bridge_entry`, `medial_wall` (the selection on the original that defines the wall: `labelling` `<original>_atlases`, `member` `Desikan-Killiany`, its `id`, the `entry`
+  `unassigned` and its `code`), `cortex_vertices`, `bridge_vertices` and the `rule` in words: glued vertex i < `cortex_vertices` is the i-th vertex of the original outside the wall, in ascending index; the rest
+  is the bridge. `migrate glue` states it for a glue whose record names only the original. So no reader has to re-implement the rule, nxr-neuro carries a node itself: **`read operator --name K --onto <glued>`**
+  and **`read field --name F --onto <glued>`** (`nxr.read.operator({..., onto})` in JavaScript) give the node's rows SELECTED onto the glued cortex: each glued vertex the rows of its original vertex
+  (k consecutive rows a vertex: 3 for a free orientation), a bridge vertex's rows zero. A selection of rows, never an interpolation; the node's rows must be the original's vertices (an operator's
+  target), a dense operator or field only, not with `--region` or `--rows`. Test: `test_glue_onto`.
 - **The four measurement operations**, one implementation each (`compute/include/nxr/measurement/`):
   - `reduce`: a field (or a measurement) over any selection's members, by the measures of the registry (the only move that removes a factor);
   - `measurement.roll_up`: through a grid's closed-form hierarchy, or across a group's subjects (`run roll_up`, `scope: group`; was `pyramid reduce`);

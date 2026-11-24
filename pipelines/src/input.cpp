@@ -206,6 +206,21 @@ std::optional<GlueMap> glue_map_of(SubjectWriter& sub, const std::string& manifo
   return m;
 }
 
+std::vector<std::uint8_t> carried_onto_glued(const std::vector<std::uint8_t>& rows, std::int64_t n_rows, const GlueMap& map, std::int64_t n_original) {
+  if (n_original < 1 || n_rows < 1 || n_rows % n_original != 0 || rows.size() % static_cast<std::size_t>(n_rows) != 0)
+    throw Error(code::invalid_argument, "carrying onto the glued cortex: " + std::to_string(n_rows) + " rows are not a whole number of rows for each of the " + std::to_string(n_original) + " original vertices");
+  const std::int64_t k = n_rows / n_original, n_glued = map.n_glued();
+  const std::size_t row = rows.size() / static_cast<std::size_t>(n_rows), block = row * static_cast<std::size_t>(k);
+  std::vector<std::uint8_t> out(static_cast<std::size_t>(n_glued) * block, 0);
+  for (std::int64_t g = 0; g < n_glued; ++g) {
+    const std::int32_t o = map.original_of[static_cast<std::size_t>(g)];
+    if (o < 0) continue;                                                   // the bridge: no vertex of the original, its rows zero
+    if (o >= n_original) throw Error(code::invalid_argument, "the glue map names original vertex " + std::to_string(o) + " of a surface of " + std::to_string(n_original) + " vertices");
+    std::memcpy(out.data() + static_cast<std::size_t>(g) * block, rows.data() + static_cast<std::size_t>(o) * block, block);
+  }
+  return out;
+}
+
 std::vector<double> restrict_to_original(const std::vector<double>& glued, std::int64_t comps, const GlueMap& map, std::int64_t n_original) {
   if (comps < 1 || static_cast<std::int64_t>(glued.size()) != map.n_glued() * comps)
     throw Error(code::invalid_argument, "restricting a result to the original surface: " + std::to_string(glued.size()) + " values for " + std::to_string(map.n_glued()) + " glued vertices of " + std::to_string(comps) + " components");
@@ -267,6 +282,27 @@ std::vector<std::uint8_t> medial_wall_of(SubjectWriter& sub, const std::string& 
   std::vector<std::uint8_t> out(codes.size());
   for (std::size_t i = 0; i < codes.size(); ++i) out[i] = codes[i] == wall ? 1 : 0;
   return out;
+}
+
+Json medial_wall_record(SubjectWriter& sub, const std::string& surface_id, const std::string& surface_name) {
+  const auto atlases = nxr::io::selection::named_row(sub.db(), sub.id(), surface_name + "_atlases", std::nullopt, surface_id);
+  const auto dk = atlases ? nxr::io::selection::member_row(sub.db(), text(*atlases, "id"), "Desikan-Killiany") : std::nullopt;
+  if (!dk || is_null(*dk, "dictionary_id"))
+    throw Error(code::no_such_row, sub.name() + ": " + surface_name + " carries no Desikan-Killiany atlas with its medial wall (" + surface_name + "_atlases/Desikan-Killiany)");
+  for (const char* entry : {"unassigned", "unknown"})                     // the order medial_wall_of reads them in
+    if (const auto c = nxr::io::selection::lookup_code_of_any(sub.db(), text(*dk, "dictionary_id"), {entry}))
+      return Json{{"labelling", surface_name + "_atlases"}, {"member", "Desikan-Killiany"}, {"id", text(*dk, "id")}, {"entry", entry}, {"code", *c}};
+  throw Error(code::no_such_row, sub.name() + ": the Desikan-Killiany atlas of " + surface_name + " has no 'unassigned' entry (its medial wall)");
+}
+
+Json glue_relation(const std::string& original_id, const std::string& original_name, const Json& hemispheres, const Json& wall, std::int64_t n_cortex, std::int64_t n_glued) {
+  const std::string w = wall.value("labelling", std::string()) + "/" + wall.value("member", std::string());
+  const std::string rule = "glued vertex i < " + std::to_string(n_cortex) + " (labelled other than `bridge` in the hemispheres labelling) is the i-th vertex, in ascending index, of " + original_name +
+                           " outside the medial wall (the vertices " + w + " labels other than '" + wall.value("entry", std::string()) + "'); glued vertices " + std::to_string(n_cortex) + " to " +
+                           std::to_string(n_glued - 1) + " (labelled `bridge`) are no vertex of " + original_name + ". A node whose rows are " + original_name + "'s vertices is carried onto the glued cortex "
+                           "by selecting its rows in that order, a bridge row zero (`read operator|field --onto`)";
+  return Json{{"original", original_id}, {"original_name", original_name}, {"form", "labelling"}, {"hemispheres", hemispheres}, {"bridge_entry", "bridge"}, {"medial_wall", wall},
+              {"cortex_vertices", n_cortex}, {"bridge_vertices", n_glued - n_cortex}, {"rule", rule}};
 }
 
 }  // namespace nxr::pipelines

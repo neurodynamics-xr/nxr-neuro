@@ -149,6 +149,7 @@ std::string Bound::coordinate_system_key(const std::string& manifold_id) const {
   return io::coordinate_system_name_of_geometry(writer(), io::text(*m, "geometry_id")).value_or(std::string());
 }
 std::vector<std::uint8_t> Bound::medial_wall(const SurfaceInput& surface) const { return nxr::pipelines::medial_wall(writer(), surface); }
+nxr::io::Json Bound::medial_wall_record(const SurfaceInput& surface) const { return nxr::pipelines::medial_wall_record(writer(), surface.id, surface.name); }
 GroupTemplate Bound::group_template(const std::string& surface_name) const {
   if (!ds_) throw io::Error(io::code::invalid_argument, "the group tree is carried from the dataset's default subject: the binding holds no dataset");
   return read_group_template(*ds_, writer(), surface_name);

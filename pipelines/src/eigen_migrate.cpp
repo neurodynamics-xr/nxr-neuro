@@ -404,6 +404,12 @@ Json migrate_one(SubjectWriter& sub, const std::string& stem, const std::functio
 //   - the labelling and the original's kept vertices `<glued>_kept`: the kept vertices are redundant (the glue removes exactly the medial wall) and are moved aside.
 // Either way the glue's kept vertices must be EXACTLY the original's vertices off the medial wall (the Desikan-Killiany `unassigned`): a glue whose cut removed more (an earlier glue widened its cut
 // to one simple loop) or kept wall is refused, nothing changed: re-run glue. One unit a glued cortex.
+// the glued cortex's description, stating the relation in words (its producer's `glue` the same as data)
+std::string glued_description(const std::string& original, std::int64_t cortex, const std::string& hemispheres, const Json& wall) {
+  return original + " glued by anatomy: exactly its medial wall cut (" + wall.value("labelling", std::string()) + "/" + wall.value("member", std::string()) + " '" + wall.value("entry", std::string()) +
+         "'), a bridge grown between the rims; vertex i < " + std::to_string(cortex) + " is the i-th vertex of " + original + " off the wall (ascending index), the rest the bridge (`bridge` in " + hemispheres + ")";
+}
+
 Json migrate_glue_one(SubjectWriter& sub, const tk::Node& glued, const std::string& hemispheres, const std::string& left, const std::string& right, const std::function<void(const Json&)>& say) {
   const tk::Subject ts = tk::Subject::of(sub);
   const std::string gname = glued.name;
@@ -414,7 +420,22 @@ Json migrate_glue_one(SubjectWriter& sub, const tk::Node& glued, const std::stri
   tk::Want wk{.cls = tk::Cls::selection}; wk.name = gname + "_kept"; wk.manifold_id = original;
   tk::Want wl{.cls = tk::Cls::selection}; wl.name = gname + "_hemispheres"; wl.manifold_id = glued.id;
   const auto keptn = ts.find(wk), labelsn = ts.find(wl);
-  if (!keptn && labelsn) return Json{{"glued", gname}, {"status", "already in the new form"}};
+  if (!keptn && labelsn) {
+    if (g.contains("rule") && g.contains("medial_wall") && g.contains("hemispheres")) return Json{{"glued", gname}, {"status", "already in the new form"}};
+    // a glue of an earlier version whose record names only the original: the relation stated (the hemispheres labelling, the medial wall's selection, the rule), checked against the stored labelling
+    const auto on = ts.by_id(tk::Cls::manifold, original);
+    if (!on || !on->n_vertices || !glued.n_vertices) unknown_glue("its original manifold is not stored");
+    const GlueMap map = *glue_map_of(sub, glued.id);                     // checks the labelling against the wall: the glue removed exactly the medial wall
+    std::int64_t cortex = 0;
+    for (const auto o : map.original_of) cortex += o >= 0;
+    const Json rel = glue_relation(original, on->name, gname + "_hemispheres", medial_wall_record(sub, original, on->name), cortex, *glued.n_vertices);
+    tk::Unit u = ts.unit(tk::By{"nxr-neuro migrate glue", Json{{"migrated_from", Json{{"date", now_utc(false)}, {"from", "a glue record naming only the original"}}}}});
+    u.edit_manifold_producer(glued.id, "glue", rel, "the glue's relation stated (the hemispheres labelling, the medial wall's selection, the rule)");
+    u.edit_manifold(glued.id, std::nullopt, std::nullopt, glued_description(on->name, cortex, gname + "_hemispheres", rel["medial_wall"]));
+    u.commit();
+    if (say) say(Json{{"stage", "migrate"}, {"glued", gname}, {"relation", "stated"}});
+    return Json{{"glued", gname}, {"status", "migrated"}, {"relation", "stated"}};
+  }
   const auto originaln = ts.by_id(tk::Cls::manifold, original);
   if (!originaln || !originaln->n_vertices) unknown_glue("its original manifold is not stored");
   std::vector<std::int32_t> off_wall;
@@ -432,6 +453,12 @@ Json migrate_glue_one(SubjectWriter& sub, const tk::Node& glued, const std::stri
     tk::Unit u = ts.unit(tk::By{"nxr-neuro migrate glue", Json{{"migrated_from", Json{{"date", now_utc(false)}, {"from", "the labelling and the kept vertices (redundant: the glue removes exactly the medial wall)"},
                                                                                        {"items", Json{{gname + "_kept", Json{{"class", "selection"}, {"id", keptn->id}}}}}}}}});
     u.replace(tk::Cls::selection, *keptn->path, true, "the kept vertices of the glued cortex " + gname + ": redundant, the vertices off the medial wall");
+    {
+      const std::int64_t cortex = static_cast<std::int64_t>(off_wall.size());
+      const Json rel = glue_relation(original, originaln->name, gname + "_hemispheres", medial_wall_record(sub, original, originaln->name), cortex, glued.n_vertices.value_or(cortex));
+      u.edit_manifold_producer(glued.id, "glue", rel, "the glue's relation stated (the hemispheres labelling, the medial wall's selection, the rule)");
+      u.edit_manifold(glued.id, std::nullopt, std::nullopt, glued_description(originaln->name, cortex, gname + "_hemispheres", rel["medial_wall"]));
+    }
     u.commit();
     return Json{{"glued", gname}, {"status", "migrated"}, {"kept", static_cast<std::int64_t>(off_wall.size())}, {"removed", gname + "_kept"}};
   }
@@ -481,6 +508,11 @@ Json migrate_glue_one(SubjectWriter& sub, const tk::Node& glued, const std::stri
   ls.member_of = sel.member_of; ls.member_codes = sel.member_codes;
   ls.description = "the hemispheres of the glued cortex: " + H.name + " of " + O.name + " carried over (its entries kept), and the bridge (not cortex: no sources, a forward zero there)";
   u.selection(ls);
+  {
+    const Json rel = glue_relation(original, O.name, gname + "_hemispheres", medial_wall_record(sub, original, O.name), m, n);
+    u.edit_manifold_producer(glued.id, "glue", rel, "the glue's relation stated (the hemispheres labelling, the medial wall's selection, the rule)");
+    u.edit_manifold(glued.id, std::nullopt, std::nullopt, glued_description(O.name, m, gname + "_hemispheres", rel["medial_wall"]));
+  }
   u.commit();
   return Json{{"glued", gname}, {"status", "migrated"}, {"kept", m}, {"bridge", n - m}, {"hemispheres", H.name}};
 }

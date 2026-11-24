@@ -431,10 +431,12 @@ StepSpec surface_glue_step() {
     std::vector<double> glued_labels(static_cast<std::size_t>(Vg));
     for (std::int64_t i = 0; i < Vg; ++i) glued_labels[static_cast<std::size_t>(i)] = i < m ? static_cast<double>(H.labels[static_cast<std::size_t>(kept[static_cast<std::size_t>(i)])]) : static_cast<double>(bcode);
     Arrays out;
-    // the producer's `glue` marks a glued surface: the original manifold and the hemispheres labelling (named, found beside it); results on it are restricted back through the labelling and the original's wall
+    // the producer's `glue` marks a glued surface and STATES THE RELATION (input.h glue_relation): the original manifold, the hemispheres labelling of the glued cortex (the output `labels`, its stored
+    // name filled in by the runner), the medial wall's selection on the original, the counts and the rule; results on it are restricted back through the labelling and the original's wall
     out["glued"] = made(Vg, 3, G.positions, Json{{"faces", G.faces}, {"edges_count", G.edges}, {"closed", true}, {"cs", ctx.bound.coordinate_system_key(S.id)},
                         {"description", S.name + " glued by anatomy: exactly its medial walls cut (the Desikan-Killiany atlas), a bridge grown between the rims; vertex i < " + std::to_string(m) + " is the i-th vertex of " + S.name + " off the wall, the rest the bridge"},
-                        {"producer", Json{{"glued_from", S.name}, {"mesh", mesh_key(G.faces)}, {"gluing", glue_record}, {"glue", Json{{"original", S.id}, {"form", "labelling"}}}}}});
+                        {"producer", Json{{"glued_from", S.name}, {"mesh", mesh_key(G.faces)}, {"gluing", glue_record},
+                                          {"glue", glue_relation(S.id, S.name, Json{{"output", "labels"}}, ctx.bound.medial_wall_record(S), m, Vg)}}}});
     out["labels"] = made(Vg, 1, std::move(glued_labels), Json{{"lookup", lookup}, {"glue_map", true},
                               {"description", "the hemispheres of the glued cortex: " + H.name + " of " + S.name + " carried over (its entries kept), and the bridge (not cortex: no sources, a forward zero there)"}});
     return out;

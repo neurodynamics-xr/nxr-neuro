@@ -1166,6 +1166,7 @@ R"TBL(--name@read field	NAME	The stored field to read, by name or id.	required	-
 --rows@read field	I,J,...	The rows (channels) of a time-resolved field to read, by index, in the order given.	every row	-
 --projectors@read field	active|none|NAME,...	A recording's projectors when it is read: active applies its active projectors to every block loaded (as a run reads it), none reads the samples as stored, NAME,... applies exactly the projectors named, whatever their stored status (an unknown name is refused, listing the valid ones).	active	-
 --shape-only@read field		Print the description of a time-resolved field (rate, origin, samples, channels, unit, projection) and read no sample.	off	-
+--onto@read field	GLUED	Carry the field onto a glued cortex: its rows (the vertices of the two-hemisphere surface it lies on, k rows a vertex) selected onto the glued cortex GLUED by the glue's rule, each glued vertex the rows of its original vertex, a bridge vertex's rows zero. Not with --rows or --region.	none (the rows as stored)	-
 )TBL",
 R"TBL(--name@read statistic	NAME	The stored statistic to read, by name or id.	required	-
 --templates@read statistic	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1174,6 +1175,7 @@ R"TBL(--name@read statistic	NAME	The stored statistic to read, by name or id.	re
 R"TBL(--name@read operator	NAME	The stored operator to read, by name or id.	required	-
 --templates@read operator	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
 --out@read operator	FILE.npy	Write the operator as .npy files: a dense one to FILE itself, a sparse one as <stem>.data.npy, <stem>.indices.npy and <stem>.indptr.npy (scipy.sparse.csr_matrix's arrays).	none (the result only, as JSON)	-
+--onto@read operator	GLUED	Carry the operator onto a glued cortex: its rows (the vertices of the two-hemisphere surface it maps to, k rows a vertex: 3 for a free orientation) selected onto the glued cortex GLUED by the glue's rule, each glued vertex the rows of its original vertex, a bridge vertex's rows zero. A dense operator only; not with --region.	none (the rows as stored)	-
 )TBL",
 R"TBL(--name@read selection	NAME	The stored selection to read, by name or id.	required	-
 --templates@read selection	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1258,7 +1260,7 @@ R"TBL(@ read field
 old: __read field
 summary: Read a stored field by name: its values (a time-resolved field over a stated time range, read one chunk at a time), its manifold and cells, as JSON or .npy.
 example: nxr-neuro read field --dataset /data/study --subject sub-01 --name rest --from 0 --to 10 --out rest.npy
-opts: --all --budget --dataset* --from --name* --out --projectors --region --rows --shape-only --subject* --to --templates+
+opts: --all --budget --dataset* --from --name* --onto --out --projectors --region --rows --shape-only --subject* --to --templates+
 )TBL",
 R"TBL(@ read statistic
 old: __read statistic
@@ -1268,9 +1270,9 @@ opts: --budget --dataset* --name* --out --region --subject* --templates+
 )TBL",
 R"TBL(@ read operator
 old: __read operator
-summary: Read a stored operator by name: dense values, or a sparse operator's data, indices and indptr, as JSON or .npy files.
+summary: Read a stored operator by name: dense values, or a sparse operator's data, indices and indptr, as JSON or .npy files; with --onto, its rows carried onto a glued cortex.
 example: nxr-neuro read operator --dataset /data/study --subject sub-01 --name kernel --out kernel.npy
-opts: --budget --dataset* --name* --out --region --subject* --templates+
+opts: --budget --dataset* --name* --onto --out --region --subject* --templates+
 )TBL",
 R"TBL(@ read selection
 old: __read selection

@@ -155,7 +155,8 @@ int read_node_main(const std::vector<std::string>& argv) {
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const std::string prog = "nxr-neuro read " + what;
   std::set<std::string> valued = {"--dataset", "--subject", "--name", "--out", "--region", "--budget"}, flags;
-  if (what == "field") { valued.insert({"--from", "--to", "--rows", "--projectors"}); flags = {"--all", "--shape-only"}; }
+  if (what == "field") { valued.insert({"--from", "--to", "--rows", "--projectors", "--onto"}); flags = {"--all", "--shape-only"}; }
+  else if (what == "operator") valued.insert("--onto");
   else if (what == "selection") valued.insert({"--measure", "--field"});
   else if (what == "manifold") valued.insert("--family");
   else if (what != "statistic" && what != "operator") throw Usage("nxr-neuro read: error: argument what: invalid choice: '" + what + "'");
@@ -177,6 +178,7 @@ int read_node_main(const std::vector<std::string>& argv) {
   rq.measure = a.maybe("--measure");
   rq.field = a.maybe("--field");
   rq.family = a.maybe("--family");
+  rq.onto = a.maybe("--onto");
   rq.out = a.maybe("--out");
   rq.templates = values_of(a, "--templates");
   if (const auto v = a.maybe("--region")) rq.region = region_of(prog, *v);
