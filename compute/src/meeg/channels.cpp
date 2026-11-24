@@ -1,4 +1,4 @@
-// nxr::meeg::channelPositions (see the header).
+// nxr::meeg::channelPositions and goodChannelsOfType (see the header).
 #include "nxr/meeg/channels.h"
 
 #include <algorithm>
@@ -31,6 +31,25 @@ std::vector<double> channelPositions(const std::vector<double>& points, const st
     for (int c = 0; c < 3; ++c) out[3 * m + static_cast<std::size_t>(c)] = s[c] / static_cast<double>(k);
   }
   return out;
+}
+
+std::vector<std::int32_t> goodChannelsOfType(const std::vector<std::string>& channelTypes, const std::vector<std::string>& channelQuality, const std::string& sensorType) {
+  if (channelTypes.size() != channelQuality.size())
+    throw std::invalid_argument("goodChannelsOfType: " + std::to_string(channelTypes.size()) + " channel types for " + std::to_string(channelQuality.size()) + " channel qualities");
+  std::vector<std::string> measured;
+  if (sensorType == "MEG") measured = {"MEG", "MEG MAG", "MEG GRAD"};
+  else if (sensorType == "EEG") measured = {"EEG"};
+  else throw std::invalid_argument("goodChannelsOfType: the sensor type is MEG or EEG, not '" + sensorType + "'");
+  std::vector<std::int32_t> chosen;
+  for (std::size_t channel = 0; channel < channelTypes.size(); ++channel) {
+    const std::string& quality = channelQuality[channel];
+    if (quality != "good" && quality != "bad")
+      throw std::invalid_argument("goodChannelsOfType: channel " + std::to_string(channel) + " has the quality '" + quality + "', neither good nor bad");
+    if (quality == "good" && std::find(measured.begin(), measured.end(), channelTypes[channel]) != measured.end()) chosen.push_back(static_cast<std::int32_t>(channel));
+  }
+  if (chosen.size() < 4)
+    throw std::invalid_argument("goodChannelsOfType: " + std::to_string(chosen.size()) + " good " + sensorType + " channel(s), fewer than the four a sensor surface needs");
+  return chosen;
 }
 
 }  // namespace nxr::meeg
