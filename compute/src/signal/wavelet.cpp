@@ -10,7 +10,7 @@ using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXd;
 
 // ── the Fourier primitives of a bank's grid (declared in wavelet.h) ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-static void requireSides(const TimeFilterbank& b, Sides s, const char* what) {
+static void requireBankSides(const TimeFilterbank& b, Sides s, const char* what) {
     if (b.sides != s) throw std::invalid_argument(std::string("timebank::") + what + (s == Sides::Analytic ? ": needs an analytic bank" : ": needs a two-sided bank"));
 }
 
@@ -46,12 +46,12 @@ MatrixXcd coefficientSpectrum(const TimeFilterbank& b, const MatrixXcd& W) {
 }
 
 MatrixXd inverseReal(const TimeFilterbank& b, const MatrixXcd& S, std::size_t n) {
-    requireSides(b, Sides::Analytic, "inverseReal");
+    requireBankSides(b, Sides::Analytic, "inverseReal");
     return irfft(S, b.nfft).topRows(static_cast<Eigen::Index>(n));
 }
 
 MatrixXcd inverseComplex(const TimeFilterbank& b, const MatrixXcd& S, std::size_t n) {
-    requireSides(b, Sides::TwoSided, "inverseComplex");
+    requireBankSides(b, Sides::TwoSided, "inverseComplex");
     return ifft(S).topRows(static_cast<Eigen::Index>(n));
 }
 

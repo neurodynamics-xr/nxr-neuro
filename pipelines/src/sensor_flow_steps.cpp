@@ -291,7 +291,8 @@ nxr::selection::Selection kernelSetOf(const ng::Array& stored, const char* who, 
     profile.family = k.at("family").get<std::string>();
     profile.chart = k.at("chart").get<std::string>();
     profile.gain = k.value("gain", 1.0);
-    for (const auto& [name, value] : k.value("params", Json::object()).items()) {
+    const Json params = k.value("params", Json::object());   // held: the loop below iterates over it (a temporary would be gone before the body)
+    for (const auto& [name, value] : params.items()) {
       if (name == "width_rule")
         ng::refuse(std::string(who) + ": " + port + " was made before the proportional width was stored as fwhm_per_centre: re-make it with `select_kernels`");
       if (value.is_number()) profile.params[name] = value.get<double>();   // a text entry is a description (a partition's), not a number of the profile

@@ -332,7 +332,7 @@ StepSpec lagfree_pairs_step() {
     const Json warnings = Json::array({"the surrogate is a zero-lag Gaussian process with the burst's own covariance and `dof` independent samples: a burst beyond it has lags beyond sampling noise, not a wave",
                                        "dof = the burst's duration x the band's effective bandwidth (the PSD's, through the analytic gain): a spectrum with structure inside the band changes it",
                                        "the lagged share is a SENSOR-level quantity (the share of the second moment in quadrature between the sensors)"});
-    const Json opts = Json{{"generator", "synthesis.lagfree_pairs"}, {"draws", draws}, {"seed", seed}, {"seeds", "burst k: seed + 7919 k, draws 0 .. draws - 1"}, {"band", band}, {"shape", shape}, {"effective_bandwidth_hz", Beff}, {"windows", windows}, {"window_level", win.level},
+    const Json opts = Json{{"generator", "synthesis.lagfree_pairs"}, {"draws", draws}, {"seed", seed}, {"seeds", "burst k: seed + 7919 k, draws 0 .. draws - 1"}, {"band", band}, {"shape", bandShape.family}, {"half_width", bandShape.halfWidth ? Json(*bandShape.halfWidth) : Json()}, {"effective_bandwidth_hz", Beff}, {"windows", windows}, {"window_level", win.level},
                            {"selection", text(*st.bursts.row, "name")}, {"selection_id", text(*st.bursts.row, "id")}};
     Json names = Json::array();
     for (std::int64_t k = 0; k < B; ++k) names.push_back(Json{{"name", "burst" + std::to_string(k)}, {"start", spans[static_cast<std::size_t>(k)].first}, {"stop", spans[static_cast<std::size_t>(k)].second}});
