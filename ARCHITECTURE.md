@@ -57,6 +57,22 @@ The detailed rules are below: the dependency table, **the architecture policy** 
 chains**, the chunk service, and the PR checklist. Design a new pipeline as its graph first (nodes, ports, inputs, outputs), check it against the
 Studio's chain, and only then write code.
 
+## Compose first; never transform an outer product (never broken)
+
+How every computation is ordered, in compute nodes, pipelines and the Studio's GPU graphs alike:
+1. **Compose linear operators first.** A chain of linear maps (a kernel, an analysis onto eigenmodes, gains on a level, a synthesis) is multiplied into
+   one operator at its smallest size and applied once; nothing re-applies the chain per segment, per cell or per frame.
+2. **Never form an outer product to transform it.** A single sample's or segment's cross-spectrum x xᴴ holds nothing more than x, and
+   A (x xᴴ) Aᴴ = (A x)(A x)ᴴ: transform the coefficients. A matrix is formed only as a SUM (over samples, segments, bins), which holds what no single
+   vector does.
+3. **No round trip that does (almost) nothing.** An analysis followed by a synthesis over (nearly) a whole basis is (nearly) the identity; only what
+   changes something (gains on a level) is applied.
+4. **State every intermediate's size and rank and the order of the products before building**, and keep the cheapest order.
+5. **The forward transform is io's and compute's**: recordings are read and transformed (decimation, the chunk's FFT with its halo) by nxr-neuro, not
+   re-implemented by a client.
+The runner (and any executor of the same graphs) checks a plan's sizes, ranks and costs and refuses one that transforms an outer product it could
+apply to vectors, applies two linear operators without composing them, or costs more than the cheapest order of the same products.
+
 ## Layout and the dependency rule (never broken)
 
 | folder | library | may depend on |
