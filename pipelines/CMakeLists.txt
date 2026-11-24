@@ -45,6 +45,7 @@ add_library(nxr_pipelines
   src/flow_steps.cpp
   src/form_steps.cpp
   src/sensor_flow_steps.cpp
+  src/bispectrum_steps.cpp
   src/spectral_steps.cpp
   src/verb_steps.cpp
   src/steps_measure.cpp
@@ -443,6 +444,10 @@ add_executable(test_sensor_flow test/test_sensor_flow.cpp)   # the sensor-space 
   target_link_libraries(test_sensor_flow PRIVATE nxr_pipelines)
   target_include_directories(test_sensor_flow PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_sensor_flow COMMAND test_sensor_flow)
+add_executable(test_sensor_bispectrum test/test_sensor_bispectrum.cpp)   # the bispectrum and flow-across-frequencies nodes on chunk spectra served from synthetic recordings on a sphere
+  target_link_libraries(test_sensor_bispectrum PRIVATE nxr_pipelines)
+  target_include_directories(test_sensor_bispectrum PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_sensor_bispectrum COMMAND test_sensor_bispectrum)
   add_executable(test_connectome_nodes test/test_connectome_nodes.cpp)
   target_link_libraries(test_connectome_nodes PRIVATE nxr_pipelines)
   target_include_directories(test_connectome_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)

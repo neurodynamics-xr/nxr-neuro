@@ -48,7 +48,10 @@
   {"name": "flow", "unit_rule": null, "description": "the flow of a weighted cross-spectrum per frequency member and band pair: power, phase current per edge and per vertex, Hodge-Dirac flow coefficients, potential and stream"},
   {"name": "time_cell_flow", "unit_rule": null, "description": "the sums over an atom's time cells of the edge and vertex phase currents and the power"},
   {"name": "consistency", "unit_rule": null, "description": "the resultant length R1 of a direction's unit vectors over time cells, with its sign-flip p values"},
-  {"name": "aperiodic", "unit_rule": null, "description": "the aperiodic background's parameters of a spectrum: offset, exponent, knee, r2, points used"}
+  {"name": "aperiodic", "unit_rule": null, "description": "the aperiodic background's parameters of a spectrum: offset, exponent, knee, r2, points used"},
+  {"name": "bispectrum", "unit_rule": null, "description": "the bispectrum of chunk spectra weighted by one frequency atom per axis, summed over the chunks and pairs of bins, with its normalisation's sums (threenorm cube sums or Kim-Powers powers); bicoherence, biphase and asymmetry derived at read"},
+  {"name": "flow_agreement", "unit_rule": null, "description": "per pair of frequency atoms, the cosines of their flows: edge phase currents in the Hodge inner product, travel and rotation coefficients (unitless)"},
+  {"name": "flow_dispersion", "unit_rule": null, "description": "per vertex across frequency atoms: the direction consistency of the vertex phase currents, the slope and intercept of log apparent speed against log frequency, the atoms used"}
  ],
  "methods": [
   {"name": "sample", "description": "the sample covariance: the products of the samples (the mean of each block removed unless the options say otherwise), summed over the span's blocks and divided by dof (Brainstorm bst_noisecov, MNE compute_raw_covariance)"},
@@ -82,6 +85,8 @@
   {"name": "atom_time_cells", "description": "the sums over each atom's own time cells (a dyadic level of the time line) of the edge and vertex phase currents and the power, per atom and band (nxr-neuro `sensor_flow`)"},
   {"name": "sign_flip_consistency", "description": "the sign-flip (time-reversal) test of a direction's consistency over time cells: R1 per element, per-element and family-wise p, the median and its null (nxr's flow maps flip_test; numpy default_rng)"},
   {"name": "sensor_power", "description": "each vertex's power per bin from chunk spectra in field coordinates: the mean over the chunks of the synthesised field's squared magnitude"},
-  {"name": "aperiodic_fit", "description": "the aperiodic background of each spectrum: specparam's aperiodic model without or with a knee (nxr's nxr.spectral.aperiodic)"}
+  {"name": "aperiodic_fit", "description": "the aperiodic background of each spectrum: specparam's aperiodic model without or with a knee (nxr's nxr.spectral.aperiodic)"},
+  {"name": "bispectrum", "description": "the direct (FFT-based) bispectrum weighted by frequency atoms (Hagihira et al. 2001; Sigl and Chamoun 1994): phase-amplitude coupling (Zandvoort and Nolte 2021) and harmonics (Bartz et al. 2019) (nxr-neuro `sensor_bispectrum`)"},
+  {"name": "flow_across_frequencies", "description": "a flow's per-atom results compared across the atoms: cosines, direction consistency, the slope of apparent speed against frequency (nxr-neuro `sensor_flow_across_frequencies`)"}
  ]
 }

@@ -1,0 +1,49 @@
+# THE BISPECTRUM IN EIGENMODE COORDINATES (spec docs/specs/2026-11-24-bispectrum.md): the relations between frequencies that survive a sum over the run (triple products), read from the
+# SAME stored chunk spectra the sensor flow pipeline serves (never the recording again).
+#
+# THE GRAPH. before: the stored chunk spectra (signal.chunk_spectra: each chunk's spectrum in the sensor surface's field coordinates, half-chunk overlap, bins of [0, 60) Hz) + the
+# frequency atoms (the flow's, a kernel set) [+ the Hodge-Dirac package and the eigenvalue bands, on the surface] --[signal.bispectrum]--> per triple of atoms and per coordinate (or per
+# vertex, per band) B = the sum over the chunks and every pair of bins of g1 x(f1) g2 x(f2) conj(g3 x(f1 + f2)), and its normalisation's sums. Derived at read: the bicoherence, the
+# biphase, the peak-trough (real part) and rise-decay (imaginary part) asymmetry.
+# Readings (the method rule: each with its published reference as the default):
+#   phase_amplitude_coupling  (low atom, high atom, high atom) for every pair with the high centre above the low: bispectral phase-amplitude coupling (Zandvoort and Nolte 2021);
+#   harmonics                 (atom, atom, the atom at twice its frequency): the harmonics of non-sinusoidal waveforms and their shape from the biphase (Bartz et al. 2019).
+# Normalisation: threenorm (Shahbazi Avarvand et al. 2018, used by both references above) | kim_powers (Kim and Powers 1979; Hagihira et al. 2001) | none.
+# Every value below is a stated choice of this definition (the node defaults nothing). The atoms are the flow's (frequency_normalisation as sensor_flow's).
+#
+# What it cannot resolve: the field on the helmet only; a whole-run sum (coupling whose phase drifts cancels; single events are the burst pipelines'); phase-amplitude coupling only where
+# the high atom is wider than the low frequency (each triple's weight is stored); a harmonic whose centre lies above the span is not read (left out); bicoherence is biased upward by few chunks (compare with a null).
+#
+#   nxr-neuro run sensor_bispectrum --dataset D --subject S --spectra NAME_chunk_spectra --atoms ATOMS [--space surface --package hodgeDirac__SURFACE [--banded true --bands BANDS]]
+pipeline: sensor_bispectrum
+version: 1
+description: the bispectrum of the stored chunk spectra in eigenmode coordinates, weighted by the flow's frequency atoms - phase-amplitude coupling and harmonics, with the bicoherence's sums
+scope: subject
+
+inputs:
+  spectra: {statistic: any, where: {name: $spectra}, hint: "the chunk spectra the sensor flow pipeline stored (`nxr-neuro run sensor_flow` first: <name>_chunk_spectra)"}
+  atoms:   {selection: any, where: {name: $atoms}, hint: "the frequency atoms, a kernel set on the spectra's frequency line (the flow's: `nxr-neuro run select_kernels --profile gaussian`)"}
+  package: {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, when: {space: surface}, hint: "the sensor surface's Hodge-Dirac solve the coordinates are on"}
+  bands:   {selection: any, where: {name: $bands}, when: {banded: true}, hint: "the eigenvalue bands, a kernel set on the eigenvalue line (`nxr-neuro run select_kernels --profile cos2_partition`)"}
+
+parameters:
+  spectra: {default: null, meaning: "the stored chunk spectra's name", unit: "-"}
+  atoms: {default: null, meaning: "the frequency atoms' kernel set by name", unit: "-"}
+  package: {default: null, meaning: "the Hodge-Dirac solve's stem (space surface)", unit: "-"}
+  bands: {default: null, meaning: "the eigenvalue bands' kernel set by name (banded true)", unit: "-"}
+  readings: {default: [phase_amplitude_coupling, harmonics], meaning: "the triples read: phase_amplitude_coupling (low, high, high; Zandvoort and Nolte 2021) and harmonics (atom, atom, atom at twice its frequency; Bartz et al. 2019)", unit: "-"}
+  normalisation: {default: threenorm, meaning: "the sums kept for the bicoherence: threenorm (Shahbazi Avarvand et al. 2018) | kim_powers (Kim and Powers 1979; Hagihira et al. 2001) | none", unit: "-", choices: [threenorm, kim_powers, none]}
+  space: {default: coordinates, meaning: "coordinates (each field coordinate with itself) | surface (each vertex of the sensor surface; per band with banded true)", unit: "-", choices: [coordinates, surface]}
+  banded: {default: false, meaning: "space surface: the field of each eigenvalue band read on its own (the synthesis composed with the band's gains first)", unit: "-"}
+  frequency_normalisation: {default: sum_of_squared_gains, meaning: "the atoms as the flow weights them: sum_of_squared_gains | none", unit: "-", choices: [sum_of_squared_gains, none]}
+  support_floor: {default: 0.001, meaning: "with sum_of_squared_gains: a bin whose atoms' squared gains sum to less than this fraction of their largest sum lies outside the atoms", unit: "-"}
+  name: {default: "{spectra}_bispectrum", meaning: "the stored statistic's name", unit: "-"}
+
+steps:
+  before:
+    - {node: signal.bispectrum, in: {spectra: spectra, frequency: atoms}, with: {readings: $readings, normalisation: $normalisation, space: coordinates, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: bispectrum, when: {space: coordinates}}
+    - {node: signal.bispectrum, in: {spectra: spectra, frequency: atoms, package: package}, with: {readings: $readings, normalisation: $normalisation, space: surface, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: bispectrum, when: {space: surface, banded: false}}
+    - {node: signal.bispectrum, in: {spectra: spectra, frequency: atoms, package: package, scale: bands}, with: {readings: $readings, normalisation: $normalisation, space: surface, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: bispectrum, when: {space: surface, banded: true}}
+
+outputs:
+  bispectrum: {kind: statistic, name: $name, of: spectra}

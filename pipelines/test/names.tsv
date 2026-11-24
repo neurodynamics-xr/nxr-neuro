@@ -89,6 +89,8 @@ node	signal.atom_time_cells	-	composite
 node	stats.sign_flip_consistency	-	composite
 node	signal.sensor_power	-	composite
 node	stats.aperiodic_fit	-	composite
+node	signal.bispectrum	-	composite
+node	signal.flow_across_frequencies	-	composite
 node	select.kernels	-	composite
 node	signal.flow_max_amplitude	-	composite
 node	signal.flow_series	-	composite
