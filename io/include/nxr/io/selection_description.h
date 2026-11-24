@@ -85,7 +85,7 @@ struct Grid {
 };
 
 // A KERNEL member's profile (the selection system: a kernel = an anchor + a profile + a chart): io stores what it is given (as type `kernel`, the anchor as its own type stores it);
-// compute resolves it onto a line (nxr::selection::resolve_weights). The same fields as compute's Profile, kept here because io never depends on compute.
+// compute evaluates it on a line (nxr::signal::kernelGains). The same fields as compute's Profile, kept here because io never depends on compute.
 struct Profile {
   std::string family;                          // `box` | `gaussian` | ...
   std::map<std::string, double> params;        // the family's parameters (gaussian: fwhm, in the chart's units); the centre is the member's anchor

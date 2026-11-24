@@ -861,7 +861,7 @@ ng::NodeSpec select_kernels() {
                   {"voices", Json(), "a grid's members per octave (the grid resolution)", "-", {}, true},
                   {"names", Json(), "one name a member (none: the quantity as written)", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "a selection made from parameters: no data flows");
-  n.matches = "the selection system's kernel members (anchor + profile + chart; compute nxr::selection::resolve_weights); nxr's frequency and spatial filter banks (Gaussian on log2)";
+  n.matches = "the selection system's kernel members (anchor + profile + chart; compute nxr::signal::kernelGains); nxr's frequency and spatial filter banks (Gaussian on log2)";
   n.description = "a kernel set on a line (a frequency line, a mode axis): one selection whose members are kernels, every centre a quantity, every profile parameter the caller's";
   n.plan = [](const ng::Types&, const Json& p) {
     const KernelsPrepared k = kernels_of(p);

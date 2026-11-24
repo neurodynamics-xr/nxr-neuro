@@ -51,20 +51,6 @@ Eigen::MatrixXcd overlappedSpectrum(const Eigen::MatrixXd& servingOperator, cons
   return out;
 }
 
-Eigen::MatrixXd gaussianAtomGains(const Eigen::VectorXd& frequencies, const std::vector<double>& centres, const std::vector<double>& standardDeviations, double gain) {
-  if (centres.size() != standardDeviations.size()) bad("gaussianAtomGains: " + std::to_string(centres.size()) + " centres, " + std::to_string(standardDeviations.size()) + " standard deviations");
-  Eigen::MatrixXd g = Eigen::MatrixXd::Zero(static_cast<Eigen::Index>(centres.size()), frequencies.size());
-  for (std::size_t a = 0; a < centres.size(); ++a) {
-    const double sd = standardDeviations[a];
-    if (!(sd > 0)) bad("gaussianAtomGains: a standard deviation is not positive");
-    for (Eigen::Index k = 0; k < frequencies.size(); ++k) {
-      const double f = frequencies(k);
-      if (f > 0) g(static_cast<Eigen::Index>(a), k) = gain * std::exp(-(f - centres[a]) * (f - centres[a]) / (2.0 * sd * sd));
-    }
-  }
-  return g;
-}
-
 Eigen::MatrixXd normaliseBySumOfSquaredGains(const Eigen::MatrixXd& gains, double floor) {
   const Eigen::RowVectorXd sum = gains.cwiseAbs2().colwise().sum();
   const double top = sum.size() ? sum.maxCoeff() : 0.0;

@@ -18,6 +18,17 @@
 #include "nxr/signal/fourier.h"
 #include "nxr/signal/spectral_flow.h"
 
+// Gaussian gains on a frequency line, standard deviations in Hz, 0 at f <= 0: the test's own synthetic atoms (a kernel set's gains are nxr::signal::kernelGains)
+static Eigen::MatrixXd gaussianGains(const Eigen::VectorXd& frequencies, const std::vector<double>& centres, const std::vector<double>& standardDeviations, double gain) {
+  Eigen::MatrixXd g = Eigen::MatrixXd::Zero(static_cast<Eigen::Index>(centres.size()), frequencies.size());
+  for (std::size_t a = 0; a < centres.size(); ++a)
+    for (Eigen::Index k = 0; k < frequencies.size(); ++k) {
+      const double f = frequencies(k), sd = standardDeviations[a];
+      if (f > 0) g(static_cast<Eigen::Index>(a), k) = gain * std::exp(-(f - centres[a]) * (f - centres[a]) / (2.0 * sd * sd));
+    }
+  return g;
+}
+
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
 
@@ -155,8 +166,8 @@ int main() {
   {
     // phase-amplitude coupling: the atoms (6 Hz, sd 0.6) and (40 Hz, sd 5): the high atom is wide enough to hold 40 +- 6 Hz (Zandvoort and Nolte 2021)
     Eigen::MatrixXd g(2, bins);
-    g.row(0) = ns::gaussianAtomGains(frequency, {6.0}, {0.6}, 1.0);
-    g.row(1) = ns::gaussianAtomGains(frequency, {40.0}, {5.0}, 1.0);
+    g.row(0) = gaussianGains(frequency, {6.0}, {0.6}, 1.0);
+    g.row(1) = gaussianGains(frequency, {40.0}, {5.0}, 1.0);
     const ns::AtomTriples at = ns::atomTriples(g, 0, {{0, 1, 1}});
     const double wl = 2 * M_PI * 6, wh = 2 * M_PI * 40;
     const auto coupled = [&](double t, int s) { return std::cos(wl * t + phase[s]) + (1 + 0.8 * std::cos(wl * t + phase[s])) * std::cos(wh * t + carrier[s]) + 0.3 * noise[s][static_cast<std::size_t>(std::lround(t * fs))]; };
@@ -171,8 +182,8 @@ int main() {
   {
     // harmonics and waveform shape: the atom (8 Hz, sd 1) on the first two axes and the same atom at f / 2 on the sum (its centre 16 Hz)
     Eigen::MatrixXd g(2, bins);
-    g.row(0) = ns::gaussianAtomGains(frequency, {8.0}, {1.0}, 1.0);
-    g.row(1) = ns::gaussianAtomGains(frequency / 2.0, {8.0}, {1.0}, 1.0);
+    g.row(0) = gaussianGains(frequency, {8.0}, {1.0}, 1.0);
+    g.row(1) = gaussianGains(frequency / 2.0, {8.0}, {1.0}, 1.0);
     const ns::AtomTriples at = ns::atomTriples(g, 0, {{0, 0, 1}});
     const double w = 2 * M_PI * 8;
     auto frac = [](double v) { return v - std::floor(v); };
