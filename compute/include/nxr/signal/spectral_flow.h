@@ -11,6 +11,7 @@
 //   cosineSquaredPartition  an AMPLITUDE partition on a line given in a log2 chart: member b rises as sin² from centre b−1 to centre b and falls as cos² from centre b to b+1;
 //                           the first member is 1 below its centre, the last 1 above its centre (the complement), so the gains sum to one at every point. A point at
 //                           −infinity (a constant, mu 0) belongs to the first member
+//   mexicanHatPartition     an AMPLITUDE partition on an eigenvalue line from the graph bank's Mexican hats in lambda = mu², each divided by the members' sum at the point
 //   bandPairFlow            per pair (p, q) of eigenvalue bands (gains h [bands x K]) the second-order readings of a cross-spectrum C [K x K] in field coordinates:
 //                           power per vertex Re(Psi_v h_p conj(C) h_q Psi_vᵀ), phase current per edge Im(Psi_tail h_p conj(C) h_q Psi_tipᵀ) (= Σ Im(conj(z_p,tail) z_q,tip)
 //                           over the draws of C, `phaseCurrent`'s definition) and phase current per vertex Im(Psi_v h_p conj(C) h_q G_vᵀ) (3 components: the
@@ -35,6 +36,11 @@ Eigen::MatrixXd gaussianAtomGains(const Eigen::VectorXd& frequencies, const std:
 Eigen::MatrixXd normaliseBySumOfSquaredGains(const Eigen::MatrixXd& gains, double floor);
 /** `log2Coordinate` [points] (−infinity allowed), `log2Centres` ascending [members] (at least 2). [members x points] */
 Eigen::MatrixXd cosineSquaredPartition(const Eigen::VectorXd& log2Coordinate, const std::vector<double>& log2Centres);
+/** The MEXICAN HAT amplitude partition on an eigenvalue line: member b's hat in the eigenvalue lambda = mu², g_b = (lambda / c_b) e^(1 − lambda / c_b) with c_b = (its centre
+ *  wavenumber)² (the graph bank's Mexican hat t lambda e^(−t lambda), t = 1 / c_b, at unit peak: graphfilterbank::mexicanHat), DIVIDED at each point by the members' sum, so the
+ *  gains sum to one at every mu > 0. Computed in the log domain (no underflow far above the last centre: there the last member tends to one). A point at mu = 0 (the constant,
+ *  where every hat is 0) belongs to the first member. `wavenumbers` mu [points] (>= 0), `centreWavenumbers` ascending [members] (at least 2). [members x points] */
+Eigen::MatrixXd mexicanHatPartition(const Eigen::VectorXd& wavenumbers, const std::vector<double>& centreWavenumbers);
 
 struct BandPairFlow {
   Eigen::MatrixXd power;          // [S x pairs] pair p * bands + q

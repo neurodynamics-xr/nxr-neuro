@@ -17,7 +17,7 @@ inputs:
 parameters:
   line: {default: null, meaning: "the line's name", unit: "-"}
   quantity: {default: null, meaning: "frequency (Hz) | wavelength (2 pi / mu) | wavenumber (mu)", unit: "-", choices: [frequency, wavelength, wavenumber]}
-  profile: {default: null, meaning: "gaussian | box | cos2_partition (an amplitude partition in log2 whose gains sum to one; no width)", unit: "-", choices: [gaussian, box, cos2_partition]}
+  profile: {default: null, meaning: "gaussian | box | cos2_partition (an amplitude partition in log2 whose gains sum to one; no width) | mexican_hat_partition (on a mode axis: the graph bank's Mexican hat in lambda = mu² at each centre divided by the members' sum; no width)", unit: "-", choices: [gaussian, box, cos2_partition, mexican_hat_partition]}
   chart: {default: null, meaning: "the chart the width is in: log2 (octaves) | linear", unit: "-", choices: [log2, linear]}
   width: {default: null, meaning: "each member's FWHM (gaussian) or full width (box), in the chart", unit: "-"}
   width_rule: {default: null, meaning: "absolute (the width as given; null means this) | proportional (the width times the member's centre: constant Q)", unit: "-"}

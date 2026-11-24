@@ -94,6 +94,28 @@ Eigen::MatrixXd cosineSquaredPartition(const Eigen::VectorXd& x, const std::vect
   return g;
 }
 
+Eigen::MatrixXd mexicanHatPartition(const Eigen::VectorXd& mu, const std::vector<double>& centres) {
+  const std::size_t n = centres.size();
+  if (n < 2) bad("mexicanHatPartition: at least two centres");
+  for (std::size_t b = 0; b < n; ++b) if (!(centres[b] > 0) || (b > 0 && !(centres[b] > centres[b - 1]))) bad("mexicanHatPartition: the centres are positive and ascending");
+  Eigen::MatrixXd g = Eigen::MatrixXd::Zero(static_cast<Eigen::Index>(n), mu.size());
+  std::vector<double> logGain(n);
+  for (Eigen::Index i = 0; i < mu.size(); ++i) {
+    if (mu(i) < 0) bad("mexicanHatPartition: a wavenumber is below 0");
+    if (!(mu(i) > 0)) { g(0, i) = 1.0; continue; }                                         // the constant: every hat is 0 there; it belongs to the first member
+    double top = -std::numeric_limits<double>::infinity();
+    for (std::size_t b = 0; b < n; ++b) {                                                   // log of (lambda / c) e^(1 - lambda / c), lambda = mu², c = centre²
+      const double x = (mu(i) * mu(i)) / (centres[b] * centres[b]);
+      logGain[b] = std::log(x) + 1.0 - x;
+      top = std::max(top, logGain[b]);
+    }
+    double sum = 0;
+    for (std::size_t b = 0; b < n; ++b) sum += std::exp(logGain[b] - top);
+    for (std::size_t b = 0; b < n; ++b) g(static_cast<Eigen::Index>(b), i) = std::exp(logGain[b] - top) / sum;
+  }
+  return g;
+}
+
 BandPairFlow bandPairFlow(const Eigen::MatrixXcd& C, const Eigen::MatrixXd& Psi, const Eigen::MatrixXd& G, const std::vector<std::int32_t>& edges, const Eigen::MatrixXd& H) {
   const Eigen::Index K = C.rows(), S = Psi.rows(), Q = H.rows();
   const Eigen::Index E = static_cast<Eigen::Index>(edges.size() / 2);

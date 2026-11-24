@@ -1,7 +1,7 @@
 // nxr::signal spectral_flow on synthetic data (generated signals, random coordinates, an icosphere's edges):
 //   overlappedSpectrum: the operator applied before the transform equals after it; the left side reflected at a recording's start equals the transform of the
 //     explicitly reflected samples (numpy `reflect`); a chunk with its whole overlap present is the plain transform of those samples;
-//   gaussianAtomGains, normaliseBySumOfSquaredGains: the squared gains sum to one on the support; cosineSquaredPartition: the gains sum to one at every point;
+//   gaussianAtomGains, normaliseBySumOfSquaredGains: the squared gains sum to one on the support; cosineSquaredPartition and mexicanHatPartition: the gains sum to one at every point;
 //   bandPairFlow: the pairs of an amplitude partition sum to the whole field's values; the whole field's values equal the direct sums over the draws of the
 //     cross-spectrum (power |z|², phaseCurrent(z), Im(conj(z) G y));
 //   timeCellFlow: the cells' sums equal the direct sums of the inverse transform's samples.
@@ -14,6 +14,7 @@
 #include "nxr/geometry/surface_arrays.h"
 #include "nxr/signal/fourier.h"
 #include "nxr/signal/intrinsic_forms.h"
+#include "nxr/signal/graphfilterbank.h"
 #include "nxr/signal/spectral_flow.h"
 
 static int failures = 0;
@@ -73,6 +74,16 @@ int main() {
     x << -std::numeric_limits<double>::infinity(), 0.0, 1.3, 2.0, 2.7, 9.0;
     const Eigen::MatrixXd p = ns::cosineSquaredPartition(x, {1.0, 2.0, 3.0});
     EXPECT((p.colwise().sum().array() - 1.0).abs().maxCoeff() < 1e-12 && p(0, 0) == 1.0 && p(2, 5) == 1.0 && p(1, 3) == 1.0, "cos² partition: the gains sum to one; the constant in the first band; the last the complement");
+    Eigen::VectorXd mu(6);
+    mu << 0.0, 0.5, 2.0, 4.0, 8.0, 400.0;
+    const Eigen::MatrixXd hat = ns::mexicanHatPartition(mu, {1.0, 2.0, 4.0});
+    double peakShare = hat(1, 2);
+    EXPECT((hat.colwise().sum().array() - 1.0).abs().maxCoeff() < 1e-12 && hat(0, 0) == 1.0 && hat(2, 5) > 0.999 && (hat.array() >= 0).all(),
+           "Mexican hat partition: the gains sum to one; the constant in the first band; far above the last centre, the last member");
+    EXPECT(peakShare > hat(0, 2) && peakShare > hat(2, 2), "Mexican hat partition: a member holds most at its own centre");
+    // its member is the graph bank's hat in lambda = mu², up to the division by the sum
+    const double raw1 = ns::graphfilterbank::mexicanHat(4.0, 4.0), raw0 = ns::graphfilterbank::mexicanHat(4.0, 1.0), raw2 = ns::graphfilterbank::mexicanHat(4.0, 16.0);
+    EXPECT(std::abs(peakShare - raw1 / (raw0 + raw1 + raw2)) < 1e-12, "Mexican hat partition: the graph bank's hat divided by the sum of the hats");
   }
 
   // ── bandPairFlow ──

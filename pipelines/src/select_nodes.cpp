@@ -806,10 +806,14 @@ KernelsPrepared kernels_of(const Json& p) {
   const char* who = "select.kernels";
   for (const char* k : {"profile", "chart", "quantity"}) need(p.contains(k) && p[k].is_string(), std::string(who) + ": " + k + " has no default: name it");
   const std::string profile = p["profile"], chart = p["chart"], quantity = p["quantity"];
-  need(profile == "gaussian" || profile == "box" || profile == "cos2_partition", std::string(who) + ": profile is gaussian, box or cos2_partition");
+  need(profile == "gaussian" || profile == "box" || profile == "cos2_partition" || profile == "mexican_hat_partition", std::string(who) + ": profile is gaussian, box, cos2_partition or mexican_hat_partition");
   // cos2_partition: an amplitude partition in the log2 chart whose members' edges are their neighbours' centres (no width; gain 1: the gains sum to one at every point)
-  if (profile != "cos2_partition") for (const char* k : {"width", "gain"}) need(p.contains(k) && p[k].is_number(), std::string(who) + ": " + k + " has no default: name it");
-  else need(chart == "log2", std::string(who) + ": a cos2_partition lies in the log2 chart");
+  // mexican_hat_partition: the graph bank's Mexican hats in the eigenvalue lambda = mu², one at each centre, divided by their sum (an amplitude partition; no width, gain 1;
+  // on a mode axis only; the chart is not read: the hat is a function of lambda)
+  const bool partition = profile == "cos2_partition" || profile == "mexican_hat_partition";
+  if (!partition) for (const char* k : {"width", "gain"}) need(p.contains(k) && p[k].is_number(), std::string(who) + ": " + k + " has no default: name it");
+  else if (profile == "cos2_partition") need(chart == "log2", std::string(who) + ": a cos2_partition lies in the log2 chart");
+  else need(quantity != "frequency", std::string(who) + ": a mexican_hat_partition lies on a mode axis (quantity wavelength or wavenumber)");
   const std::string width_rule = p.contains("width_rule") && p["width_rule"].is_string() ? p["width_rule"].get<std::string>() : "absolute";
   need(width_rule == "absolute" || width_rule == "proportional", std::string(who) + ": width_rule is absolute (the width as given) or proportional (the width times the member's centre)");
   need(chart == "log2" || chart == "linear", std::string(who) + ": chart is log2 (octaves) or linear");
@@ -833,9 +837,11 @@ KernelsPrepared kernels_of(const Json& p) {
   for (std::size_t i = 0; i < centres.size(); ++i) {
     const double at = quantity == "wavelength" ? 2.0 * M_PI / centres[i] : centres[i];          // the anchor on the line's own coordinate (a mode axis's: mu)
     char buf[64]; std::snprintf(buf, sizeof buf, "%.4g %s", centres[i], quantity == "frequency" ? "Hz" : quantity == "wavelength" ? "wavelength" : "mu");
-    Json params = profile == "cos2_partition" ? Json{{"partition", "amplitude, edges at the neighbouring centres"}} : Json{{"fwhm", p["width"]}};
+    Json params = profile == "cos2_partition" ? Json{{"partition", "amplitude, edges at the neighbouring centres"}}
+                  : profile == "mexican_hat_partition" ? Json{{"partition", "amplitude: the Mexican hat (lambda / c) e^(1 - lambda / c) in lambda = mu², c = the centre's mu², divided by the members' sum"}}
+                                                        : Json{{"fwhm", p["width"]}};
     if (width_rule == "proportional") params["width_rule"] = "proportional";
-    k.members.push_back(Json{{"start", at}, {"stop", at}, {"code", static_cast<std::int64_t>(i)}, {"family", profile}, {"chart", chart}, {"gain", profile == "cos2_partition" ? Json(1.0) : p["gain"]},
+    k.members.push_back(Json{{"start", at}, {"stop", at}, {"code", static_cast<std::int64_t>(i)}, {"family", profile}, {"chart", chart}, {"gain", partition ? Json(1.0) : p["gain"]},
                              {"params", params}, {"name", names.empty() ? std::string(buf) : names[i]}, {"centre", centres[i]}, {"unit", unit}});
   }
   k.params = Json{{"kernels", Json{{"quantity", quantity}, {"unit", unit}, {"profile", profile}, {"chart", chart}, {"width", p.value("width", Json())}, {"width_rule", width_rule}, {"gain", p.value("gain", Json())}, {"members", k.members}}},
@@ -851,11 +857,11 @@ ng::NodeSpec select_kernels() {
   n.inputs = {{"line", "the line the kernels lie on (a stored frequency line, or a mode axis): its record", true}};
   n.outputs = {{"kernels", "the kernel set: one member a kernel (anchor on the line's coordinate, profile, chart, gain), named", false}};
   n.parameters = {{"quantity", Json(), "what the centres are: frequency (Hz) | wavelength (2 pi / mu, on a mode axis) | wavenumber (mu) (no default)", "-", {"frequency", "wavelength", "wavenumber"}, false},
-                  {"profile", Json(), "gaussian | box | cos2_partition (an amplitude partition in log2: sin² rising from the previous centre, cos² falling to the next, the first member flat below its centre, the last above: the gains sum to one) (no default)", "-", {"gaussian", "box", "cos2_partition"}, false},
+                  {"profile", Json(), "gaussian | box | cos2_partition (an amplitude partition in log2: sin² rising from the previous centre, cos² falling to the next, the first member flat below its centre, the last above: the gains sum to one) | mexican_hat_partition (on a mode axis: the graph bank's Mexican hat in lambda = mu² at each centre, divided by the members' sum: the gains sum to one) (no default)", "-", {"gaussian", "box", "cos2_partition", "mexican_hat_partition"}, false},
                   {"chart", Json(), "the chart the width is in: log2 (octaves) | linear (the quantity's unit) (no default)", "-", {"log2", "linear"}, false},
-                  {"width", Json(), "each member's FWHM (gaussian) or full width (box), in the chart (no default; not read by cos2_partition)", "-", {}, true},
+                  {"width", Json(), "each member's FWHM (gaussian) or full width (box), in the chart (no default; not read by the partitions)", "-", {}, true},
                   {"width_rule", Json(), "absolute (the width as given; null means this) | proportional (the width times the member's centre: constant Q on a linear chart)", "-", {"absolute", "proportional"}, true},
-                  {"gain", Json(), "each member's peak amplitude g (no default; cos2_partition: 1)", "-", {}, true},
+                  {"gain", Json(), "each member's peak amplitude g (no default; the partitions: 1)", "-", {}, true},
                   {"centres", Json(), "the members' centres, in the quantity's unit; or a grid (grid_from, grid_to, voices)", "-", {}, true},
                   {"grid_from", Json(), "a grid's first centre", "-", {}, true}, {"grid_to", Json(), "a grid's last centre (at most)", "-", {}, true},
                   {"voices", Json(), "a grid's members per octave (the grid resolution)", "-", {}, true},
