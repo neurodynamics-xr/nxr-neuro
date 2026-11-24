@@ -536,7 +536,7 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --licence@create registration	TEXT	The licence recorded in the origin of every item.	derived from the two spheres' origin records	-
 --attribution@create registration	TEXT	The attribution recorded in the origin of every item.	derived from the two spheres' origin records	-
 --redistributable@create registration	yes|no	Whether the registration may be redistributed (decides what the redistributable edition keeps).	yes only when both spheres' origin records say so	-
---recipe	fsaverage|icbm152|icbm152_2023b	Which template to build from its source files.	none (required)	-
+--recipe	fsaverage|fsaverage5|icbm152|icbm152_2023b	Which template to build from its source files.	none (required)	-
 --sources	DIR	The folder of the downloaded source files the recipe reads.	none (required)	-
 --parcellation	NAME	A parcellation to write, named explicitly (repeatable); none is written unless named.	none (no parcellation)	-
 --cortex-mask		Also write the cortex mask (the vertices that are not the medial wall).	off	-
@@ -547,7 +547,7 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --max-end-distance	MM	An end farther than this from the end surface is left out of the ends operator; every end's distance is stored.	5	mm
 --hcp-points	N	Points per streamline after resampling at equal arc length.	64	points
 --accept-unlisted-sources		Read a source file the manifest does not list or whose checksum differs; the checksum read is recorded in the origin.	off (refused)	-
---recipe@create template	fsaverage|icbm152|icbm152_2023b	fsaverage: FreeSurfer's fsaverage; icbm152_2023b: Brainstorm's default anatomy ICBM152_2023b; icbm152: its current default (ICBM152 2026). With --hcp-trk, also HCP-1065 streamlines.	required	-
+--recipe@create template	fsaverage|fsaverage5|icbm152|icbm152_2023b	fsaverage: FreeSurfer's fsaverage; fsaverage5: its ico5 version (10242 vertices a hemisphere); icbm152_2023b: Brainstorm's default anatomy ICBM152_2023b; icbm152: its current default (ICBM152 2026). With --hcp-trk, also HCP-1065 streamlines.	required	-
 --sources@create template	DIR	The folder of the downloaded source files (for fsaverage a FreeSurfer subject folder holding surf/ and label/; for icbm152 Brainstorm's default-anatomy folder). Each file is checked against the manifest.	required	-
 --package@create template	PATH	The folder of the template package to make (a working copy; `release template` freezes it); it must not exist yet.	required	-
 --name@create template	NAME	Name of the template, the subject the package holds.	the recipe's template name	-
