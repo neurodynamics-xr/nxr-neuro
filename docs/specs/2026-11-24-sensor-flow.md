@@ -51,7 +51,8 @@ A = the frequency atoms, Q = the eigenvalue bands.
 | chunks | `signal.chunk_spectra` | accumulate | the per-block spectra → `chunk_spectra` [T x B x K] complex: one value per member of the chunk grid (a measurement over the chunk partition; nothing summed) | NEW |
 | after | `signal.spectral_flow` | array (statistic) | chunk spectra, eigenvectors (+ forms), a frequency weighting (the atoms: a kernel set; or sharp sets of bins; or every bin), eigenvalue bands (optional) → per frequency member: whole field and per band pair (power, edge phase current, flow coefficients on the M modes, potential, stream, vertex phase current) | NEW, shared unchanged by the whole-recording pipeline below; reuses `modeCrossSpectrum`, `projectOneForm`, `exactPotential`, `coexactStream`, `sharp` |
 | after | `signal.atom_time_cells` | array (measurement over time cells) | chunk spectra, eigenvectors, atoms, bands → per atom x band, per time cell of the atom's own width: edge phase current, vertex phase current (3 components), power | NEW |
-| after | `stats.sign_flip_consistency` | array (statistic) | the per-cell fields of one atom x band → R1 per element, p, family-wise p, threshold, median and its null | NEW (with `nxr::stats::NumpyGenerator`, a port of numpy's `default_rng`) |
+| after | `stats.sign_flip_consistency` | array (statistic) | the per-cell fields of one atom x band → R1 per element, p, family-wise p, threshold, median and its null; the grouping (decision 2) | NEW (with `nxr::stats::NumpyGenerator`, a port of numpy's `default_rng`; `fewestDecorrelatedCells`) |
+| control | `stats.control_comparison` | array (statistic) | the control's sign flip and the run's (stored) → per atom x band, both summaries side by side, length-matched | NEW (`sensor_flow_empty_room`) |
 | after (option) | `signal.sensor_power` + `stats.aperiodic_fit` | array (statistic) | chunk spectra, serving operator's synthesis → each sensor's power per bin (mean over chunks) → offset, exponent, knee, r2 per sensor, fixed and knee models | NEW (port of nxr `nxr.spectral.aperiodic`) |
 
 The kernel sets are made by their own runs of the REUSED `select_kernels`, which gains two profiles: `gaussian` with `width_rule: proportional` (nxr's flow analysis':
@@ -111,7 +112,7 @@ x_se. U_se = x_se / |x_se| (0 where |x_se| = 0); R1_e = |Σ_s U_se| / S. Null: `
 p_e = (#(null R1_e >= R1_e) + 1) / (patterns + 1), the family-wise p_e = (#(null max over elements >= R1_e) + 1) / (patterns + 1), the threshold (the null
 maximum's 95th percentile), the median R1 over elements, its null's 95th percentile and its p. Also stated: the measured correlation of neighbouring cells'
 unit fields (Σ_e U_se · U_(s+1)e / elements, mean over s), the check on the exchangeability of single cells. The exchangeable unit is a group of
-`cells_per_flip` consecutive cells (the definition states it).
+`cells_per_flip` consecutive cells, set by the grouping rule (decision 2) or fixed by the caller.
 
 **The aperiodic fit** (option). Each sensor's power per bin from the same chunk spectra: diag(Psi C_bin Psiᵀ) / T, the mean over the chunk partition. Fit
 of log10 power against log10 frequency in the caller's range: offset - exponent log10 f, or offset - log10(knee + f^exponent) with a knee (grid search, as
@@ -229,13 +230,32 @@ with no file, chunk loop or subject inside.
 - The sensor surface's spacing is its resolution: patterns shorter than about two sensor spacings are not resolved.
 - A whole-run cross-spectrum keeps only the net quadrature: motion that cancels over the run appears as standing (the time cells test it).
 - The apparent speed is an upper bound.
-- An incomplete Hodge-Dirac solve leaves coordinates and flow modes out: the field's energy outside the coordinates and the flow's energy outside the
-  modes are stated with every result (issue filed).
+- An incomplete Hodge-Dirac solve leaves coordinates and flow modes out: on a small surface the complete solve (decision 6 below) avoids it; otherwise the field's
+  energy outside the coordinates and the flow's energy outside the modes are stated with every result.
 - The phase current depends on the eigenvalue band (the band pairs show how much flow lies between bands): the bands are always stated with a result.
 
-## Open questions (for the maintainers)
+## Decided by the maintainers (2026-11-24), and what was built
 
-1. The 1-form the split reads by default: the edge phase current or the vertex phase gradient. Both are computed until it is decided.
-2. How many consecutive time cells one sign flip groups, from the measured correlation of neighbouring cells.
-3. Which eigenvalue weighting the time-cell test uses: each band alone (nxr's flow analysis's cells), the whole field, or both.
-4. The empty-room recording as a sensor-space control: the pipeline runs on any recording by name; no control step is wired.
+1. **The 1-form the split reads:** the EDGE phase current (what the Hodge-Dirac edge rows act on), the definition's `split_input: edge_phase_current`. The vertex phase
+   current (nxr's flow analysis's |w|² grad theta) is carried to the edges by `flat` and split too, stored beside it (`parity_flow_coefficient`, `parity_exact_potential`,
+   `parity_coexact_stream`) for parity with nxr's flow analysis; `split_input: vertex_phase_current` swaps the two. Both splits are in the provenance (`split_input`, `parity_input`).
+2. **How many consecutive time cells one sign flip groups:** THE GROUPING RULE. Per atom, on its whole-field cells, the fewest consecutive cells k = 1, 2, ... whose group sums
+   are practically uncorrelated: the neighbour correlation of the group sums (the unit fields summed over each whole group of k cells; the mean over neighbouring groups of
+   the cosine of their sums; for k = 1 the neighbouring cells' correlation) below `decorrelation_threshold` (0.1), searched while at least `minimum_groups` (10, so 2^10
+   sign patterns keep a family-wise p of 0.001 reachable) whole groups remain; not reached, the largest grouping tried is used and the row flagged. Every band of the atom
+   flips in groups of that many. `cells_per_flip: measured` in the definition; a whole number fixes it. Stored per row: k, the correlation on the atom's whole field and on
+   the row, whether reached, every k's correlation tried, k in seconds (compared with nxr's flow analysis's 2 s and 4 s segments for parity in the development notes).
+3. **Which field the time-cell test reads:** both. Each band alone (nxr's flow analysis's cells, for parity) and the whole field (every coordinate at gain one): the time
+   cells hold, per atom, the bands' groups then the whole field's (`field: whole`).
+4. **The empty room as the sensor-space control:** the companion definition `sensor_flow_empty_room`. It takes the empty-room recording by name (`empty_room`, required)
+   and the run it controls by its stored stem (`compared`, required), reads the empty room on the run's sensor surface (the surface's channel map is matched to the
+   empty room's channel set by name in the preparation, refused naming any missing channel), runs the same chain with the same parameters, and ends with
+   `stats.control_comparison`: per atom and band, the run's and the control's median R1, its p, the shares of edges with p (and family-wise p) below `significance`, and
+   the cells a flip. LENGTH-MATCHED, as nxr's flow analysis's rotation control: refused unless every row holds the same number of time cells in both (the run compared is
+   a `sensor_flow` run over a span of the control's duration).
+5. **The eigenvalue bands' profile:** the cos² amplitude partition stays the default; the Mexican hat partition is the named alternative (`select_kernels --profile
+   mexican_hat_partition`: the graph bank's hat (lambda / c) e^(1 - lambda / c) in lambda = mu² at each centre, divided by the members' sum, so the gains sum to one; the
+   constant in the first member). The bands always go with a result.
+6. **The complete Hodge-Dirac solve of a small mesh:** `run eigenmodes --dense-limit N` (the definition: 3000): a surface of at most N vertices and faces asked for every
+   mode is solved dense and whole (every exact and coexact mode, no cut), so the field coordinates are a change of basis and the flow modes complete. Above the limit, the
+   iterative solve.

@@ -1,0 +1,74 @@
+# THE EMPTY-ROOM CONTROL OF THE SENSOR-SPACE FLOW (spec docs/specs/2026-11-24-sensor-flow.md, "The control"): the same chain as `sensor_flow`, on an empty-room recording read on the
+# sensor surface of the run it controls (its channels matched to the surface's by name), then the control's sign-flip summary beside the run's, LENGTH-MATCHED: the same number of
+# time cells per atom and band (the same duration), as nxr's flow analysis's rotation control (the same test on the empty room for the same duration as the rest span compared).
+#
+# THE GRAPH. `sensor_flow`'s before, chunks and after steps on the empty-room recording (no aperiodic fit), then: the control's sign flip + the run's stored sign flip (by name)
+# --[stats.control_comparison]--> per atom x band, the run's and the control's median R1, its p and the shares of consistent edges; refused unless length-matched.
+# The empty-room recording and the run compared are named by the caller (never defaulted). The run compared is a `sensor_flow` run over a span of the control's duration
+# (e.g. --from 0 --to 120 for a 120 s empty room), with the same package, atoms, bands and test parameters.
+#
+# What it cannot resolve: the empty room holds the instrument's and the room's field with no head; a consistent direction there is the instrument's (or the environment's), and a
+# run's consistency is read against it. The sensor surface is the run's (its head-frame positions); the empty room's sensors are the same channels in the same helmet.
+#
+#   nxr-neuro run sensor_flow_empty_room --dataset D --subject S --empty-room EMPTY --all --compared "RUN_STEM" --package hodgeDirac__SURFACE --channel-map SURFACE_map --atoms "ATOMS" --bands "BANDS"
+pipeline: sensor_flow_empty_room
+version: 1
+description: the empty-room control of the sensor-space flow - the same chain on an empty-room recording read on a run's sensor surface, its sign-flip test beside the run's, length-matched
+scope: subject
+
+inputs:
+  recording:   {field: recording, each: true, where: {name: $empty_room}}
+  package:     {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, hint: "the sensor surface's Hodge-Dirac solve (`nxr-neuro run eigenmodes --surface SURFACE` first)"}
+  channel_map: {field: any, where: {name: $channel_map}, hint: "the run's sensor surface's vertex-to-channel map (`nxr-neuro run sensor_surface` first); matched to the empty room's channels by name"}
+  atoms:       {selection: any, where: {name: $atoms}, hint: "the frequency atoms, the same kernel set as the run compared"}
+  bands:       {selection: any, where: {name: $bands}, hint: "the eigenvalue bands, the same kernel set as the run compared"}
+  compared:    {statistic: any, where: {name: "${compared}_sign_flip"}, hint: "the run compared: a `sensor_flow` run over a span of the control's duration (its stem, --compared)"}
+
+parameters:
+  empty_room: {default: required, meaning: "the empty-room recording by name", unit: "-"}
+  compared: {default: required, meaning: "the stem of the stored names of the sensor_flow run compared (its sign flip is <compared>_sign_flip)", unit: "-"}
+  significance: {default: 0.05, meaning: "the p below which an edge counts as consistent in the comparison's shares", unit: "-"}
+  package: {default: null, meaning: "the Hodge-Dirac solve's stem (its eigenvectors are <package>_eigenvectors)", unit: "-"}
+  channel_map: {default: null, meaning: "the sensor surface's vertex-to-channel map's name", unit: "-"}
+  atoms: {default: null, meaning: "the frequency atoms' kernel set by name", unit: "-"}
+  bands: {default: null, meaning: "the eigenvalue bands' kernel set by name", unit: "-"}
+  overlap_samples: {default: 16384, meaning: "the overlap on each side of a chunk: half a chunk (the chunk 2^15 samples), so each transform is 2^16 samples of data and every sample is taken in twice", unit: samples}
+  transform_samples: {default: 65536, meaning: "each chunk's one transform: the chunk and its two overlaps (a part chunk at the recording's end reflected to the same length: one frequency line)", unit: samples}
+  frequency_span: {default: [0, 60], meaning: "[lo, hi) the bins kept of each chunk's transform (the physiological bands)", unit: Hz}
+  frequency_normalisation: {default: sum_of_squared_gains, meaning: "the atoms divided at each bin by the square root of their squared gains' sum (they add back to the whole span) | none (nxr's flow analysis's gains as they are)", unit: "-", choices: [sum_of_squared_gains, none]}
+  support_floor: {default: 0.001, meaning: "a bin whose atoms' squared gains sum to less than this fraction of their largest sum lies outside the atoms (gain 0)", unit: "-"}
+  cell_width: {default: 2.0, meaning: "a time cell's width in the atom's time standard deviations (1 / (2 pi sigma_f)), snapped to the nearest power of two of samples", unit: "-"}
+  flip_elements: {default: edges, meaning: "the sign-flip test's elements: edges (the edge phase current) | vertices (the vertex phase current, three components)", unit: "-", choices: [edges, vertices]}
+  patterns: {default: 2000, meaning: "the sign-flip test's random patterns (nxr's flow analysis's maps: 2000)", unit: "-"}
+  seed: {default: 0, meaning: "the seed of numpy's default_rng for the sign patterns (nxr's flow analysis: 0)", unit: "-"}
+  cells_per_flip: {default: measured, meaning: "consecutive time cells one sign flips together: measured (the grouping rule: per atom, the fewest consecutive cells whose group sums' neighbour correlation on the atom's whole field is below decorrelation_threshold) or a whole number the caller fixes", unit: cells}
+  decorrelation_threshold: {default: 0.1, meaning: "with cells_per_flip measured: group sums whose neighbour correlation is below this count as practically uncorrelated", unit: "-"}
+  minimum_groups: {default: 10, meaning: "with cells_per_flip measured: the search stops before fewer whole groups would remain (2^10 sign patterns: a family-wise p of 0.001 stays reachable); not reached, the largest grouping tried is used and flagged", unit: groups}
+  split_input: {default: edge_phase_current, meaning: "the 1-form the Hodge-Dirac split reads: edge_phase_current (the phase current on the intrinsic edges, what the modes' edge rows act on) | vertex_phase_current (the vertex phase current carried to the edges, nxr's flow analysis's); the other is split too and stored as the parity measures", unit: "-", choices: [edge_phase_current, vertex_phase_current]}
+  name: {default: "{empty_room}_{package}_control", meaning: "the stem of the stored names", unit: "-"}
+
+steps:
+  before:
+    - {node: signal.mode_analysis, in: {package: package, channel_map: channel_map}, with: {modes: exact_and_constant, normalisation: unit_mass}, out: operator}
+  chunks:
+    over: recording
+    do:
+      - {node: signal.overlapped_spectrum, in: {x: recording, operator: operator}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectrum}
+      - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: operator}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectra}
+  after:
+    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: atoms, scale: bands}, with: {frequency_weighting: kernels, split_input: $split_input, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes]}
+    - {node: signal.atom_time_cells, in: {spectra: spectra, package: package, frequency: atoms, scale: bands}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cell_width: $cell_width}, out: cells}
+    - {node: stats.sign_flip_consistency, in: {cells: cells}, with: {elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip, decorrelation_threshold: $decorrelation_threshold, minimum_groups: $minimum_groups}, out: consistency}
+    - {node: stats.control_comparison, in: {consistency: consistency, compared: compared}, with: {significance: $significance}, out: comparison}
+
+outputs:
+  spectra:        {kind: statistic, name: "{name}_chunk_spectra", of: recording, axes: [{name: chunk, on: recording.time}, {name: frequency, line: "{recording}_freq_overlapped", of_time: recording.time}, {name: coordinate, on: package.from}]}
+  whole_vertices: {kind: statistic, name: "{name}_flow_vertices", of: recording}
+  whole_edges:    {kind: statistic, name: "{name}_flow_edges", of: recording}
+  whole_modes:    {kind: statistic, name: "{name}_flow_modes", of: recording}
+  pair_vertices:  {kind: statistic, name: "{name}_band_pair_vertices", of: recording}
+  pair_edges:     {kind: statistic, name: "{name}_band_pair_edges", of: recording}
+  pair_modes:     {kind: statistic, name: "{name}_band_pair_modes", of: recording}
+  cells:          {kind: statistic, name: "{name}_time_cells", of: recording}
+  consistency:    {kind: statistic, name: "{name}_sign_flip", of: recording}
+  comparison:     {kind: statistic, name: "{name}_comparison", of: recording}

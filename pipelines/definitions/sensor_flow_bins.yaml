@@ -34,6 +34,7 @@ parameters:
   overlap_samples: {default: 16384, meaning: "the overlap on each side of a chunk: half a chunk", unit: samples}
   transform_samples: {default: 65536, meaning: "each chunk's one transform: the chunk and its two overlaps", unit: samples}
   frequency_span: {default: [0, 60], meaning: "[lo, hi) the bins kept", unit: Hz}
+  split_input: {default: edge_phase_current, meaning: "the 1-form the Hodge-Dirac split reads: edge_phase_current (the phase current on the intrinsic edges, what the modes' edge rows act on) | vertex_phase_current (the vertex phase current carried to the edges, nxr's flow analysis's); the other is split too and stored as the parity measures", unit: "-", choices: [edge_phase_current, vertex_phase_current]}
   name: {default: "{recording}_{package}_bins", meaning: "the stem of the stored names", unit: "-"}
 
 steps:
@@ -45,10 +46,10 @@ steps:
       - {node: signal.overlapped_spectrum, in: {x: recording, operator: operator}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectrum}
       - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: operator}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectra}
   after:
-    - {node: signal.spectral_flow, in: {spectra: spectra, package: package}, with: {frequency_weighting: every_bin}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: false, banded: false}}
-    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, scale: bands}, with: {frequency_weighting: every_bin}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: false, banded: true}}
-    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: groups}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: true, banded: false}}
-    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: groups, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: true, banded: true}}
+    - {node: signal.spectral_flow, in: {spectra: spectra, package: package}, with: {frequency_weighting: every_bin, split_input: $split_input}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: false, banded: false}}
+    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, scale: bands}, with: {frequency_weighting: every_bin, split_input: $split_input}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: false, banded: true}}
+    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: groups}, with: {frequency_weighting: kernels, split_input: $split_input, frequency_normalisation: none}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: true, banded: false}}
+    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: groups, scale: bands}, with: {frequency_weighting: kernels, split_input: $split_input, frequency_normalisation: none}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: true, banded: true}}
 
 outputs:
   spectra:        {kind: statistic, name: "{name}_chunk_spectra", of: recording, axes: [{name: chunk, on: recording.time}, {name: frequency, line: "{recording}_freq_overlapped", of_time: recording.time}, {name: coordinate, on: package.from}]}

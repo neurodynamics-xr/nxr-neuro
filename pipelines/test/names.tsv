@@ -87,6 +87,7 @@ node	signal.chunk_spectra	-	composite
 node	signal.spectral_flow	-	composite
 node	signal.atom_time_cells	-	composite
 node	stats.sign_flip_consistency	-	composite
+node	stats.control_comparison	-	composite
 node	signal.sensor_power	-	composite
 node	stats.aperiodic_fit	-	composite
 node	select.kernels	-	composite

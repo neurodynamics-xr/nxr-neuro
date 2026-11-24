@@ -5,6 +5,8 @@
 //   signal.spectral_flow: one Gaussian atom at the wave's frequency, two cos² bands: the whole field's flow is mostly exact (travel); the band pairs sum to the whole; the flow
 //     coefficients add back to the phase current; every_bin gives one member per bin and the members' power sums to the atoms' unnormalised power where the gain is 1;
 //   signal.atom_time_cells: the cells' edge phase currents keep the whole run's direction; stats.sign_flip_consistency: the travelling wave is consistent (small family-wise p);
+//   the split reads the edge phase current (the vertex phase current's split stored beside it for parity); the Mexican hat partition's band pairs sum to the whole field;
+//   the time cells of each band alone and of the whole field; the grouping rule (cells a flip measured per atom on its whole field); the control comparison, length-matched;
 //   signal.sensor_power and stats.aperiodic_fit run and give one fit per vertex; refusals with their reasons.
 #include <cmath>
 #include <complex>
@@ -150,15 +152,26 @@ int main() {
     atoms.push_back(Json{{"start", c}, {"stop", c}, {"family", "gaussian"}, {"chart", "linear"}, {"gain", 2.0}, {"params", Json{{"fwhm", 2.0 * std::sqrt(2.0 * std::log(2.0)) / 12.0 * 3.0}, {"width_rule", "proportional"}}}});
   Json bands = Json::array();
   for (const double c : {1.0, 4.0}) bands.push_back(Json{{"start", c}, {"stop", c}, {"family", "cos2_partition"}, {"chart", "log2"}, {"gain", 1.0}});
-  const Json fp = Json{{"frequency_weighting", "kernels"}, {"frequency_normalisation", "sum_of_squared_gains"}, {"support_floor", 1e-3}};
+  const Json fp = Json{{"frequency_weighting", "kernels"}, {"frequency_normalisation", "sum_of_squared_gains"}, {"support_floor", 1e-3}, {"split_input", "edge_phase_current"}};
   const ng::Arrays inputs{{"spectra", spectra}, {"package", H}, {"frequency", kernel_set(atoms)}, {"scale", kernel_set(bands)}};
   const ng::Arrays flow = run_array(ng::registry().at("signal.spectral_flow"), inputs, fp);
   const ng::Array& wm = flow.at("whole_modes"), &we = flow.at("whole_edges"), &pe = flow.at("pair_edges");
-  // the 10 Hz atom (member 1): its flow mostly exact
-  double exact = 0, all = 0;
-  for (int k = 0; k < K; ++k) { const double c2 = wm.data[static_cast<std::size_t>(k * 3 + 1)] * wm.data[static_cast<std::size_t>(k * 3 + 1)]; all += c2; if (md.kind[static_cast<std::size_t>(k)] == 0) exact += c2; }
-  std::printf("  travelling wave: exact share of the flow at 10 Hz %.3f\n", exact / all);
-  CHECK(exact / all > 0.9);
+  // the 10 Hz atom (member 1): its flow mostly exact, in the split of the edge phase current (the definition's choice) and in the parity split of the vertex phase current
+  for (int measure = 0; measure < 2; ++measure) {
+    double exact = 0, all = 0;
+    for (int k = 0; k < K; ++k) { const double c = wm.data[static_cast<std::size_t>((k * 3 + 1) * 2 + measure)]; all += c * c; if (md.kind[static_cast<std::size_t>(k)] == 0) exact += c * c; }
+    std::printf("  travelling wave: exact share of the flow at 10 Hz %.3f (%s)\n", exact / all, measure == 0 ? "split of the edge phase current" : "parity: split of the vertex phase current");
+    CHECK(exact / all > 0.9);
+  }
+  CHECK(wm.meta.at("describe").at("attributes").at("split_input") == "edge_phase_current");
+  // the vertex phase current as the split input: its coefficients are the edge run's parity coefficients
+  {
+    Json vp = fp; vp["split_input"] = "vertex_phase_current";
+    const ng::Arrays swapped = run_array(ng::registry().at("signal.spectral_flow"), inputs, vp);
+    double worst = 0;
+    for (int k = 0; k < K; ++k) worst = std::max(worst, std::abs(swapped.at("whole_modes").data[static_cast<std::size_t>((k * 3 + 1) * 2)] - wm.data[static_cast<std::size_t>((k * 3 + 1) * 2 + 1)]));
+    CHECK(worst == 0.0);
+  }
   // the band pairs sum to the whole (member 1)
   double pairError = 0, scale = 0;
   for (int e = 0; e < cx.nE; ++e) {
@@ -168,7 +181,20 @@ int main() {
   }
   CHECK(pairError < 1e-8 * scale);
   // every bin: one member per bin
-  const ng::Arrays bins = run_array(ng::registry().at("signal.spectral_flow"), ng::Arrays{{"spectra", spectra}, {"package", H}}, Json{{"frequency_weighting", "every_bin"}});
+  const ng::Arrays bins = run_array(ng::registry().at("signal.spectral_flow"), ng::Arrays{{"spectra", spectra}, {"package", H}}, Json{{"frequency_weighting", "every_bin"}, {"split_input", "edge_phase_current"}});
+  // the Mexican hat partition of the eigenvalue line (the named alternative to cos²): an amplitude partition, so its band pairs sum to the whole field too
+  {
+    Json hats = Json::array();
+    for (const double c : {1.0, 4.0}) hats.push_back(Json{{"start", c}, {"stop", c}, {"family", "mexican_hat_partition"}, {"chart", "log2"}, {"gain", 1.0}});
+    const ng::Arrays hatFlow = run_array(ng::registry().at("signal.spectral_flow"), ng::Arrays{{"spectra", spectra}, {"package", H}, {"frequency", kernel_set(atoms)}, {"scale", kernel_set(hats)}}, fp);
+    double hatError = 0;
+    for (int e = 0; e < cx.nE; ++e) {
+      double sum = 0;
+      for (int pq = 0; pq < 4; ++pq) sum += hatFlow.at("pair_edges").data[static_cast<std::size_t>(e * 12 + 1 + 3 * pq)];
+      hatError = std::max(hatError, std::abs(sum - hatFlow.at("whole_edges").data[static_cast<std::size_t>(e * 3 + 1)]));
+    }
+    CHECK(hatError < 1e-8 * scale);
+  }
   CHECK(bins.at("whole_edges").rows == cx.nE * spectra.meta.at("shape")[1].get<std::int64_t>());
 
   // ── time cells and the sign-flip statistic ──
@@ -176,7 +202,8 @@ int main() {
   const ng::Arrays cells = run_array(ng::registry().at("signal.atom_time_cells"), inputs, cp);
   const ng::Array& tc = cells.at("cells");
   const Json groups = tc.meta.at("describe").at("attributes").at("groups");
-  CHECK(groups.size() == 6 && tc.cols == cx.nE + 4 * nV);
+  CHECK(groups.size() == 9 && tc.cols == cx.nE + 4 * nV);                                   // 3 atoms x (2 bands alone + the whole field)
+  CHECK(groups[6].at("band") == "whole" && groups[6].at("field") == "whole" && groups[7].at("atom") == 1);
   const ng::Arrays flip = run_array(ng::registry().at("stats.sign_flip_consistency"), ng::Arrays{{"cells", tc}}, Json{{"elements", "edges"}, {"patterns", 200}, {"seed", 0}, {"cells_per_flip", 1}});
   const ng::Array& fc = flip.at("consistency");
   // group 1: the 10 Hz atom, band 0 (the coarse band holds the wave): its median R1 high and p small
@@ -184,6 +211,27 @@ int main() {
   const double median = fc.data[static_cast<std::size_t>(1 * fc.cols + 3 * E + 1)], medianP = fc.data[static_cast<std::size_t>(1 * fc.cols + 3 * E + 3)];
   std::printf("  10 Hz, coarse band: median R1 %.3f, its p %.4f, cells %g\n", median, medianP, fc.data[static_cast<std::size_t>(1 * fc.cols + 3 * E + 5)]);
   CHECK(median > 0.8 && medianP < 0.05);
+  CHECK(fc.rows == 9 && fc.cols == 3 * E + 11);
+  // the whole field of the 10 Hz atom (row 7): the same wave, consistent too
+  CHECK(fc.data[static_cast<std::size_t>(7 * fc.cols + 3 * E + 1)] > 0.8);
+  // THE GROUPING RULE: measured per atom on its whole-field cells; every band of the atom flips in groups of that many; the rule's numbers stored
+  const Json measuredFlip = Json{{"elements", "edges"}, {"patterns", 200}, {"seed", 0}, {"cells_per_flip", "measured"}, {"decorrelation_threshold", 0.1}, {"minimum_groups", 2}};
+  const ng::Array mf = run_array(ng::registry().at("stats.sign_flip_consistency"), ng::Arrays{{"cells", tc}}, measuredFlip).at("consistency");
+  for (int atom = 0; atom < 3; ++atom) {
+    const double perFlip = mf.data[static_cast<std::size_t>((6 + atom) * mf.cols + 3 * E + 7)];
+    CHECK(perFlip >= 1 && mf.data[static_cast<std::size_t>(atom * mf.cols + 3 * E + 7)] == perFlip && mf.data[static_cast<std::size_t>((3 + atom) * mf.cols + 3 * E + 7)] == perFlip);
+    const double reached = mf.data[static_cast<std::size_t>((6 + atom) * mf.cols + 3 * E + 10)], correlation = mf.data[static_cast<std::size_t>((6 + atom) * mf.cols + 3 * E + 8)];
+    CHECK(reached == 0.0 || correlation < 0.1);
+    std::printf("  grouping rule, atom %d: %g cells a flip (whole-field group correlation %.3f, reached %g)\n", atom, perFlip, correlation, reached);
+  }
+  CHECK(mf.meta.at("describe").at("options").contains("grouping_rule"));
+  CHECK(refused([&] { run_array(ng::registry().at("stats.sign_flip_consistency"), ng::Arrays{{"cells", tc}}, Json{{"elements", "edges"}, {"patterns", 200}, {"seed", 0}, {"cells_per_flip", "measured"}}); }));
+  // THE CONTROL beside the run: the same statistic twice gives the same numbers side by side; a control of another length is refused
+  const ng::Array cmp = run_array(ng::registry().at("stats.control_comparison"), ng::Arrays{{"consistency", fc}, {"compared", fc}}, Json{{"significance", 0.05}}).at("comparison");
+  CHECK(cmp.rows == 9 && cmp.cols == 11 && cmp.data[1 * 11 + 0] == cmp.data[1 * 11 + 5] && cmp.data[1 * 11 + 2] > 0.5);
+  ng::Array shorter = fc;
+  shorter.data[static_cast<std::size_t>(1 * shorter.cols + 3 * E + 5)] -= 1;
+  CHECK(refused([&] { run_array(ng::registry().at("stats.control_comparison"), ng::Arrays{{"consistency", shorter}, {"compared", fc}}, Json{{"significance", 0.05}}); }));
 
   // ── the sensors' power and the aperiodic fit ──
   const ng::Arrays power = run_array(ng::registry().at("signal.sensor_power"), ng::Arrays{{"spectra", spectra}, {"package", H}}, Json::object());
@@ -192,7 +240,8 @@ int main() {
   CHECK(fit.at("fit").rows == nV && fit.at("fit").cols == 5);
 
   // ── refusals ──
-  CHECK(refused([&] { run_array(ng::registry().at("signal.spectral_flow"), inputs, Json{{"frequency_weighting", "kernels"}}); }));          // no normalisation named
+  CHECK(refused([&] { run_array(ng::registry().at("signal.spectral_flow"), inputs, Json{{"frequency_weighting", "kernels"}, {"split_input", "edge_phase_current"}}); }));   // no normalisation named
+  CHECK(refused([&] { run_array(ng::registry().at("signal.spectral_flow"), inputs, Json{{"frequency_weighting", "kernels"}, {"frequency_normalisation", "none"}}); }));     // no split input named
   CHECK(refused([&] { run_array(ng::registry().at("signal.atom_time_cells"), ng::Arrays{{"spectra", spectra}, {"package", H}, {"frequency", kernel_set(bands)}, {"scale", kernel_set(bands)}}, cp); }));   // not Gaussian atoms
   const Json overlapOnly = Json{{"overlap_samples", overlap}};
   CHECK(refused([&] { ng::NodeCall p2 = ng::NodeCall::prepare(stypes, operatorInput, overlapOnly, shared); ng::dispatch(serve, p2); }));

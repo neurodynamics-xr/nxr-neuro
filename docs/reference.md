@@ -460,6 +460,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run sensor_surface` | The channels as a surface: a triangulated helmet whose vertices are the picked channels, a derived manifold with its vertex-to-channel map. | (new) |
 | `nxr-neuro run spectral_coefficients` | The mode-space Fourier coefficients of a recording per time tile, through a composed spatial operator (a package's modes and a free kernel, or the sensor surface's channel map). | (new) |
 | `nxr-neuro run sensor_flow` | The flow of the field on the sensor surface per atom of the joint frequency x eigenvalue level: chunk spectra with overlap, power, phase currents, Hodge-Dirac flow, band pairs, time cells and their sign-flip test, an optional aperiodic fit. | (new) |
+| `nxr-neuro run sensor_flow_empty_room` | The empty-room control of the sensor-space flow: the same chain on an empty-room recording read on a run's sensor surface (channels matched by name), its sign-flip test beside the run's, length-matched. | (new) |
 | `nxr-neuro run roll_up` | A measurement rolled up through its grid's hierarchy, or across a group's subjects (scope group). | `run roll_up` |
 | `nxr-neuro run band_analytic`, `cortical_band`, `member_activation`, `band_outer` | Field chains: pointwise fields (a band's analytic signal, the band on the cortex, one filter-bank member's activation, z z^H), run alone or composed into `measure`. | the steps of `pyramid`, `cortical_band_cells`, `opticalflow` |
 | `nxr-neuro run lowpass` | A zero-phase low-pass filter, written as a new recording. | `lowpass` |
@@ -1081,7 +1082,11 @@ record). A native node that applies a stored dense Operator (`signal.linear_map`
 
 `run eigenmodes --surface NAME [--modes K]` solves the Hodge-Dirac modes of a stored surface of one closed piece on its INTRINSIC TRIANGULATION (the split solve: the Laplace-Beltrami ladder gives the exact
 modes, the 2-form ladder the coexact modes; one lambda cut, the constants out). Default: the reference method of nxr and Rheome; the other methods are named options (`--shift`, `--sigma`, `--slice`, `--normalize`,
-`--star1-floor`), all in the provenance and the cache key. A cortex of two hemispheres is glued first (`run glue`) and the glued surface named. Eigenmodes come first: a spatial band that needs modes that are not
+`--star1-floor`, `--dense-limit`), all in the provenance and the cache key. THE COMPLETE SOLVE of a small mesh: when the surface has at most `--dense-limit` vertices and faces (the definition: 3000)
+and `--modes` asks for every mode (at least vertices + faces - 2), both ladders are solved dense and whole: every exact mode (V - 1) and every coexact mode (the rank of d1: F on a disc, F - 1 on a closed
+surface), no lambda cut, the constants out by the solve's backward error (lambda <= 10 n eps max lambda). The constant with the exact vertex rows is then a basis of the vertex functions and the modes' edge
+rows a basis of the edge 1-forms (a change of basis, as the sensor-space flow needs). Memory about five n x n doubles for the larger ladder (360 MB at 3000); the provenance says `complete: true`. The
+iterative solve cannot give this (at most n - 2 pairs a ladder, and the cut drops the coexact modes above the exact ladder's top). A cortex of two hemispheres is glued first (`run glue`) and the glued surface named. Eigenmodes come first: a spatial band that needs modes that are not
 stored has the runner make them with this run, said in a message. What it cannot resolve: a mode above the mesh's resolution is not a property of the cortex, and the bridge is not cortex.
 
 The intrinsic triangulation is made by its own definition, `run intrinsic --surface NAME [--mollify 1e-6] [--flip-eps 1e-6]` (the Studio's intrinsicDelaunay.ts; the runner makes it first, with its defaults, when an
@@ -1145,7 +1150,7 @@ that reverses within the tiles summed cancels in the quadrature (the whole-run v
 helmet, nothing about its sources. Memory: the coefficients are held until the run ends (tiles x bins x rows complex). Tests: `test_mode_spectrum`,
 `test_spectral_coefficients` (synthetic).
 
-## The sensor-space flow analysis (`run sensor_flow`; the nodes `signal.overlapped_spectrum`, `signal.chunk_spectra`, `signal.spectral_flow`, `signal.atom_time_cells`, `stats.sign_flip_consistency`, `signal.sensor_power`, `stats.aperiodic_fit`; compute `nxr/signal/spectral_flow.h`, `nxr/signal/aperiodic.h`, `nxr/stats/sign_flip.h`; spec `docs/specs/2026-11-24-sensor-flow.md`)
+## The sensor-space flow analysis (`run sensor_flow`, `run sensor_flow_empty_room`; the nodes `signal.overlapped_spectrum`, `signal.chunk_spectra`, `signal.spectral_flow`, `signal.atom_time_cells`, `stats.sign_flip_consistency`, `stats.control_comparison`, `signal.sensor_power`, `stats.aperiodic_fit`; compute `nxr/signal/spectral_flow.h`, `nxr/signal/aperiodic.h`, `nxr/stats/sign_flip.h`; spec `docs/specs/2026-11-24-sensor-flow.md`)
 
 Why: the cross-spectrum of the MEG channels holds their lags but no spatial meaning; read on the sensor surface with its Hodge-Dirac eigenmodes the lags become a
 phase current on a surface, split into travel (exact) and rotation (coexact). Graph: `signal.mode_analysis` (`modes exact_and_constant`: the constant and the exact
@@ -1156,20 +1161,33 @@ its exact factored form: a bin's cross-spectrum is the sum over the chunks of ea
 twice). After the loop, `signal.spectral_flow` weights the cross-spectrum by each frequency member (the atoms, a kernel set: Gaussians made by `select_kernels --profile
 gaussian --chart linear --width-rule proportional`, normalised by the square root of their squared gains' sum, `--frequency-normalisation`; or `every_bin`), forming
 per member the weighted sum C = Y Yᴴ once, and reads per member the whole field and every pair of eigenvalue bands (a kernel set on the solve's eigenvalue line,
-`select_kernels --profile cos2_partition`: an amplitude partition, so the pairs add back to the whole): power per vertex, phase current per intrinsic edge
-J = Im(conj(z_tail) z_tip) (travel tail to tip gives J < 0), phase current per vertex Im(conj(z) grad z), the edge current's Hodge-Dirac coefficients
-(`projectOneForm`), the exact potential (Neumann on an open surface) and the coexact stream (Dirichlet). `signal.atom_time_cells` reads each atom and band back in time
-per chunk (the synthesis composed on the atom's bins, one inverse transform) and sums the same quantities over cells of the atom's own width (the power of two of
-samples nearest `--cell-width` time standard deviations); `stats.sign_flip_consistency` tests the direction's consistency over those cells (nxr's flow analysis's R1 with
-numpy's `default_rng(--seed)`, `--patterns`, a family-wise maximum, `--cells-per-flip`; the measured correlation of neighbouring cells is stored as the check).
+`select_kernels --profile cos2_partition`: an amplitude partition, so the pairs add back to the whole; or `--profile mexican_hat_partition`, the named alternative: the
+graph bank's Mexican hat (lambda / c) e^(1 - lambda / c) in lambda = mu² at each centre, divided by the members' sum): power per vertex, phase current per intrinsic edge
+J = Im(conj(z_tail) z_tip) (travel tail to tip gives J < 0), phase current per vertex Im(conj(z) grad z), the Hodge-Dirac coefficients of the 1-form named by
+`--split-input` (`projectOneForm`; the definition: `edge_phase_current`, what the modes' edge rows act on; `vertex_phase_current`, nxr's flow analysis's, carried to the
+edges by `flat`), the exact potential (Neumann on an open surface) and the coexact stream (Dirichlet); the other 1-form is split too and stored beside it
+(`parity_flow_coefficient`, `parity_exact_potential`, `parity_coexact_stream`), for parity with nxr's flow analysis. `signal.atom_time_cells` reads each atom back in time
+per chunk, for each band alone (nxr's flow analysis's cells) and for the whole field (every coordinate, gain one), (the synthesis composed on the atom's bins, one inverse
+transform) and sums the same quantities over cells of the atom's own width (the power of two of samples nearest `--cell-width` time standard deviations);
+`stats.sign_flip_consistency` tests the direction's consistency over those cells (nxr's flow analysis's R1 with numpy's `default_rng(--seed)`, `--patterns`, a
+family-wise maximum). One sign flips a group of consecutive cells: `--cells-per-flip measured` (the definition) applies THE GROUPING RULE, per atom the fewest
+consecutive cells whose group sums' neighbour correlation (the mean cosine of neighbouring groups' sums of unit fields, measured on the atom's whole-field cells) is below
+`--decorrelation-threshold` (0.1), searched while at least `--minimum-groups` (10) whole groups remain (not reached: the largest grouping tried, flagged); or a whole
+number the caller fixes. Stored per row: the cells a flip, the group sums' correlation on the atom's whole field and on the row, whether the rule was reached, and each
+grouping's correlation tried. THE CONTROL, `run sensor_flow_empty_room --empty-room REC --compared STEM`: the same chain on an empty-room recording read on the run's
+sensor surface (the surface's channel map matched to the empty room's channels by name, in the preparation; the match is in the cache key), then
+`stats.control_comparison`: per atom and band the run's and the control's median R1, its p, and the shares of edges below `--significance`, refused unless every row
+holds the same number of time cells (length-matched: the run compared is a `sensor_flow` run over a span of the control's duration, nxr's flow analysis's rotation
+control). Nothing in it is a source claim: the empty room is the instrument and the room with no head.
 With `--aperiodic true`: `signal.sensor_power` (each sensor's power per bin, the mean over chunks) and `stats.aperiodic_fit` (nxr's specparam port, `--aperiodic-knee`,
 `--aperiodic-range`). Derived at read, never stored: travel and rotation shares (squared flow coefficients by kind), band-pair shares, the apparent speed
 2 pi f power / |vertex phase current| (an upper bound), the power-weighted phase gradient, the periodic share 1 - background / power. Every value is a stated
 parameter of the definition; the nodes default none. What it cannot resolve: the field on the helmet only (no source, no field spread); patterns shorter than about
-two sensor spacings; a whole-run cross-spectrum keeps the net quadrature only; an incomplete eigensolve leaves coordinates and flow modes out (issue #219); the
-flow depends on the eigenvalue bands (always stated). Memory: the chunk spectra (coordinates x bins x chunks complex float32, about 7 MB a chunk for 268 sensors
+two sensor spacings; a whole-run cross-spectrum keeps the net quadrature only; an incomplete eigensolve leaves coordinates and flow modes out (the complete solve of
+`run eigenmodes` on a small surface avoids it); the flow depends on the eigenvalue bands and their profile (always stated). Memory: the chunk spectra (coordinates x bins x chunks complex float32, about 7 MB a chunk for 268 sensors
 and [0, 60) Hz at 1200 Hz) and, in the time cells, one atom's band signal of one chunk (vertices x transform samples complex). Tests: `test_spectral_flow`,
-`test_sign_flip` (golden: numpy and nxr's flip_test), `test_aperiodic` (golden: nxr), `test_sensor_flow` (the nodes on a synthetic sphere).
+`test_sign_flip` (golden: numpy and nxr's flip_test; the grouping rule on a synthetic series), `test_aperiodic` (golden: nxr), `test_sensor_flow` (the nodes on a synthetic
+sphere), `test_hodge_dirac` (the complete solve on a synthetic disc and sphere).
 
 ## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 
