@@ -216,38 +216,4 @@ TripleSums atomBispectrum(const AtomTriples& at, const Eigen::MatrixXcd& spectru
   return bandTripleBispectrum(at, {spectrum}, normalisation).front();
 }
 
-Eigen::MatrixXcd randomisePhases(const Eigen::MatrixXcd& spectrum, const Eigen::VectorXd& phases) {
-  if (phases.size() != spectrum.cols()) throw std::invalid_argument("randomisePhases: one phase per bin");
-  Eigen::VectorXcd turn(phases.size());
-  for (Eigen::Index k = 0; k < phases.size(); ++k) turn(k) = std::polar(1.0, phases(k));
-  return spectrum * turn.asDiagonal();
-}
-Eigen::MatrixXd bicoherenceOf(const TripleSums& s, BicoherenceNormalisation normalisation) {
-  const Eigen::MatrixXd magnitude = s.bispectrum.cwiseAbs();
-  Eigen::MatrixXd b = magnitude;
-  if (normalisation == BicoherenceNormalisation::none) return b;
-  for (Eigen::Index r = 0; r < b.rows(); ++r)
-    for (Eigen::Index t = 0; t < b.cols(); ++t) {
-      const double n = normalisation == BicoherenceNormalisation::threenorm ? std::cbrt(s.firstCube(r, t) * s.secondCube(r, t) * s.sumCube(r, t)) : s.productPower(r, t) * s.sumPower(r, t);
-      b(r, t) = n > 0 ? (normalisation == BicoherenceNormalisation::threenorm ? magnitude(r, t) / n : magnitude(r, t) * magnitude(r, t) / n) : 0.0;
-    }
-  return b;
-}
-
-ExceedancePValues exceedancePValues(const Eigen::VectorXd& observed, const Eigen::MatrixXd& null) {
-  if (null.rows() == 0 || null.cols() != observed.size()) throw std::invalid_argument("exceedancePValues: [draws x cells] with at least one draw");
-  const double D = static_cast<double>(null.rows());
-  Eigen::VectorXd largest = null.rowwise().maxCoeff();
-  ExceedancePValues out;
-  out.p = Eigen::VectorXd::Zero(observed.size()); out.familyP = out.p;
-  for (Eigen::Index c = 0; c < observed.size(); ++c) {
-    out.p(c) = ((null.col(c).array() >= observed(c)).count() + 1.0) / (D + 1.0);
-    out.familyP(c) = ((largest.array() >= observed(c)).count() + 1.0) / (D + 1.0);
-  }
-  std::vector<double> sorted(largest.data(), largest.data() + largest.size());
-  std::sort(sorted.begin(), sorted.end());
-  out.familyThreshold = sorted[static_cast<std::size_t>(std::min<double>(D - 1, std::ceil(0.95 * D) - 1))];
-  return out;
-}
-
 }  // namespace nxr::signal

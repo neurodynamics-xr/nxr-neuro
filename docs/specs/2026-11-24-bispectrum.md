@@ -60,12 +60,8 @@ form, with z = the atom's band signal (the inverse transform of its weighted bin
   A coarse rhythm's phase setting a fine pattern's amplitude appears in (coarse, fine, fine). Cheapest order (`nxr::signal::bandTripleBispectrum`): the (second, sum) correlation
   is formed once per pair of bands (q, r) and read with every first band by a dot product: Q² transforms per distinct pair of gains, never Q³. Sizes: Q³ members per triple;
   with 7 bands, 343 band triples x 268 vertices x 136 coupling triples x 5 measures is about 500 MB in double (harmonics alone: 50 MB); the run's memory is about twice that.
-- **The null** (`--null-draws`, `--seed`): PHASE-RANDOMISED CHUNKS. Each draw keeps every chunk's spectrum and turns each bin by a phase drawn from numpy's
-  `default_rng(seed).random()` x 2 pi (draw by draw, chunk by chunk, bin by bin), the same turn for every coordinate, so every cross-spectrum between coordinates (and
-  between band fields) is kept and only the phase relations between bins, what the bispectrum reads, are destroyed. The statistic is the normalisation's bicoherence (|B|
-  with `none`). Stored per reading (element x member): `null_p` = (#(null >= observed) + 1) / (draws + 1) and `null_p_family`, the same against each draw's largest
-  reading over the whole run (family-wise over the readings); the family maximum's 95th percentile in the producer. Cost: draws + 1 times the run. The empty-room recording
-  is the control: the same pipeline run on its chunk spectra by name.
+- **No null in this round**: a null is ported from nxr's, and nxr has none for the bispectrum; it waits for the maintainers' design. Bicoherence is biased upward by few chunks,
+  so values are descriptions, never compared with 0 as a test.
 - The atoms are the flow's own weighting (`frequency_normalisation: sum_of_squared_gains`, `support_floor`), so a coupling found here is between the flow's atoms.
 
 ### Compose first; the cheapest order (sizes and ranks)
@@ -142,11 +138,11 @@ per-atom results: never the recording.
 - A harmonic whose centre lies above the span is not read (left out); bicoherence at (f, f, 2f) does not tell a harmonic from a coupling of f with itself.
 - The recording's ends are reflected into the first and last overlaps: time runs backwards there and a rise-decay asymmetry is reversed in those samples.
 - Each element with itself only: coupling between vertices is not read; coupling across scales is read per triple of bands (band_triples), not per pair of coordinates.
-- The phase-randomised null keeps each chunk's spectrum and its cross-spectra, so it tests phase relations between bins only; it is exchangeable only if the chunks are.
+- No null yet: bicoherence values are descriptions, not tests.
 - Bicoherence is biased upward by few chunks: compare with a null of the same length.
 - The apparent speed is an upper bound; the flow across frequencies of one run is a description.
 
 ## Decided (2026-11-24)
 
 1. Coupling across spatial scales is read per triple of field-scale bands (as the flow's band-pair matrix), not per pair of coordinates: `--space band_triples`.
-2. The bicoherence's null is phase-randomised chunks (above); the empty-room recording is the control, run through the same pipeline.
+2. No null for the bispectrum yet: it waits for a design ported from nxr's nulls. The empty-room recording is the control, run through the same pipeline by name.
