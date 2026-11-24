@@ -11,8 +11,13 @@
 //                           p = (#(null max over elements ≥ R1) + 1)/(patterns + 1); the threshold = the null maximum's 95th percentile; the median R1 over elements,
 //                           its null's 95th percentile and p (numpy's median and linear percentile). Also the mean correlation of neighbouring cells' unit fields
 //                           (Σ_e U_s,e · U_s+1,e / elements, the mean over s): the check of whether single cells are exchangeable
+//   groupNeighbourCorrelation   the unit fields summed over groups of `cellsPerGroup` consecutive cells (whole groups only), then the mean over neighbouring groups of the
+//                           cosine of their sums (Σ G_g · G_g+1 / (|G_g| |G_g+1|)); one cell a group: the neighbouring cells' correlation above
+//   fewestDecorrelatedCells THE GROUPING RULE: the fewest consecutive cells (1, 2, 3, ...) whose group sums' neighbour correlation is below `threshold`, searched while at least
+//                           `minimumGroups` whole groups remain; the group a sign flips together, so the flipped units are practically uncorrelated (exchangeable)
 #include <Eigen/Dense>
 #include <cstdint>
+#include <vector>
 
 namespace nxr::stats {
 
@@ -38,5 +43,17 @@ struct SignFlipConsistency {
 };
 /** Throws std::invalid_argument on no cell, components < 1 or not dividing the columns, patterns < 1 or cellsPerFlip < 1. */
 SignFlipConsistency signFlipConsistency(const Eigen::MatrixXd& values, int components, std::int64_t patterns, NumpyGenerator& generator, std::int64_t cellsPerFlip = 1);
+
+/** NaN with fewer than two whole groups. Throws std::invalid_argument on components < 1 or not dividing the columns, or cellsPerGroup < 1. */
+double groupNeighbourCorrelation(const Eigen::MatrixXd& values, int components, std::int64_t cellsPerGroup);
+
+struct DecorrelatedGrouping {
+  std::int64_t cellsPerFlip = 1;      // the fewest consecutive cells whose group sums are practically uncorrelated (not reached: the largest tried)
+  double correlation = 0;             // the neighbour correlation of the group sums at that grouping (NaN: fewer than two whole groups even one cell a group)
+  bool reached = false;               // the correlation fell below the threshold
+  std::vector<double> correlations;   // the correlation at each grouping tried (1, 2, ... cells)
+};
+/** Throws std::invalid_argument on components < 1 or not dividing the columns, or minimumGroups < 2. */
+DecorrelatedGrouping fewestDecorrelatedCells(const Eigen::MatrixXd& values, int components, double threshold, std::int64_t minimumGroups);
 
 }  // namespace nxr::stats

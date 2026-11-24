@@ -4,6 +4,8 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <cstdio>
+#include <random>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -48,6 +50,28 @@ int main() {
   bool refused = false;
   try { nxr::stats::signFlipConsistency(values, 4, perms, g); } catch (const std::invalid_argument&) { refused = true; }
   EXPECT(refused, "refused: components that do not divide the columns");
+
+  // THE GROUPING RULE on a synthetic series: each element an AR(1) series over the cells (coefficient 0.8), so that neighbouring cells are strongly
+  // correlated and cells 8 apart are not: the fewest cells whose group sums decorrelate is found, more than one, and the rule stops at the minimum group count
+  {
+    const int n = 4000, width = 50;
+    Eigen::MatrixXd series(n, width);
+    std::mt19937 rng(7);
+    std::normal_distribution<double> normal;
+    Eigen::RowVectorXd state = Eigen::RowVectorXd::Zero(width);
+    for (int s = 0; s < n; ++s) { for (int j = 0; j < width; ++j) state(j) = 0.8 * state(j) + normal(rng); series.row(s) = state; }
+    const double one = nxr::stats::groupNeighbourCorrelation(series, 1, 1);
+    const nxr::stats::DecorrelatedGrouping rule = nxr::stats::fewestDecorrelatedCells(series, 1, 0.1, 10);
+    std::printf("  AR(0.8) cells: neighbour correlation %.3f; the rule: %lld cells a flip (correlation %.3f, reached %d)\n", one, static_cast<long long>(rule.cellsPerFlip), rule.correlation, rule.reached ? 1 : 0);
+    EXPECT(one > 0.3 && rule.reached && rule.cellsPerFlip > 1 && rule.correlation < 0.1 && rule.correlations.size() == static_cast<std::size_t>(rule.cellsPerFlip),
+           "the grouping rule: neighbouring cells correlated, the fewest cells whose group sums decorrelate found");
+    EXPECT(rule.correlations.front() == one, "one cell a group is the neighbouring cells' correlation");
+    Eigen::MatrixXd independent(n, width);
+    for (int s = 0; s < n; ++s) for (int j = 0; j < width; ++j) independent(s, j) = normal(rng);
+    EXPECT(nxr::stats::fewestDecorrelatedCells(independent, 1, 0.1, 10).cellsPerFlip == 1, "independent cells: one cell a flip");
+    const nxr::stats::DecorrelatedGrouping never = nxr::stats::fewestDecorrelatedCells(series.topRows(40), 1, -0.5, 10);
+    EXPECT(!never.reached && never.cellsPerFlip == 4, "not reached: the largest grouping that keeps the minimum group count, flagged");
+  }
   std::cout << (failures ? "FAILED\n" : "all passed\n");
   return failures ? 1 : 0;
 }

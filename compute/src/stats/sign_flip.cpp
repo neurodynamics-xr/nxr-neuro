@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -137,6 +138,53 @@ SignFlipConsistency signFlipConsistency(const Eigen::MatrixXd& values, int compo
     double sum = 0;
     for (Eigen::Index s = 0; s + 1 < cells; ++s) sum += unit.row(s).dot(unit.row(s + 1)) / static_cast<double>(elements);
     out.neighbourCorrelation = sum / static_cast<double>(cells - 1);
+  }
+  return out;
+}
+
+namespace {
+// each cell's vector cut to unit length per element (0 stays 0), as signFlipConsistency's U
+Eigen::MatrixXd unitFields(const Eigen::MatrixXd& values, int components) {
+  if (components < 1 || values.cols() % components != 0) bad("groupNeighbourCorrelation: the columns are not elements x components");
+  const Eigen::Index elements = values.cols() / components;
+  Eigen::MatrixXd unit = values;
+  for (Eigen::Index s = 0; s < values.rows(); ++s)
+    for (Eigen::Index e = 0; e < elements; ++e) {
+      const double length = values.row(s).segment(e * components, components).norm();
+      unit.row(s).segment(e * components, components) /= std::max(length, 1e-30);
+    }
+  return unit;
+}
+double groupCorrelationOfUnits(const Eigen::MatrixXd& unit, std::int64_t cellsPerGroup) {
+  if (cellsPerGroup < 1) bad("groupNeighbourCorrelation: at least one cell a group");
+  const Eigen::Index groups = unit.rows() / cellsPerGroup;
+  if (groups < 2) return std::numeric_limits<double>::quiet_NaN();
+  Eigen::MatrixXd sums = Eigen::MatrixXd::Zero(groups, unit.cols());
+  for (Eigen::Index s = 0; s < groups * cellsPerGroup; ++s) sums.row(s / cellsPerGroup) += unit.row(s);
+  double total = 0;
+  for (Eigen::Index g = 0; g + 1 < groups; ++g) {
+    const double lengths = sums.row(g).norm() * sums.row(g + 1).norm();
+    total += lengths > 0 ? sums.row(g).dot(sums.row(g + 1)) / lengths : 0.0;
+  }
+  return total / static_cast<double>(groups - 1);
+}
+}  // namespace
+
+double groupNeighbourCorrelation(const Eigen::MatrixXd& values, int components, std::int64_t cellsPerGroup) {
+  return groupCorrelationOfUnits(unitFields(values, components), cellsPerGroup);
+}
+
+DecorrelatedGrouping fewestDecorrelatedCells(const Eigen::MatrixXd& values, int components, double threshold, std::int64_t minimumGroups) {
+  if (minimumGroups < 2) bad("fewestDecorrelatedCells: at least two groups");
+  const Eigen::MatrixXd unit = unitFields(values, components);
+  DecorrelatedGrouping out;
+  out.correlation = std::numeric_limits<double>::quiet_NaN();
+  for (std::int64_t k = 1; unit.rows() / k >= minimumGroups; ++k) {
+    const double c = groupCorrelationOfUnits(unit, k);
+    out.correlations.push_back(c);
+    out.cellsPerFlip = k;
+    out.correlation = c;
+    if (c < threshold) { out.reached = true; break; }
   }
   return out;
 }
