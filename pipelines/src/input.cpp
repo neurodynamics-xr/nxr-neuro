@@ -176,23 +176,33 @@ std::optional<GlueMap> glue_map_of(SubjectWriter& sub, const std::string& manifo
   GlueMap m;
   m.glued_id = manifold_id;
   m.original_id = g["original"].get<std::string>();
-  // the kept vertices of the original (ascending) and the labelling of the glued vertices: the first ones are the kept, in that order, the rest the bridge
+  // the labelling of the glued vertices (its non-bridge vertices first, then the bridge) and the original's medial wall: the glue removes exactly the wall, so the i-th non-bridge glued vertex
+  // is the i-th vertex of the original off the wall. A `_kept` selection still stored marks a glue of the earlier form, whose cut may have removed more: `migrate glue` checks and converts it.
   task::Want wk{.cls = task::Cls::selection}; wk.name = node->name + "_kept"; wk.manifold_id = m.original_id;
   task::Want wh{.cls = task::Cls::selection}; wh.name = node->name + "_hemispheres"; wh.manifold_id = manifold_id;
-  const auto kn = ts.find(wk), hn = ts.find(wh);
-  if (!kn || !kn->array_path || !hn)
-    throw Error(code::invalid_argument, node->name + ": its kept vertices (" + wk.name.value_or("") + ") or its hemispheres labelling (" + wh.name.value_or("") + ") is not stored: a glued cortex in the earlier form (a map field and a bridge selection) is converted in place by `nxr-neuro migrate glue`");
-  const std::vector<std::int32_t> kept = read_as<std::int32_t>(sub.store(), *kn->array_path);
+  const auto hn = ts.find(wh);
+  if (!hn || ts.find(wk))
+    throw Error(code::invalid_argument, node->name + ": a glued cortex in an earlier form (" + (hn ? "its kept vertices " + wk.name.value_or("") + " stored beside it" : "no hemispheres labelling " + wh.name.value_or("")) +
+                                        "): it is converted in place by `nxr-neuro migrate glue`, which refuses a glue that removed more than the medial wall");
+  const auto original = ts.by_id(task::Cls::manifold, m.original_id);
+  if (!original || !original->n_vertices) throw Error(code::invalid_argument, node->name + ": its original manifold " + m.original_id + " is not stored");
+  const std::vector<std::uint8_t> wall = medial_wall_of(sub, m.original_id, original->name, *original->n_vertices);
   const StoredLabelling h = stored_labelling(sub, hn->id);
   const auto bridge = h.code_of("bridge");
-  const std::int64_t n = static_cast<std::int64_t>(h.labels.size()), k = static_cast<std::int64_t>(kept.size());
-  if (!bridge || k > n) throw Error(code::invalid_argument, node->name + ": its hemispheres labelling has no `bridge` entry, or fewer vertices than the kept ones");
+  if (!bridge) throw Error(code::invalid_argument, node->name + ": its hemispheres labelling has no `bridge` entry");
+  std::vector<std::int32_t> off_wall;
+  for (std::size_t v = 0; v < wall.size(); ++v) if (!wall[v]) off_wall.push_back(static_cast<std::int32_t>(v));
+  const std::int64_t n = static_cast<std::int64_t>(h.labels.size()), k = static_cast<std::int64_t>(off_wall.size());
+  std::int64_t cortex = 0;
+  for (const auto l : h.labels) cortex += l != *bridge;
+  if (cortex != k)
+    throw Error(code::invalid_argument, node->name + ": its " + std::to_string(cortex) + " cortex vertices are not the " + std::to_string(k) + " vertices of " + original->name +
+                                        " off the medial wall: the stored glue removed more than the medial wall; re-run glue");
   for (std::int64_t i = 0; i < n; ++i)
     if ((h.labels[static_cast<std::size_t>(i)] == *bridge) != (i >= k))
-      throw Error(code::invalid_argument, node->name + ": glued vertex " + std::to_string(i) + " breaks the glue's order (the " + std::to_string(k) + " kept vertices first, then the bridge)");
-  for (std::int64_t i = 1; i < k; ++i) if (kept[static_cast<std::size_t>(i)] <= kept[static_cast<std::size_t>(i - 1)]) throw Error(code::invalid_argument, node->name + ": its kept vertices are not ascending");
+      throw Error(code::invalid_argument, node->name + ": glued vertex " + std::to_string(i) + " breaks the glue's order (the " + std::to_string(k) + " vertices off the medial wall first, then the bridge)");
   m.original_of.assign(static_cast<std::size_t>(n), -1);
-  for (std::int64_t i = 0; i < k; ++i) m.original_of[static_cast<std::size_t>(i)] = kept[static_cast<std::size_t>(i)];
+  for (std::int64_t i = 0; i < k; ++i) m.original_of[static_cast<std::size_t>(i)] = off_wall[static_cast<std::size_t>(i)];
   return m;
 }
 
@@ -242,15 +252,17 @@ int connected_pieces(const std::vector<std::int32_t>& faces, std::int64_t n) {
   return static_cast<int>(roots.size());
 }
 
-std::vector<std::uint8_t> medial_wall(SubjectWriter& sub, const SurfaceInput& s) {
-  const auto atlases = nxr::io::selection::named_row(sub.db(), sub.id(), s.name + "_atlases", std::nullopt, s.id);
+std::vector<std::uint8_t> medial_wall(SubjectWriter& sub, const SurfaceInput& s) { return medial_wall_of(sub, s.id, s.name, s.n_vertices()); }
+
+std::vector<std::uint8_t> medial_wall_of(SubjectWriter& sub, const std::string& surface_id, const std::string& surface_name, std::int64_t n_vertices) {
+  const auto atlases = nxr::io::selection::named_row(sub.db(), sub.id(), surface_name + "_atlases", std::nullopt, surface_id);
   const auto dk = atlases ? nxr::io::selection::member_row(sub.db(), text(*atlases, "id"), "Desikan-Killiany") : std::nullopt;
   const auto un = dk && !is_null(*dk, "dictionary_id") ? nxr::io::selection::lookup_code_of_any(sub.db(), text(*dk, "dictionary_id"), {"unassigned", "unknown"}) : std::nullopt;
   if (!dk || !un)
-    throw Error(code::no_such_row, sub.name() + ": " + s.name + " carries no Desikan-Killiany atlas with its medial wall (" + s.name + "_atlases/Desikan-Killiany, its 'unassigned' code); the hemispheres are glued by anatomy only");
+    throw Error(code::no_such_row, sub.name() + ": " + surface_name + " carries no Desikan-Killiany atlas with its medial wall (" + surface_name + "_atlases/Desikan-Killiany, its 'unassigned' code); the hemispheres are glued by anatomy only");
   const std::vector<std::int64_t> codes = nxr::io::selection::read_element_members(sub.db(), sub.store(), text(*dk, "id")).element_labels();   // the arrays hold member numbers; the wall is a label
-  if (static_cast<std::int64_t>(codes.size()) != s.n_vertices())
-    throw Error(code::invalid_argument, s.name + ": its Desikan-Killiany atlas has " + std::to_string(codes.size()) + " values for " + std::to_string(s.n_vertices()) + " vertices");
+  if (static_cast<std::int64_t>(codes.size()) != n_vertices)
+    throw Error(code::invalid_argument, surface_name + ": its Desikan-Killiany atlas has " + std::to_string(codes.size()) + " values for " + std::to_string(n_vertices) + " vertices");
   const std::int64_t wall = *un;
   std::vector<std::uint8_t> out(codes.size());
   for (std::size_t i = 0; i < codes.size(); ++i) out[i] = codes[i] == wall ? 1 : 0;

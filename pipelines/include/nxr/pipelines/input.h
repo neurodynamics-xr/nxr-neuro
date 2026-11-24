@@ -98,15 +98,17 @@ std::string hodge_package_stem(const SurfaceInput& surface);
 // `unknown`), as nxr's `nxr.pipelines.hodge.medial_wall` and the Studio's `medialWall` read it. A surface with no such atlas is refused by name (the
 // hemispheres are glued by anatomy only).
 std::vector<std::uint8_t> medial_wall(nxr::io::SubjectWriter& sub, const SurfaceInput& surface);
+// The same for a surface named by its id, name and vertex count (its positions not read).
+std::vector<std::uint8_t> medial_wall_of(nxr::io::SubjectWriter& sub, const std::string& surface_id, const std::string& surface_name, std::int64_t n_vertices);
 
 // THE GLUED CORTEX. The imported two-hemisphere surface is the manifold of record; the glued surface is a DERIVED manifold made by a `glue` definition. What the glue stores is SELECTIONS, as an atlas is
-// stored: on the glued surface ONE LABELLING `<glued name>_hemispheres` (the caller's hemisphere labelling of the original carried over, its entries kept, one more: `bridge`), and on the original the
-// indices `<glued name>_kept` (the original vertices the glue keeps, ascending). The glued vertices are the kept vertices in that order, then the bridge's: the correspondence is derived from the two (no
-// index field). The manifold's producer record names the original (`glue: {original, form: labelling}`). Analysis runs on the glued surface; every result is RESTRICTED BACK to the original for
+// stored: on the glued surface ONE LABELLING `<glued name>_hemispheres` (the caller's hemisphere labelling of the original carried over, its entries kept, one more: `bridge`). The glue removes exactly
+// the original's medial wall, so the glued vertices are the original's vertices off the wall, in ascending order, then the bridge's: the correspondence is derived from the labelling and the original's
+// wall (no index field, no kept-vertex selection; a glue stored with one is of an earlier form, converted by `migrate glue`). The manifold's producer record names the original (`glue: {original, form: labelling}`). Analysis runs on the glued surface; every result is RESTRICTED BACK to the original for
 // storage, export and visualisation: exact (the glued → original transfer), the bridge dropped like the medial wall.
 struct GlueMap {
   std::string glued_id, original_id;
-  std::vector<std::int32_t> original_of;   // [n_glued]: the original vertex, or -1 (the bridge): derived from the labelling and the kept vertices
+  std::vector<std::int32_t> original_of;   // [n_glued]: the original vertex, or -1 (the bridge): derived from the labelling and the original's medial wall
   std::int64_t n_glued() const { return static_cast<std::int64_t>(original_of.size()); }
 };
 /** a LABELLING as stored (a set per element: an atlas, the glued cortex's hemispheres): each element's label (-1: none) and the dictionary's entries (code, name, colour) */

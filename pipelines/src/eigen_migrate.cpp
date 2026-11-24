@@ -286,9 +286,12 @@ Json migrate_one(SubjectWriter& sub, const std::string& stem, const std::functio
   return Json{{"stem", stem}, {"status", "migrated"}, {"eigenvectors", oid}, {"triangulation", tid}, {"rows", N}, {"modes", K}, {"forms1", forms1_made}};
 }
 
-// A GLUED CORTEX of the earlier form (the field `<glued>_map`, glued vertex -> original vertex, -1 on the bridge; the indices `<glued>_bridge`) -> the hemispheres labelling of the glued cortex and the
-// original's kept vertices. The map is checked against the glue's rule (the kept vertices first, ascending, then the bridge) and the bridge selection; the original's hemisphere labelling is checked
-// against the original surface; the map and the bridge are then moved aside. One unit a glued cortex.
+// A GLUED CORTEX of an earlier form -> the hemispheres labelling of the glued cortex alone. Two earlier forms:
+//   - the field `<glued>_map` (glued vertex -> original vertex, -1 on the bridge) and the indices `<glued>_bridge`: the map is checked against the glue's rule (the kept vertices first, ascending, then
+//     the bridge) and the bridge selection, the original's hemisphere labelling against the original surface; the labelling is made, the map and the bridge moved aside;
+//   - the labelling and the original's kept vertices `<glued>_kept`: the kept vertices are redundant (the glue removes exactly the medial wall) and are moved aside.
+// Either way the glue's kept vertices must be EXACTLY the original's vertices off the medial wall (the Desikan-Killiany `unassigned`): a glue whose cut removed more (an earlier glue widened its cut
+// to one simple loop) or kept wall is refused, nothing changed: re-run glue. One unit a glued cortex.
 Json migrate_glue_one(SubjectWriter& sub, const tk::Node& glued, const std::string& hemispheres, const std::string& left, const std::string& right, const std::function<void(const Json&)>& say) {
   const tk::Subject ts = tk::Subject::of(sub);
   const std::string gname = glued.name;
@@ -298,7 +301,28 @@ Json migrate_glue_one(SubjectWriter& sub, const tk::Node& glued, const std::stri
   const std::string original = g["original"].get<std::string>();
   tk::Want wk{.cls = tk::Cls::selection}; wk.name = gname + "_kept"; wk.manifold_id = original;
   tk::Want wl{.cls = tk::Cls::selection}; wl.name = gname + "_hemispheres"; wl.manifold_id = glued.id;
-  if (ts.find(wk) && ts.find(wl)) return Json{{"glued", gname}, {"status", "already in the new form"}};
+  const auto keptn = ts.find(wk), labelsn = ts.find(wl);
+  if (!keptn && labelsn) return Json{{"glued", gname}, {"status", "already in the new form"}};
+  const auto originaln = ts.by_id(tk::Cls::manifold, original);
+  if (!originaln || !originaln->n_vertices) unknown_glue("its original manifold is not stored");
+  std::vector<std::int32_t> off_wall;
+  { const std::vector<std::uint8_t> wall = medial_wall_of(sub, original, originaln->name, *originaln->n_vertices);
+    for (std::size_t v = 0; v < wall.size(); ++v) if (!wall[v]) off_wall.push_back(static_cast<std::int32_t>(v)); }
+  auto exactly_the_wall = [&](const std::vector<std::int32_t>& kept) {
+    if (kept != off_wall)
+      throw Error(code::invalid_argument, "migrate glue " + gname + ": its " + std::to_string(kept.size()) + " kept vertices are not the " + std::to_string(off_wall.size()) + " vertices of " + originaln->name +
+                                          " off the medial wall: the stored glue removed more than the medial wall; re-run glue (nothing changed)");
+  };
+  if (keptn && labelsn) {                                                   // the labelling and the kept vertices: the kept vertices checked, then moved aside
+    if (!keptn->array_path || !keptn->path) unknown_glue(gname + "_kept holds no array");
+    exactly_the_wall(read_as<std::int32_t>(sub.store(), *keptn->array_path));
+    if (say) say(Json{{"stage", "migrate"}, {"glued", gname}, {"kept", static_cast<std::int64_t>(off_wall.size())}});
+    tk::Unit u = ts.unit(tk::By{"nxr-neuro migrate glue", Json{{"migrated_from", Json{{"date", now_utc(false)}, {"from", "the labelling and the kept vertices (redundant: the glue removes exactly the medial wall)"},
+                                                                                       {"items", Json{{gname + "_kept", Json{{"class", "selection"}, {"id", keptn->id}}}}}}}}});
+    u.replace(tk::Cls::selection, *keptn->path, true, "the kept vertices of the glued cortex " + gname + ": redundant, the vertices off the medial wall");
+    u.commit();
+    return Json{{"glued", gname}, {"status", "migrated"}, {"kept", static_cast<std::int64_t>(off_wall.size())}, {"removed", gname + "_kept"}};
+  }
   tk::Want wm{.cls = tk::Cls::field}; wm.name = gname + "_map"; wm.manifold_id = glued.id;
   tk::Want wb{.cls = tk::Cls::selection}; wb.name = gname + "_bridge"; wb.manifold_id = glued.id;
   const auto mapn = ts.find(wm), bridgen = ts.find(wb);
@@ -325,6 +349,7 @@ Json migrate_glue_one(SubjectWriter& sub, const tk::Node& glued, const std::stri
   if (static_cast<std::int64_t>(H.labels.size()) != O.n_vertices()) unknown_glue(hemispheres + " does not label every vertex of " + O.name);
   if (const std::string why = hemispheres_disagree(O.faces, H, left, right); !why.empty()) unknown_glue(why);
   for (std::int64_t i = 0; i < m; ++i) if (map[static_cast<std::size_t>(i)] >= O.n_vertices()) unknown_glue(gname + "_map names a vertex outside " + O.name);
+  exactly_the_wall(std::vector<std::int32_t>(map.begin(), map.begin() + m));
   if (say) say(Json{{"stage", "migrate"}, {"glued", gname}, {"kept", m}, {"bridge", n - m}});
 
   tk::Unit u = ts.unit(tk::By{"nxr-neuro migrate glue", Json{{"migrated_from", Json{{"date", now_utc(false)}, {"from", "the earlier form: a map field and a bridge selection"},
@@ -344,11 +369,6 @@ Json migrate_glue_one(SubjectWriter& sub, const tk::Node& glued, const std::stri
   ls.member_of = sel.member_of; ls.member_codes = sel.member_codes;
   ls.description = "the hemispheres of the glued cortex: " + H.name + " of " + O.name + " carried over (its entries kept), and the bridge (not cortex: no sources, a forward zero there)";
   u.selection(ls);
-  tk::SelectionOut ks;
-  ks.name = gname + "_kept"; ks.output = "kept"; ks.type = "indices"; ks.manifold_id = original;
-  for (std::int64_t i = 0; i < m; ++i) ks.codes.push_back(map[static_cast<std::size_t>(i)]);
-  ks.description = "the vertices of " + O.name + " the glued surface keeps, ascending: glued vertex i < " + std::to_string(m) + " is the i-th of them";
-  u.selection(ks);
   u.commit();
   return Json{{"glued", gname}, {"status", "migrated"}, {"kept", m}, {"bridge", n - m}, {"hemispheres", H.name}};
 }

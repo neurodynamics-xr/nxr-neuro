@@ -226,7 +226,7 @@ int main() {
     CHECK(gmap && gmap->original_of == gm.keep && gmap->original_id == orig);
     auto sel_named = [&](const std::string& name) { tk::Want w{.cls = tk::Cls::selection}; w.name = name; return tk::Subject::of(s2).find(w); };
     const auto hl = sel_named("cortex_glued_hemispheres");
-    CHECK(hl.has_value() && !sel_named("cortex_glued_bridge") && sel_named("cortex_glued_kept").has_value());
+    CHECK(hl.has_value() && !sel_named("cortex_glued_bridge") && !sel_named("cortex_glued_kept"));
     if (hl) {
       const StoredLabelling H = stored_labelling(s2, hl->id);
       const auto L = H.code_of("Cortex L"), R = H.code_of("Cortex R"), B = H.code_of("bridge");
@@ -235,6 +235,29 @@ int main() {
       CHECK(ok);
     }
     CHECK(migrate_glue(s2, std::nullopt, "Structures", "Cortex L", "Cortex R")["glued"][0]["status"] == "already in the new form");
+    // the form with the original's kept vertices `<glued>_kept` beside the labelling: the readers refuse it and name the migration, which checks the kept vertices are exactly those off the medial
+    // wall and moves them aside (redundant); kept vertices that miss one vertex off the wall (a glue that cut more than the wall) are refused, nothing changed
+    std::vector<std::int32_t> off_wall;
+    for (std::size_t v = 0; v < wall.size(); ++v) if (!wall[v]) off_wall.push_back(static_cast<std::int32_t>(v));
+    auto store_kept = [&](const std::vector<std::int32_t>& kept) {
+      const tk::Subject ts = tk::Subject::of(s2);
+      tk::Unit u = ts.unit(tk::By{"earlier glue", Json()});
+      tk::SelectionOut ks; ks.name = "cortex_glued_kept"; ks.output = "kept"; ks.type = "indices"; ks.manifold_id = orig;
+      for (const auto k : kept) ks.codes.push_back(k);
+      u.selection(ks);
+      u.commit();
+    };
+    store_kept(off_wall);
+    CHECK(refusal([&] { glue_map_of(s2, gid); }).find("migrate glue") != std::string::npos);
+    const Json kr = migrate_glue(s2, std::nullopt, "Structures", "Cortex L", "Cortex R");
+    CHECK(kr["glued"][0]["status"] == "migrated" && !sel_named("cortex_glued_kept"));
+    { const auto again_map = glue_map_of(s2, gid); CHECK(again_map && again_map->original_of == gm.keep); }
+    std::vector<std::int32_t> widened = off_wall;
+    widened.erase(widened.begin() + static_cast<long>(widened.size() / 2));
+    store_kept(widened);
+    const std::string more = refusal([&] { migrate_glue(s2, std::nullopt, "Structures", "Cortex L", "Cortex R"); });
+    std::printf("  a stored glue that cut more than the wall: %s\n", more.substr(0, 200).c_str());
+    CHECK(more.find("the stored glue removed more than the medial wall; re-run glue") != std::string::npos && sel_named("cortex_glued_kept").has_value());
   }
   ds.close();
   fs::remove_all(root);

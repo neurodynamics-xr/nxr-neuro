@@ -168,11 +168,14 @@ int main() {
   CHECK(g.modes.n_exact > 0 && g.modes.n_coexact > 0);
   {
     const auto gs = s3.find("manifold", "source/cortex_glued");
-    // the glue's result is SELECTIONS: the hemispheres labelling of the glued cortex (the input's entries and `bridge`) and the original's kept vertices; the correspondence derived from them
+    // the glue's result is ONE SELECTION: the hemispheres labelling of the glued cortex (the input's entries and `bridge`); the correspondence derived from it and the original's medial wall (no kept vertices stored)
     nxr::io::task::Want wl{.cls = nxr::io::task::Cls::selection}; wl.name = std::string("cortex_glued_hemispheres");
     const auto hl = nxr::io::task::Subject::of(s3).find(wl);
     const auto br = hl;
     CHECK(hl.has_value() && !s3.find("field", "source/cortex_glued/cortex_glued_map") && !s3.find("selection", "source/cortex_glued_bridge"));
+    { nxr::io::task::Want wk{.cls = nxr::io::task::Cls::selection}; wk.name = std::string("cortex_glued_kept"); CHECK(!nxr::io::task::Subject::of(s3).find(wk)); }
+    { std::vector<std::int32_t> off_wall; for (std::size_t v = 0; v < wall.size(); ++v) if (!wall[v]) off_wall.push_back(static_cast<std::int32_t>(v));
+      CHECK(std::vector<std::int32_t>(gm.keep.begin(), gm.keep.begin() + kept) == off_wall); }   // exactly the medial wall removed
     if (hl) {
       const StoredLabelling H = stored_labelling(s3, hl->id);
       const auto L = H.code_of("Cortex L"), R = H.code_of("Cortex R"), B = H.code_of("bridge");
