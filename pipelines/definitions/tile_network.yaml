@@ -1,0 +1,49 @@
+# THE FIBRE NETWORK ON THE TILES OF A SURFACE, AND ITS CONNECTOME EIGENMODES (spec docs/specs/2026-11-24-connectome-flow.md): the network the flow through the fibres is read on
+# (`connectome_flow`). A port of nxr's flow through the fibre network: the tiles of the surface's dyadic grid at a stated number of tiles per hemisphere are the nodes; every pair of
+# tiles is an element, with the streamlines whose two ends lie in the two tiles, their median length, the tiles' centroid distance and whether they lie on different hemispheres;
+# the edges are the pairs joined by at least `min_streamlines`; the connectome Laplacian of the edges (weights: their streamline counts) and ALL its eigenmodes (a dense solve).
+#
+# THE GRAPH. before: fibres --[meeg.fiber_ends, meeg.nearest_vertex, meeg.end_gate]--> each fibre's end vertices on the surface (the `connectome` definition's steps);
+# fibres --[meeg.fiber_lengths]--> each fibre's length; ends + lengths + tiles + surface --[connectome.tile_pairs]--> the tiles and the pairs; --[connectome.laplacian_eigenmodes]--> the eigenmodes.
+# Every value below is a stated choice of this definition: nxr's flow through the fibres used 32 tiles a hemisphere (level 5) and 10 streamlines, its ends the nearest vertex
+# with no distance gate (max_end_distance none).
+#
+# What it cannot resolve: tractography ends are not cortical terminations; an end's vertex is the nearest vertex of the surface, not a depth; the tiles' size sets the
+# network's scale. The fibre bundle is read whole (10^6 fibres of 100 points: 2.4 GB in double): run it once per subject.
+#
+#   nxr-neuro run select_dyadic_surface --dataset D --subject S --surface cortex --rule subject --finest "parts 64"
+#   nxr-neuro run tile_network --dataset D --subject S --fibers BUNDLE --end-surface cortex --tiles "cortex tiles" --tiles-per-piece 32
+pipeline: tile_network
+version: 1
+description: the fibre network on the tiles of a surface's dyadic grid - streamline counts, median lengths and distances per pair of tiles, and the connectome Laplacian's eigenmodes
+scope: subject
+
+inputs:
+  fibers:  {manifold: curve, where: {name: $fibers}}
+  surface: {manifold: surface, where: {name: $end_surface}}
+  tiles:   {selection: any, manifold: surface.manifold.0, where: {name: $tiles}, hint: "the surface's dyadic grid (`nxr-neuro run select_dyadic_surface` first)"}
+
+parameters:
+  fibers:           {default: required, meaning: "the fibre bundle's name (the subject's own: `curve/<name>`)", unit: "-"}
+  end_surface:      {default: required, meaning: "the surface the fibres' ends are placed on and the tiles lie on (the kernel's cortex)", unit: "-"}
+  tiles:            {default: required, meaning: "the dyadic grid of the end surface, by name", unit: "-"}
+  tiles_per_piece:  {default: 32, meaning: "the tiles of each hemisphere (a power of two: the grid's level; nxr's flow through the fibres: 32, level 5)", unit: parts}
+  max_end_distance: {default: none, meaning: "a fibre with an end farther than this from the surface is left out; none: no gate (nxr's ends operator)", unit: mm}
+  points_per_fiber: {default: 0, meaning: "the points of each fibre (read from the bundle when 0)", unit: points}
+  min_streamlines:  {default: 10, meaning: "a pair of tiles is an edge of the network when at least this many streamlines join it (nxr: 10)", unit: streamlines}
+  null_tolerance:   {default: 1.0e-10, meaning: "an eigenvalue at most this fraction of the largest is a null mode (one per connected component)", unit: "-"}
+  name:             {default: "{fibers}_tiles{tiles_per_piece}", meaning: "the stem of the stored names", unit: "-"}
+
+steps:
+  before:
+    - {node: meeg.fiber_ends,     in: {fibers: fibers},                          with: {points_per_fiber: $points_per_fiber},        out: end_points}
+    - {node: meeg.nearest_vertex, in: {points: end_points, positions: surface},                                                       out: [end_vertex, end_distance]}
+    - {node: meeg.end_gate,       in: {end_distance: end_distance},              with: {max_end_distance_mm: $max_end_distance},     out: keep}
+    - {node: meeg.fiber_lengths,  in: {fibers: fibers},                          with: {points_per_fiber: $points_per_fiber},        out: lengths}
+    - {node: connectome.tile_pairs, in: {end_vertex: end_vertex, keep: keep, lengths: lengths, tiles: tiles, surface: surface}, with: {tiles_per_piece: $tiles_per_piece}, out: [tiles_table, pairs]}
+    - {node: connectome.laplacian_eigenmodes, in: {pairs: pairs},                with: {min_streamlines: $min_streamlines, null_tolerance: $null_tolerance}, out: eigenmodes}
+
+outputs:
+  tiles_table: {kind: statistic, name: "{name}_tiles", of: fibers}
+  pairs:       {kind: statistic, name: "{name}_pairs", of: fibers}
+  eigenmodes:  {kind: statistic, name: "{name}_eigenmodes", of: fibers}

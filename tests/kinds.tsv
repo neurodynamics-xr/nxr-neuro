@@ -166,6 +166,8 @@ test_intrinsic_forms	unit
 test_mode_spectrum	unit
 test_spectral_flow	unit
 test_bispectrum	unit
+test_tile_flow	unit
+test_tile_network	unit
 test_sign_flip	golden
 test_aperiodic	golden
 test_intrinsic_surface	unit
@@ -319,4 +321,5 @@ test_import_covariance	integration
 test_flow_map	integration
 test_sensor_flow	integration
 test_sensor_bispectrum	integration
+test_connectome_flow	integration
 test_migrate_eigensolve	integration
