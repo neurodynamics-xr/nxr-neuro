@@ -18,6 +18,7 @@
 #include "nxr/io/errors.h"
 #include "nxr/io/finder.h"
 #include "nxr/io/npy.h"
+#include "nxr/io/task/commands.h"
 #include "nxr/io/task/dataset.h"
 #include "nxr/io/task/handle.h"
 #include "nxr/io/task/task.h"
@@ -145,6 +146,54 @@ Json run(const fs::path& dataset, const std::string& subject, const RunRequest& 
     }
   }
   return Json{{"pipeline", rq.pipeline}, {"subject", subject}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
+}
+
+Json import_subject(const ImportSubjectRequest& rq, const Progress& progress) {
+  const Progress say = progress ? progress : Progress([](const Json&) {});
+  Json result = task::import_subject(task::ImportSubjectRequest{rq.protocol, rq.subject, rq.dataset, rq.resample, stamp()}, say).result;
+  if (!rq.sensor_mesh) { result["sensor_meshes_skipped"] = "--no-sensor-mesh"; return result; }
+  // the channels manifolds the import stored and the sensor types among their channels (read, then the subject closed before the runs open it)
+  std::vector<std::pair<std::string, std::string>> todo;   // (channels manifold, sensor type)
+  {
+    DatasetWriter ds = open_for(rq.dataset, rq.subject, true);
+    SubjectWriter sub = SubjectWriter::open(ds, rq.subject, OpenSubjectOptions{});
+    task::Want points{.cls = task::Cls::manifold};
+    points.type = "points";
+    for (const task::Node& m : task::Subject::of(sub).find_all(points)) {
+      const std::vector<std::string> types = channel_types_of(sub, m.id);
+      if (types.empty()) continue;                                         // coils, head points: not channels
+      const auto has = [&](std::initializer_list<const char*> names) {
+        return std::any_of(types.begin(), types.end(), [&](const std::string& t) { return std::any_of(names.begin(), names.end(), [&](const char* n) { return t == n; }); });
+      };
+      if (has({"MEG", "MEG MAG", "MEG GRAD"})) todo.emplace_back(m.name, "MEG");
+      if (has({"EEG"})) todo.emplace_back(m.name, "EEG");
+    }
+  }
+  Json meshes = Json::array();
+  if (!result.contains("skipped") || !result["skipped"].is_array()) result["skipped"] = Json::array();
+  for (const auto& [channels, sensor_type] : todo) {
+    const std::string what = "sensor mesh " + channels + " " + sensor_type;
+    std::string reason;
+    try {
+      RunRequest run_request;
+      run_request.pipeline = "sensor_mesh";
+      run_request.parameters = Json{{"channels", channels}, {"sensor_type", sensor_type}};
+      const Json r = run(rq.dataset, rq.subject, run_request, say);
+      std::string surface;
+      for (const Json& s : r.value("stored", Json::array())) if (s.value("output", std::string()) == "surface") surface = s.value("name", std::string());
+      meshes.push_back(Json{{"channels", channels}, {"sensor_type", sensor_type}, {"surface", surface}});
+      continue;
+    } catch (const Error& e) {
+      if (e.code() != code::invalid_argument && e.code() != code::not_found) throw;
+      reason = e.what();
+    } catch (const std::invalid_argument& e) {
+      reason = e.what();
+    }
+    result["skipped"].push_back(Json{{"what", what}, {"reason", reason}});
+    say(Json{{"stage", "skipped"}, {"what", what}, {"reason", reason}});
+  }
+  result["sensor_meshes"] = meshes;
+  return result;
 }
 
 Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progress& progress) {

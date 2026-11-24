@@ -57,6 +57,18 @@ Json run_group(const std::filesystem::path& dataset, const GroupRunRequest& requ
  *  Progress lines are the command line's JSON lines. */
 Json run(const std::filesystem::path& dataset, const std::string& subject, const RunRequest& request, const Progress& progress = {});
 
+/** What `import subject` takes: a Brainstorm protocol's subject into a dataset, then its sensor meshes (`sensor_mesh`) unless the caller says not to. */
+struct ImportSubjectRequest {
+  std::string protocol, subject, dataset;
+  std::optional<double> resample;          // resample every recording to this rate (Hz) when imported; none: the original rate
+  bool sensor_mesh = true;                 // false (--no-sensor-mesh): no sensor mesh is made, and the result says so
+};
+/** Imports the subject (io's import, unchanged), then runs `sensor_mesh` once for each channels manifold it holds (a points manifold with a `type` labelling) and each
+ *  sensor type among its channels (MEG: MEG, MEG MAG, MEG GRAD; EEG). Returns io's result with `sensor_meshes` [{channels, sensor_type, surface}]; a mesh that is refused
+ *  (fewer than four good channels, no quality labelling, a mesher refusal) is added to `skipped` as {what: "sensor mesh <channels> <type>", reason} and emitted as a
+ *  `skipped` progress line, never silent; the import itself stands. */
+Json import_subject(const ImportSubjectRequest& request, const Progress& progress = {});
+
 /** the datasets of a datastore: {id, datasets: [...]} */
 Json datasets(const std::filesystem::path& datastore);
 /** the subjects of a dataset: {dataset, subjects: [...]}; in a catalogue, `names` (by name or id) or `where` (the participants filter language, version 1) select, not both */

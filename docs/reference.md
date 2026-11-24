@@ -458,6 +458,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run glue` | The two hemispheres of a cortex (read from the caller's hemisphere labelling) glued by a bridge after exactly their medial walls are cut: a derived manifold with its hemispheres labelling. | `--glued` of `run eigenmodes` |
 | `nxr-neuro migrate glue` | A glued cortex of an earlier form (a map field and a bridge selection, or kept vertices beside the labelling) converted in place to the hemispheres labelling alone; a glue that removed more than the medial wall is refused (re-run glue). | `package migrate-glue` |
 | `nxr-neuro run sensor_surface` | The channels as a surface: a triangulated helmet whose vertices are the picked channels, a derived manifold with its vertex-to-channel map. | (new) |
+| `nxr-neuro run sensor_mesh` | The good channels of one sensor type (MEG or EEG) as a surface, chosen from the channels' type and quality labellings; made by `import subject` for every channels manifold. | (new) |
 | `nxr-neuro run spectral_coefficients` | The mode-space Fourier coefficients of a recording per time tile, through a composed spatial operator (a package's modes and a free kernel, or the sensor surface's channel map). | (new) |
 | `nxr-neuro run sensor_flow` | The flow of the field on the sensor surface per atom of the joint frequency x eigenvalue level: chunk spectra with overlap, power, phase currents, Hodge-Dirac flow, band pairs, time cells and their sign-flip test, an optional aperiodic fit. | (new) |
 | `nxr-neuro run sensor_bispectrum` | The bispectrum of the stored chunk spectra in eigenmode coordinates, weighted by the flow's frequency atoms (one gain per axis): phase-amplitude coupling and harmonics (waveform shape from the biphase), with the bicoherence's sums; per coordinate or per vertex (per band). | (new) |
@@ -664,7 +665,7 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
 |---|---|---|
 | `nxr-neuro import list PROTOCOL` | List the subjects of a Brainstorm protocol. | `convert list` |
 | `nxr-neuro import scan PROTOCOL` | Scan a Brainstorm protocol and describe what it holds. | `convert scan` |
-| `nxr-neuro import subject PROTOCOL` | Import a Brainstorm subject's anatomy into a dataset. | `convert subject` |
+| `nxr-neuro import subject PROTOCOL` | Import a Brainstorm subject into a dataset, then make its sensor meshes (MEG, EEG) from the good channels. | `convert subject` |
 | `nxr-neuro import template PROTOCOL` | Import a Brainstorm protocol's template subject into a dataset. | `convert template` |
 | `nxr-neuro import group PROTOCOL` | Import a Brainstorm protocol's group subject into a dataset. | `convert group` |
 | `nxr-neuro import templates TEMPLATES_DIR` | Import the fsaverage reference templates (and optional fibre tracts) into a dataset. | `convert templates` |
@@ -1130,6 +1131,15 @@ the pick, the rule and the mesher's options and report (boundary loops, Euler ch
 surface; its resolution is the sensor spacing (no pattern shorter than about two spacings), a field on it is the sensors' measurement (lead fields, not cortical
 currents), and on ragged layouts the repair's choices (which fan is dropped at a pinch) can depend on ties. Tests: `test_point_set_mesh`, `test_channel_positions`,
 `test_sensor_surface` (synthetic).
+
+**The sensor mesh** (`run sensor_mesh`; the node `meeg.good_channels_of_type`, compute `nxr::meeg::goodChannelsOfType`): the same surface with the channels chosen
+from the channels manifold's own labellings instead of a pick named by hand: `run sensor_mesh --channels NAME --sensor-type MEG|EEG [--name NAME]` takes the
+good channels (the `quality` labelling: the recording's channel flags) of one sensor type (the `type` labelling): MEG is MEG, MEG MAG and MEG GRAD, never MEG REF;
+EEG is EEG; the two are never meshed together, and `--sensor-type` has no default. Fewer than four channels are refused. Stored: the surface
+(`<channels>_<type>_surface` by default), its map `<name>_map` and its channels `<name>_channels` (an indices selection, so a cross-spectrum can be made on
+exactly them); the position rule and the mesher's options are `sensor_surface`'s. `import subject` runs it once for every channels manifold it stores and every
+sensor type among its channels, and lists in the result's `sensor_meshes` what it made and in `skipped` what was refused, with the reason (`--no-sensor-mesh`
+skips the step). Tests: `test_channel_positions`, `test_sensor_surface`, `test_face` (synthetic).
 
 ## The mode-space Fourier coefficients (`run spectral_coefficients`; the nodes `signal.mode_analysis`, `signal.spectral_coefficients`; compute `nxr/signal/mode_spectrum.h`)
 

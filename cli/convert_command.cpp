@@ -2,7 +2,7 @@
 //
 //   nxr-neuro convert list <protocol>
 //   nxr-neuro convert scan <protocol> [--prefer protocol.mat|walk] [--out FILE] [--summary]
-//   nxr-neuro convert subject <protocol> --subject S --dataset <folder> [--resample HZ]
+//   nxr-neuro convert subject <protocol> --subject S --dataset <folder> [--resample HZ] [--no-sensor-mesh]   (then the subject's sensor meshes: sensor_mesh)
 //   nxr-neuro convert template <protocol> --dataset D [--surface tess_*.mat ...]
 //   nxr-neuro convert group <protocol> --dataset D
 //   nxr-neuro convert convert <protocol> --subject S --condition C --dataset D [--resample HZ] ...
@@ -20,6 +20,9 @@
 #include <set>
 
 #include "cli.h"
+#ifdef NXR_NEURO_WITH_PIPELINES
+#include "nxr/pipelines/face.h"
+#endif
 
 using namespace nxr::io;
 using namespace cli;
@@ -59,9 +62,16 @@ std::optional<double> resample_of(const Args& a) {
 
 int subject_command(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro convert subject";
-  const Args a = parse(prog, rest, {"--subject", "--dataset", "--resample"}, {}, {"--subject", "--dataset"}, 1, {}, "root");
+  const Args a = parse(prog, rest, {"--subject", "--dataset", "--resample"}, {"--no-sensor-mesh"}, {"--subject", "--dataset"}, 1, {}, "root");
+#ifdef NXR_NEURO_WITH_PIPELINES
+  nxr::pipelines::face::ImportSubjectRequest rq{a.pos[0], a.get("--subject"), a.get("--dataset"), resample_of(a), true};
+  rq.sensor_mesh = !a.flag.count("--no-sensor-mesh");
+  emit_result(call(prog, [&] { return nxr::pipelines::face::import_subject(rq, progress()); }));   // the import, then the subject's sensor meshes (sensor_mesh)
+#else
+  if (a.flag.count("--no-sensor-mesh") == 0) std::cerr << prog << ": built without the pipelines: no sensor mesh is made\n";
   const task::ImportSubjectRequest rq{a.pos[0], a.get("--subject"), a.get("--dataset"), resample_of(a), stamp()};
   emit_result(call(prog, [&] { return task::import_subject(rq, progress()); }).result);
+#endif
   return 0;
 }
 
