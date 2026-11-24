@@ -55,7 +55,8 @@ composable.
 
 The detailed rules are below: the dependency table, **the architecture policy** (what each layer may decide), **pipelines as replicas of the Studio's GPU
 chains**, the chunk service, and the PR checklist. Design a new pipeline as its graph first (nodes, ports, inputs, outputs), check it against the
-Studio's chain, and only then write code.
+design rules (the four classes, spectral first, nodes offer and pipelines choose, the type system, the vocabulary: `CONTRIBUTING.md`, *Adding a node
+or a pipeline*, step 0), and only then write code.
 
 ## Compose first; never transform an outer product (never broken)
 

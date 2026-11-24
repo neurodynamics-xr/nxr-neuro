@@ -53,8 +53,23 @@ accepted. `docs/reference.md` describes every verb and method, `docs/specs/` the
 Every pipeline is a YAML definition of registered nodes (`ARCHITECTURE.md`, "Decided structure"). Do not write a new hand-wired `<x>_compute` C++
 pipeline, and do not extend an existing one: it is being converted into a definition.
 
-0. **First, the graph:** write the pipeline as its graph (nodes, typed ports, the inputs it is handed, the outputs it gives back), place every piece in
-   its part (loading · preparation · graph · readback), and check it against the Studio's chain. If any piece does not fit, stop and ask the maintainers.
+0. **First, the graph and its spec.** Write the pipeline as its graph (nodes, typed ports, the inputs it is handed, the outputs it gives back) and
+   place every piece in its part (loading · preparation · graph · readback). The spec of the work (what to build and why: `docs/specs/`, or the
+   maintainers' notes for it) says what the pipeline does; the rules below say how every pipeline is built. Check the graph against them; they are why
+   the Studio's GPU chain is the model, so that the same graph runs there unchanged:
+   - **The four classes, everywhere.** Every input, intermediate and output is a manifold, a field, an operator or a selection, with its full type
+     (`docs/vocabulary.md`, *The four classes*). Nothing travels as an untyped array, a JSON attribute or a class of its own.
+   - **Spectral first.** Work in frequency and eigenmode coordinates for as much of the pipeline as possible: transform once (the chunk's Fourier
+     transform, the analysis onto eigenmodes), do the work there as weightings and gains on bins and modes, which are cheap, diagonal and suited to a
+     GPU, and return to time or to the cortex only where an output needs it. Linear operators are composed first (`ARCHITECTURE.md`, *Compose first*).
+   - **Nodes offer, pipelines choose.** A node takes arrays and offers every choice (a method, a width, a boundary condition, a tolerance) as a named
+     parameter with its meaning, default and unit; it hard-codes no value and never picks its own input. A pipeline puts nodes together and makes the
+     choices: it may fix a parameter, and every value it fixes is stated in its definition.
+   - **The type system.** Every port is typed (the four classes: manifold, rank, level, number type, components, unit) and the runner checks each edge
+     before any data flows: a mismatch is refused with its reason, never converted silently.
+   - **The vocabulary.** Every name (node, port, parameter, stored kind, document) uses the words of `docs/vocabulary.md` in their one meaning. A new
+     concept gets its word there first; a retired word is not used in new work.
+   If a piece fits none of these, stop and ask the maintainers before writing code.
 1. **The maths** goes in `compute/` (or `meeg/`) as pure functions (matrices in, matrices out), with a unit test in `compute/test/test_<topic>.cpp`.
 2. **The node:** register each function as a node with its typed ports, its parameters (one comment each: meaning, default, unit) and its traits
    (time behaviour, precision). It takes arrays and parameters only: no database, no file, no lookup of its own inputs (those are bound by the runner).
