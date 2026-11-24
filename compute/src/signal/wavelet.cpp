@@ -174,11 +174,15 @@ MatrixXcd wt(const tb::TimeFilterbank& b, int member, const MatrixXd& x, const V
     return out;
 }
 
-BlockTransform wtBlock(const tb::Design& design, const Eigen::MatrixXd& block, double fs, std::size_t left, std::size_t own) {
+BlockTransform wtBlock(const tb::TimeFilterbank& bank, const Eigen::MatrixXd& block, std::size_t left, std::size_t own) {
   const std::size_t width = static_cast<std::size_t>(block.cols());
   if (left + own > width) throw std::invalid_argument("wtBlock: the own columns [left, left + own) are not inside the block");
-  BlockTransform r{tb::timeBank(design, tb::gridLength(width, tb::Padding::FastLen), fs), {}};
-  const tb::Coefficients all = wt(r.bank, Eigen::MatrixXd(block.transpose()));   // wt takes [samples x signals]
+  const std::size_t grid = tb::gridLength(width, tb::Padding::FastLen);
+  if (bank.nfft != grid)
+    throw std::invalid_argument("wtBlock: the bank is designed on a grid of " + std::to_string(bank.nfft) + " samples; a block of " + std::to_string(width) +
+                                " samples needs one of " + std::to_string(grid) + " (timeBank(design, gridLength(width, FastLen), fs))");
+  BlockTransform r;
+  const tb::Coefficients all = wt(bank, Eigen::MatrixXd(block.transpose()));   // wt takes [samples x signals]
   r.own.reserve(all.size());
   for (const auto& w : all) r.own.push_back(w.middleRows(static_cast<Eigen::Index>(left), static_cast<Eigen::Index>(own)).transpose());
   return r;
