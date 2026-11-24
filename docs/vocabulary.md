@@ -58,6 +58,7 @@ vertex lists, which are also the boundary map; the discrete derivatives are its 
 |---|---|
 | **chunk** | The unit a recording is loaded in: 2^15 samples (by construction, the cells of level 15 of the time line). |
 | **shard** | The unit a recording is stored in: 2^17 samples. |
+| **overlap** | The samples a chunk's transform takes in beyond the chunk, on each side, from the neighbouring chunks (mirrored at the recording's two ends), so that a kernel applied to the chunk is correct inside it; the overlapping samples are dropped from the chunk's results. Stated in samples. Neighbouring chunks' transforms then share samples, as overlapping segments do in Welch's estimate: with an overlap of half a chunk on each side the transform is two chunks long (a power of two) and every sample is taken in exactly twice. |
 
 ## Recordings
 
@@ -82,5 +83,6 @@ vertex lists, which are also the boundary map; the discrete derivatives are its 
 | bank, filterbank, joint bank | the kernels of a soft reduction operator |
 | segment, window (as time units) | a cell of a level of the time line; overlapping ones (Welch's) are a soft level |
 | scale (as a noun for a level) | level |
+| halo | overlap |
 | gather | a measurement |
 | cell (anything other than a manifold's cell) | the word above that fits |
