@@ -16,22 +16,26 @@ description: whether the sensor flow moves at the same speed and direction acros
 scope: subject
 
 inputs:
-  edges:    {statistic: any, where: {name: "${flow}_flow_edges"}, hint: "the sensor flow's phase current per edge and atom (`nxr-neuro run sensor_flow` first)"}
-  modes:    {statistic: any, where: {name: "${flow}_flow_modes"}, hint: "the sensor flow's Hodge-Dirac coefficients per atom"}
-  vertices: {statistic: any, where: {name: "${flow}_flow_vertices"}, hint: "the sensor flow's vertex measures per atom"}
+  recording: {field: recording, each: true, where: {name: $recording}, read: shape, hint: "the recording the sensor flow read (its measurements are of it)"}
+  edges:    {measurement: phase_current, of: recording, where: {name: $atoms}, hint: "the sensor flow's phase current per edge and atom (`nxr-neuro run sensor_flow` first)"}
+  modes:    {measurement: flow_coefficient, of: recording, where: {name: $atoms}, hint: "the sensor flow's Hodge-Dirac coefficients per atom"}
+  power:    {measurement: power, of: recording, where: {name: $atoms}, hint: "the sensor flow's power per vertex and atom"}
+  current_x: {measurement: vertex_phase_current_x, of: recording, where: {name: $atoms}}
+  current_y: {measurement: vertex_phase_current_y, of: recording, where: {name: $atoms}}
+  current_z: {measurement: vertex_phase_current_z, of: recording, where: {name: $atoms}}
   package:  {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, hint: "the sensor surface's Hodge-Dirac solve the flow is on"}
   atoms:    {selection: any, where: {name: $atoms}, hint: "the frequency atoms the flow was read with"}
 
 parameters:
-  flow: {default: null, meaning: "the stem of the sensor flow's stored names (its name parameter)", unit: "-"}
+  recording: {default: none, meaning: "the recording the sensor flow read, or none: every recording of the subject, one run each", unit: "-"}
   package: {default: null, meaning: "the Hodge-Dirac solve's stem", unit: "-"}
   atoms: {default: null, meaning: "the frequency atoms' kernel set by name", unit: "-"}
-  name: {default: "{flow}_across_frequencies", meaning: "the stem of the stored statistics: <name>_atom_pairs, <name>_dispersion", unit: "-"}
+  name: {default: "{recording}_{package}_across_frequencies", meaning: "the stem of the stored statistics: <name>_atom_pairs, <name>_dispersion", unit: "-"}
 
 steps:
   before:
-    - {node: signal.flow_across_frequencies, in: {edges: edges, modes: modes, vertices: vertices, package: package, frequency: atoms}, out: [atom_pairs, dispersion]}
+    - {node: signal.flow_across_frequencies, in: {edges: edges, modes: modes, power: power, current_x: current_x, current_y: current_y, current_z: current_z, package: package, frequency: atoms}, out: [atom_pairs, dispersion]}
 
 outputs:
-  atom_pairs: {kind: statistic, name: "{name}_atom_pairs", of: edges}
-  dispersion: {kind: statistic, name: "{name}_dispersion", of: edges}
+  atom_pairs: {kind: statistic, name: "{name}_atom_pairs", of: recording}
+  dispersion: {kind: statistic, name: "{name}_dispersion", of: recording}

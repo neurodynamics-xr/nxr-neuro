@@ -186,10 +186,13 @@ int main() {
   CHECK(groups.size() == 6 && tc.cols == cx.nE + 4 * nV);
   const ng::Arrays flip = run_array(ng::registry().at("stats.sign_flip_consistency"), ng::Arrays{{"cells", tc}}, Json{{"elements", "edges"}, {"patterns", 200}, {"seed", 0}, {"cells_per_flip", 1}});
   const ng::Array& fc = flip.at("consistency");
-  // group 1: the 10 Hz atom, band 0 (the coarse band holds the wave): its median R1 high and p small
+  const ng::Array& fs_ = flip.at("consistency_summary");
+  // measurements over the members atom x band (the groups' order): per element R1, p, family-wise p [E x 6 x 3]; the summary [1 x 6 x 7]
   const std::int64_t E = cx.nE;
-  const double median = fc.data[static_cast<std::size_t>(1 * fc.cols + 3 * E + 1)], medianP = fc.data[static_cast<std::size_t>(1 * fc.cols + 3 * E + 3)];
-  std::printf("  10 Hz, coarse band: median R1 %.3f, its p %.4f, cells %g\n", median, medianP, fc.data[static_cast<std::size_t>(1 * fc.cols + 3 * E + 5)]);
+  CHECK(fc.rows == E * 6 && fc.cols == 3 && fs_.rows == 6 && fs_.cols == 7);
+  // member 1: the 10 Hz atom, band 0 (the coarse band holds the wave): its median R1 high and p small
+  const double median = fs_.data[static_cast<std::size_t>(1 * 7 + 1)], medianP = fs_.data[static_cast<std::size_t>(1 * 7 + 3)];
+  std::printf("  10 Hz, coarse band: median R1 %.3f, its p %.4f, cells %g\n", median, medianP, fs_.data[static_cast<std::size_t>(1 * 7 + 5)]);
   CHECK(median > 0.8 && medianP < 0.05);
 
   // ── the sensors' power and the aperiodic fit ──

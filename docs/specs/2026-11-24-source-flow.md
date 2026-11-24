@@ -1,5 +1,8 @@
 # The source mapping of the sensor-space flow (2026-11-24): the graph
 
+> **Storage, since the flow consolidation (2026-11-24):** the per-member flow results named below as statistics are stored as MEASUREMENTS over the atoms and their products, and the time cells are not stored; see `docs/reference.md`, "How the flow results are stored".
+
+
 **Status:** design, written before the code (CONTRIBUTING, "Adding a node or a pipeline", step 0). It plugs into the sensor chain of `docs/specs/2026-11-24-sensor-flow.md`.
 
 ## Why

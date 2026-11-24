@@ -53,13 +53,16 @@ steps:
   before:
     - {node: signal.mode_analysis, in: {package: package, channel_map: channel_map}, with: {modes: exact_and_constant, normalisation: unit_mass}, out: serving}
     - {node: signal.tile_operator, in: {kernel: kernel, tiles: tiles, serving: serving}, with: {tiles_per_piece: $tiles_per_piece}, out: operator}
-    - {node: signal.tile_flow, in: {spectra: spectra, operator: operator, frequency: atoms}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: flow}
+    - {node: signal.tile_flow, in: {spectra: spectra, operator: operator, frequency: atoms}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [pair_flow, tile_power]}
     - {node: signal.tile_time_cells, in: {spectra: spectra, operator: operator, frequency: atoms}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cells: $cells, segment_seconds: $segment_seconds, cell_width: $cell_width}, out: cells}
     - {node: stats.network_sign_flip, in: {cells: cells, pairs: pairs}, with: {patterns: $patterns, seed: $seed, min_streamlines: $min_streamlines, distance_bin_edges: $distance_bin_edges}, out: consistency}
-    - {node: meeg.network_flow, in: {pairs: pairs, eigenmodes: eigenmodes, flow: consistency}, with: {min_streamlines: $min_streamlines}, out: network}
+    - {node: meeg.network_flow, in: {pairs: pairs, eigenmodes: eigenmodes, flow: consistency}, with: {min_streamlines: $min_streamlines}, out: [network_tiles, network_modes, network_totals]}
 
 outputs:
-  flow:        {kind: statistic, name: "{name}_tile_flow", of: spectra}
-  cells:       {kind: statistic, name: "{name}_tile_cells", of: spectra}
-  consistency: {kind: statistic, name: "{name}_sign_flip", of: spectra}
-  network:     {kind: statistic, name: "{name}_network_flow", of: spectra}
+  # per atom: MEASUREMENTS of the chunk spectra over the atoms (the time cells are made and tested in the run, never stored)
+  pair_flow:      {kind: measurement, over: atoms, of_statistic: spectra}
+  tile_power:     {kind: measurement, over: atoms, of_statistic: spectra}
+  consistency:    {kind: measurement, over: atoms, of_statistic: spectra}
+  network_tiles:  {kind: measurement, over: atoms, of_statistic: spectra}
+  network_modes:  {kind: measurement, over: atoms, of_statistic: spectra}
+  network_totals: {kind: measurement, over: atoms, of_statistic: spectra}

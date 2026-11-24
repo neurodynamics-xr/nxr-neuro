@@ -1,5 +1,8 @@
 # The flow through the fibre network and its connectome eigenmodes (2026-11-24): the graphs
 
+> **Storage, since the flow consolidation (2026-11-24):** the per-member flow results named below as statistics are stored as MEASUREMENTS over the atoms and their products, and the time cells are not stored; see `docs/reference.md`, "How the flow results are stored".
+
+
 **Status:** design written before the code (CONTRIBUTING, "Adding a node or a pipeline", step 0), then built: `tile_network` and `connectome_flow`. A port of nxr's
 flow through the fibre network (`staging/bursts/analysis/flownet.py`, with `nxr.measure.tile_connectome.surface_ladder`): its design and names are the starting point;
 every deviation is listed below with its reason. The combined geometric-connectome eigenmodes of nxr (`flowmodes.py`) are a graph only here (last section).

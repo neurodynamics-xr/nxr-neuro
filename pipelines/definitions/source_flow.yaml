@@ -32,9 +32,13 @@ inputs:
   sensor_package: {operator: eigenvectors, where: {name: "${sensor_package}_eigenvectors"}, when: {columns: sensor_coordinates}, hint: "the sensor surface's Hodge-Dirac solve (option A)"}
   channel_map:    {field: any, where: {name: $channel_map}, when: {columns: sensor_coordinates}, hint: "the sensor surface's vertex-to-channel map (option A)"}
   atoms:          {selection: any, where: {name: $atoms}, hint: "the frequency atoms, a kernel set (`nxr-neuro run select_kernels --profile gaussian --chart linear --width-rule proportional` first)"}
+  pairs:          {selection: any, where: {name: $pairs}, hint: "the band pairs' members: atoms x bands x bands (`nxr-neuro run select_kernel_product --factors 3 --first ATOMS --second BANDS --third BANDS` first)"}
+  atom_bands:     {selection: any, where: {name: $atom_bands}, hint: "the sign-flip test's members per band: atoms x bands (`nxr-neuro run select_kernel_product --factors 2` first)"}
   bands:          {selection: any, where: {name: $bands}, hint: "the cortical eigenvalue bands, a kernel set (`nxr-neuro run select_kernels --profile cos2_partition`; centres as wavelengths in the surface's unit)"}
 
 parameters:
+  pairs: {default: null, meaning: "the product atoms x bands x bands by name: the band pairs are measured over its members", unit: "-"}
+  atom_bands: {default: null, meaning: "the product atoms x bands by name: the sign-flip test per band is measured over its members (the whole field's over the atoms)", unit: "-"}
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
   kernel: {default: null, meaning: "the free-orientation minimum-norm kernel's name (the caller's: the reference used one made with the empty-room noise covariance and the cardiac and blink projectors kept)", unit: "-"}
   cortex: {default: per_hemisphere, meaning: "per_hemisphere (each hemisphere with its own modes: the reference's, so the default by the method rule) | glued (one solve on the glued cortex: the kernel's rows selected, the bridge zero, the medial wall dropped); both are named options, to compare", unit: "-", choices: [per_hemisphere, glued]}
@@ -77,39 +81,47 @@ steps:
       - {node: signal.overlapped_spectrum, in: {x: recording, operator: serving}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectrum}
       - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: serving}, out: spectra}
   after:
-    - {node: signal.cortical_flow, in: {spectra: spectra, package: left, operator: left_operator, kernel_columns: left_kernel_columns, frequency: atoms, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [left_whole_vertices, left_whole_edges, left_whole_modes, left_pair_vertices, left_pair_edges, left_pair_modes], when: {cortex: per_hemisphere}}
+    - {node: signal.cortical_flow, in: {spectra: spectra, package: left, operator: left_operator, kernel_columns: left_kernel_columns, frequency: atoms, scale: bands}, with: {measure_suffix: _left, frequency_weighting: kernels, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [left_whole_vertices, left_whole_edges, left_whole_modes, left_pair_vertices, left_pair_edges, left_pair_modes], when: {cortex: per_hemisphere}}
     - {node: signal.cortical_time_cells, in: {spectra: spectra, package: left, operator: left_operator, kernel_columns: left_kernel_columns, frequency: atoms, scale: bands}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cell_width: $cell_width}, out: left_cells, when: {cortex: per_hemisphere, time_cells: true}}
-    - {node: stats.sign_flip_consistency, in: {cells: left_cells}, with: {elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip}, out: left_consistency, when: {cortex: per_hemisphere, time_cells: true}}
-    - {node: signal.cortical_flow, in: {spectra: spectra, package: right, operator: right_operator, kernel_columns: right_kernel_columns, frequency: atoms, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [right_whole_vertices, right_whole_edges, right_whole_modes, right_pair_vertices, right_pair_edges, right_pair_modes], when: {cortex: per_hemisphere}}
+    - {node: stats.sign_flip_consistency, in: {cells: left_cells}, with: {measure_suffix: _left, elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip}, out: [left_consistency, left_consistency_summary, left_whole_consistency, left_whole_consistency_summary], when: {cortex: per_hemisphere, time_cells: true}}
+    - {node: signal.cortical_flow, in: {spectra: spectra, package: right, operator: right_operator, kernel_columns: right_kernel_columns, frequency: atoms, scale: bands}, with: {measure_suffix: _right, frequency_weighting: kernels, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [right_whole_vertices, right_whole_edges, right_whole_modes, right_pair_vertices, right_pair_edges, right_pair_modes], when: {cortex: per_hemisphere}}
     - {node: signal.cortical_time_cells, in: {spectra: spectra, package: right, operator: right_operator, kernel_columns: right_kernel_columns, frequency: atoms, scale: bands}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cell_width: $cell_width}, out: right_cells, when: {cortex: per_hemisphere, time_cells: true}}
-    - {node: stats.sign_flip_consistency, in: {cells: right_cells}, with: {elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip}, out: right_consistency, when: {cortex: per_hemisphere, time_cells: true}}
-    - {node: signal.cortical_flow, in: {spectra: spectra, package: glued, operator: glued_operator, kernel_columns: glued_kernel_columns, frequency: atoms, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [glued_whole_vertices, glued_whole_edges, glued_whole_modes, glued_pair_vertices, glued_pair_edges, glued_pair_modes], when: {cortex: glued}}
+    - {node: stats.sign_flip_consistency, in: {cells: right_cells}, with: {measure_suffix: _right, elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip}, out: [right_consistency, right_consistency_summary, right_whole_consistency, right_whole_consistency_summary], when: {cortex: per_hemisphere, time_cells: true}}
+    - {node: signal.cortical_flow, in: {spectra: spectra, package: glued, operator: glued_operator, kernel_columns: glued_kernel_columns, frequency: atoms, scale: bands}, with: {measure_suffix: _glued, frequency_weighting: kernels, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [glued_whole_vertices, glued_whole_edges, glued_whole_modes, glued_pair_vertices, glued_pair_edges, glued_pair_modes], when: {cortex: glued}}
     - {node: signal.cortical_time_cells, in: {spectra: spectra, package: glued, operator: glued_operator, kernel_columns: glued_kernel_columns, frequency: atoms, scale: bands}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cell_width: $cell_width}, out: glued_cells, when: {cortex: glued, time_cells: true}}
-    - {node: stats.sign_flip_consistency, in: {cells: glued_cells}, with: {elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip}, out: glued_consistency, when: {cortex: glued, time_cells: true}}
+    - {node: stats.sign_flip_consistency, in: {cells: glued_cells}, with: {measure_suffix: _glued, elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip}, out: [glued_consistency, glued_consistency_summary, glued_whole_consistency, glued_whole_consistency_summary], when: {cortex: glued, time_cells: true}}
 
 outputs:
+  # each cortex's measures carry its suffix (measure_suffix _left / _right / _glued): the sensor flow's measures of the same recording over the same atoms, and the other
+  # hemisphere's, stay apart (the store's key does not name the surface: #264)
   spectra: {kind: statistic, name: "{name}_chunk_spectra", of: recording}
-  left_whole_vertices: {kind: statistic, name: "{name}_left_flow_vertices", of: recording, when: {cortex: per_hemisphere}}
-  left_whole_edges: {kind: statistic, name: "{name}_left_flow_edges", of: recording, when: {cortex: per_hemisphere}}
-  left_whole_modes: {kind: statistic, name: "{name}_left_flow_modes", of: recording, when: {cortex: per_hemisphere}}
-  left_pair_vertices: {kind: statistic, name: "{name}_left_band_pair_vertices", of: recording, when: {cortex: per_hemisphere}}
-  left_pair_edges: {kind: statistic, name: "{name}_left_band_pair_edges", of: recording, when: {cortex: per_hemisphere}}
-  left_pair_modes: {kind: statistic, name: "{name}_left_band_pair_modes", of: recording, when: {cortex: per_hemisphere}}
-  left_cells: {kind: statistic, name: "{name}_left_time_cells", of: recording, when: {cortex: per_hemisphere, time_cells: true}}
-  left_consistency: {kind: statistic, name: "{name}_left_sign_flip", of: recording, when: {cortex: per_hemisphere, time_cells: true}}
-  right_whole_vertices: {kind: statistic, name: "{name}_right_flow_vertices", of: recording, when: {cortex: per_hemisphere}}
-  right_whole_edges: {kind: statistic, name: "{name}_right_flow_edges", of: recording, when: {cortex: per_hemisphere}}
-  right_whole_modes: {kind: statistic, name: "{name}_right_flow_modes", of: recording, when: {cortex: per_hemisphere}}
-  right_pair_vertices: {kind: statistic, name: "{name}_right_band_pair_vertices", of: recording, when: {cortex: per_hemisphere}}
-  right_pair_edges: {kind: statistic, name: "{name}_right_band_pair_edges", of: recording, when: {cortex: per_hemisphere}}
-  right_pair_modes: {kind: statistic, name: "{name}_right_band_pair_modes", of: recording, when: {cortex: per_hemisphere}}
-  right_cells: {kind: statistic, name: "{name}_right_time_cells", of: recording, when: {cortex: per_hemisphere, time_cells: true}}
-  right_consistency: {kind: statistic, name: "{name}_right_sign_flip", of: recording, when: {cortex: per_hemisphere, time_cells: true}}
-  glued_whole_vertices: {kind: statistic, name: "{name}_glued_flow_vertices", of: recording, when: {cortex: glued}}
-  glued_whole_edges: {kind: statistic, name: "{name}_glued_flow_edges", of: recording, when: {cortex: glued}}
-  glued_whole_modes: {kind: statistic, name: "{name}_glued_flow_modes", of: recording, when: {cortex: glued}}
-  glued_pair_vertices: {kind: statistic, name: "{name}_glued_band_pair_vertices", of: recording, when: {cortex: glued}}
-  glued_pair_edges: {kind: statistic, name: "{name}_glued_band_pair_edges", of: recording, when: {cortex: glued}}
-  glued_pair_modes: {kind: statistic, name: "{name}_glued_band_pair_modes", of: recording, when: {cortex: glued}}
-  glued_cells: {kind: statistic, name: "{name}_glued_time_cells", of: recording, when: {cortex: glued, time_cells: true}}
-  glued_consistency: {kind: statistic, name: "{name}_glued_sign_flip", of: recording, when: {cortex: glued, time_cells: true}}
+  left_whole_vertices: {kind: measurement, over: atoms, of: recording, when: {cortex: per_hemisphere}}
+  left_whole_edges: {kind: measurement, over: atoms, of: recording, when: {cortex: per_hemisphere}}
+  left_whole_modes: {kind: measurement, over: atoms, of: recording, when: {cortex: per_hemisphere}}
+  left_pair_vertices: {kind: measurement, over: pairs, of: recording, when: {cortex: per_hemisphere}}
+  left_pair_edges: {kind: measurement, over: pairs, of: recording, when: {cortex: per_hemisphere}}
+  left_pair_modes: {kind: measurement, over: pairs, of: recording, when: {cortex: per_hemisphere}}
+  left_consistency: {kind: measurement, over: atom_bands, of: recording, when: {cortex: per_hemisphere, time_cells: true}}
+  left_consistency_summary: {kind: measurement, over: atom_bands, of: recording, when: {cortex: per_hemisphere, time_cells: true}}
+  left_whole_consistency: {kind: measurement, over: atoms, of: recording, when: {cortex: per_hemisphere, time_cells: true}}
+  left_whole_consistency_summary: {kind: measurement, over: atoms, of: recording, when: {cortex: per_hemisphere, time_cells: true}}
+  right_whole_vertices: {kind: measurement, over: atoms, of: recording, when: {cortex: per_hemisphere}}
+  right_whole_edges: {kind: measurement, over: atoms, of: recording, when: {cortex: per_hemisphere}}
+  right_whole_modes: {kind: measurement, over: atoms, of: recording, when: {cortex: per_hemisphere}}
+  right_pair_vertices: {kind: measurement, over: pairs, of: recording, when: {cortex: per_hemisphere}}
+  right_pair_edges: {kind: measurement, over: pairs, of: recording, when: {cortex: per_hemisphere}}
+  right_pair_modes: {kind: measurement, over: pairs, of: recording, when: {cortex: per_hemisphere}}
+  right_consistency: {kind: measurement, over: atom_bands, of: recording, when: {cortex: per_hemisphere, time_cells: true}}
+  right_consistency_summary: {kind: measurement, over: atom_bands, of: recording, when: {cortex: per_hemisphere, time_cells: true}}
+  right_whole_consistency: {kind: measurement, over: atoms, of: recording, when: {cortex: per_hemisphere, time_cells: true}}
+  right_whole_consistency_summary: {kind: measurement, over: atoms, of: recording, when: {cortex: per_hemisphere, time_cells: true}}
+  glued_whole_vertices: {kind: measurement, over: atoms, of: recording, when: {cortex: glued}}
+  glued_whole_edges: {kind: measurement, over: atoms, of: recording, when: {cortex: glued}}
+  glued_whole_modes: {kind: measurement, over: atoms, of: recording, when: {cortex: glued}}
+  glued_pair_vertices: {kind: measurement, over: pairs, of: recording, when: {cortex: glued}}
+  glued_pair_edges: {kind: measurement, over: pairs, of: recording, when: {cortex: glued}}
+  glued_pair_modes: {kind: measurement, over: pairs, of: recording, when: {cortex: glued}}
+  glued_consistency: {kind: measurement, over: atom_bands, of: recording, when: {cortex: glued, time_cells: true}}
+  glued_consistency_summary: {kind: measurement, over: atom_bands, of: recording, when: {cortex: glued, time_cells: true}}
+  glued_whole_consistency: {kind: measurement, over: atoms, of: recording, when: {cortex: glued, time_cells: true}}
+  glued_whole_consistency_summary: {kind: measurement, over: atoms, of: recording, when: {cortex: glued, time_cells: true}}

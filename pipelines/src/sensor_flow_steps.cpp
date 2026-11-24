@@ -38,6 +38,12 @@ using cd = std::complex<double>;
 
 namespace {
 
+// a stated suffix on every measure an output describes (e.g. "_left", "_right"): two measurements of one recording over one selection, made on two surfaces
+// (the hemispheres), stay two (the store's key has no surface: #264). Empty: the names as they are.
+void suffix_measures(ng::Array& a, const std::string& suffix) {
+  if (suffix.empty() || !a.meta.contains("describe") || !a.meta["describe"].contains("measures")) return;
+  for (auto& m : a.meta["describe"]["measures"]) m["measure"] = m["measure"].get<std::string>() + suffix;
+}
 ng::PortType constant_of(const char* cls) {
   ng::PortType t;
   t.cls = ng::PortClass::constant;
@@ -414,7 +420,9 @@ ng::NodeSpec spectral_flow() {
     if (w == "kernels" && !in.count("frequency")) ng::refuse(std::string(kFlow) + ": frequency_weighting kernels needs the frequency kernel set");
     if (w == "kernels") text_param(p, "frequency_normalisation", kFlow);
     ng::Planned out;
-    for (const char* o : {"whole_vertices", "whole_edges", "whole_modes", "pair_vertices", "pair_edges", "pair_modes"}) { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "statistic"; out.out[o] = t; }
+    // per member of the frequency kernel set (and of the band pairs): MEASUREMENTS over those members; every_bin's axis is the frequency line's bins (no members): statistics
+    const char* kind = w == "kernels" ? "measurement" : "statistic";
+    for (const char* o : {"whole_vertices", "whole_edges", "whole_modes", "pair_vertices", "pair_edges", "pair_modes"}) out.out[o] = constant_of(kind);
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_flow(c, p, kFlow, false)); };
@@ -572,8 +580,12 @@ ng::NodeSpec sign_flip_consistency() {
   n.name = kFlip;
   n.kind = ng::Kind::array;
   n.inputs = {{"cells", "the time cells of each atom x band (signal.atom_time_cells)", false}};
-  n.outputs = {{"consistency", "per atom x band: R1 per element, its p and family-wise p, the threshold, the median and its null, the neighbouring cells' correlation", false}};
+  n.outputs = {{"consistency", "a MEASUREMENT over the members of atoms x bands (the band groups, the atom fastest): per element its R1, p and family-wise p", false},
+               {"consistency_summary", "a MEASUREMENT over the same members, one row: the threshold, the median R1, the median's null 95th percentile, its p, the neighbouring cells' correlation, the cells, the groups flipped", false},
+               {"whole_consistency", "as consistency, over the atoms, for the whole field's groups (band -1); absent when the cells have none", false},
+               {"whole_consistency_summary", "as consistency_summary, over the atoms, for the whole field's groups; absent when the cells have none", false}};
   n.parameters = {
+      {"measure_suffix", Json(""), "a suffix on every measure name (e.g. _left, _right: per-hemisphere runs of one recording over one selection); empty: none", "-", {}, false},
       {"elements", Json(), "which values are tested: edges (the edge phase current, one component) | vertices (the vertex phase current, three components) (no default)", "-", {"edges", "vertices"}, false},
       {"patterns", Json(), "the random sign patterns over the cells (no default; nxr's flow analysis: 500 for its spectrum, 2000 for its maps)", "-", {}, false},
       {"seed", Json(), "the seed of numpy's default_rng, created once a run and drawn in the groups' order (no default; nxr's flow analysis: 0)", "-", {}, false},
@@ -585,7 +597,7 @@ ng::NodeSpec sign_flip_consistency() {
     if (!in.count("cells")) ng::refuse(std::string(kFlip) + ": cells is not given");
     text_param(p, "elements", kFlip); integer_param(p, "patterns", kFlip); integer_param(p, "seed", kFlip); integer_param(p, "cells_per_flip", kFlip);
     ng::Planned out;
-    out.out["consistency"] = constant_of("statistic");
+    for (const char* o : {"consistency", "consistency_summary", "whole_consistency", "whole_consistency_summary"}) out.out[o] = constant_of("measurement");
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(std::make_pair(constant_input(c, "cells", kFlip), p)); };
@@ -599,27 +611,55 @@ ng::NodeSpec sign_flip_consistency() {
     const std::vector<std::int64_t> columns = measures[edges ? 0 : 1].at("columns").get<std::vector<std::int64_t>>();
     const int components = edges ? 1 : 3;
     nxr::stats::NumpyGenerator generator(static_cast<std::uint64_t>(p["seed"].get<std::int64_t>()));
-    ng::Array out;
     const std::int64_t width = columns[1] - columns[0], elements = width / components;
-    out.cols = 3 * elements + 7;
-    Json rows = Json::array();
+    std::vector<nxr::stats::SignFlipConsistency> tests;
+    Json members = Json::array();
     for (const auto& g : groups) {
       const std::int64_t first = g["first_row"], count = g["cells"];
       if (count < 2) ng::refuse(std::string(kFlip) + ": an atom x band has fewer than two cells");
       Eigen::MatrixXd values(count, width);
       for (std::int64_t r = 0; r < count; ++r) for (std::int64_t j = 0; j < width; ++j) values(r, j) = cells.at(static_cast<std::size_t>((first + r) * cells.cols + columns[0] + j));
-      const nxr::stats::SignFlipConsistency t = nxr::stats::signFlipConsistency(values, components, p["patterns"].get<std::int64_t>(), generator, p["cells_per_flip"].get<std::int64_t>());
-      for (std::int64_t e = 0; e < elements; ++e) out.data.push_back(t.consistency(e));
-      for (std::int64_t e = 0; e < elements; ++e) out.data.push_back(t.p(e));
-      for (std::int64_t e = 0; e < elements; ++e) out.data.push_back(t.familywiseP(e));
-      for (const double v : {t.threshold, t.median, t.medianNull95, t.medianP, t.neighbourCorrelation, static_cast<double>(t.cells), static_cast<double>(t.groups)}) out.data.push_back(v);
-      rows.push_back(Json{{"atom", g["atom"]}, {"band", g["band"]}});
+      tests.push_back(nxr::stats::signFlipConsistency(values, components, p["patterns"].get<std::int64_t>(), generator, p["cells_per_flip"].get<std::int64_t>()));
+      members.push_back(Json{{"atom", g["atom"]}, {"band", g["band"]}});
     }
-    out.rows = static_cast<std::int64_t>(rows.size());
-    out.meta["describe"] = Json{{"statistic", "sign_flip_consistency"}, {"method", "sign_flip_consistency"}, {"measure", "consistency"}, {"axes", Json::array({indexed_axis("atom_band", out.rows, rows), indexed_axis("column", out.cols)})}, {"elements", p["elements"]}, {"shape", Json::array({out.rows, out.cols})},
-                                {"columns", "R1 per element, p per element, family-wise p per element, then threshold, median R1, the median's null 95th percentile, its p, the neighbouring cells' correlation, cells, groups flipped"},
-                                {"rows", rows}, {"options", Json{{"patterns", p["patterns"]}, {"seed", p["seed"]}, {"cells_per_flip", p["cells_per_flip"]}, {"generator", "numpy default_rng (SeedSequence, PCG64), random() < 0.5 -> -1"}}}};
-    return ng::Arrays{{"consistency", std::move(out)}};
+    // MEASUREMENTS over the members, rows x members x measures, value (r members + m) measures + k: the band groups (band >= 0: atom x band, the atom fastest, the
+    // groups' order) and the whole field's groups (band -1: the atoms), each its own pair of outputs (absent when the cells have none)
+    const Json options = Json{{"elements", p["elements"]}, {"patterns", p["patterns"]}, {"seed", p["seed"]}, {"cells_per_flip", p["cells_per_flip"]}, {"generator", "numpy default_rng (SeedSequence, PCG64), random() < 0.5 -> -1"}};
+    auto measured = [&](bool whole) {
+      std::vector<std::size_t> picked;
+      Json picked_members = Json::array();
+      for (std::size_t m = 0; m < tests.size(); ++m)
+        if ((members[m].value("band", 0) < 0) == whole) { picked.push_back(m); picked_members.push_back(members[m]); }
+      const std::int64_t G = static_cast<std::int64_t>(picked.size());
+      ng::Array perElement, summary;
+      if (G == 0) { perElement.meta["absent"] = true; summary.meta["absent"] = true; return std::make_pair(perElement, summary); }
+      perElement.rows = elements * G; perElement.cols = 3;
+      perElement.data.assign(static_cast<std::size_t>(elements * G * 3), 0.0);
+      for (std::int64_t e = 0; e < elements; ++e)
+        for (std::int64_t j = 0; j < G; ++j) {
+          const auto& t = tests[picked[static_cast<std::size_t>(j)]];
+          const std::size_t at = static_cast<std::size_t>((e * G + j) * 3);
+          perElement.data[at] = t.consistency(e); perElement.data[at + 1] = t.p(e); perElement.data[at + 2] = t.familywiseP(e);
+        }
+      summary.rows = G; summary.cols = 7;
+      for (const std::size_t m : picked) {
+        const auto& t = tests[m];
+        for (const double v : {t.threshold, t.median, t.medianNull95, t.medianP, t.neighbourCorrelation, static_cast<double>(t.cells), static_cast<double>(t.groups)}) summary.data.push_back(v);
+      }
+      auto describe = [&](ng::Array& a, const std::vector<const char*>& names, std::int64_t rows, const char* rowsAre) {
+        Json measures = Json::array();
+        for (const char* m : names) measures.push_back(Json{{"measure", m}});
+        a.meta["describe"] = Json{{"method", "sign_flip_consistency"}, {"measures", measures}, {"shape", Json::array({rows, G, static_cast<std::int64_t>(names.size())})},
+                                  {"values_shape", Json::array({rows, G})}, {"attributes", Json{{"rows", rowsAre}, {"members", picked_members}, {"options", options}}}};
+      };
+      describe(perElement, {"consistency", "p", "familywise_p"}, elements, edges ? "the edges of the intrinsic complex" : "the vertices of the surface");
+      describe(summary, {"threshold", "median_consistency", "median_null_95", "median_p", "neighbour_correlation", "cells", "groups_flipped"}, 1, "one row: the member's summary");
+      return std::make_pair(perElement, summary);
+    };
+    auto [banded, bandedSummary] = measured(false);
+    auto [whole, wholeSummary] = measured(true);
+    for (ng::Array* a : {&banded, &bandedSummary, &whole, &wholeSummary}) suffix_measures(*a, p.value("measure_suffix", std::string()));
+    return ng::Arrays{{"consistency", std::move(banded)}, {"consistency_summary", std::move(bandedSummary)}, {"whole_consistency", std::move(whole)}, {"whole_consistency_summary", std::move(wholeSummary)}};
   };
   return n;
 }

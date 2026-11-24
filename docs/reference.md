@@ -1149,6 +1149,15 @@ flow definitions read it; the flow itself is `flow_readout.h` (`pairFlow`, `time
 
 ## The sensor-space flow analysis (`run sensor_flow`; the nodes `signal.overlapped_spectrum`, `signal.chunk_spectra`, `signal.spectral_flow`, `signal.atom_time_cells`, `stats.sign_flip_consistency`, `signal.sensor_power`, `stats.aperiodic_fit`; compute `nxr/signal/spectral_flow.h`, `nxr/signal/aperiodic.h`, `nxr/stats/sign_flip.h`; spec `docs/specs/2026-11-24-sensor-flow.md`)
 
+**How the flow results are stored (all flow pipelines).** A flow result per member of the frequency atoms is a MEASUREMENT over them (a value over a selection's
+members is a measurement): the whole field's power, phase currents, potential, stream and flow coefficients over the atoms; the band pairs over the product atoms x bands
+x bands; the sign-flip test's per-element results and per-member summary over atoms x bands (and, in the source flow, the whole field's over the atoms). The products are
+made first by `run select_kernel_product` (`--factors 3 --first ATOMS --second BANDS --third BANDS`; `--factors 2` for atoms x bands), their code mixed radix, the first
+factor fastest: atom a, then the band q at the tip, then the band p at the tail (the stored member order a + A (q + Q p)). With `frequency_weighting every_bin` the frequency line's bins are an axis, not members: statistics. The time
+cells are made and tested inside the run, never stored. The order on a new recording: `run sensor_flow_bins` (no atoms: its chunk spectra make the frequency line
+`<time line>_freq_L<log2 transform>`), `run select_kernels` (the atoms on that line, the bands on the solve's eigenvalue line), `run select_kernel_product`, `run sensor_flow`.
+Per hemisphere, each side's measures carry a stated suffix (`measure_suffix`: `_left`, `_right`) until a measurement's key names the surface its rows are on.
+
 Why: the cross-spectrum of the MEG channels holds their lags but no spatial meaning; read on the sensor surface with its Hodge-Dirac eigenmodes the lags become a
 phase current on a surface, split into travel (exact) and rotation (coexact). Graph: `signal.mode_analysis` (`modes exact_and_constant`: the constant and the exact
 modes, the field's coordinates) composed with the channel map once; per chunk, `signal.overlapped_spectrum` reads the chunk with `--overlap-samples` on each side from
@@ -1202,7 +1211,7 @@ chunk spectra served on a synthetic sphere).
 ## The flow across frequencies (`run sensor_flow_across_frequencies`; the node `signal.flow_across_frequencies`; compute `nxr/signal/flow_across_frequencies.h`; spec `docs/specs/2026-11-24-bispectrum.md`)
 
 Why: whether a flow moves at the same speed and in the same direction at every frequency is a READOUT of the flow pipeline's own per-atom results, a statistic over the
-members of the atoms' level: it reads the stored `<name>_flow_edges`, `_flow_modes`, `_flow_vertices` of `sensor_flow`, never the recording. Per pair of atoms: the cosine of
+members of the atoms' level: it reads `sensor_flow`'s stored measurements of the recording over the atoms (`phase_current`, `flow_coefficient`, `power`, `vertex_phase_current_x/_y/_z`), never the recording. Per pair of atoms: the cosine of
 their edge phase currents in the edges' Hodge inner product (star1), of their travel (exact) and of their rotation (coexact) Hodge-Dirac coefficients. Per vertex: the
 direction consistency |Σ_a u_a| / n (u_a the unit vertex phase current of atom a) and the least-squares slope and intercept of log apparent speed (2 pi f power / |vertex
 phase current|, an upper bound) against log frequency: 0 the same speed at every frequency, 1 the same wavelength. Stored: `<name>_atom_pairs` [atoms x atoms x 3],

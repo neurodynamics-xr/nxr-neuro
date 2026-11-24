@@ -5,7 +5,7 @@
 # chunks: recording, each chunk with an overlap of half a chunk on each side (reflected at the recording's ends) --[signal.overlapped_spectrum: one transform of 2^16 samples, no window, no
 # taper, no zero padding, the bins of [0, 60) Hz]--> the chunk's spectrum --[signal.chunk_spectra]--> the cross-spectrum in its factored form, stored.
 # after: --[signal.spectral_flow: the atoms (Gaussians normalised by the sum of their squared gains) x the cos² eigenvalue bands and their pairs]--> power, phase current per edge and
-# per vertex, Hodge-Dirac flow coefficients, potential and stream; --[signal.atom_time_cells]--> the same per time cell of each atom; --[stats.sign_flip_consistency]--> R1 per edge;
+# per vertex, Hodge-Dirac flow coefficients, potential and stream; --[signal.atom_time_cells]--> the same per time cell of each atom (in the run only: never stored); --[stats.sign_flip_consistency]--> R1 per edge;
 # optional (aperiodic: true): --[signal.sensor_power]--> --[stats.aperiodic_fit]--> each sensor's aperiodic background.
 # Every value below is a stated choice of this definition (the nodes default nothing). The atoms and bands are kernel sets made first by `select_kernels` (nxr's flow analysis's atoms: centres
 # 4 x 2^(k/5) Hz, k = 0..16, gaussian, chart linear, width_rule proportional, width 0.19622 (FWHM = 2 sqrt(2 ln 2) / 12 x the centre: a standard deviation of centre / 12), gain 2;
@@ -26,6 +26,8 @@ inputs:
   channel_map: {field: any, where: {name: $channel_map}, hint: "the sensor surface's vertex-to-channel map (`nxr-neuro run sensor_surface` first)"}
   atoms:       {selection: any, where: {name: $atoms}, hint: "the frequency atoms, a kernel set (`nxr-neuro run select_kernels --profile gaussian --chart linear --width-rule proportional` first)"}
   bands:       {selection: any, where: {name: $bands}, hint: "the eigenvalue bands, a kernel set on the solve's eigenvalue line (`nxr-neuro run select_kernels --profile cos2_partition` first)"}
+  pairs:       {selection: any, where: {name: $pairs}, hint: "the band pairs' members: atoms x bands x bands (`nxr-neuro run select_kernel_product --factors 3 --first ATOMS --second BANDS --third BANDS` first)"}
+  atom_bands:  {selection: any, where: {name: $atom_bands}, hint: "the sign-flip test's members: atoms x bands (`nxr-neuro run select_kernel_product --factors 2 --first ATOMS --second BANDS` first)"}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
@@ -33,6 +35,8 @@ parameters:
   channel_map: {default: null, meaning: "the sensor surface's vertex-to-channel map's name", unit: "-"}
   atoms: {default: null, meaning: "the frequency atoms' kernel set by name", unit: "-"}
   bands: {default: null, meaning: "the eigenvalue bands' kernel set by name", unit: "-"}
+  pairs: {default: null, meaning: "the product atoms x bands x bands by name: the band pairs are measured over its members", unit: "-"}
+  atom_bands: {default: null, meaning: "the product atoms x bands by name: the sign-flip test is measured over its members", unit: "-"}
   overlap_samples: {default: 16384, meaning: "the overlap on each side of a chunk: half a chunk (the chunk 2^15 samples), so each transform is 2^16 samples of data and every sample is taken in twice", unit: samples}
   transform_samples: {default: 65536, meaning: "each chunk's one transform: the chunk and its two overlaps (a part chunk at the recording's end reflected to the same length: one frequency line)", unit: samples}
   frequency_span: {default: [0, 60], meaning: "[lo, hi) the bins kept of each chunk's transform (the physiological bands)", unit: Hz}
@@ -59,19 +63,20 @@ steps:
   after:
     - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: atoms, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes]}
     - {node: signal.atom_time_cells, in: {spectra: spectra, package: package, frequency: atoms, scale: bands}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cell_width: $cell_width}, out: cells}
-    - {node: stats.sign_flip_consistency, in: {cells: cells}, with: {elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip}, out: consistency}
+    - {node: stats.sign_flip_consistency, in: {cells: cells}, with: {elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip}, out: [consistency, consistency_summary, whole_consistency, whole_consistency_summary]}
     - {node: signal.sensor_power, in: {spectra: spectra, package: package}, out: power, when: $aperiodic}
     - {node: stats.aperiodic_fit, in: {power: power}, with: {knee: $aperiodic_knee, fit_range: $aperiodic_range, iterations: 3, threshold: 2.0}, out: aperiodic_fit, when: $aperiodic}
 
 outputs:
   spectra:        {kind: statistic, name: "{name}_chunk_spectra", of: recording, axes: [{name: chunk, on: recording.time}, {name: frequency, line: "{recording}_freq_overlapped", of_time: recording.time}, {name: coordinate, on: package.from}]}
-  whole_vertices: {kind: statistic, name: "{name}_flow_vertices", of: recording}
-  whole_edges:    {kind: statistic, name: "{name}_flow_edges", of: recording}
-  whole_modes:    {kind: statistic, name: "{name}_flow_modes", of: recording}
-  pair_vertices:  {kind: statistic, name: "{name}_band_pair_vertices", of: recording}
-  pair_edges:     {kind: statistic, name: "{name}_band_pair_edges", of: recording}
-  pair_modes:     {kind: statistic, name: "{name}_band_pair_modes", of: recording}
-  cells:          {kind: statistic, name: "{name}_time_cells", of: recording}
-  consistency:    {kind: statistic, name: "{name}_sign_flip", of: recording}
+  whole_vertices: {kind: measurement, over: atoms, of: recording}
+  whole_edges:    {kind: measurement, over: atoms, of: recording}
+  whole_modes:    {kind: measurement, over: atoms, of: recording}
+  pair_vertices:  {kind: measurement, over: pairs, of: recording}
+  pair_edges:     {kind: measurement, over: pairs, of: recording}
+  pair_modes:     {kind: measurement, over: pairs, of: recording}
+  consistency:    {kind: measurement, over: atom_bands, of: recording}
+  consistency_summary: {kind: measurement, over: atom_bands, of: recording}
+  # (whole_consistency, whole_consistency_summary: the sensor chain's time cells are per band only, so the node makes them absent; not stored)
   power:          {kind: statistic, name: "{name}_sensor_power", of: recording, when: $aperiodic}
   aperiodic_fit:  {kind: statistic, name: "{name}_aperiodic", of: recording, when: $aperiodic}

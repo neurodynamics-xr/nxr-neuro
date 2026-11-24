@@ -8,6 +8,7 @@
 #include "nxr/io/subject_api.h"
 #include <unistd.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -19,6 +20,7 @@
 #include "nxr/geometry/point_set_mesh.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/pipelines/input.h"
 #include "run_definition.h"
 
@@ -121,6 +123,27 @@ int main() {
       std::vector<std::int32_t> few = {0, 1, 2};
       SelectionSpec sf; sf.name = "three"; sf.path = sf.name; sf.type = "indices"; sf.manifold_id = coil_id; sf.data = view(few, {3}); sf.picked = true;
       sub.selection(std::move(sf));
+      // a recording on the channels for the flow section: a plane wave at 10 Hz travelling along x across the cap (phase k x), small noise; 8 s at 256 Hz, chunks of 256
+      const std::int64_t T = 2048;
+      const double sfreq = 256.0;
+      ManifoldSpec tm;
+      tm.name = "rest_time"; tm.path = "time/rest_time"; tm.type = "line"; tm.n_vertices = T;
+      tm.topology = {"lattice", 1, 1, std::nullopt, {}};
+      const auto lc = lattice_counts({T});
+      if (lc.n_edges) tm.cols.set("n_edges", *lc.n_edges);
+      GeometrySpec tg; tg.form = "closed_form"; tg.cs_key = "clock";
+      DimensionSpec dm; dm.name = "time"; dm.n_vertices = T; dm.spacing = 1.0 / sfreq; dm.origin = 0.0; dm.unit = "s";
+      tg.dimensions.push_back(dm); tm.geometry = tg;
+      const std::string tid = sub.manifold(std::move(tm));
+      const std::string prod = sub.product({cid, tid});
+      std::vector<float> wave(static_cast<std::size_t>(M * T));
+      for (int ch = 0; ch < M; ++ch)
+        for (std::int64_t t = 0; t < T; ++t)
+          wave[static_cast<std::size_t>(ch * T + t)] = static_cast<float>(std::cos(2 * M_PI * 10.0 * static_cast<double>(t) / sfreq - 40.0 * stored[static_cast<std::size_t>(3 * ch)]) + 0.05 * (rnd() - 0.5));
+      FieldSpec rec;
+      rec.name = "rest"; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+      rec.data = view(wave, {M, T}); rec.array.chunks = Shape{M, 256}; rec.array.compress = false; rec.cols.set("unit", "T");
+      sub.field(std::move(rec));
     });
   }
 
@@ -211,6 +234,48 @@ int main() {
     CHECK_EQ(integer(e.eigenvectors, "n_rows"), e.V + e.E + e.F);
     const std::string nofloor = refusal([&] { nxrtest::run_definition(ds, sub, "eigenmodes", Json{{"surface", "helmet"}, {"modes", 40}}, true); });
     std::printf("  without a *1 floor: %s\n", nofloor.empty() ? "solved (no negative rim weight)" : nofloor.substr(0, 160).c_str());
+  }
+  // ── THE SENSOR FLOW on that solve, end to end: its per-member results stored as MEASUREMENTS over the kernel sets' members (the flow consolidation) ──
+  // order: the whole-recording flow first (no atoms: its stored chunk spectra make the frequency line, <time line>_freq_L<log2 transform>), then the atoms on that line and the bands on the
+  // eigenvalue line (select_kernels), their products (select_kernel_product), then sensor_flow
+  {
+    const Json serve = Json{{"recording", "rest"}, {"package", "hodgeDirac__helmet"}, {"channel_map", "helmet_map"}, {"overlap_samples", 128}, {"transform_samples", 512},
+                            {"frequency_span", Json::array({0.0, 60.0})}};
+    CHECK(!nxrtest::run_definition(ds, sub, "sensor_flow_bins", serve).empty());
+    const nxr::pipelines::StoredEigensolve e = nxr::pipelines::stored_eigensolve(sub, "hodgeDirac__helmet");
+    std::vector<double> mu;
+    for (std::size_t k = 0; k < e.mu.size(); ++k) if (e.kind[k] == 0 && e.mu[k] > 0) mu.push_back(e.mu[k]);
+    std::sort(mu.begin(), mu.end());
+    const Json bandCentres = Json::array({mu[mu.size() / 4], mu[mu.size() / 2], mu[3 * mu.size() / 4]});
+    CHECK(!nxrtest::run_definition(ds, sub, "select_kernels", Json{{"line", "rest_time_freq_L9"}, {"quantity", "frequency"}, {"profile", "gaussian"}, {"chart", "linear"},
+                                                                   {"width_rule", "proportional"}, {"width", 0.4}, {"gain", 1.0}, {"centres", Json::array({8.0, 10.0, 12.0})}, {"name", "atoms"}}).empty());
+    CHECK(!nxrtest::run_definition(ds, sub, "select_kernels", Json{{"line", text(e.line, "name")}, {"quantity", "wavenumber"}, {"profile", "cos2_partition"}, {"chart", "log2"}, {"centres", bandCentres},
+                                                                   {"name", "bands"}}).empty());
+    CHECK(!nxrtest::run_definition(ds, sub, "select_kernel_product", Json{{"factors", 3}, {"first", "atoms"}, {"second", "bands"}, {"third", "bands"}, {"name", "atom_band_pairs"}}).empty());
+    CHECK(!nxrtest::run_definition(ds, sub, "select_kernel_product", Json{{"factors", 2}, {"first", "atoms"}, {"second", "bands"}, {"name", "atom_bands"}}).empty());
+    Json flow = serve;
+    flow["atoms"] = "atoms"; flow["bands"] = "bands"; flow["pairs"] = "atom_band_pairs"; flow["atom_bands"] = "atom_bands"; flow["patterns"] = 50; flow["name"] = "flow";
+    CHECK(!nxrtest::run_definition(ds, sub, "sensor_flow", flow).empty());
+    const nxr::io::testing::Probe probe(sub);
+    auto selection_id = [&](const std::string& name) { const auto r = probe.rows("selection", {{"name", V(name)}}); return r.empty() ? std::string() : text(r.front(), "id"); };
+    auto measured = [&](const std::string& over, const std::string& measure) { return probe.rows("selection_measurement", {{"selection_id", V(selection_id(over))}, {"measure", V(measure)}}).size(); };
+    CHECK(measured("atoms", "phase_current") == 1 && measured("atoms", "power") == 1 && measured("atoms", "flow_coefficient") == 1);         // the whole field, per atom
+    CHECK(measured("atom_band_pairs", "phase_current") == 1 && measured("atom_band_pairs", "power") == 1);                                   // every band pair, per atom
+    CHECK(measured("atom_bands", "consistency") == 1 && measured("atom_bands", "threshold") == 1);                                         // the sign-flip test, per atom and band
+    // the member axis of each stored measurement is its selection's members, in the product's code order (the first factor fastest: atom + A (band p + Q band q))
+    auto members_of = [&](const std::string& over, const std::string& measure) {
+      const auto rows = probe.rows("selection_measurement", {{"selection_id", V(selection_id(over))}, {"measure", V(measure)}});
+      if (rows.empty()) return std::int64_t(-1);
+      return ArrayReader::open(sub.store(), text(rows.front(), "array_path")).shape().at(1);
+    };
+    auto n_members = [&](const std::string& name) { return integer(probe.rows("selection", {{"name", V(name)}}).front(), "n_members"); };
+    CHECK(n_members("atom_band_pairs") == n_members("atoms") * n_members("bands") * n_members("bands"));
+    CHECK(members_of("atoms", "phase_current") == n_members("atoms") && members_of("atom_band_pairs", "phase_current") == n_members("atom_band_pairs") &&
+          members_of("atom_bands", "consistency") == n_members("atom_bands"));
+    // a later run reads the stored flow measurements: the speed and direction across frequencies
+    CHECK(!nxrtest::run_definition(ds, sub, "sensor_flow_across_frequencies", Json{{"recording", "rest"}, {"package", "hodgeDirac__helmet"}, {"atoms", "atoms"}}).empty());
+    CHECK(!probe.rows("statistic", {{"name", V("rest_hodgeDirac__helmet_eigenvectors_across_frequencies_atom_pairs")}}).empty());
+    CHECK(probe.rows("statistic", {{"name", V("flow_time_cells")}}).empty() && probe.rows("statistic", {{"name", V("flow_flow_edges")}}).empty());   // no stored cells; no flow statistics
   }
   fs::remove_all(root);
   return nxrtest::finish("test_sensor_surface");

@@ -10,13 +10,17 @@ description: the run-to-run replication of the flow through the fibre network - 
 scope: subject
 
 inputs:
-  first:  {statistic: any, where: {name: "${first}_sign_flip"}, hint: "one run's connectome flow (`nxr-neuro run connectome_flow` first)"}
-  second: {statistic: any, where: {name: "${second}_sign_flip"}, hint: "the other run's connectome flow, on the same network and atoms"}
+  first_spectra:  {statistic: any, where: {name: $first}, hint: "the chunk spectra one run's connectome flow read (its measurements are of them)"}
+  second_spectra: {statistic: any, where: {name: $second}, hint: "the chunk spectra the other run's connectome flow read"}
+  atoms:  {selection: any, where: {name: $atoms}, hint: "the frequency atoms both runs were read with"}
+  first:  {measurement: mean_edge_flow, of: first_spectra, over: atoms, hint: "one run's connectome flow: its mean edge flow per pair and atom (`nxr-neuro run connectome_flow` first)"}
+  second: {measurement: mean_edge_flow, of: second_spectra, over: atoms, hint: "the other run's, on the same network and atoms"}
   pairs:  {statistic: any, where: {name: "${network}_pairs"}, hint: "the fibre network (`nxr-neuro run tile_network` first)"}
 
 parameters:
-  first: {default: null, meaning: "the stem of one run's connectome flow names", unit: "-"}
-  second: {default: null, meaning: "the stem of the other run's", unit: "-"}
+  first: {default: null, meaning: "the chunk spectra one run's connectome flow read, by name", unit: "-"}
+  second: {default: null, meaning: "the chunk spectra the other run's read, by name", unit: "-"}
+  atoms: {default: null, meaning: "the frequency atoms' kernel set by name (both runs')", unit: "-"}
   network: {default: null, meaning: "the stem of the fibre network's names", unit: "-"}
   min_streamlines: {default: 10, meaning: "a pair is joined when at least this many streamlines join it (nxr: 10)", unit: streamlines}
   name: {default: "{first}_{second}_replication", meaning: "the stored statistic's name", unit: "-"}
@@ -26,4 +30,4 @@ steps:
     - {node: stats.run_replication, in: {first: first, second: second, pairs: pairs}, with: {min_streamlines: $min_streamlines}, out: replication}
 
 outputs:
-  replication: {kind: statistic, name: $name, of: first}
+  replication: {kind: statistic, name: $name, of: first_spectra}
