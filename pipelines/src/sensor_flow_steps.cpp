@@ -10,8 +10,8 @@
 // Every node is a function of arrays: no file, no subject, no loop over a recording (the chunk service streams; the stored chunk spectra are an array handed over).
 #include "nxr/pipelines/sensor_flow_steps.h"
 
-#include <functional>
 #include <algorithm>
+#include <functional>
 #include <cmath>
 #include <complex>
 #include <string>
@@ -528,11 +528,11 @@ ng::NodeSpec atom_time_cells() {
     out.cols = E + 4 * S;
     Json groups = Json::array();
     std::int64_t row = 0;
-    for (Eigen::Index q = 0; q < Q; ++q)
+    for (Eigen::Index q = 0; q < Q; ++q) {
+      const Eigen::MatrixXd bandReadout = Psi * pr.scale.row(q).transpose().asDiagonal();     // Psi diag(h_q), once per band
       for (Eigen::Index a = 0; a < A; ++a) {
         const double sigmaT = 1.0 / (2.0 * M_PI * pr.standardDeviations[static_cast<std::size_t>(a)]);
         const std::int64_t cell = std::int64_t(1) << static_cast<int>(std::lround(std::log2(width * sigmaT * s.sfreq)));
-        const Eigen::MatrixXd bandReadout = Psi * pr.scale.row(q).transpose().asDiagonal();   // Psi diag(h_q)
         std::int64_t cells = 0;
         nxr::signal::TimeCellPairFlow carried;                                               // a cell cut by a chunk's end, completed from the next chunk
         for (std::int64_t t = 0; t < s.chunks; ++t) {
@@ -551,6 +551,7 @@ ng::NodeSpec atom_time_cells() {
         groups.push_back(Json{{"atom", a}, {"band", q}, {"first_row", row}, {"cells", cells}, {"cell_samples", cell}, {"cell_seconds", static_cast<double>(cell) / s.sfreq}});
         row += cells;
       }
+    }
     out.rows = row;
     out.meta["describe"] = Json{{"method", "atom_time_cells"}, {"measure", "time_cell_flow"}, {"shape", Json::array({row, E + 4 * S})}, {"axes", Json::array({indexed_axis("cell", row), indexed_axis("column", E + 4 * S)})}, {"measures", Json::array({Json{{"measure", "phase_current"}, {"columns", Json::array({0, E})}}, Json{{"measure", "vertex_phase_current"}, {"columns", Json::array({E, E + 3 * S})}},
                                                          Json{{"measure", "power"}, {"columns", Json::array({E + 3 * S, E + 4 * S})}}})},

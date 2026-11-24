@@ -1493,9 +1493,9 @@ reference is nxr's `nxr/pipelines/` (`definition.py`, `registry.py`, `inputs.py`
 - **`signal.phase_split`** (`form_steps.cpp`; spec `docs/specs/2026-11-19-intrinsic-form-nodes.md`): a complex scalar field on the surface a Hodge-Dirac package is solved on (the
   glued surface of a cortex: `meeg.apply_kernel` with `glued`) and the package → per sample, at the vertices: `potential` (the exact part's potential φ, d0 φ = the exact part of the
   1-form; for a phase step, a timing map, φ / ω), `stream` (the coexact part's stream function), `propagation` (−∇φ, vector3), and the ⋆1 energies `one_form_energy`, `exact_energy`, `coexact_energy`,
-  `exact_misfit_energy` (`splitPhase`, `vertexEnergy`) of the 1-form the parameter **`one_form`** names: `phase_gradient` (the DEFAULT, the reference: the earlier lab design used phase lags;
+  `exact_misfit_energy` (`splitPhase`, `vertexEnergy`) of the 1-form the parameter **`one_form`** names: `phase_gradient` (nxr's reference: the earlier design used phase lags;
   `nxr::signal::phaseGradient(complex, x)`, the phase step on the intrinsic edges: exact part = timing, coexact part = rotation) or `phase_current` (`nxr::signal::phaseCurrent(complex, x)`,
-  Im(conj(x_tail) x_tip): the exact part is the curl-free part of the current, not a timing); any other value is refused at the check. `one_form` is a step parameter, so it is in the provenance and
+  Im(conj(x_tail) x_tip): the exact part is the curl-free part of the current, not a timing); any other value, or none, is refused at the check (no default: the definition states it). `one_form` is a step parameter, so it is in the provenance and
   the cache key. The provenance record also holds `boundary`: `none` (closed surface) or `neumann_potential_dirichlet_stream` (open surface: Neumann potential, Dirichlet stream function), a fact of the method.
   The 1-forms stay inside the node. **Phase-wrap limit:** a phase step per edge is taken in (−π, π], so a wave with more than half a cycle per edge aliases; nothing in the output flags it. The runner binds the package's 2-form parts
   and its complex's options (mollify, flip_eps, star1_floor, from the solve's provenance) with its eigenvectors, in preparation; the node rebuilds the same complex and refuses

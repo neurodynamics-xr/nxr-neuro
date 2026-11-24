@@ -7,14 +7,11 @@
 #include <stdexcept>
 #include <string>
 
-#include "nxr/signal/fourier.h"
 
 namespace nxr::signal {
 
 namespace {
 [[noreturn]] void bad(const std::string& message) { throw std::invalid_argument(message); }
-using ComplexValue = std::complex<double>;
-using RowMajorComplex = Eigen::Matrix<ComplexValue, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 }  // namespace
 
 Eigen::MatrixXd selectVertexRows(const Eigen::MatrixXd& perVertexRows, const std::vector<std::int64_t>& sourceVertex, int components) {

@@ -151,8 +151,12 @@ PairFlow pairFlow(const Eigen::MatrixXcd& Y, const std::vector<Eigen::MatrixXd>&
 TimeCellPairFlow takeWholeCells(TimeCellPairFlow& carried, const TimeCellPairFlow& part, std::int64_t cellSamples) {
   const Eigen::Index cells = part.power.cols();
   if (static_cast<Eigen::Index>(part.samples.size()) != cells) bad("takeWholeCells: a part's sample counts, one a cell");
-  TimeCellPairFlow merged = part;                                                          // the carried cell added to the part's first cell when it is the same cell
-  if (carried.power.cols() == 1 && cells > 0 && carried.firstCell == part.firstCell) {
+  if (cells == 0) return TimeCellPairFlow{};                                               // nothing in this part: the carried cell waits for the next
+  if (carried.power.cols() == 1 && carried.firstCell != part.firstCell)
+    bad("takeWholeCells: the carried cell " + std::to_string(carried.firstCell) + " is not continued by the next chunk (its first cell " + std::to_string(part.firstCell) +
+        "): a chunk is missing from the line or the chunks are out of order");
+  TimeCellPairFlow merged = part;                                                          // the carried cell added to the part's first cell (the same cell)
+  if (carried.power.cols() == 1) {
     merged.power.col(0) += carried.power.col(0);
     merged.pairReal.col(0) += carried.pairReal.col(0);
     merged.pairImaginary.col(0) += carried.pairImaginary.col(0);

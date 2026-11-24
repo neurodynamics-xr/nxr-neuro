@@ -14,6 +14,7 @@
 #include <iostream>
 #include <limits>
 #include <random>
+#include <stdexcept>
 
 #include "mesh_helpers.h"
 #include "nxr/geometry/surface_arrays.h"
@@ -307,6 +308,14 @@ int main() {
       const double worst = power.cols() == 3 ? std::max(relative(power, whole.power.middleCols(1, 3)), relative(vertexCurrent, whole.vertexCurrent.middleCols(1, 3))) : 1.0;
       EXPECT(firstTaken == 1 && power.cols() == 3 && worst < 1e-10 && carried.samples == std::vector<std::int64_t>{1},
              "takeWholeCells: three parts give the uncut chunk's whole cells 1..3; the end cells never returned (gap " << worst << ")");
+      // a chunk missing from the line: the carried cell is not continued, and that is refused, never dropped silently
+      ns::TimeCellPairFlow carriedAcrossGap;
+      ns::takeWholeCells(carriedAcrossGap, ns::timeCellPairFlow(spectrum, firstBin, transformSamples, ownFirst, 9, lineFirst, cellSamples, sourceReadout, 3, complex.edges, &sharpWeights), cellSamples);
+      bool gapRefused = false;
+      try {
+        ns::takeWholeCells(carriedAcrossGap, ns::timeCellPairFlow(spectrum, firstBin, transformSamples, ownFirst + 19, 11, lineFirst + 19, cellSamples, sourceReadout, 3, complex.edges, &sharpWeights), cellSamples);
+      } catch (const std::invalid_argument&) { gapRefused = true; }
+      EXPECT(gapRefused, "takeWholeCells: a carried cell the next chunk does not continue (a chunk missing) is refused");
     }
   }
 

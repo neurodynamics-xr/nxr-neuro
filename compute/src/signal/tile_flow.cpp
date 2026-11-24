@@ -4,13 +4,11 @@
 #include <stdexcept>
 #include <string>
 
-#include "nxr/signal/fourier.h"
 
 namespace nxr::signal {
 
 namespace {
 [[noreturn]] void bad(const std::string& m) { throw std::invalid_argument(m); }
-using RowMajorComplex = Eigen::Matrix<std::complex<double>, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 }  // namespace
 
 ServedSynthesis servedSynthesis(const Eigen::MatrixXd& serving) {

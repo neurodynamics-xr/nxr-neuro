@@ -14,7 +14,6 @@ namespace nxr::signal {
 
 namespace {
 [[noreturn]] void bad(const std::string& m) { throw std::invalid_argument(m); }
-using RowMajorComplex = Eigen::Matrix<std::complex<double>, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 }  // namespace
 
 Eigen::MatrixXcd overlappedSpectrum(const Eigen::MatrixXd& servingOperator, const Eigen::MatrixXd& samples, std::int64_t left, std::int64_t right, std::int64_t overlap,
