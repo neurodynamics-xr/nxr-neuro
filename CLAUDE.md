@@ -29,6 +29,19 @@ either fixed or filed, never only mentioned in a report, a commit message or a c
    reproduction, the area labels) and name the issue numbers in the report.
 3. **Duplications are filed, not fixed piecemeal:** they are removed together in one survey-and-consolidation pass (label `duplicate`).
 
+## How a new compute or pipeline is developed: Python first
+
+For compute functions, nodes and pipelines (not io, file formats or storage), in this order:
+1. **Find what exists** (`tools/what_exists.py`). If the nodes exist, the pipeline is a YAML definition: no Python, no C++.
+2. **Prototype in Python on synthetic data**, built from library references (scipy, MNE-Python, numpy, PyGSP, …): iterate, troubleshoot and
+   plot there, with no build. A published method with a library implementation is used as it is; the prototype only wires references together
+   (it is not itself a reference: the method rule's reference stays the published method or the library).
+3. **Benchmark in Python before porting:** state each intermediate's size and rank, time it on synthetic data and on one chunk of real data, and
+   record the cost. Compose first and spectral first are proven here.
+4. **The prototype becomes the golden generator** (`*/test/golden/gen_<method>.py`), committed with its golden. Never in a results folder.
+5. **Port:** the compute function and its node, one parity test against the golden, the definition. One build, asked for first (workspace
+   rule 1), and one test run.
+
 ## Before designing a node or a pipeline
 
 Write it as its graph first (nodes, typed ports, the inputs it is handed, the outputs it gives back), each piece in its part (loading · preparation ·
