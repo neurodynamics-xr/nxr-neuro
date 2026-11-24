@@ -11,7 +11,7 @@ name: ci
 # Compiled objects are cached with ccache (keyed by branch, falling back to main), the bundled dependencies (HDF5, matio, c-blosc, geometry-central) included.
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     tags: ["v*"]
   pull_request:
     paths-ignore:          # documentation-only changes run no build and no tests
