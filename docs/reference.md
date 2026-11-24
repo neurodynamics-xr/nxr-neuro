@@ -459,6 +459,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro migrate glue` | A glued cortex of an earlier form (a map field and a bridge selection, or kept vertices beside the labelling) converted in place to the hemispheres labelling alone; a glue that removed more than the medial wall is refused (re-run glue). | `package migrate-glue` |
 | `nxr-neuro run sensor_surface` | The channels as a surface: a triangulated helmet whose vertices are the picked channels, a derived manifold with its vertex-to-channel map. | (new) |
 | `nxr-neuro run spectral_coefficients` | The mode-space Fourier coefficients of a recording per time tile, through a composed spatial operator (a package's modes and a free kernel, or the sensor surface's channel map). | (new) |
+| `nxr-neuro run sensor_flow` | The flow of the field on the sensor surface per atom of the joint frequency x eigenvalue level: chunk spectra with overlap, power, phase currents, Hodge-Dirac flow, band pairs, time cells and their sign-flip test, an optional aperiodic fit. | (new) |
 | `nxr-neuro run roll_up` | A measurement rolled up through its grid's hierarchy, or across a group's subjects (scope group). | `run roll_up` |
 | `nxr-neuro run band_analytic`, `cortical_band`, `member_activation`, `band_outer` | Field chains: pointwise fields (a band's analytic signal, the band on the cortex, one filter-bank member's activation, z z^H), run alone or composed into `measure`. | the steps of `pyramid`, `cortical_band_cells`, `opticalflow` |
 | `nxr-neuro run lowpass` | A zero-phase low-pass filter, written as a new recording. | `lowpass` |
@@ -1143,6 +1144,32 @@ scale members), `effectiveDegreesOfFreedom`. What it cannot resolve: a tile's bi
 that reverses within the tiles summed cancels in the quadrature (the whole-run view is net motion only); on sensors the coefficients describe the field on the
 helmet, nothing about its sources. Memory: the coefficients are held until the run ends (tiles x bins x rows complex). Tests: `test_mode_spectrum`,
 `test_spectral_coefficients` (synthetic).
+
+## The sensor-space flow analysis (`run sensor_flow`; the nodes `signal.overlapped_spectrum`, `signal.chunk_spectra`, `signal.spectral_flow`, `signal.atom_time_cells`, `stats.sign_flip_consistency`, `signal.sensor_power`, `stats.aperiodic_fit`; compute `nxr/signal/spectral_flow.h`, `nxr/signal/aperiodic.h`, `nxr/stats/sign_flip.h`; spec `docs/specs/2026-11-24-sensor-flow.md`)
+
+Why: the cross-spectrum of the MEG channels holds their lags but no spatial meaning; read on the sensor surface with its Hodge-Dirac eigenmodes the lags become a
+phase current on a surface, split into travel (exact) and rotation (coexact). Graph: `signal.mode_analysis` (`modes exact_and_constant`: the constant and the exact
+modes, the field's coordinates) composed with the channel map once; per chunk, `signal.overlapped_spectrum` reads the chunk with `--overlap-samples` on each side from
+its neighbours (reflected about the recording's first or last sample where it ends, numpy `reflect`), applies the operator and transforms once (`--transform-samples`,
+no window, no taper, no zero padding), keeping the bins of `--frequency-span`; `signal.chunk_spectra` stores them [chunks x bins x coordinates] (the cross-spectrum in
+its exact factored form: a bin's cross-spectrum is the sum over the chunks of each spectrum times its conjugate; with an overlap of half a chunk each sample is counted
+twice). After the loop, `signal.spectral_flow` weights the cross-spectrum by each frequency member (the atoms, a kernel set: Gaussians made by `select_kernels --profile
+gaussian --chart linear --width-rule proportional`, normalised by the square root of their squared gains' sum, `--frequency-normalisation`; or `every_bin`), forming
+per member the weighted sum C = Y Yᴴ once, and reads per member the whole field and every pair of eigenvalue bands (a kernel set on the solve's eigenvalue line,
+`select_kernels --profile cos2_partition`: an amplitude partition, so the pairs add back to the whole): power per vertex, phase current per intrinsic edge
+J = Im(conj(z_tail) z_tip) (travel tail to tip gives J < 0), phase current per vertex Im(conj(z) grad z), the edge current's Hodge-Dirac coefficients
+(`projectOneForm`), the exact potential (Neumann on an open surface) and the coexact stream (Dirichlet). `signal.atom_time_cells` reads each atom and band back in time
+per chunk (the synthesis composed on the atom's bins, one inverse transform) and sums the same quantities over cells of the atom's own width (the power of two of
+samples nearest `--cell-width` time standard deviations); `stats.sign_flip_consistency` tests the direction's consistency over those cells (the golden's R1 with
+numpy's `default_rng(--seed)`, `--patterns`, a family-wise maximum, `--cells-per-flip`; the measured correlation of neighbouring cells is stored as the check).
+With `--aperiodic true`: `signal.sensor_power` (each sensor's power per bin, the mean over chunks) and `stats.aperiodic_fit` (nxr's specparam port, `--aperiodic-knee`,
+`--aperiodic-range`). Derived at read, never stored: travel and rotation shares (squared flow coefficients by kind), band-pair shares, the apparent speed
+2 pi f power / |vertex phase current| (an upper bound), the power-weighted phase gradient, the periodic share 1 - background / power. Every value is a stated
+parameter of the definition; the nodes default none. What it cannot resolve: the field on the helmet only (no source, no field spread); patterns shorter than about
+two sensor spacings; a whole-run cross-spectrum keeps the net quadrature only; an incomplete eigensolve leaves coordinates and flow modes out (issue #219); the
+flow depends on the eigenvalue bands (always stated). Memory: the chunk spectra (coordinates x bins x chunks complex float32, about 7 MB a chunk for 268 sensors
+and [0, 60) Hz at 1200 Hz) and, in the time cells, one atom's band signal of one chunk (vertices x transform samples complex). Tests: `test_spectral_flow`,
+`test_sign_flip` (golden: numpy and nxr's flip_test), `test_aperiodic` (golden: nxr), `test_sensor_flow` (the nodes on a synthetic sphere).
 
 ## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 

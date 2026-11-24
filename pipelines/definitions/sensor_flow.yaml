@@ -64,7 +64,7 @@ steps:
     - {node: stats.aperiodic_fit, in: {power: power}, with: {knee: $aperiodic_knee, fit_range: $aperiodic_range, iterations: 3, threshold: 2.0}, out: aperiodic_fit, when: $aperiodic}
 
 outputs:
-  spectra:        {kind: statistic, name: "{name}_chunk_spectra", of: recording}
+  spectra:        {kind: statistic, name: "{name}_chunk_spectra", of: recording, axes: [{name: chunk, on: recording.time}, {name: frequency, line: "{recording}_freq_overlapped", of_time: recording.time}, {name: coordinate, on: package.from}]}
   whole_vertices: {kind: statistic, name: "{name}_flow_vertices", of: recording}
   whole_edges:    {kind: statistic, name: "{name}_flow_edges", of: recording}
   whole_modes:    {kind: statistic, name: "{name}_flow_modes", of: recording}

@@ -44,7 +44,11 @@
   {"name": "identification_accuracy", "unit_rule": null, "description": "the share of members identified: target from database (the largest r of a row on the diagonal), database from target (of a column), and chance 1/n (unitless)"},
   {"name": "edgewise_reliability", "unit_rule": null, "description": "per feature, on the z-scored feature vectors: ICC(1,1) of the two measurements, Finn's differential power and the group consistency (unitless)"},
   {"name": "amplitude_envelope_correlation", "unit_rule": null, "description": "Pearson's correlation of the amplitude envelopes |z| of every pair of rows over a span, [rows x rows] (a band's connectome; MEG fingerprinting, Brainstorm's AEC without orthogonalisation; a [rows x rows x bands] stack for a person's connectome feature): unitless"},
-  {"name": "identification_curve", "unit_rule": null, "description": "per number of principal components: the identification of the PCA reconstructions of the stacked target and database, accuracy both ways and the mean self-identifiability"}
+  {"name": "identification_curve", "unit_rule": null, "description": "per number of principal components: the identification of the PCA reconstructions of the stacked target and database, accuracy both ways and the mean self-identifiability"},
+  {"name": "flow", "unit_rule": null, "description": "the flow of a weighted cross-spectrum per frequency member and band pair: power, phase current per edge and per vertex, Hodge-Dirac flow coefficients, potential and stream"},
+  {"name": "time_cell_flow", "unit_rule": null, "description": "the sums over an atom's time cells of the edge and vertex phase currents and the power"},
+  {"name": "consistency", "unit_rule": null, "description": "the resultant length R1 of a direction's unit vectors over time cells, with its sign-flip p values"},
+  {"name": "aperiodic", "unit_rule": null, "description": "the aperiodic background's parameters of a spectrum: offset, exponent, knee, r2, points used"}
  ],
  "methods": [
   {"name": "sample", "description": "the sample covariance: the products of the samples (the mean of each block removed unless the options say otherwise), summed over the span's blocks and divided by dof (Brainstorm bst_noisecov, MNE compute_raw_covariance)"},
@@ -72,6 +76,12 @@
   {"name": "fingerprint", "description": "the identification of a cohort's members from two measurements each (da Silva Castanheira et al. 2021, Nat Commun 12:5713; after Finn et al. 2015 and Amico & Goni 2018): z-scored feature vectors, their Pearson correlation, accuracy both ways, self-identifiability, edgewise reliability and the PCA reconstruction curve (nxr::stats identification.h)"},
   {"name": "pca", "description": "the principal components across the members of a table of measurements (members x features), by the thin SVD of the centred table: components, singular values and explained variance, scores, the centring; reconstruction at k components is derived at read (nxr::pca; `compute pca`)"},
   {"name": "scale_selection", "description": "the links of a scale selection: for each pair's event (a labelling's member) the cross-pair event it belongs to, events matched across (spatial level, time level) pairs by the ladders' nesting in space and overlap in time (nxr-neuro `scaleselection`; Rheome detect.blobscale)"},
-  {"name": "point_source", "description": "unit point sources planted at vertices and read back through a stored forward model and inverse kernel (the resolution matrix's columns): the instrument's blur, a reference measurement (nxr-neuro `pointspread compute`)"}
+  {"name": "point_source", "description": "unit point sources planted at vertices and read back through a stored forward model and inverse kernel (the resolution matrix's columns): the instrument's blur, a reference measurement (nxr-neuro `pointspread compute`)"},
+  {"name": "chunk_spectra", "description": "each chunk's spectrum in a surface's field coordinates, the chunk taken in with an overlap on each side (reflected at the recording's ends), one transform, no window, no taper, no zero padding: the cross-spectrum in its exact factored form (nxr-neuro `sensor_flow`)"},
+  {"name": "spectral_flow", "description": "the flow of a weighted cross-spectrum in a surface's field coordinates per frequency member (an atom or a bin), whole field and band pairs: power, phase current per edge and per vertex, Hodge-Dirac flow coefficients, potential and stream (nxr-neuro `sensor_flow`)"},
+  {"name": "atom_time_cells", "description": "the sums over each atom's own time cells (a dyadic level of the time line) of the edge and vertex phase currents and the power, per atom and band (nxr-neuro `sensor_flow`)"},
+  {"name": "sign_flip_consistency", "description": "the sign-flip (time-reversal) test of a direction's consistency over time cells: R1 per element, per-element and family-wise p, the median and its null (nxr's flow maps flip_test; numpy default_rng)"},
+  {"name": "sensor_power", "description": "each vertex's power per bin from chunk spectra in field coordinates: the mean over the chunks of the synthesised field's squared magnitude"},
+  {"name": "aperiodic_fit", "description": "the aperiodic background of each spectrum: specparam's aperiodic model without or with a knee (nxr's nxr.spectral.aperiodic)"}
  ]
 }

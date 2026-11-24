@@ -69,6 +69,13 @@ const ng::Array& constant_input(const ng::Arrays& c, const char* port, const cha
   return it->second;
 }
 
+// an axis described by its entries (indices or names): the runner stores it as the values it runs along
+Json indexed_axis(const char* name, std::int64_t size, const Json& values = Json()) {
+  Json v = values;
+  if (v.is_null()) { v = Json::array(); for (std::int64_t i = 0; i < size; ++i) v.push_back(i); }
+  return Json{{"name", name}, {"size", size}, {"values", v}};
+}
+
 // ── signal.overlapped_spectrum ──────────────────────────────────────────────────────────────────────────────────
 const char* const kServe = "signal.overlapped_spectrum";
 struct ServePrepared { Eigen::MatrixXd op; std::vector<std::int32_t> channels; std::int64_t overlap = 0, transform = 0, first = 0, bins = 0; };
@@ -215,6 +222,8 @@ ng::NodeSpec chunk_spectra() {
     Json chunks = Json::array();
     for (std::size_t i = 0; i < s.firsts.size(); ++i)
       chunks.push_back(Json{{"first", s.firsts[i]}, {"samples", s.owns[i]}, {"span", Json::array({static_cast<double>(s.firsts[i]) / pr.sfreq, static_cast<double>(s.firsts[i] + s.owns[i]) / pr.sfreq})}});
+    Json bin_members = Json::array();
+    for (std::int64_t k = 0; k < pr.bins; ++k) bin_members.push_back(pr.first + k);
     const Json producer = Json{{"sfreq", pr.sfreq}, {"transform_samples", pr.transform}, {"overlap_samples", pr.overlap}, {"first_bin", pr.first}, {"bins", pr.bins},
                                {"frequency_resolution_hz", df}, {"modes", pr.op_meta.value("modes", Json::array())}, {"mu", pr.op_meta.value("mu", Json::array())},
                                {"normalisation", pr.op_meta.value("rows", Json::object()).value("normalisation", Json())}, {"components", 1}, {"chunks", chunks}};
@@ -223,7 +232,7 @@ ng::NodeSpec chunk_spectra() {
     a.meta["describe"] = Json{{"measure", "fourier_coefficient"}, {"method", "chunk_spectra"}, {"label", "chunk_spectra"}, {"precision", "float32"}, {"value_type", "complex"},
                               {"shape", Json::array({T, pr.bins, R, 2})}, {"unit", "(operator output) x samples"},
                               {"axes", Json::array({Json{{"name", "chunk"}, {"size", T}, {"values", chunks}},
-                                                    Json{{"name", "frequency"}, {"size", pr.bins}, {"line", Json{{"spacing", df}, {"origin", static_cast<double>(pr.first) * df}, {"unit", "Hz"}, {"dimension", "frequency"},
+                                                    Json{{"name", "frequency"}, {"size", pr.bins}, {"members", bin_members}, {"line", Json{{"spacing", df}, {"origin", static_cast<double>(pr.first) * df}, {"unit", "Hz"}, {"dimension", "frequency"},
                                                                                                              {"fft", Json{{"n", pr.transform}, {"fs", pr.sfreq}}}}}},
                                                     Json{{"name", "coordinate"}, {"size", R}, {"members", pr.op_meta.value("modes", Json::array())}}})},
                               {"options", Json{{"overlap_samples", pr.overlap}, {"transform_samples", pr.transform}, {"operator", pr.op_meta},
@@ -413,7 +422,7 @@ ng::NodeSpec spectral_flow() {
     if (w == "kernels" && !in.count("frequency")) ng::refuse(std::string(kFlow) + ": frequency_weighting kernels needs the frequency kernel set");
     if (w == "kernels") text_param(p, "frequency_normalisation", kFlow);
     ng::Planned out;
-    for (const char* o : {"whole_vertices", "whole_edges", "whole_modes", "pair_vertices", "pair_edges", "pair_modes"}) { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "measurement"; out.out[o] = t; }
+    for (const char* o : {"whole_vertices", "whole_edges", "whole_modes", "pair_vertices", "pair_edges", "pair_modes"}) { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "statistic"; out.out[o] = t; }
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_flow(c, p, kFlow, false)); };
@@ -460,7 +469,8 @@ ng::NodeSpec spectral_flow() {
                             {"field_coordinates", K}, {"flow_modes", M}, {"sign", "phase current J = Im(conj(z_tail) z_tip): travel from tail to tip gives J < 0"}};
     auto describe = [&](ng::Array& a, const Json& measures, Eigen::Index rows, Eigen::Index cells, const char* rowsAre, const char* membersAre) {
       Json at = attrs; at["rows"] = rowsAre; if (membersAre) at["members"] = membersAre;
-      a.meta["describe"] = Json{{"measures", measures}, {"values_shape", Json::array({rows, cells})}, {"attributes", at}};
+      a.meta["describe"] = Json{{"method", "spectral_flow"}, {"measure", "flow"}, {"shape", Json::array({rows, cells, measures.size()})},
+                                {"axes", Json::array({indexed_axis("element", rows), indexed_axis("member", cells), indexed_axis("measure", static_cast<std::int64_t>(measures.size()), [&] { Json n = Json::array(); for (const auto& m : measures) n.push_back(m["measure"]); return n; }())})}, {"measures", measures}, {"values_shape", Json::array({rows, cells})}, {"attributes", at}};
     };
     const char* pairsAre = "frequency member x band p x band q, the frequency member fastest (the phase current of the pair: conj(z_p) at the tail, z_q at the tip)";
     describe(wv, vertexMeasures, S, A, "the vertices of the surface", nullptr);
@@ -505,7 +515,7 @@ ng::NodeSpec atom_time_cells() {
     text_param(p, "frequency_normalisation", kCells);
     if (!p.contains("cell_width") || !p["cell_width"].is_number() || !(p["cell_width"].get<double>() > 0)) ng::refuse(std::string(kCells) + ": cell_width has no default: name it (> 0)");
     ng::Planned out;
-    ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "measurement"; out.out["cells"] = t;
+    ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "statistic"; out.out["cells"] = t;
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_flow(c, p, kCells, true)); };
@@ -543,7 +553,7 @@ ng::NodeSpec atom_time_cells() {
         row += cells;
       }
     out.rows = row;
-    out.meta["describe"] = Json{{"measures", Json::array({Json{{"measure", "phase_current"}, {"columns", Json::array({0, E})}}, Json{{"measure", "vertex_phase_current"}, {"columns", Json::array({E, E + 3 * S})}},
+    out.meta["describe"] = Json{{"method", "atom_time_cells"}, {"measure", "time_cell_flow"}, {"shape", Json::array({row, E + 4 * S})}, {"axes", Json::array({indexed_axis("cell", row), indexed_axis("column", E + 4 * S)})}, {"measures", Json::array({Json{{"measure", "phase_current"}, {"columns", Json::array({0, E})}}, Json{{"measure", "vertex_phase_current"}, {"columns", Json::array({E, E + 3 * S})}},
                                                          Json{{"measure", "power"}, {"columns", Json::array({E + 3 * S, E + 4 * S})}}})},
                                 {"values_shape", Json::array({row, E + 4 * S})}, {"precision", "float32"},
                                 {"attributes", Json{{"groups", groups}, {"rows", "the time cells of each atom x band, in the groups' order; within a group chunk by chunk, a trailing part cell of a chunk left out"},
@@ -605,7 +615,7 @@ ng::NodeSpec sign_flip_consistency() {
       rows.push_back(Json{{"atom", g["atom"]}, {"band", g["band"]}});
     }
     out.rows = static_cast<std::int64_t>(rows.size());
-    out.meta["describe"] = Json{{"statistic", "sign_flip_consistency"}, {"elements", p["elements"]}, {"shape", Json::array({out.rows, out.cols})},
+    out.meta["describe"] = Json{{"statistic", "sign_flip_consistency"}, {"method", "sign_flip_consistency"}, {"measure", "consistency"}, {"axes", Json::array({indexed_axis("atom_band", out.rows, rows), indexed_axis("column", out.cols)})}, {"elements", p["elements"]}, {"shape", Json::array({out.rows, out.cols})},
                                 {"columns", "R1 per element, p per element, family-wise p per element, then threshold, median R1, the median's null 95th percentile, its p, the neighbouring cells' correlation, cells, groups flipped"},
                                 {"rows", rows}, {"options", Json{{"patterns", p["patterns"]}, {"seed", p["seed"]}, {"cells_per_flip", p["cells_per_flip"]}, {"generator", "numpy default_rng (SeedSequence, PCG64), random() < 0.5 -> -1"}}}};
     return ng::Arrays{{"consistency", std::move(out)}};
@@ -651,7 +661,7 @@ ng::NodeSpec sensor_power() {
     std::vector<double> f;
     for (std::int64_t k = 0; k < s.bins; ++k) f.push_back(s.frequency(k));
     out.meta["frequencies"] = f;
-    out.meta["describe"] = Json{{"statistic", "power"}, {"shape", Json::array({S, s.bins})}, {"frequencies", f}, {"chunks", s.chunks},
+    out.meta["describe"] = Json{{"statistic", "power"}, {"method", "sensor_power"}, {"measure", "power"}, {"shape", Json::array({S, s.bins})}, {"axes", Json::array({indexed_axis("vertex", S), indexed_axis("frequency", s.bins, f)})}, {"frequencies", f}, {"chunks", s.chunks},
                                 {"unit", "(the recording's unit x samples)^2: the unscaled transform's squared magnitude, mean over the chunks"}};
     return ng::Arrays{{"power", std::move(out)}};
   };
@@ -697,7 +707,7 @@ ng::NodeSpec aperiodic_fit() {
                                                                     p["fit_range"][0].get<double>(), p["fit_range"][1].get<double>());
       for (const double v : {a.offset, a.exponent, a.knee, a.r2, static_cast<double>(a.pointsUsed)}) out.data.push_back(v);
     }
-    out.meta["describe"] = Json{{"statistic", "aperiodic_fit"}, {"shape", Json::array({out.rows, 5})}, {"columns", Json::array({"offset", "exponent", "knee", "r2", "points_used"})},
+    out.meta["describe"] = Json{{"statistic", "aperiodic_fit"}, {"method", "aperiodic_fit"}, {"measure", "aperiodic"}, {"shape", Json::array({out.rows, 5})}, {"axes", Json::array({indexed_axis("row", out.rows), indexed_axis("parameter", 5, Json::array({"offset", "exponent", "knee", "r2", "points_used"}))})}, {"columns", Json::array({"offset", "exponent", "knee", "r2", "points_used"})},
                                 {"options", p}, {"model", p["knee"].get<bool>() ? "offset - log10(knee + f^exponent)" : "offset - exponent log10 f"}};
     return ng::Arrays{{"fit", std::move(out)}};
   };
