@@ -81,6 +81,7 @@
   {"name": "spectral_flow", "description": "the flow of a weighted cross-spectrum in a surface's field coordinates per frequency member (an atom or a bin), whole field and band pairs: power, phase current per edge and per vertex, Hodge-Dirac flow coefficients, potential and stream (nxr-neuro `sensor_flow`)"},
   {"name": "atom_time_cells", "description": "the sums over each atom's own time cells (a dyadic level of the time line) of the edge and vertex phase currents and the power, per atom and band (nxr-neuro `sensor_flow`)"},
   {"name": "sign_flip_consistency", "description": "the sign-flip (time-reversal) test of a direction's consistency over time cells: R1 per element, per-element and family-wise p, the median and its null (nxr's flow maps flip_test; numpy default_rng)"},
+  {"name": "control_comparison", "description": "a control recording's sign-flip summary beside the run it controls, length-matched (the same time cells per atom and band): median R1, its p and the shares of consistent elements of each"},
   {"name": "sensor_power", "description": "each vertex's power per bin from chunk spectra in field coordinates: the mean over the chunks of the synthesised field's squared magnitude"},
   {"name": "aperiodic_fit", "description": "the aperiodic background of each spectrum: specparam's aperiodic model without or with a knee (nxr's nxr.spectral.aperiodic)"}
  ]
