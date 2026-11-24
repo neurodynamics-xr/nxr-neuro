@@ -39,7 +39,7 @@ class Probe {
   const Database* db_;
 };
 
-// Rewrite a schema-54 database file AS SCHEMA 50 on purpose (a fixture for "an older dataset read as it is"): the tables and column of 51 to 54 dropped,
+// Rewrite a schema-55 database file AS SCHEMA 50 on purpose (a fixture for "an older dataset read as it is"): the tables and column of 51 to 54 dropped (55 widened a CHECK only),
 // the subject kind list and the views as the build before had them, the migration records removed, user_version 50.
 void rewrite_as_schema_50(const std::filesystem::path& database_file);
 // The file's PRAGMA user_version, opened read-only.

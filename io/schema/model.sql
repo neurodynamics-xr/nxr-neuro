@@ -779,6 +779,12 @@ CREATE INDEX field_contribution_subject ON field_contribution (subject_id);
 --   from_cell / to_cell   the CELL KEYS of the two ends (D92, as on `field`). A differential
 --            operator maps within ONE manifold and changes the cell: DEC d₀ is cortex '0' →
 --            cortex '1', ★₁ is '1' → '1*', the FEM face gradient '0' → '2'.
+--            THE WHOLE COMPLEX (schema 55): a key of ranks joined by '+' ('0+1+2') is every cell
+--            of those ranks of ONE manifold, its rows STACKED in that order — rank 0 first, then
+--            1, then 2: n_rows = n_vertices + n_edges + n_faces. A Hodge–Dirac eigenvector is a
+--            MIXED FORM (0-form on the vertices, 1-form on the edges, 2-form on the faces, the
+--            Studio's hodgeDirac.ts order), so its operator maps the eigenvalue line '0' to the
+--            intrinsic triangulation '0+1+2'. ',' stays a PRODUCT's (one rank per factor).
 CREATE TABLE operator (
   id              TEXT PRIMARY KEY,      -- UUID, in the node's zarr.json
   status          TEXT NOT NULL DEFAULT 'complete' CHECK (status IN ('pending', 'complete', 'deleting')),  -- D141: readers see only 'complete'
@@ -826,8 +832,8 @@ CREATE TABLE operator (
   CHECK ((layout IN ('csc', 'csr')) = (nnz IS NOT NULL)),
   CHECK (layout <> 'analytic' OR (path IS NULL AND data_type IS NULL AND method IS NOT NULL)),   -- an analytic operator has no bytes, and says how it is evaluated
   CHECK ((from_coordinate_system_id IS NULL) = (to_coordinate_system_id IS NULL)),
-  CHECK (from_cell <> '' AND from_cell NOT GLOB '*[^0-3,*]*'),
-  CHECK (to_cell <> '' AND to_cell NOT GLOB '*[^0-3,*]*'),
+  CHECK (from_cell <> '' AND from_cell NOT GLOB '*[^0-3,*+]*'),
+  CHECK (to_cell <> '' AND to_cell NOT GLOB '*[^0-3,*+]*'),
   CHECK ((inverts_id IS NULL) = (inverse_kind IS NULL)),   -- a pair says how it inverts
   CHECK (inverts_id IS NULL OR inverts_id <> id)
 ) STRICT;
@@ -1285,6 +1291,12 @@ FROM selection_factor f JOIN selection s ON s.id = f.factor_selection_id;
 -- The only change is that CHECK (no column, no row changes): the migration replaces its text in place (SQLite's writable_schema procedure) and every row stays valid.
 -- ── schema 54 (end) ──
 
+-- ── schema 55 (begin: Database::open runs this on a database at 54, in place; `migrate_54_to_55` in database.cpp) ───────────────────────────
+-- THE WHOLE COMPLEX AS A CELL KEY (D92, amended): an operator's `from_cell` / `to_cell` may join ranks with '+' ('0+1+2'): every cell of those ranks of one manifold, rows stacked
+-- rank by rank (see the operator table). The Hodge–Dirac eigenvectors are ONE operator from the eigenvalue line to the intrinsic triangulation '0+1+2' (the mixed forms).
+-- The only change is the two CHECKs on `operator` (no column, no row changes): the migration replaces their text in place (SQLite's writable_schema procedure); every row stays valid.
+-- ── schema 55 (end) ──
+
 -- ── BEGIN GENERATED: the attribute views (backend/scripts/gen-attribute-views.mjs) — do not edit ──
 -- One view per node table: its zarr.json attributes as TEXT (D145). Every writer writes zarr.json from these, in any language.
 CREATE VIEW manifold_attributes AS
@@ -1320,12 +1332,12 @@ SELECT o.id, json_object('class', 'operator', 'id', o.id, 'status', o.status, 's
 ) AS attributes FROM operator o;
 
 CREATE VIEW subject_attributes AS
-SELECT s.id, json_object('class', 'subject', 'schema_version', 54, 'id', s.id, 'status', s.status, 'dataset_id', s.dataset_id, 'name', s.name, 'path', s.path, 'kind', s.kind, 'template_id', s.template_id, 'source_format', s.source_format, 'source_path', s.source_path, 'created_utc', s.created_utc, 'created_by', s.created_by, 'modified_utc', s.modified_utc, 'modified_by', s.modified_by,
+SELECT s.id, json_object('class', 'subject', 'schema_version', 55, 'id', s.id, 'status', s.status, 'dataset_id', s.dataset_id, 'name', s.name, 'path', s.path, 'kind', s.kind, 'template_id', s.template_id, 'source_format', s.source_format, 'source_path', s.source_path, 'created_utc', s.created_utc, 'created_by', s.created_by, 'modified_utc', s.modified_utc, 'modified_by', s.modified_by,
   'rows_without_path', json_object('manifold', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM manifold r JOIN manifold_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'selection', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM selection r JOIN selection_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'field', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM field r JOIN field_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'operator', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM operator r JOIN operator_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL)),
   'acquisitions', (SELECT json_group_array(json_object('id', a.id, 'label', a.label, 'ses', a.ses, 'task', a.task, 'run', a.run, 'acq', a.acq, 'proc', a.proc, 'split', a.split) ORDER BY a.label) FROM acquisition a WHERE a.subject_id = s.id)
 ) AS attributes FROM subject s;
 
 CREATE VIEW dataset_attributes AS
-SELECT d.id, json_object('class', 'dataset', 'schema_version', 54, 'id', d.id, 'datastore_id', d.datastore_id, 'name', d.name, 'path', d.path, 'source_tool', d.source_tool, 'source_protocol', d.source_protocol, 'source_path', d.source_path, 'created_utc', d.created_utc, 'created_by', d.created_by, 'modified_utc', d.modified_utc, 'modified_by', d.modified_by) AS attributes FROM dataset d;
+SELECT d.id, json_object('class', 'dataset', 'schema_version', 55, 'id', d.id, 'datastore_id', d.datastore_id, 'name', d.name, 'path', d.path, 'source_tool', d.source_tool, 'source_protocol', d.source_protocol, 'source_path', d.source_path, 'created_utc', d.created_utc, 'created_by', d.created_by, 'modified_utc', d.modified_utc, 'modified_by', d.modified_by) AS attributes FROM dataset d;
 -- ── END GENERATED: the attribute views ──
-PRAGMA user_version = 54;
+PRAGMA user_version = 55;

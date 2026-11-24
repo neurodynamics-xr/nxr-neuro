@@ -52,7 +52,7 @@ void rewrite_as_schema_50(const std::filesystem::path& file) {
   d.exec_script("DROP TABLE IF EXISTS key_digest; DROP TABLE IF EXISTS subject_entry; DROP TABLE IF EXISTS template_reference; DROP TABLE IF EXISTS selection_factor; DROP VIEW IF EXISTS statistic_attributes; DROP TABLE IF EXISTS statistic;");
   d.with_writable_schema([&] {
     d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE name = 'subject'", {Value(std::string("'group', 'registration')")), Value(std::string("'group')"))});
-    d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'view'", {Value(std::string("'schema_version', 54")), Value(std::string("'schema_version', 50"))});
+    d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'view'", {Value(std::string("'schema_version', 55")), Value(std::string("'schema_version', 50"))});
     d.execute("PRAGMA schema_version = " + std::to_string(integer(*d.one("PRAGMA schema_version"), "schema_version") + 1));
   });
   d.execute("DELETE FROM meta WHERE key LIKE 'schema_migrated:%'");

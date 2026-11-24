@@ -28,7 +28,7 @@
     "node": ">=22"
   },
   "nxr": {
-    "databaseSchema": 54
+    "databaseSchema": 55
   },
   "license": "BSD-3-Clause",
   "private": true
