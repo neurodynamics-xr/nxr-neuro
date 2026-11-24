@@ -4,7 +4,7 @@
 # THE GRAPH. before: --[signal.mode_analysis, exact_and_constant, unit_mass]--> the serving operator. chunks: --[signal.overlapped_spectrum]--> --[signal.chunk_spectra]--> the cross-spectrum
 # in its factored form. after: --[signal.spectral_flow, frequency_weighting every_bin]--> per bin (C_k = the sum over the chunks of each chunk's spectrum times its conjugate) the whole field's
 # power, phase current per edge and per vertex, Hodge-Dirac flow coefficients, potential and stream; with --bands, every band pair's too. No atoms, no time cells.
-# Bins grouped: name a SHARP kernel set (select_kernels --profile box --chart linear) as --groups and set
+# Bins grouped: name a SHARP kernel set (select_kernels --profile box --chart linear) as --groups and set --frequency_weighting kernels;
 # each group is then the sum over its bins, weight 1 (no normalisation).
 #
 # What it cannot resolve: the net quadrature only (motion that cancels over the run appears as standing); the field on the helmet only; an incomplete eigensolve leaves
@@ -20,16 +20,16 @@ inputs:
   recording:   {field: recording, each: true, where: {name: $recording}}
   package:     {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, hint: "the sensor surface's Hodge-Dirac solve (`nxr-neuro run eigenmodes --surface SURFACE` first)"}
   channel_map: {field: any, where: {name: $channel_map}, hint: "the sensor surface's vertex-to-channel map (`nxr-neuro run sensor_surface` first)"}
-  groups:      {selection: any, where: {name: $groups}, when: $grouped, hint: "sharp groups of bins: a kernel set of boxes on the frequency line (`nxr-neuro run select_kernels --profile box --chart linear`)"}
-  bands:       {selection: any, where: {name: $bands}, when: $banded, hint: "the eigenvalue bands, a kernel set (`nxr-neuro run select_kernels --profile cos2_partition`)"}
+  groups:      {selection: any, where: {name: $groups}, required: false, hint: "sharp groups of bins: a kernel set of boxes on the frequency line (`nxr-neuro run select_kernels --profile box --chart linear`)"}
+  bands:       {selection: any, where: {name: $bands}, required: false, hint: "the eigenvalue bands, a kernel set (`nxr-neuro run select_kernels --profile cos2_partition`)"}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
   package: {default: null, meaning: "the Hodge-Dirac solve's stem", unit: "-"}
   channel_map: {default: null, meaning: "the sensor surface's vertex-to-channel map's name", unit: "-"}
-  groups: {default: null, meaning: "sharp groups of bins by name (with frequency_weighting kernels); null: every bin alone", unit: "-"}
+  groups: {default: null, meaning: "sharp groups of bins by name (with frequency_weighting kernels)", unit: "-"}
   bands: {default: null, meaning: "the eigenvalue bands by name; null: the whole field only", unit: "-"}
-  grouped: {default: false, meaning: "true: the bins grouped by the sharp kernel set named in groups", unit: "-"}
+  frequency_weighting: {default: every_bin, meaning: "every_bin (each bin alone: the whole-recording flow per bin) | kernels (the bins grouped by the sharp kernel set named in groups, their gains not normalised)", unit: "-", choices: [every_bin, kernels]}
   banded: {default: false, meaning: "true: also every pair of the eigenvalue bands named in bands", unit: "-"}
   overlap_samples: {default: 16384, meaning: "the overlap on each side of a chunk: half a chunk", unit: samples}
   transform_samples: {default: 65536, meaning: "each chunk's one transform: the chunk and its two overlaps", unit: samples}
@@ -43,12 +43,9 @@ steps:
     over: recording
     do:
       - {node: signal.overlapped_spectrum, in: {x: recording, operator: operator}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectrum}
-      - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: operator}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectra}
+      - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: operator}, out: spectra}
   after:
-    - {node: signal.spectral_flow, in: {spectra: spectra, package: package}, with: {frequency_weighting: every_bin}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: false, banded: false}}
-    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, scale: bands}, with: {frequency_weighting: every_bin}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: false, banded: true}}
-    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: groups}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: true, banded: false}}
-    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: groups, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: none}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes], when: {grouped: true, banded: true}}
+    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: groups, scale: bands}, with: {frequency_weighting: $frequency_weighting, frequency_normalisation: none}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes]}
 
 outputs:
   spectra:        {kind: statistic, name: "{name}_chunk_spectra", of: recording, axes: [{name: chunk, on: recording.time}, {name: frequency, line: "{recording}_freq_overlapped", of_time: recording.time}, {name: coordinate, on: package.from}]}

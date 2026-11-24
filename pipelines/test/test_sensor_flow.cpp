@@ -109,7 +109,8 @@ int main() {
   ng::dispatch(serve, sprep);
   const ng::NodeSpec& gather = ng::registry().at("signal.chunk_spectra");
   ng::Types gtypes;
-  ng::PortType st; st.sfreq = fs; gtypes["spectrum"] = st; gtypes["operator"] = pk;
+  ng::PortType st; st.sfreq = fs; for (const auto& [k, v] : sp.items()) st.facts[k] = v; gtypes["spectrum"] = st;   // the spectrum carries how it was made (overlapped_spectrum's plan)
+  gtypes["operator"] = pk;
   ng::NodeCall gprep = ng::NodeCall::prepare(gtypes, operatorInput, sp, shared);
   ng::dispatch(gather, gprep);
   ng::NodeCall gs = ng::NodeCall::start(gprep.made);

@@ -117,6 +117,8 @@ ng::NodeSpec overlapped_spectrum() {
     const ng::ManifoldRef rows = ng::manifold_id("coordinates", "operator");
     s.domain.factors = {rows, ng::made_line("frequency", "signal.overlapped_spectrum.spectrum", "Hz", 0.0, x.sfreq, x.domain.factors.empty() ? ng::ManifoldRef() : x.domain.factors.back())};
     s.domain.cells = "0,1";
+    s.facts["overlap_samples"] = overlap; s.facts["transform_samples"] = transform;   // the spectrum carries how it was made: signal.chunk_spectra reads them, never asked twice
+    s.facts["frequency_span"] = Json::array({lo, hi});
     out.out["spectrum"] = s;
     out.halo = overlap;
     return out;
@@ -171,10 +173,7 @@ ng::NodeSpec chunk_spectra() {
   n.inputs = {{"spectrum", "each chunk's spectrum (signal.overlapped_spectrum), once a block", false},
               {"operator", "the serving operator the spectra were read through (its rows: the coordinates and their eigenvalues)", false}};
   n.outputs = {{"spectra", "[chunks x bins x rows] complex: each chunk's spectrum, one value per member of the chunk grid (the cross-spectrum in its exact factored form)", false}};
-  n.parameters = {
-      {"overlap_samples", Json(), "the overlap the spectra were made with (as signal.overlapped_spectrum's)", "samples", {}, false},
-      {"transform_samples", Json(), "the transform's length the spectra were made with (as signal.overlapped_spectrum's)", "samples", {}, false},
-      {"frequency_span", Json(), "[lo, hi) the spectra keep (as signal.overlapped_spectrum's)", "Hz", {}, false}};
+  n.parameters = {};   // the overlap, the transform's length and the span are the spectrum's own (its port's facts, from signal.overlapped_spectrum): stated once
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float32, ng::OutputPrecision::follows_input,
                              "each block's spectrum kept in time order (a measurement over the chunk partition: one value a member, nothing summed)");
   n.matches = "the flow analysis's served chunk spectra (each chunk's rfft in the field coordinates, stored); no reduction";
@@ -183,7 +182,8 @@ ng::NodeSpec chunk_spectra() {
     const auto it = in.find("spectrum");
     if (it == in.end() || !it->second.per_block()) ng::refuse(std::string(kGather) + ": spectrum is a value made once per block (signal.overlapped_spectrum)");
     if (!in.count("operator")) ng::refuse(std::string(kGather) + ": operator is not given");
-    integer_param(p, "overlap_samples", kGather); integer_param(p, "transform_samples", kGather); span_param(p, kGather);
+    for (const char* k : {"overlap_samples", "transform_samples", "frequency_span"})
+      if (!it->second.facts.contains(k)) ng::refuse(std::string(kGather) + ": spectrum does not say its " + k + " (made by signal.overlapped_spectrum)");
     ng::Planned out;
     out.out["spectra"] = constant_of("statistic");
     return out;
@@ -192,11 +192,12 @@ ng::NodeSpec chunk_spectra() {
     GatherPrepared pr;
     pr.op_meta = constant_input(c, "operator", kGather).meta;
     pr.op_meta.erase("channels");
-    pr.overlap = p["overlap_samples"].get<std::int64_t>(); pr.transform = p["transform_samples"].get<std::int64_t>();
     const auto it = in.find("spectrum");
     if (it == in.end() || !it->second.sfreq) ng::refuse(std::string(kGather) + ": spectrum has no sampling rate");
+    const Json& made = it->second.facts;
+    pr.overlap = made.at("overlap_samples").get<std::int64_t>(); pr.transform = made.at("transform_samples").get<std::int64_t>();
     pr.sfreq = *it->second.sfreq;
-    const auto [lo, hi] = span_param(p, kGather);
+    const double lo = made.at("frequency_span")[0].get<double>(), hi = made.at("frequency_span")[1].get<double>();
     std::tie(pr.first, pr.bins) = bins_of(lo, hi, pr.sfreq, pr.transform, kGather);
     return std::any(std::move(pr));
   };

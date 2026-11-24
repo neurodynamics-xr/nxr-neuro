@@ -75,7 +75,7 @@ steps:
     over: recording
     do:
       - {node: signal.overlapped_spectrum, in: {x: recording, operator: serving}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectrum}
-      - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: serving}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectra}
+      - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: serving}, out: spectra}
   after:
     - {node: signal.cortical_flow, in: {spectra: spectra, package: left, operator: left_operator, kernel_columns: left_kernel_columns, frequency: atoms, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [left_whole_vertices, left_whole_edges, left_whole_modes, left_pair_vertices, left_pair_edges, left_pair_modes], when: {cortex: per_hemisphere}}
     - {node: signal.cortical_time_cells, in: {spectra: spectra, package: left, operator: left_operator, kernel_columns: left_kernel_columns, frequency: atoms, scale: bands}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cell_width: $cell_width}, out: left_cells, when: {cortex: per_hemisphere, time_cells: true}}
