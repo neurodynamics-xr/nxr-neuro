@@ -144,7 +144,10 @@ def out_of_date(regex: str | None, suite: bool) -> list[str]:
     if not suite and not tg:
         return []
     r = sh(["ninja", "-C", str(BUILD), "-n", *tg])
-    steps = [l for l in r.stdout.splitlines() if re.match(r"\[\d+/\d+\]", l)]
+    # the globbed-directory check (CMake's CONFIGURE_DEPENDS) is in every dry run and, unable to run it, ninja then lists a CMake re-run: neither is a build
+    # step of the targets (with them counted, every test read as out of date right after a build)
+    bookkeeping = ("Re-checking globbed directories", "Re-running CMake")
+    steps = [l for l in r.stdout.splitlines() if re.match(r"\[\d+/\d+\]", l) and not any(b in l for b in bookkeeping)]
     if not steps:
         return []
     return tg or ["all"]
