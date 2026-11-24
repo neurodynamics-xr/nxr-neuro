@@ -71,7 +71,10 @@ Eigen::Vector3d tangentAt(const IntrinsicComplex& c, int e, bool atTip);
 
 /** An ambient vertex field J [3V x m] (rows x y z per vertex) → a 1-form [nE x m] on the intrinsic edges. */
 Eigen::MatrixXd flat(const IntrinsicComplex& c, const Eigen::MatrixXd& J);
-/** A 1-form [nE x m] → the vertex tangent vectors [3V x m] (least squares over each vertex's edges). */
+/** THE SHARP: a 1-form [nE x m] → the vertex tangent vectors [3V x m] (least squares over each vertex's own edges: x_v = A_v⁻¹ Σ_e t_e (w_e / L_e) in the
+ *  vertex's tangent basis, A_v = Σ_e t_e t_eᵀ). Linear in w, so it is one sparse operator [3V x nE] (at most 3 entries an edge end), built once and applied. */
+Eigen::SparseMatrix<double> sharpOperator(const IntrinsicComplex& c);
+/** sharpOperator(c) w. */
 Eigen::MatrixXd sharp(const IntrinsicComplex& c, const Eigen::MatrixXd& w);
 
 /** THE POINTWISE FORMS of the exact tile integrals of a 1-form on the complex (the discrete Stokes and divergence theorems, additive up the tile tree). A tile's value is the SUM of these over

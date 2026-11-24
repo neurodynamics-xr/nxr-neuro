@@ -15,13 +15,6 @@ namespace {
 [[noreturn]] void bad(const std::string& message) { throw std::invalid_argument(message); }
 using ComplexValue = std::complex<double>;
 using RowMajorComplex = Eigen::Matrix<ComplexValue, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-// the vertex's tangent basis, as `sharp` takes it (any orthonormal tangent basis gives the same vector; this one keeps the last bits equal)
-void tangentBasisAt(const IntrinsicComplex& c, int v, Eigen::Vector3d& first, Eigen::Vector3d& second) {
-  const Eigen::Vector3d normal = c.normals.row(v).transpose();
-  const Eigen::Vector3d axis = std::abs(normal.x()) < 0.9 ? Eigen::Vector3d(1, 0, 0) : Eigen::Vector3d(0, 1, 0);
-  first = (axis - axis.dot(normal) * normal).normalized();
-  second = normal.cross(first);
-}
 }  // namespace
 
 Eigen::MatrixXd selectVertexRows(const Eigen::MatrixXd& perVertexRows, const std::vector<std::int64_t>& sourceVertex, int components) {
@@ -68,34 +61,6 @@ std::vector<Eigen::MatrixXd> bandReadouts(const Eigen::MatrixXd& modeOperator, c
     out.push_back(std::move(readout));
   }
   out.push_back(std::move(complement));                                                    // the last band: the kernel minus every other band (its own gain and everything outside the modes)
-  return out;
-}
-
-Eigen::SparseMatrix<double> sharpOperator(const IntrinsicComplex& c) {
-  // sharp at vertex v: x_v = A_v⁻¹ Σ_e t_e (w_e / L_e) in the tangent basis, A_v = Σ_e t_e t_eᵀ, then E1 x0 + E2 x1: linear in each w_e, so its weights are a sparse [3V x E]
-  std::vector<Eigen::Matrix2d> normal(static_cast<std::size_t>(c.nV), Eigen::Matrix2d::Zero());
-  std::vector<Eigen::Vector3d> first(static_cast<std::size_t>(c.nV)), second(static_cast<std::size_t>(c.nV));
-  for (int v = 0; v < c.nV; ++v) tangentBasisAt(c, v, first[static_cast<std::size_t>(v)], second[static_cast<std::size_t>(v)]);
-  std::vector<Eigen::Vector2d> direction(static_cast<std::size_t>(2 * c.nE));
-  for (int e = 0; e < c.nE; ++e)
-    for (int end = 0; end < 2; ++end) {
-      const std::size_t v = static_cast<std::size_t>(c.edges[static_cast<std::size_t>(2 * e + end)]);
-      const Eigen::Vector3d t = tangentAt(c, e, end == 1);
-      const Eigen::Vector2d inPlane(t.dot(first[v]), t.dot(second[v]));
-      direction[static_cast<std::size_t>(2 * e + end)] = inPlane;
-      normal[v] += inPlane * inPlane.transpose();
-    }
-  std::vector<Eigen::Triplet<double>> entries;
-  entries.reserve(static_cast<std::size_t>(6 * c.nE * 2));
-  for (int e = 0; e < c.nE; ++e)
-    for (int end = 0; end < 2; ++end) {
-      const std::size_t v = static_cast<std::size_t>(c.edges[static_cast<std::size_t>(2 * e + end)]);
-      const Eigen::Vector2d x = normal[v].ldlt().solve(direction[static_cast<std::size_t>(2 * e + end)]) / c.length(e);
-      const Eigen::Vector3d weight = first[v] * x(0) + second[v] * x(1);
-      for (int k = 0; k < 3; ++k) entries.emplace_back(static_cast<int>(3 * v) + k, e, weight(k));
-    }
-  Eigen::SparseMatrix<double> out(3 * c.nV, c.nE);
-  out.setFromTriplets(entries.begin(), entries.end());
   return out;
 }
 

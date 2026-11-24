@@ -3,7 +3,6 @@
 //   synthesisFromAnalysis: analysis x synthesis = I for mass-orthonormal coordinates;
 //   bandReadouts: the bands add back to the kernel exactly; a band below the last equals the vertex filter Phi g Phiᵀ M W (the reference's band kernel); with every mode kept and the
 //     last band's gain zero on them, the last band is the kernel's content outside the modes, zero for a complete basis;
-//   sharpOperator: sharp(c, w) = sharpOperator(c) w;
 //   readoutPairFlow: with one component and the readouts Psi diag(h_q), it equals bandPairFlow (dense and factored orders); three components sum their single-component values;
 //   readoutTimeCellFlow: with the readout Psi diag(h) it equals timeCellFlow;
 //   OneFormRemainderSplit: an exact 1-form d0 phi gives back phi and no stream; a coexact 1-form gives back its stream and no potential.
@@ -87,12 +86,7 @@ int main() {
     EXPECT(relative(bands[2].middleRows(0, nV), lastOwn + outside) < 1e-10, "the last band = its own gain + the content outside the modes");
   }
 
-  // ── sharpOperator ──
-  const Eigen::SparseMatrix<double> sharpWeights = ns::sharpOperator(c);
-  {
-    const Eigen::MatrixXd w = randn(c.nE, 3);
-    EXPECT(relative(sharpWeights * w, ns::sharp(c, w)) < 1e-12, "sharp(c, w) = sharpOperator(c) w");
-  }
+  const Eigen::SparseMatrix<double> sharpWeights = ns::sharpOperator(c);   // the one sharp (test_intrinsic_forms checks it)
 
   // ── readoutPairFlow against bandPairFlow ──
   {

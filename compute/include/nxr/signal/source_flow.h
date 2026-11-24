@@ -10,7 +10,6 @@
 //   bandReadouts                the readout of each band of the cortical eigenvalue line, component-major rows [components V x columns]: band q < last is
 //                               (I ⊗ modeSynthesis diag(g_q)) modeOperator; the LAST band is the complement, the kernel minus every other band, so the bands add back to the
 //                               kernel exactly and the content outside the kept modes lies in the last band (the reference's convention)
-//   sharpOperator               the vertex tangent vectors of a 1-form (`sharp`) as a sparse matrix [3V x E]: sharp(c, w) = sharpOperator(c) w
 //   readoutPairFlow             per pair (p, q) of readouts U_p, U_q [components V x columns] the second-order readings of a cross-spectrum C = Y Yᴴ [columns x columns], summed over the
 //                               components: power per vertex Re(U_p,v conj(C) U_q,vᵀ), phase current per edge Im(U_p,tail conj(C) U_q,tipᵀ), and phase current per vertex
 //                               Im(U_p,v conj(C) (grad U_q)_vᵀ) (3 components), the gradient never formed: by the sparse sharp operator on the pair's entries along the edges.
@@ -45,7 +44,6 @@ std::vector<Eigen::MatrixXd> bandReadouts(const Eigen::MatrixXd& modeOperator, c
 /** A kernel's rows (vertex-major: components v + c) reordered component-major (c V + v): the whole field's readout. */
 Eigen::MatrixXd componentMajor(const Eigen::MatrixXd& kernelInColumns, int components);
 
-Eigen::SparseMatrix<double> sharpOperator(const IntrinsicComplex& complex);
 
 /** `weightedColumns` Y [columns x draws] (the cross-spectrum is Y Yᴴ, a sum), `readouts` each [components V x columns] component-major, `edges` [E x 2] (tail, tip),
  *  `sharpWeights` [3V x E] (sharpOperator). Pairs p bands + q, as `bandPairFlow`. With one readout Psi diag(h) and one component this is `bandPairFlow`. Throws on sizes that disagree. */
