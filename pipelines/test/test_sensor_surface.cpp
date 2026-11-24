@@ -135,6 +135,24 @@ int main() {
   for (int v = 0; v < G; ++v) for (int d = 0; d < 3; ++d) err = std::max(err, std::abs(S.vertices[static_cast<std::size_t>(3 * v + d)] - centre[static_cast<std::size_t>(3 * pick[static_cast<std::size_t>(v)] + d)]));
   std::printf("  helmet: %lld vertices, %lld triangles; vertices vs the pickup coils' centres: max |difference| %.1e m\n", (long long)S.n_vertices(), (long long)S.n_faces(), err);
   CHECK(err < 1e-6);
+  // the coil shapes (Brainstorm's PlotCoils): one quadrilateral (two triangles) per picked gradiometer, its centre the channel position, each vertex mapped to its channel
+  {
+    nxrtest::run_definition(ds, sub, "sensor_coils", Json{{"channels", "sensors"}, {"pick", "sensors_meg"}, {"name", "coils_surface"}});
+    const nxr::pipelines::SurfaceInput K = nxr::pipelines::read_surface(sub, "coils_surface", true);
+    CHECK_EQ(K.n_vertices(), static_cast<std::int64_t>(4 * G));
+    CHECK_EQ(K.n_faces(), static_cast<std::int64_t>(2 * G));
+    const auto map = read_as<int>(sub, text(*sub.find("field", nxr::io::task::Subject::of(sub).node_path(K.id, "coils_surface_map")), "path"));
+    double cerr = 0;
+    for (int v = 0; v < 4 * G; ++v) CHECK_EQ(map[static_cast<std::size_t>(v)], pick[static_cast<std::size_t>(v / 4)]);
+    for (int g = 0; g < G; ++g)
+      for (int d = 0; d < 3; ++d) {
+        double m = 0;
+        for (int q = 0; q < 4; ++q) m += K.vertices[static_cast<std::size_t>(3 * (4 * g + q) + d)] / 4;
+        cerr = std::max(cerr, std::abs(m - centre[static_cast<std::size_t>(3 * pick[static_cast<std::size_t>(g)] + d)]));
+      }
+    std::printf("  coils: %lld vertices, %lld triangles; shape centres vs channel positions: max |difference| %.1e m\n", (long long)K.n_vertices(), (long long)K.n_faces(), cerr);
+    CHECK(cerr < 1e-6);
+  }
   // the faces: the mesher's on those positions (the same triangles, the same turn); a disc
   {
     std::vector<double> pos(S.vertices.begin(), S.vertices.end());
