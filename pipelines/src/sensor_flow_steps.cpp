@@ -208,7 +208,7 @@ ng::NodeSpec chunk_spectra() {
     if (b.width != pr.bins || !b.complex()) ng::refuse(std::string(kGather) + ": a block's spectrum holds " + std::to_string(b.width) + " bins, not " + std::to_string(pr.bins));
     if (s.rows < 0) s.rows = b.rows;
     if (b.rows != s.rows) ng::refuse(std::string(kGather) + ": the blocks' spectra have different rows");
-    for (std::int64_t k = 0; k < b.width; ++k)                                            // bin-major then row, as the coefficients of `spectral_coefficients`
+    for (std::int64_t k = 0; k < b.width; ++k)                                            // bin-major then row
       for (std::int64_t r = 0; r < b.rows; ++r) { s.values.push_back(b.re[static_cast<std::size_t>(r * b.width + k)]); s.values.push_back(b.im[static_cast<std::size_t>(r * b.width + k)]); }
     s.firsts.push_back(at.first); s.owns.push_back(at.n);
     return std::make_pair(ng::Blocks{}, std::move(state));

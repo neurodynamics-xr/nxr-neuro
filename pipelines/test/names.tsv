@@ -85,8 +85,6 @@ node	signal.flow_activation	-	composite
 node	signal.flow_hodge_modes	-	composite
 node	signal.phase_split	-	composite
 node	signal.mode_analysis	-	composite
-node	signal.spectral_coefficients	-	composite
-node	signal.flow_map	-	composite
 node	signal.overlapped_spectrum	-	composite
 node	signal.chunk_spectra	-	composite
 node	signal.spectral_flow	-	composite

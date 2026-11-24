@@ -434,14 +434,6 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_phase_split PRIVATE nxr_pipelines)
   target_include_directories(test_phase_split PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_phase_split COMMAND test_phase_split)
-  add_executable(test_spectral_coefficients test/test_spectral_coefficients.cpp)   # the mode-space Fourier coefficients per tile, synthetic
-  target_link_libraries(test_spectral_coefficients PRIVATE nxr_pipelines)
-  target_include_directories(test_spectral_coefficients PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
-  add_test(NAME test_spectral_coefficients COMMAND test_spectral_coefficients)
-add_executable(test_flow_map test/test_flow_map.cpp)   # the flow maps of the cells of a joint filterbank, synthetic
-  target_link_libraries(test_flow_map PRIVATE nxr_pipelines)
-  target_include_directories(test_flow_map PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
-  add_test(NAME test_flow_map COMMAND test_flow_map)
 add_executable(test_sensor_flow test/test_sensor_flow.cpp)   # the sensor-space flow nodes: serving with overlap, chunk spectra, spectral flow, time cells, sign flip, aperiodic; synthetic
   target_link_libraries(test_sensor_flow PRIVATE nxr_pipelines)
   target_include_directories(test_sensor_flow PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
