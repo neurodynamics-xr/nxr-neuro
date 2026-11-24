@@ -18,7 +18,9 @@
 //     <stem>_kinds                           Selection partition     the LABELLING of the eigenvalue line by the Hodge part: 0 exact (a 0-form potential) · 2 coexact (a 2-form potential)
 //     <stem>_eigenvectors                    Operator  float32 [(V + E + F) x K]   SYNTHESIS: the eigenvalue line (cell 0) -> the intrinsic triangulation (cell key '0+1+2'): each mode's
 //                                                                    MIXED FORM, rows stacked 0-forms [0, V) · 1-forms [V, V+E) · 2-forms [V+E, V+E+F) (the Studio's Hodge–Dirac order):
-//                                                                    the vertex potential psi/sqrt2 (or <chi/sqrt2, w_v>), the 1-form part d psi/(mu sqrt2) or *1^-1 d1^T *2 chi/(mu sqrt2), the 2-form part chi/sqrt2
+//                                                                    the 0-form part psi/sqrt2 (0 for a coexact mode), the 1-form part d psi/(mu sqrt2) or *1^-1 d1^T *2 chi/(mu sqrt2), the 2-form part chi/sqrt2
+//                                                                    (orthonormal under the stars *0, *1, *2). A coexact mode's stream function at the vertices is derived from its 2-form part
+//                                                                    (stored_vertex_potentials, input.h), never stored
 // One mode a chunk of V rows, so a vertex reader reads the first row chunk of each mode. The analysis (line <- triangulation) is this operator's D106 pair, never stored twice.
 // The 1-form parts are *1-orthogonal with energy 1/2 each (test_pipelines), so a 1-form on the intrinsic edges is read into the modes by inner products.
 // A solve stored in the earlier form (three operators _eigenvectors, _forms1, _forms2, a kind field, stored d0/d1/stars) is converted in place by `nxr-neuro migrate eigensolve`.
@@ -56,7 +58,7 @@ namespace nxr::pipelines {
 struct HodgeDirac {
   std::vector<double> mu;                    // [K] ascending, 1/length
   std::vector<std::uint8_t> kind;            // [K] 0 exact · 2 coexact
-  std::vector<float> eigenvectors;           // [n_vertices x K], C order: the vertex potentials
+  std::vector<float> eigenvectors;           // [n_vertices x K], C order: each mode's 0-form part psi/sqrt2 (0 for a coexact mode: its stream function is derived from forms2, stored_vertex_potentials)
   std::int64_t n_vertices = 0;
   std::int64_t n_exact = 0, n_coexact = 0;
   double seconds = 0;                        // the solve
@@ -128,7 +130,8 @@ struct EigenSolveResult {
   bool hit = false;                          // the stored result was reused
   double seconds = 0;                        // what the call took (the load, or the solve and the store)
   nxr::io::Json info;                        // nxr's `solve_and_store` record (axis, surface, rows, n_modes, n_exact, n_coexact, mu, support, operator_id …)
-  HodgeDirac modes;
+  HodgeDirac modes;                          // mu, the kinds and the eigenvectors' vertex rows (each mode's 0-form part) as stored
+  std::vector<float> vertex_potentials;      // [n_vertices x K]: what a vertex reader draws (stored_vertex_potentials): the 0-form part of an exact mode, the stream function of a coexact one
 };
 
 // The caller of the definition `eigenmodes` (`glued` chosen from the surface's pieces): its run finds the stored package whose producer record equals the job's key (the surface's mesh key and

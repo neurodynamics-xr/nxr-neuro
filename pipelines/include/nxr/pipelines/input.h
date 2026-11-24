@@ -11,6 +11,8 @@
 #include "nxr/io/subject_package.h"
 #include "nxr/io/task/task.h"
 
+namespace nxr::geometry { class IntrinsicSurface; }
+
 namespace nxr::pipelines {
 
 struct SurfaceInput {
@@ -80,6 +82,11 @@ struct StoredEigensolve {
 StoredEigensolve stored_eigensolve(nxr::io::SubjectWriter& sub, const std::string& stem);
 /** the eigenvectors' rows [r0, r1), every mode (row-major, float32 as stored): only those rows are read */
 std::vector<float> stored_eigensolve_rows(nxr::io::SubjectWriter& sub, const StoredEigensolve& e, std::int64_t r0, std::int64_t r1);
+/** THE VERTEX POTENTIALS of the first K modes (all: K < 0) [V x K] (row-major, float32), what a vertex reader draws: an exact mode's 0-form part (the eigenvectors' vertex rows) and a coexact
+ *  mode's STREAM FUNCTION, derived from its 2-form part (the face rows) by compute's streamFunctionAtVertices on the intrinsic triangulation (its faces and *2 = 1/area), the reference solve's
+ *  face-to-vertex operator; the eigenvectors' vertex rows of a coexact mode are its 0-form part, 0. `triangulation`: the construction of `solved` with the solve's options, when the caller holds one
+ *  (else made here); its faces must be the stored triangulation's. */
+std::vector<float> stored_vertex_potentials(nxr::io::SubjectWriter& sub, const StoredEigensolve& e, const SurfaceInput& solved, std::int64_t K = -1, nxr::geometry::IntrinsicSurface* triangulation = nullptr);
 // The type of each channel of a channels manifold (its 'type' labelling); empty when there is none.
 /** the positions of a points manifold with no channel types (the landmarks of a template: nasion, LPA, RPA): [n x 3] and each point's name from its `<manifold>_names` labelling (empty when it has none) */
 struct NamedPoints { std::string id, name; std::vector<double> positions; std::vector<std::string> names; };

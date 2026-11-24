@@ -13,6 +13,7 @@
 #include <cstring>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
 
 #include "nxr/bst/frequency.h"
@@ -767,6 +768,7 @@ struct HodgePackage {
   std::vector<double> mu_all;
   std::vector<std::uint8_t> kind_all;
   std::vector<std::int32_t> support;
+  StoredEigensolve stored;
 };
 
 }  // namespace
@@ -815,6 +817,56 @@ std::vector<float> stored_eigensolve_rows(SubjectWriter& sub, const StoredEigens
   return read_rows<float>(sub.store(), text(e.eigenvectors, "path"), r0, r1);
 }
 
+// THE VERTEX POTENTIALS of the first K modes: an exact mode's 0-form part (the operator's vertex rows) and a coexact mode's STREAM FUNCTION, derived from its 2-form part (the operator's face rows)
+// by the reference solve's face-to-vertex operator (compute's streamFunctionAtVertices: each vertex the mean over its faces of the dual 0-form *2 chi/sqrt2). The operator's vertex rows of a coexact
+// mode are its 0-form part, 0. The triangulation's faces and *2 are those of the intrinsic triangulation the construction makes from the solved surface with the solve's options (checked against the
+// stored faces). The face rows are read 64 modes at a time (a shard's width): memory [V x K] float32 out, [F x 64] read.
+std::vector<float> stored_vertex_potentials(SubjectWriter& sub, const StoredEigensolve& e, const SurfaceInput& solved, std::int64_t K, nxr::geometry::IntrinsicSurface* triangulation) {
+  if (K < 0 || K > e.K) K = e.K;
+  if (solved.n_vertices() != e.V) invalid(e.stem + ": its triangulation has " + std::to_string(e.V) + " vertices, " + solved.name + " " + std::to_string(solved.n_vertices()));
+  const std::string path = text(e.eigenvectors, "path");
+  std::vector<float> out(static_cast<std::size_t>(e.V * K));
+  {
+    const std::vector<float> rows = read_rows<float>(sub.store(), path, 0, e.V);
+    for (std::int64_t v = 0; v < e.V; ++v) std::copy_n(rows.begin() + v * e.K, K, out.begin() + v * K);
+  }
+  std::vector<std::int64_t> coexact;
+  for (std::int64_t k = 0; k < K; ++k) if (e.kind[static_cast<std::size_t>(k)] == 2) coexact.push_back(k);
+  if (coexact.empty()) return out;
+  std::unique_ptr<nxr::geometry::IntrinsicSurface> own;
+  if (!triangulation) {
+    nxr::geometry::IntrinsicOptions io;
+    io.mollify = e.mollify; io.flipEps = e.flip_eps;
+    own = std::make_unique<nxr::geometry::IntrinsicSurface>(solved.vertices.data(), static_cast<int>(e.V), solved.faces.data(), static_cast<int>(solved.n_faces()), io);
+    triangulation = own.get();
+  }
+  const nxr::geometry::IntrinsicSurface::Complex cx = triangulation->complex();
+  if (static_cast<std::int64_t>(cx.faces.size()) != 3 * e.F || read_all<std::int32_t>(sub.store(), text(e.triangulation, "path") + "/faces") != cx.faces)
+    invalid(e.stem + ": its stored triangulation is not the one the construction makes from " + solved.name + " with the solve's options (another triangulation): the stream functions cannot be derived");
+  Eigen::VectorXd star2(e.F);                                              // *2 = 1 / the face's area, by Heron from its three intrinsic edge lengths
+  for (std::int64_t f = 0; f < e.F; ++f) {
+    double l[3];
+    for (int k = 0; k < 3; ++k) l[k] = cx.length[static_cast<std::size_t>(std::abs(cx.faceEdges[static_cast<std::size_t>(3 * f + k)]) - 1)];
+    const double sp = 0.5 * (l[0] + l[1] + l[2]);
+    star2(f) = 1.0 / std::sqrt(std::max(sp * (sp - l[0]) * (sp - l[1]) * (sp - l[2]), 0.0));
+  }
+  const std::int64_t r0 = e.V + e.E, block = 64;
+  for (std::size_t i = 0; i < coexact.size();) {
+    const std::int64_t c0 = coexact[i], c1 = std::min<std::int64_t>(K, c0 + block);
+    ArrayReader r = ArrayReader::open(sub.store(), path);
+    const std::vector<float> x2 = as_vector<float>(r.read({r0, c0}, {r0 + e.F, c1}), r.dtype());
+    const std::int64_t w = c1 - c0;
+    Eigen::MatrixXd X2(e.F, w);
+    for (std::int64_t f = 0; f < e.F; ++f) for (std::int64_t j = 0; j < w; ++j) X2(f, j) = x2[static_cast<std::size_t>(f * w + j)];
+    const Eigen::MatrixXd S = nxr::signal::streamFunctionAtVertices(static_cast<int>(e.V), cx.faces, star2, X2);
+    for (; i < coexact.size() && coexact[i] < c1; ++i) {
+      const std::int64_t k = coexact[i];
+      for (std::int64_t v = 0; v < e.V; ++v) out[static_cast<std::size_t>(v * K + k)] = static_cast<float>(S(v, k - c0));
+    }
+  }
+  return out;
+}
+
 namespace {
 
 HodgePackage resolve_hodge_package(SubjectWriter& sub, const Row& smf, const std::optional<std::string>& package, const std::optional<std::int64_t>& modes, const std::string& who) {
@@ -843,40 +895,33 @@ HodgePackage resolve_hodge_package(SubjectWriter& sub, const Row& smf, const std
   const std::int64_t kept = static_cast<std::int64_t>(support.size());
   if (kept > Vg || kept > Vin) invalid(stem_pkg + ": its support does not fit the surfaces");
   pk.in = in; pk.glued = glued; pk.stem = stem_pkg; pk.axis_id = text(e.line, "id"); pk.opr = e.eigenvectors; pk.axis = e.line;
-  pk.Vg = Vg; pk.nE = e.E; pk.nF = e.F; pk.Ktot = e.K; pk.K = K; pk.kept = kept; pk.mu_all = e.mu; pk.kind_all = e.kind; pk.support = support;
+  pk.Vg = Vg; pk.nE = e.E; pk.nF = e.F; pk.Ktot = e.K; pk.K = K; pk.kept = kept; pk.mu_all = e.mu; pk.kind_all = e.kind; pk.support = support; pk.stored = e;
   return pk;
 }
 
-// The basis of the first pk.K modes: the stored potentials (the 0-form rows [0, V) of the eigenvectors, row-major [V x Ktot]: only those rows are read), the vertex mass of the glued mesh as the solve took it.
+// The basis of the first pk.K modes: the VERTEX POTENTIALS (stored_vertex_potentials: an exact mode's 0-form rows, a coexact mode's stream function derived from its 2-form rows), the vertex mass of
+// the glued mesh as the solve took it; one intrinsic construction for both.
 nxr::operators::Basis load_hodge_basis(SubjectWriter& sub, const HodgePackage& pk) {
-  const std::int64_t Vg = pk.Vg, Ktot = pk.Ktot, K = pk.K, kept = pk.kept;
+  const std::int64_t Vg = pk.Vg, K = pk.K, kept = pk.kept;
   const SurfaceInput& glued = pk.glued;
   const std::vector<std::int32_t>& support = pk.support;
   const std::vector<std::uint8_t>& kind_all = pk.kind_all;
   const std::vector<double>& mu_all = pk.mu_all;
-  const std::vector<float> ev = read_rows<float>(sub.store(), text(pk.opr, "path"), 0, Vg);
+  nxr::geometry::IntrinsicOptions io;                                     // the solve's construction (its provenance's mollify and flip_eps): the mollified input's mixed-Voronoi mass, its faces and *2
+  io.mollify = pk.stored.mollify; io.flipEps = pk.stored.flip_eps;
+  nxr::geometry::IntrinsicSurface isurf(glued.vertices.data(), static_cast<int>(Vg), glued.faces.data(), static_cast<int>(glued.n_faces()), io);
+  const std::vector<float> ev = stored_vertex_potentials(sub, pk.stored, glued, K, &isurf);
   nxr::operators::Basis basis;
   basis.P.resize(K, Vg);
-  for (std::int64_t v = 0; v < Vg; ++v) for (std::int64_t k = 0; k < K; ++k) basis.P(k, v) = static_cast<double>(ev[static_cast<std::size_t>(v * Ktot + k)]);
+  for (std::int64_t v = 0; v < Vg; ++v) for (std::int64_t k = 0; k < K; ++k) basis.P(k, v) = static_cast<double>(ev[static_cast<std::size_t>(v * K + k)]);
   basis.mu = Eigen::Map<const Eigen::VectorXd>(mu_all.data(), K);
   for (std::int64_t k = 0; k < K; ++k) basis.kind.push_back(static_cast<int>(kind_all[static_cast<std::size_t>(k)]));
   basis.positions = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(glued.vertices.data(), Vg, 3);
   basis.faces = Eigen::Map<const Eigen::Matrix<std::int32_t, Eigen::Dynamic, 3, Eigen::RowMajor>>(glued.faces.data(), glued.n_faces(), 3);
   basis.keep.assign(static_cast<std::size_t>(Vg), -1);
   for (std::int64_t i = 0; i < kept; ++i) basis.keep[static_cast<std::size_t>(i)] = support[static_cast<std::size_t>(i)];
-  {
-    nxr::geometry::DelaunayOptions dopt;
-    const Json prov = Json::parse(opt_text(pk.opr, "producer_json").value_or("{}"), nullptr, false);
-    if (prov.is_object() && prov.contains("solve") && prov["solve"].is_object() && prov["solve"].contains("options") && prov["solve"]["options"].is_object()) {
-      dopt.mollify = prov["solve"]["options"].value("mollify", dopt.mollify);
-      dopt.flipEps = prov["solve"]["options"].value("flip_eps", dopt.flipEps);
-    }
-    nxr::geometry::IntrinsicOptions io;                                   // the mollified input's mixed-Voronoi mass, as the solve took it
-    io.mollify = dopt.mollify; io.flipEps = dopt.flipEps;
-    nxr::geometry::IntrinsicSurface isurf(glued.vertices.data(), static_cast<int>(Vg), glued.faces.data(), static_cast<int>(glued.n_faces()), io);
-    const std::vector<double> dm_mass = isurf.inputMixedVoronoiMass();
-    basis.mass = Eigen::Map<const Eigen::VectorXd>(dm_mass.data(), static_cast<Eigen::Index>(dm_mass.size()));
-  }
+  const std::vector<double> dm_mass = isurf.inputMixedVoronoiMass();
+  basis.mass = Eigen::Map<const Eigen::VectorXd>(dm_mass.data(), static_cast<Eigen::Index>(dm_mass.size()));
   return basis;
 }
 

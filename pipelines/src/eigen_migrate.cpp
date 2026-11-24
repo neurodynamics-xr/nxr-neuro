@@ -63,6 +63,11 @@ std::vector<T> read_as(const Store& store, const std::string& key, std::vector<s
 std::string js(const Json& r, const char* k) { return r.contains(k) && r[k].is_string() ? r[k].get<std::string>() : std::string(); }
 std::optional<std::string> jo(const Json& r, const char* k) { if (r.contains(k) && r[k].is_string()) return r[k].get<std::string>(); return std::nullopt; }
 std::int64_t ji(const Json& r, const char* k) { return r.contains(k) && r[k].is_number() ? r[k].get<std::int64_t>() : 0; }
+// a JSON column of a record (stored as text, or already parsed): null when absent
+Json json_column(const Json& r, const char* k) {
+  if (!r.contains(k) || r[k].is_null()) return Json();
+  return r[k].is_string() ? Json::parse(r[k].get<std::string>(), nullptr, false) : r[k];
+}
 Json producer_of_row(const Json& r) {
   if (!r.contains("producer_json")) return Json::object();
   const Json& p = r["producer_json"];
@@ -102,21 +107,95 @@ Eigen::SparseMatrix<double> csr_of(const Store& store, const Json& op) {
   return M;
 }
 
+// the rows [r0, r1) of every column of a stored 2-D float32 array, into `out` (row-major [rows x cols]) at row r0: one block of rows at a time (`block`), never the raw bytes of the whole array
+void read_rows_into(const Store& store, const std::string& key, std::int64_t r0, std::int64_t r1, std::int64_t cols, std::int64_t block, std::vector<float>& out) {
+  ArrayReader r = ArrayReader::open(store, key);
+  if (r.dtype() != DType::Float32) throw Error(code::unsupported, key + ": not float32");
+  for (std::int64_t a = r0; a < r1; a += block) {
+    const std::int64_t b = std::min(r1, a + block);
+    const std::vector<std::uint8_t> raw = r.read({a, 0}, {b, cols});
+    std::memcpy(out.data() + a * cols, raw.data(), raw.size());
+  }
+}
+
+// A SOLVE ALREADY IN THE FOUR CLASSES, made by an earlier version, brought to the current form in place (no solve), each part only when it differs:
+//   - a coexact mode's vertex rows held its stream function (the face-to-vertex mean of *2 chi/sqrt2), not its 0-form part: set to 0 (the eigenvectors and the eigenvalues, a field OF them, written again);
+//     The kind of each mode is read from its PARTS: a mode whose 2-form rows (the faces) are all 0 is exact, one with a non-zero 2-form part coexact (an exact mode's face rows are stored as exact
+//     zeros); the stored labelling must agree, or the stem is refused;
+//   - the support selection of an earlier form moved aside (the glue's correspondence is derived).
+// Memory: the eigenvectors, (V + E + F) x K float32, read one chunk row (V rows) at a time.
+Json migrate_current(SubjectWriter& sub, const std::string& stem, const Json& ev, const std::optional<Json>& support, const std::function<void(const Json&)>& say) {
+  const StoredEigensolve e = stored_eigensolve(sub, stem);
+  const Store& store = sub.store();
+  const std::int64_t V = e.V, E = e.E, F = e.F, K = e.K, N = V + E + F;
+  const std::string path = js(ev, "path");
+  std::vector<float> stacked(static_cast<std::size_t>(N * K));
+  read_rows_into(store, path, 0, N, K, V, stacked);
+  std::vector<std::int32_t> kind(static_cast<std::size_t>(K), 0);
+  std::int64_t zeroed = 0;
+  for (std::int64_t k = 0; k < K; ++k) {
+    bool face = false, vertex = false;
+    for (std::int64_t f = 0; f < F && !face; ++f) face = stacked[static_cast<std::size_t>((V + E + f) * K + k)] != 0.0f;
+    for (std::int64_t v = 0; v < V && !vertex; ++v) vertex = stacked[static_cast<std::size_t>(v * K + k)] != 0.0f;
+    kind[static_cast<std::size_t>(k)] = face ? 2 : 0;
+    if (!face && !vertex) unknown(stem, "mode " + std::to_string(k) + " has neither a 0-form nor a 2-form part");
+    if (kind[static_cast<std::size_t>(k)] != e.kind[static_cast<std::size_t>(k)])
+      unknown(stem, "mode " + std::to_string(k) + " is labelled " + std::to_string(e.kind[static_cast<std::size_t>(k)]) + " but its parts make it " + (face ? "coexact (a 2-form part)" : "exact (no 2-form part)"));
+    if (face && vertex) {
+      ++zeroed;
+      for (std::int64_t v = 0; v < V; ++v) stacked[static_cast<std::size_t>(v * K + k)] = 0.0f;
+    }
+  }
+  if (!zeroed && !support) return Json{{"stem", stem}, {"status", "already in the new form"}};
+  Json from = Json{{"date", now_utc(false)}, {"from", "the four classes of an earlier version"}, {"items", Json::object()}};
+  if (zeroed) from["vertex_rows"] = "the vertex rows of " + std::to_string(zeroed) + " coexact modes held the stream function; set to 0 (the 0-form part)";
+  const auto lamf = row_named(sub, "field", stem + "_eigenvalues");
+  if (zeroed) { from["items"][stem + "_eigenvectors"] = Json{{"class", "operator"}, {"id", js(ev, "id")}}; if (lamf) from["items"][stem + "_eigenvalues"] = Json{{"class", "field"}, {"id", js(*lamf, "id")}}; }
+  if (support) from["items"][stem + "_support"] = Json{{"class", "selection"}, {"id", js(*support, "id")}};
+  if (say) say(Json{{"stage", "migrate"}, {"stem", stem}, {"coexact_vertex_rows_zeroed", zeroed}, {"support_removed", static_cast<bool>(support)}});
+  std::vector<double> lam;
+  if (zeroed && lamf) lam = read_as<double>(store, js(*lamf, "path"));
+  const tk::Subject ts = tk::Subject::of(sub);
+  tk::Unit u = ts.unit(tk::By{"nxr-neuro migrate eigensolve", Json{{"migrated_from", from}}});
+  const std::string what = "the eigensolve " + stem + " of an earlier version";
+  Json out = Json{{"stem", stem}, {"status", "migrated"}, {"coexact_vertex_rows_zeroed", zeroed}};
+  if (zeroed) {
+    if (lamf) u.replace(tk::Cls::field, js(*lamf, "path"), true, what);
+    u.replace(tk::Cls::operator_, path, true, what);
+    tk::OperatorOut o;
+    o.name = stem + "_eigenvectors"; o.output = "eigenvectors"; o.kind = "eigenvectors"; o.path = path;
+    o.from_manifold_id = js(ev, "from_manifold_id"); o.to_manifold_id = js(ev, "to_manifold_id"); o.from_cell = "0"; o.to_cell = "0+1+2";
+    o.chunk_shape = {V, 1}; o.shard_shape = {V, std::min<std::int64_t>(K, 64)};
+    o.description = "Hodge-Dirac modes as mixed forms on " + text(e.triangulation, "name") + ": rows 0-forms (the vertices), 1-forms (the edges), 2-forms (the faces), one column a mode";
+    o.params = json_column(ev, "params_json");
+    if (o.params.is_object() && o.params.contains("forms"))
+      o.params["forms"] = "each mode's mixed form, orthonormal under the stars *0, *1, *2: the 0-form part psi/sqrt2 (0 on a coexact mode); the 1-form part d psi/(mu sqrt2) or *1^-1 d1^T *2 chi/(mu sqrt2) (*1-orthogonal, energy 1/2); the 2-form part chi/sqrt2 (0 on an exact mode). A coexact mode's stream function at the vertices is derived from its 2-form part (each vertex the mean over its faces of *2 chi/sqrt2), never stored";
+    o.producer = producer_of_row(ev);
+    o.data.shape = {N, K};
+    o.data.f32 = std::move(stacked);
+    const std::string oid = u.operator_(o);
+    if (lamf) {
+      tk::FieldOut lf;
+      lf.name = stem + "_eigenvalues"; lf.output = "eigenvalues"; lf.kind = "eigenvalue"; lf.manifold_id = text(e.line, "id"); lf.of_operator_id = oid;
+      lf.unit = jo(*lamf, "unit").value_or("1/m^2");
+      lf.description = jo(*lamf, "description").value_or("per mode: the eigenvalue lambda = mu^2 of the squared operator");
+      lf.producer = producer_of_row(*lamf);
+      lf.data.shape = {K}; lf.data.f64 = std::move(lam);
+      u.field(lf);
+    }
+    out["eigenvectors"] = oid;
+  }
+  if (support) { u.replace(tk::Cls::selection, js(*support, "path"), true, "the support of the eigensolve " + stem + ": derived from the glued cortex's hemispheres labelling and the medial wall"); out["removed"] = stem + "_support"; }
+  u.commit();
+  return out;
+}
+
 Json migrate_one(SubjectWriter& sub, const std::string& stem, const std::function<void(const Json&)>& say) {
   const auto ev = row_named(sub, "operator", stem + "_eigenvectors");
   if (!ev) unknown(stem, stem + "_eigenvectors is not stored");
   const std::string to_cell = jo(*ev, "to_cell").value_or("0");
   const auto support = row_named(sub, "selection", stem + "_support");   // the earlier forms' support: the glue's correspondence, derived now from the glued cortex's labelling and the medial wall
-  if (to_cell == "0+1+2" && row_named(sub, "selection", stem + "_kinds")) {
-    if (!support) return Json{{"stem", stem}, {"status", "already in the new form"}};
-    const tk::Subject ts = tk::Subject::of(sub);
-    tk::Unit u = ts.unit(tk::By{"nxr-neuro migrate eigensolve", Json{{"migrated_from", Json{{"date", now_utc(false)}, {"from", "the support selection (the glue's correspondence, derived instead)"},
-                                                                                                 {"items", Json{{stem + "_support", Json{{"class", "selection"}, {"id", js(*support, "id")}}}}}}}}});
-    u.replace(tk::Cls::selection, js(*support, "path"), true, "the support of the eigensolve " + stem + ": derived from the glued cortex's hemispheres labelling and the medial wall");
-    u.commit();
-    if (say) say(Json{{"stage", "migrate"}, {"stem", stem}, {"removed", stem + "_support"}});
-    return Json{{"stem", stem}, {"status", "migrated"}, {"removed", stem + "_support"}};
-  }
+  if (to_cell == "0+1+2" && row_named(sub, "selection", stem + "_kinds")) return migrate_current(sub, stem, *ev, support, say);
   if (to_cell != "0") unknown(stem, stem + "_eigenvectors maps to cell '" + to_cell + "'");
   const auto f2 = row_named(sub, "operator", stem + "_forms2");
   if (!f2) unknown(stem, stem + "_forms2 (the 2-form parts) is not stored");
@@ -197,6 +276,9 @@ Json migrate_one(SubjectWriter& sub, const std::string& stem, const std::functio
     }
     forms1_made = "made from the stored 0- and 2-form parts with the stored d0, d1, star1, star2 (signal::oneFormFromParts; no solve)";
   }
+  // a coexact mode's vertex rows held its stream function (the earlier form's vertex potential): its 0-form part is 0
+  for (std::int64_t k = 0; k < K; ++k)
+    if (kind[static_cast<std::size_t>(k)] == 2) for (std::int64_t v = 0; v < nV; ++v) stacked[static_cast<std::size_t>(v * K + k)] = 0.0f;
   const std::vector<std::int32_t> edges = read_as<std::int32_t>(store, js(*tri, "path") + "/edges"), faces = read_as<std::int32_t>(store, js(*tri, "path") + "/faces");
   if (static_cast<std::int64_t>(edges.size()) != 2 * nE || static_cast<std::int64_t>(faces.size()) != 3 * nF) unknown(stem, tname + "'s stored cells do not fit its counts");
   struct Kept { std::string name, cell, unit, description; std::vector<double> f64; std::vector<std::int32_t> i32; };
@@ -271,7 +353,7 @@ Json migrate_one(SubjectWriter& sub, const std::string& stem, const std::functio
   o.name = stem + "_eigenvectors"; o.output = "eigenvectors"; o.kind = "eigenvectors"; o.path = js(*ev, "path");
   o.from_manifold_id = js(*line, "id"); o.to_manifold_id = tid; o.from_cell = "0"; o.to_cell = "0+1+2";
   o.chunk_shape = {nV, 1}; o.shard_shape = {nV, std::min<std::int64_t>(K, 64)};
-  o.description = "Hodge-Dirac modes as mixed forms on " + tname + ": rows 0-forms (the vertex potentials), 1-forms (the edges), 2-forms (the faces), one column a mode";
+  o.description = "Hodge-Dirac modes as mixed forms on " + tname + ": rows 0-forms (the vertices), 1-forms (the edges), 2-forms (the faces), one column a mode";
   o.params = Json{{"rows", "0-forms [0, " + std::to_string(nV) + ") · 1-forms [" + std::to_string(nV) + ", " + std::to_string(nV + nE) + ") · 2-forms [" + std::to_string(nV + nE) + ", " + std::to_string(N) + ")"},
                   {"analysis", "the line <- triangulation map is this operator's D106 pair (its M-adjoint), not stored"}};
   o.producer = producer_of_row(*ev);                                       // the solve's own record (its options, its mesh, its triangulation's construction)

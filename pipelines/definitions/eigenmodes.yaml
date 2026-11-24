@@ -11,9 +11,10 @@
 #   <stem>                      the eigenvalue line: points, one per mode, coordinate mu = sqrt(lambda) > 0 ascending (the operator's eigenvalues)
 #   <stem>_eigenvalues          field on the line: lambda = mu^2 (of_operator: the eigenvectors)
 #   <stem>_kinds                selection (partition) of the line: exact (label 0) or coexact (label 2)
-#   <stem>_eigenvectors         operator, the line (cell 0) -> the intrinsic triangulation (cell key 0+1+2) [(V + E + F) x K], float32: each mode's mixed form, rows 0-forms [0, V) (the vertex potential
-#                               psi/sqrt2 or <chi/sqrt2, w_v>) · 1-forms [V, V+E) (d psi/(mu sqrt2) or *1^-1 d1^T *2 chi/(mu sqrt2)) · 2-forms [V+E, V+E+F) (chi/sqrt2); synthesis (the line -> the
-#                               triangulation); the analysis is its D106 pair, not stored
+#   <stem>_eigenvectors         operator, the line (cell 0) -> the intrinsic triangulation (cell key 0+1+2) [(V + E + F) x K], float32: each mode's mixed form, rows 0-forms [0, V) (psi/sqrt2;
+#                               0 for a coexact mode) · 1-forms [V, V+E) (d psi/(mu sqrt2) or *1^-1 d1^T *2 chi/(mu sqrt2)) · 2-forms [V+E, V+E+F) (chi/sqrt2; 0 for an exact mode), orthonormal under
+#                               the stars *0, *1, *2; synthesis (the line -> the triangulation); the analysis is its D106 pair, not stored. A coexact mode's stream function at the vertices is not
+#                               stored: a vertex reader derives it from the 2-form part (each vertex the mean over its faces of *2 chi/sqrt2, the reference's face-to-vertex operator)
 #
 # EIGENMODE FIRST (the maintainers' rule): the spatial bands read these modes; when a band needs eigenmodes that are not stored, the runner makes them first, as this run, with a message.
 # A surface of TWO pieces (a cortex's hemispheres) is solved on its GLUED surface, a manifold made by its own definition (`run glue`) and NAMED here as the input. A two-piece surface given as it is,

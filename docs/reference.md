@@ -1091,11 +1091,14 @@ from the triangulation as the Studio's `hodgeDirac.ts dec(m)` builds them); the 
 Stored by the eigensolve (stem `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not the primary one), in the four classes: the EIGENVALUE LINE `<stem>` (a manifold of points, coordinate
 mu = sqrt(lambda), ascending), the field `<stem>_eigenvalues` (lambda; of the eigenvectors operator), the selection `<stem>_kinds` (a labelling of the line: exact, label 0; coexact, label 2),
 and ONE operator `<stem>_eigenvectors` from the line (cell 0) to the intrinsic triangulation (cell key `0+1+2`, schema 55): [(V + E + F) x K] float32, each column a mode's MIXED FORM, rows
-stacked 0-forms [0, V) (the vertex potential ψ/√2, or ⟨χ/√2, w_v⟩) · 1-forms [V, V+E) (dψ/(μ√2), or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2)) · 2-forms [V+E, V+E+F) (χ/√2), the Studio's Hodge-Dirac order. One mode a chunk of V
-rows: a vertex reader reads the first rows only. It is the synthesis (line to triangulation); the analysis is its D106 pair, never stored twice. The library's `eigen_solve` (`pipelines/eigen.h`) is a thin caller
+stacked 0-forms [0, V) (ψ/√2; 0 for a coexact mode) · 1-forms [V, V+E) (dψ/(μ√2), or ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2)) · 2-forms [V+E, V+E+F) (χ/√2; 0 for an exact mode), the Studio's Hodge-Dirac order,
+orthonormal under the stars ⋆0, ⋆1, ⋆2 (the identity Gram matrix). One mode a chunk of V rows. A coexact mode's STREAM FUNCTION at the vertices (how it is drawn on the vertices) is not a part of the mode and
+is not stored: a vertex reader derives it from the 2-form part with the reference solve's face-to-vertex operator, each vertex the mean over its faces of ⋆2 χ/√2 (`streamFunctionAtVertices`;
+`stored_vertex_potentials` in `pipelines/input.h`, what the bases and bands read). It is the synthesis (line to triangulation); the analysis is its D106 pair, never stored twice. The library's `eigen_solve` (`pipelines/eigen.h`) is a thin caller
 of the two definitions. A solve stored in the earlier form (three operators `_eigenvectors` to the surface, `_forms1`, `_forms2`; a kind field; stored d0, d1 and stars) is refused by the readers, naming
 `nxr-neuro migrate eigensolve --dataset D --subject S [--name STEM]`: it converts it in place with no solve (absent 1-form parts are made from the stored parts and operators by `signal::oneFormFromParts`),
-moves the replaced items aside, records `migrated_from` in the new items, is idempotent and refuses a form it does not know. No support is stored: the input's vertex under each solved vertex is the
+moves the replaced items aside, records `migrated_from` in the new items, is idempotent and refuses a form it does not know. A solve stored in the four classes by an earlier version holds a coexact
+mode's stream function in its vertex rows: `migrate eigensolve` sets those rows to 0 (the mode's 0-form part; no solve). No support is stored: the input's vertex under each solved vertex is the
 glue's correspondence (the glued cortex's hemispheres labelling and the input's medial wall), or every vertex when the input itself was solved; `migrate eigensolve` moves a stored `<stem>_support` aside.
 
 ## The sensor surface (`run sensor_surface`; the nodes `meeg.channel_positions`, `geometry.point_set_mesh`, `geometry.surface_from_parts`)

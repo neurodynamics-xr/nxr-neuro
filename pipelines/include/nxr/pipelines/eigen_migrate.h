@@ -1,5 +1,6 @@
 // nxr-pipelines — `nxr-neuro migrate eigensolve`: a stored Hodge–Dirac eigensolve of the earlier form (three operators _eigenvectors, _forms1, _forms2; a kind field; stored d0, d1 and stars)
-// converted in place to the four classes (eigen.h): no solve, idempotent, an unknown form refused. See eigen_migrate.cpp.
+// converted in place to the four classes (eigen.h); a solve already in the four classes, made by an earlier version, brought to the current form (a coexact mode's vertex rows held its stream
+// function: set to 0, its 0-form part). No solve, idempotent, an unknown form refused. See eigen_migrate.cpp.
 #pragma once
 #include <functional>
 #include <optional>

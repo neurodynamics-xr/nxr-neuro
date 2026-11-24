@@ -336,12 +336,12 @@ StepSpec hodge_dirac_step() {
       put(h.forms1, V, nE);
       put(h.forms2, V + nE, nF);
       const Json solve_params = Json{{"rows", "0-forms [0, " + std::to_string(V) + ") · 1-forms [" + std::to_string(V) + ", " + std::to_string(V + nE) + ") · 2-forms [" + std::to_string(V + nE) + ", " + std::to_string(N) + ")"},
-                                     {"forms", "each mode's mixed form: the vertex potential A = psi/sqrt2 (exact) or S = <chi/sqrt2, w_v> (coexact); the 1-form part d psi/(mu sqrt2) or *1^-1 d1^T *2 chi/(mu sqrt2) (*1-orthogonal, energy 1/2); the 2-form part chi/sqrt2 (0 on an exact mode)"},
+                                     {"forms", "each mode's mixed form, orthonormal under the stars *0, *1, *2: the 0-form part psi/sqrt2 (0 on a coexact mode); the 1-form part d psi/(mu sqrt2) or *1^-1 d1^T *2 chi/(mu sqrt2) (*1-orthogonal, energy 1/2); the 2-form part chi/sqrt2 (0 on an exact mode). A coexact mode's stream function at the vertices is derived from its 2-form part (each vertex the mean over its faces of *2 chi/sqrt2), never stored"},
                                      {"solved", "K x = mu M x, d + delta on the intrinsic triangulation " + st.intrinsic + " of " + solved},
                                      {"analysis", "the line <- triangulation map is this operator's D106 pair (its M-adjoint), not stored"}};
       out["eigenvectors"] = made(N, K, std::move(stacked), Json{{"precision", "float32"}, {"chunks", Json::array({V, 1})}, {"shards", Json::array({V, std::min<std::int64_t>(K, 64)})},
                                  {"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"from_cell", "0"}, {"to_cell", "0+1+2"}, {"params", solve_params}, {"producer", prov},
-                                 {"description", "Hodge-Dirac modes as mixed forms on " + st.intrinsic + ": rows 0-forms (the vertex potentials), 1-forms (the edges), 2-forms (the faces), one column a mode"}});
+                                 {"description", "Hodge-Dirac modes as mixed forms on " + st.intrinsic + ": rows 0-forms (the vertices), 1-forms (the edges), 2-forms (the faces), one column a mode"}});
     }
     return out;
   };

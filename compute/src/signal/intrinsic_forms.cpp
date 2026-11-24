@@ -10,6 +10,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <string>
 
 namespace nxr::signal {
 
@@ -308,6 +309,23 @@ MatrixXd coexactStream(const IntrinsicComplex& c, const Modes& m, const MatrixXd
     MatrixXd cs = MatrixXd::Zero(coef.rows(), coef.cols());
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (m.kind[static_cast<std::size_t>(k)] == 2) cs.row(k) = coef.row(k) / m.mu(k);
     return vertexDensity(c, m.X2 * cs);
+}
+
+MatrixXd streamFunctionAtVertices(int nV, const std::vector<std::int32_t>& faces, const VectorXd& star2, const MatrixXd& twoForm) {
+    const Eigen::Index nF = static_cast<Eigen::Index>(faces.size() / 3);
+    if (nV < 0 || faces.size() % 3 != 0 || star2.size() != nF || twoForm.rows() != nF)
+        throw std::invalid_argument("streamFunctionAtVertices: faces [3 nF], star2 [nF] and the 2-form [nF x m] disagree in nF");
+    MatrixXd out = MatrixXd::Zero(nV, twoForm.cols());
+    std::vector<int> count(static_cast<std::size_t>(nV), 0);
+    for (Eigen::Index f = 0; f < nF; ++f)
+        for (int k = 0; k < 3; ++k) {
+            const std::int32_t v = faces[static_cast<std::size_t>(3 * f + k)];
+            if (v < 0 || v >= nV) throw std::invalid_argument("streamFunctionAtVertices: face " + std::to_string(f) + " names a vertex outside 0.." + std::to_string(nV - 1));
+            out.row(v) += star2(f) * twoForm.row(f);
+            ++count[static_cast<std::size_t>(v)];
+        }
+    for (int v = 0; v < nV; ++v) if (count[static_cast<std::size_t>(v)] > 0) out.row(v) /= static_cast<double>(count[static_cast<std::size_t>(v)]);
+    return out;
 }
 
 Modes modesOf(const nxr::operators::EigenResult& r, int nV, int nE, int nF) {

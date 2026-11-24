@@ -100,14 +100,6 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
   const Eigen::MatrixXd& psi = lad.exact.eigenvectors;
   const Eigen::MatrixXd& chi = lad.coexact.eigenvectors;
 
-  // W: <phi2, w_v> = the sum over the faces round v of *2 phi2, divided by their count (nxr.pipelines.hodge._W)
-  std::vector<int> count(static_cast<std::size_t>(nV), 0);
-  std::vector<std::array<int, 3>> fv(static_cast<std::size_t>(nF));
-  for (int f = 0; f < nF; ++f)
-    for (int k = 0; k < 3; ++k) {
-      fv[static_cast<std::size_t>(f)][static_cast<std::size_t>(k)] = hd.faces(f, k);
-      ++count[static_cast<std::size_t>(hd.faces(f, k))];
-    }
   const double r2 = std::sqrt(2.0);                                  // divided by, as nxr does (not multiplied by 1/sqrt 2)
   const std::size_t K = lad.modes.size(), V = static_cast<std::size_t>(nV);
   HodgeDirac out;
@@ -121,7 +113,6 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
   out.star1_clamped = clamped;
   out.mollify_epsilon = hd.record.epsilon;
   out.flips = hd.record.flips;
-  std::vector<double> acc(V);
   for (std::size_t j = 0; j < K; ++j) {
     const nxr::operators::HodgeLadders::Mode& md = lad.modes[j];
     out.mu[j] = md.mu;
@@ -130,13 +121,7 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
       ++out.n_exact;
       for (std::size_t v = 0; v < V; ++v) out.eigenvectors[v * K + j] = static_cast<float>(psi(static_cast<Eigen::Index>(v), md.col) / r2);
     } else {
-      ++out.n_coexact;
-      std::fill(acc.begin(), acc.end(), 0.0);
-      for (int f = 0; f < nF; ++f) {
-        const double c = hd.star2(f) * chi(f, md.col);
-        for (int k = 0; k < 3; ++k) acc[static_cast<std::size_t>(fv[static_cast<std::size_t>(f)][static_cast<std::size_t>(k)])] += c;
-      }
-      for (std::size_t v = 0; v < V; ++v) out.eigenvectors[v * K + j] = static_cast<float>(acc[v] / std::max(1, count[v]) / r2);
+      ++out.n_coexact;   // its 0-form part is 0 (a coexact mode is a 1-form and a 2-form): its vertex rows stay 0; the stream function is derived from the 2-form part when drawn
     }
   }
   // THE FULL FORMS: the intrinsic complex (the operator mesh the pencil was built on) and each coexact mode's 2-form χ/√2
@@ -222,7 +207,7 @@ EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenS
   if (reports.empty()) throw Error(code::no_such_row, "eigen_solve: the run made no report");
   const Json& rep = reports.front();
 
-  // the stored eigensolve, by name: mu, the kinds and the 0-form rows of the eigenvectors (the vertex potentials)
+  // the stored eigensolve, by name: mu, the kinds, the 0-form rows of the eigenvectors and the vertex potentials (a coexact mode's stream function derived from its 2-form rows)
   const std::string stem = glue ? "hodgeDirac__" + solved : (in.primary ? "hodgeDirac" : "hodgeDirac__" + in.name);
   const StoredEigensolve e = stored_eigensolve(sub, stem);
   EigenSolveResult r;
@@ -231,6 +216,7 @@ EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenS
   h.mu = e.mu;
   h.kind = e.kind;
   h.eigenvectors = stored_eigensolve_rows(sub, e, 0, e.V);
+  r.vertex_potentials = stored_vertex_potentials(sub, e, read_surface(sub, text(e.surface, "name")));
   for (auto k : h.kind) (k == 0 ? h.n_exact : h.n_coexact)++;
   const std::int64_t K = h.n_modes();
   if (K < 1) throw Error(code::invalid_argument, in.name + ": the stored eigensolve has no modes");

@@ -21,6 +21,9 @@
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/eigen_migrate.h"
 #include "nxr/pipelines/input.h"
+#include "nxr/selection/selection.h"
+#include "nxr/signal/intrinsic_forms.h"
+#include "nxr/io/selection_reads.h"
 #include "nxr/geometry/surface_maps.h"
 #include "hemispheres.h"
 
@@ -56,6 +59,19 @@ int main() {
   // a tiny solve, stored in the EARLIER form
   HodgeDirac h = solve_hodge_dirac(Vx, Fx, 20);
   const std::int64_t V = h.n_vertices, K = h.n_modes(), E = static_cast<std::int64_t>(h.lengths.size()), F = static_cast<std::int64_t>(h.faces.size() / 3);
+  // the solve's vertex rows are each mode's 0-form part (0 for a coexact mode); the earlier forms held a coexact mode's STREAM FUNCTION there (the face-to-vertex mean of *2 chi/sqrt2)
+  std::vector<float> ev_earlier = h.eigenvectors;
+  {
+    Eigen::MatrixXd X2(F, K);
+    for (std::int64_t f = 0; f < F; ++f) for (std::int64_t k = 0; k < K; ++k) X2(f, k) = h.forms2[static_cast<std::size_t>(f * K + k)];
+    const Eigen::MatrixXd S = nxr::signal::streamFunctionAtVertices(static_cast<int>(V), h.faces, Eigen::Map<const Eigen::VectorXd>(h.star2.data(), F), X2);
+    std::int64_t nonzero = 0;
+    for (std::int64_t k = 0; k < K; ++k) {
+      if (h.kind[static_cast<std::size_t>(k)] != 2) continue;
+      for (std::int64_t v = 0; v < V; ++v) { nonzero += h.eigenvectors[static_cast<std::size_t>(v * K + k)] != 0.0f; ev_earlier[static_cast<std::size_t>(v * K + k)] = static_cast<float>(S(v, k)); }
+    }
+    CHECK(nonzero == 0);                                                                         // the solve stores no stream function
+  }
   const std::string stem = "hodgeDirac";
   {
     const tk::Subject ts = tk::Subject::of(sub);
@@ -71,7 +87,7 @@ int main() {
       o.data.shape = {rows, K}; o.data.f32 = v;
       return u.operator_(o);
     };
-    const std::string evid = dense(stem + "_eigenvectors", surf_id, "0", V, h.eigenvectors);
+    const std::string evid = dense(stem + "_eigenvectors", surf_id, "0", V, ev_earlier);
     dense(stem + "_forms2", tri, "2", F, h.forms2);
     tk::SelectionOut sp; sp.name = stem + "_support"; sp.output = "support"; sp.type = "indices"; sp.manifold_id = surf_id;
     for (std::int64_t v = 0; v < V; ++v) sp.codes.push_back(v);
@@ -138,7 +154,7 @@ int main() {
   CHECK_EQ(text(e.surface, "id"), surf_id);
   const std::vector<float> all = bytes_as<float>(sub, text(e.eigenvectors, "path"));
   CHECK(static_cast<std::int64_t>(all.size()) == (V + E + F) * K);
-  CHECK(std::equal(ev_before.begin(), ev_before.end(), all.begin()));                         // the 0-form rows: the earlier bytes
+  CHECK(std::equal(ev_before.begin(), ev_before.end(), all.begin()));                         // the 0-form rows: the earlier bytes, a coexact mode's set to 0 (its 0-form part)
   CHECK(std::equal(f2_before.begin(), f2_before.end(), all.begin() + (V + E) * K));            // the 2-form rows: the earlier bytes
   double d1max = 0, scale = 0;                                                                  // the 1-form rows made from the stored parts = the solve's own (to float32)
   for (std::int64_t i = 0; i < E * K; ++i) { d1max = std::max(d1max, std::abs(static_cast<double>(all[V * K + i]) - h.forms1[i])); scale = std::max(scale, std::abs(static_cast<double>(h.forms1[i]))); }
@@ -163,9 +179,32 @@ int main() {
     const Json pj = Json::parse(opt_text(e.eigenvectors, "producer_json").value_or("{}"));
     CHECK(pj.contains("migrated_from") && pj["migrated_from"]["items"].contains("hodgeDirac_forms2"));
   }
-  // the readers: the basis and the forms of the new form
+  // THE EIGENVECTORS ARE ORTHONORMAL UNDER THE STARS: the Gram matrix of the stored mixed forms, X0^T *0 X0 + X1^T *1 X1 + X2^T *2 X2, is the identity (the stars the solve used)
+  auto gram_error = [&](const std::vector<float>& x) {
+    Eigen::MatrixXd X(V + E + F, K);
+    for (std::int64_t r = 0; r < V + E + F; ++r) for (std::int64_t k = 0; k < K; ++k) X(r, k) = x[static_cast<std::size_t>(r * K + k)];
+    Eigen::VectorXd stars(V + E + F);
+    for (std::int64_t i = 0; i < V; ++i) stars(i) = h.star0[static_cast<std::size_t>(i)];
+    for (std::int64_t i = 0; i < E; ++i) stars(V + i) = h.star1[static_cast<std::size_t>(i)];
+    for (std::int64_t i = 0; i < F; ++i) stars(V + E + i) = h.star2[static_cast<std::size_t>(i)];
+    const Eigen::MatrixXd G = X.transpose() * stars.asDiagonal() * X;
+    return (G - Eigen::MatrixXd::Identity(K, K)).cwiseAbs().maxCoeff();
+  };
+  const double orth = gram_error(all);
+  std::printf("  the stored eigenvectors under the stars *0, *1, *2: max |Gram - I| %.1e\n", orth);
+  CHECK(orth < 1e-6);
+  // the readers: the basis and the forms of the new form; the basis' coexact rows are the stream functions the earlier form stored, derived from the 2-form rows
   const HodgePackageData d = hodge_package_data(sub, stem + "_eigenvectors", std::nullopt);
   CHECK(d.basis.P.rows() == K && d.basis.P.cols() == V);
+  {
+    double dmax = 0, smax = 0;
+    for (std::int64_t k = 0; k < K; ++k) for (std::int64_t v = 0; v < V; ++v) {
+      dmax = std::max(dmax, std::abs(d.basis.P(k, v) - static_cast<double>(ev_earlier[static_cast<std::size_t>(v * K + k)])));
+      smax = std::max(smax, std::abs(static_cast<double>(ev_earlier[static_cast<std::size_t>(v * K + k)])));
+    }
+    std::printf("  the vertex potentials read (a coexact mode's stream function derived) vs the earlier stored: max |difference| %.1e (scale %.1e)\n", dmax, smax);
+    CHECK(dmax < 1e-5 * smax);
+  }
   const HodgePackageForms fm = hodge_package_forms(sub, d);
   CHECK(fm.nE == E && fm.nF == F && fm.forms2 == f2_before);
 
@@ -188,6 +227,45 @@ int main() {
   // idempotent
   const Json again = migrate_eigensolve(sub, stem);
   CHECK(again["stems"][0]["status"] == "already in the new form");
+
+  // A SOLVE IN THE FOUR CLASSES OF AN EARLIER VERSION: the coexact vertex rows hold the stream function
+  const std::string stem2 = "hodgeDirac__earlier_version";
+  {
+    const tk::Subject ts = tk::Subject::of(sub);
+    tk::Unit u = ts.unit(tk::By{"eigenmodes of an earlier version", Json{{"solve", Json{{"options", Json{{"mollify", 1e-6}, {"flip_eps", 1e-6}}}}}}});
+    tk::PointsOut p; p.name = stem2; p.output = "modes"; p.cs_key = "eigenvalue:" + stem2; p.operator_name = "hodgeDirac"; p.derived_from_id = surf_id;
+    p.positions.shape = {K}; p.positions.f64 = h.mu;
+    const std::string line = u.points(p);
+    std::vector<float> stacked = all;
+    std::copy(ev_earlier.begin(), ev_earlier.end(), stacked.begin());
+    tk::OperatorOut o; o.name = stem2 + "_eigenvectors"; o.output = "eigenvectors"; o.kind = "eigenvectors"; o.from_manifold_id = line; o.to_manifold_id = text(e.triangulation, "id");
+    o.from_cell = "0"; o.to_cell = "0+1+2"; o.chunk_shape = {V, 1}; o.data.shape = {V + E + F, K}; o.data.f32 = stacked;
+    const std::string oid = u.operator_(o);
+    tk::FieldOut lf; lf.name = stem2 + "_eigenvalues"; lf.output = "eigenvalues"; lf.kind = "eigenvalue"; lf.manifold_id = line; lf.of_operator_id = oid; lf.unit = "1/m^2";
+    lf.data.shape = {K}; for (const double m : h.mu) lf.data.f64.push_back(m * m); u.field(lf);
+    tk::SelectionOut ks; ks.name = stem2 + "_kinds"; ks.output = "kinds"; ks.type = "partition"; ks.manifold_id = line; ks.entries = {"exact", "harmonic", "coexact"};
+    nxr::selection::Lookup names;
+    for (std::size_t k = 0; k < 3; ++k) names.push_back(nxr::selection::Entry{static_cast<std::int64_t>(k), ks.entries[k], std::nullopt});
+    const nxr::selection::Selection sel = nxr::selection::from_labels(std::vector<std::int32_t>(h.kind.begin(), h.kind.end()), names);
+    ks.member_of = sel.member_of; ks.member_codes = sel.member_codes;
+    u.selection(ks);
+    u.commit();
+  }
+  {
+    const Json m2 = migrate_eigensolve(sub, stem2);
+    std::printf("  an earlier version's four classes: %s\n", m2.dump().substr(0, 220).c_str());
+    const Json& st = m2["stems"][0];
+    CHECK(st["status"] == "migrated" && st["coexact_vertex_rows_zeroed"].get<std::int64_t>() == std::count(h.kind.begin(), h.kind.end(), 2));
+    const StoredEigensolve e2 = stored_eigensolve(sub, stem2);
+    CHECK(e2.kind == h.kind);
+    const std::vector<float> all2 = bytes_as<float>(sub, text(e2.eigenvectors, "path"));
+    CHECK(all2 == all);                                                                          // the current form: the vertex rows of a coexact mode 0
+    CHECK(gram_error(all2) < 1e-6);
+    tk::Want lw{.cls = tk::Cls::field}; lw.name = stem2 + "_eigenvalues";
+    const auto ef = tk::Subject::of(sub).find(lw);
+    CHECK(ef && ef->row.value("of_operator_id", std::string()) == text(e2.eigenvectors, "id"));
+    CHECK(migrate_eigensolve(sub, stem2)["stems"][0]["status"] == "already in the new form");
+  }
 
   // THE GLUE of the earlier form, converted
   {
