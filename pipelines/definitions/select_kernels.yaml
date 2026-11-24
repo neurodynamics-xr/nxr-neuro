@@ -17,9 +17,10 @@ inputs:
 parameters:
   line: {default: null, meaning: "the line's name", unit: "-"}
   quantity: {default: null, meaning: "frequency (Hz) | wavelength (2 pi / mu) | wavenumber (mu)", unit: "-", choices: [frequency, wavelength, wavenumber]}
-  profile: {default: null, meaning: "gaussian | box", unit: "-", choices: [gaussian, box]}
+  profile: {default: null, meaning: "gaussian | box | cos2_partition (an amplitude partition in log2 whose gains sum to one; no width)", unit: "-", choices: [gaussian, box, cos2_partition]}
   chart: {default: null, meaning: "the chart the width is in: log2 (octaves) | linear", unit: "-", choices: [log2, linear]}
   width: {default: null, meaning: "each member's FWHM (gaussian) or full width (box), in the chart", unit: "-"}
+  width_rule: {default: null, meaning: "absolute (the width as given; null means this) | proportional (the width times the member's centre: constant Q)", unit: "-"}
   gain: {default: null, meaning: "each member's peak amplitude g", unit: "-"}
   centres: {default: null, meaning: "the members' centres in the quantity's unit (or a grid: grid_from, grid_to, voices)", unit: "-"}
   grid_from: {default: null, meaning: "a grid's first centre", unit: "-"}
@@ -30,7 +31,7 @@ parameters:
 
 steps:
   before:
-    - {node: select.kernels, with: {quantity: $quantity, profile: $profile, chart: $chart, width: $width, gain: $gain, centres: $centres, grid_from: $grid_from, grid_to: $grid_to, voices: $voices, names: $names}, out: kernels}
+    - {node: select.kernels, with: {quantity: $quantity, profile: $profile, chart: $chart, width: $width, width_rule: $width_rule, gain: $gain, centres: $centres, grid_from: $grid_from, grid_to: $grid_to, voices: $voices, names: $names}, out: kernels}
 
 outputs:
   kernels: {kind: selection, type: kernels, name: $name, on: line}
