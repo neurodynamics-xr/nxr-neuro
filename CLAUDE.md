@@ -7,6 +7,7 @@ Before changing anything, read:
 - `ARCHITECTURE.md`: the architecture every change follows (layers, the dependency rule, reductions belong to the selection system, pipelines as graphs of pure nodes, the chunk service). It is never broken; if a change seems to need breaking it, stop and ask.
 - `CONTRIBUTING.md`: the method rule, how to add a verb, building and testing (scoped tests through `tools/tests.py`), code style, git workflow.
 - `docs/reference.md`: every verb and method; `docs/specs/`: the designs behind them.
+- `docs/vocabulary.md`: one meaning per word (manifold, cell, rank, level, the four classes, reduction and expansion); the target vocabulary every change adopts.
 
 The rules most often broken, all in those documents:
 - NO WASTE in builds and tests (CONTRIBUTING.md, *No waste*): build only the targets you changed; `tools/tests.py run REGEX` builds and runs only
