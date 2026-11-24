@@ -27,6 +27,7 @@ target_sources(nxr_compute PRIVATE
   src/signal/intrinsic_forms.cpp
   src/signal/mode_spectrum.cpp
   src/signal/spectral_flow.cpp
+  src/signal/source_flow.cpp
   src/signal/aperiodic.cpp
   src/signal/hodge_decomposition.cpp
   src/signal/isolines.cpp
@@ -68,6 +69,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_spectral_flow test/test_spectral_flow.cpp)
   target_link_libraries(test_spectral_flow PRIVATE nxr_compute)
   add_test(NAME test_spectral_flow COMMAND test_spectral_flow)
+  add_executable(test_source_flow test/test_source_flow.cpp)
+  target_link_libraries(test_source_flow PRIVATE nxr_compute)
+  add_test(NAME test_source_flow COMMAND test_source_flow)
   add_executable(test_aperiodic test/test_aperiodic.cpp)
   target_link_libraries(test_aperiodic PRIVATE nxr_compute)
   target_compile_definitions(test_aperiodic PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")

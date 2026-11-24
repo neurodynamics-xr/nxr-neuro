@@ -1,0 +1,162 @@
+// nxr::signal source_flow on synthetic data (random kernels and coordinates, an icosphere's complex and its Hodge-Dirac modes):
+//   selectVertexRows: a vertex range and a glued-style selection, the bridge rows exactly zero;
+//   synthesisFromAnalysis: analysis x synthesis = I for mass-orthonormal coordinates;
+//   bandReadouts: the bands add back to the kernel exactly; a band below the last equals the vertex filter Phi g Phiᵀ M W (the reference's band kernel); with every mode kept and the
+//     last band's gain zero on them, the last band is the kernel's content outside the modes, zero for a complete basis;
+//   sharpOperator: sharp(c, w) = sharpOperator(c) w;
+//   readoutPairFlow: with one component and the readouts Psi diag(h_q), it equals bandPairFlow (dense and factored orders); three components sum their single-component values;
+//   readoutTimeCellFlow: with the readout Psi diag(h) it equals timeCellFlow;
+//   OneFormRemainderSplit: an exact 1-form d0 phi gives back phi and no stream; a coexact 1-form gives back its stream and no potential.
+#include <cmath>
+#include <complex>
+#include <iostream>
+#include <random>
+
+#include "mesh_helpers.h"
+#include "nxr/geometry/surface_arrays.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/intrinsic_forms.h"
+#include "nxr/signal/source_flow.h"
+#include "nxr/signal/spectral_flow.h"
+
+static int failures = 0;
+#define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
+
+int main() {
+  std::cout << "test_source_flow\n";
+  namespace ns = nxr::signal;
+  using cd = std::complex<double>;
+  std::mt19937 rng(5);
+  std::normal_distribution<double> nd(0, 1);
+  auto randn = [&](Eigen::Index r, Eigen::Index c) { Eigen::MatrixXd m(r, c); for (Eigen::Index i = 0; i < r; ++i) for (Eigen::Index j = 0; j < c; ++j) m(i, j) = nd(rng); return m; };
+  auto crandn = [&](Eigen::Index r, Eigen::Index c) { return Eigen::MatrixXcd(randn(r, c).cast<cd>() + cd(0, 1) * randn(r, c).cast<cd>()); };
+  auto relative = [](const Eigen::MatrixXd& a, const Eigen::MatrixXd& b) { return (a - b).cwiseAbs().maxCoeff() / std::max(1e-300, b.cwiseAbs().maxCoeff()); };
+
+  // ── selectVertexRows ──
+  {
+    const Eigen::MatrixXd kernel = randn(3 * 6, 4);
+    const std::vector<std::int64_t> hemisphere = {3, 4, 5}, glued = {0, 2, -1, 5};
+    const Eigen::MatrixXd h = ns::selectVertexRows(kernel, hemisphere, 3), g = ns::selectVertexRows(kernel, glued, 3);
+    EXPECT(h.rows() == 9 && (h - kernel.bottomRows(9)).cwiseAbs().maxCoeff() == 0, "a hemisphere: its vertex range's rows");
+    EXPECT(g.middleRows(6, 3).cwiseAbs().maxCoeff() == 0 && (g.middleRows(3, 3) - kernel.middleRows(6, 3)).cwiseAbs().maxCoeff() == 0, "glued: rows selected, the bridge exactly zero");
+    bool refused = false;
+    try { ns::selectVertexRows(kernel, {7}, 3); } catch (const std::invalid_argument&) { refused = true; }
+    EXPECT(refused, "refused: a source vertex outside the rows");
+  }
+
+  // ── an icosphere, its complex and its modes ──
+  std::vector<double> Vx; std::vector<int32_t> F;
+  icosphere(2, Vx, F, 1.0);
+  const int nV = static_cast<int>(Vx.size() / 3), nF = static_cast<int>(F.size() / 3);
+  const auto surface = nxr::geometry::surfaceArrays(Vx.data(), nV, F.data(), nF);
+  const ns::IntrinsicComplex c = ns::intrinsicComplex(surface);
+  const auto h = nxr::operators::hodgedirac::assemble(surface);
+  nxr::operators::HodgeSolveOptions so; so.limit = 60;
+  const ns::Modes md = ns::modesOf(nxr::operators::hodgeDiracModes(h, 120, false, so), h.nV, h.nE, h.nF);
+  // the field coordinates: the constant and the exact modes' vertex parts, each at unit mass norm
+  std::vector<int> exact;
+  for (Eigen::Index k = 0; k < md.mu.size(); ++k) if (md.kind[static_cast<std::size_t>(k)] == 0) exact.push_back(static_cast<int>(k));
+  const Eigen::Index K = static_cast<Eigen::Index>(exact.size()) + 1;
+  Eigen::MatrixXd Phi(nV, K);
+  Eigen::VectorXd mu(K);
+  Phi.col(0).setConstant(1.0 / std::sqrt(c.star0.sum())); mu(0) = 0;
+  for (Eigen::Index j = 1; j < K; ++j) { Phi.col(j) = md.P.col(exact[static_cast<std::size_t>(j - 1)]); Phi.col(j) /= std::sqrt(Phi.col(j).cwiseAbs2().dot(c.star0)); mu(j) = md.mu(exact[static_cast<std::size_t>(j - 1)]); }
+  const Eigen::MatrixXd analysis = Phi.transpose() * c.star0.asDiagonal();
+  EXPECT((analysis * Phi - Eigen::MatrixXd::Identity(K, K)).cwiseAbs().maxCoeff() < 1e-8, "the coordinates are mass-orthonormal");
+  EXPECT((ns::synthesisFromAnalysis(analysis, c.star0) - Phi).cwiseAbs().maxCoeff() < 1e-12, "synthesisFromAnalysis gives the synthesis back");
+
+  // ── bandReadouts ──
+  {
+    const int channels = 7;
+    const Eigen::MatrixXd W = randn(3 * nV, channels);                    // a free-orientation kernel, vertex-major
+    Eigen::MatrixXd modeOperator(3 * K, channels);                         // (I3 ⊗ Phiᵀ M) W, component-major
+    const Eigen::MatrixXd Wc = ns::componentMajor(W, 3);
+    for (int comp = 0; comp < 3; ++comp) modeOperator.middleRows(comp * K, K) = analysis * Wc.middleRows(comp * nV, nV);
+    Eigen::VectorXd logMu(K);
+    for (Eigen::Index j = 0; j < K; ++j) logMu(j) = mu(j) > 0 ? std::log2(mu(j)) : -std::numeric_limits<double>::infinity();
+    const Eigen::MatrixXd gains = ns::cosineSquaredPartition(logMu, {std::log2(mu(2)), std::log2(mu(6)), std::log2(mu(K - 1))});
+    const std::vector<Eigen::MatrixXd> bands = ns::bandReadouts(modeOperator, Phi, gains, W, 3);
+    Eigen::MatrixXd sum = Eigen::MatrixXd::Zero(3 * nV, channels);
+    for (const auto& b : bands) sum += b;
+    EXPECT(relative(sum, Wc) < 1e-12, "the bands add back to the kernel");
+    const Eigen::MatrixXd filter = Phi * gains.row(1).transpose().asDiagonal() * analysis;   // the reference's band kernel Phi g Phiᵀ M W, per component
+    EXPECT(relative(bands[1].middleRows(nV, nV), filter * Wc.middleRows(nV, nV)) < 1e-10, "a band = Phi g Phiᵀ M W");
+    const Eigen::MatrixXd outside = Wc.middleRows(0, nV) - Phi * analysis * Wc.middleRows(0, nV);
+    const Eigen::MatrixXd lastOwn = Phi * gains.row(2).transpose().asDiagonal() * analysis * Wc.middleRows(0, nV);
+    EXPECT(relative(bands[2].middleRows(0, nV), lastOwn + outside) < 1e-10, "the last band = its own gain + the content outside the modes");
+  }
+
+  // ── sharpOperator ──
+  const Eigen::SparseMatrix<double> sharpWeights = ns::sharpOperator(c);
+  {
+    const Eigen::MatrixXd w = randn(c.nE, 3);
+    EXPECT(relative(sharpWeights * w, ns::sharp(c, w)) < 1e-12, "sharp(c, w) = sharpOperator(c) w");
+  }
+
+  // ── readoutPairFlow against bandPairFlow ──
+  {
+    const Eigen::MatrixXd G = ns::sharp(c, Eigen::MatrixXd(c.d0 * Phi));
+    Eigen::VectorXd logMu(K);
+    for (Eigen::Index j = 0; j < K; ++j) logMu(j) = mu(j) > 0 ? std::log2(mu(j)) : -std::numeric_limits<double>::infinity();
+    const Eigen::MatrixXd H = ns::cosineSquaredPartition(logMu, {std::log2(mu(3)), std::log2(mu(K - 1))});
+    std::vector<Eigen::MatrixXd> readouts;
+    for (Eigen::Index q = 0; q < H.rows(); ++q) readouts.push_back(Phi * H.row(q).transpose().asDiagonal());
+    for (const Eigen::Index draws : {Eigen::Index(4), Eigen::Index(3 * K)}) {                 // factored (few draws) and dense
+      const Eigen::MatrixXcd Y = crandn(K, draws);
+      const Eigen::MatrixXcd C = Y * Y.adjoint();
+      const ns::BandPairFlow want = ns::bandPairFlow(C, Phi, G, c.edges, H);
+      const ns::BandPairFlow got = ns::readoutPairFlow(Y, readouts, 1, c.edges, sharpWeights);
+      const double e = std::max({relative(got.power, want.power), relative(got.edgeCurrent, want.edgeCurrent), relative(got.vertexCurrent, want.vertexCurrent)});
+      std::printf("  readoutPairFlow vs bandPairFlow (%s): %.2e\n", draws < K ? "factored" : "dense", e);
+      EXPECT(e < 1e-9, std::string("one component: readoutPairFlow = bandPairFlow, ") + (draws < K ? "factored order" : "dense order"));
+    }
+    // three components: the sum of each component read alone
+    const Eigen::MatrixXcd Y = crandn(K, 9);
+    std::vector<Eigen::MatrixXd> parts[3];
+    std::vector<Eigen::MatrixXd> stacked;
+    for (Eigen::Index q = 0; q < H.rows(); ++q) {
+      Eigen::MatrixXd s(3 * nV, K);
+      for (int comp = 0; comp < 3; ++comp) { parts[comp].push_back(randn(nV, K)); s.middleRows(comp * nV, nV) = parts[comp].back(); }
+      stacked.push_back(s);
+    }
+    const ns::BandPairFlow all = ns::readoutPairFlow(Y, stacked, 3, c.edges, sharpWeights);
+    Eigen::MatrixXd edgeSum = Eigen::MatrixXd::Zero(all.edgeCurrent.rows(), all.edgeCurrent.cols()), vertexSum = Eigen::MatrixXd::Zero(all.vertexCurrent.rows(), all.vertexCurrent.cols());
+    for (int comp = 0; comp < 3; ++comp) { const ns::BandPairFlow one = ns::readoutPairFlow(Y, parts[comp], 1, c.edges, sharpWeights); edgeSum += one.edgeCurrent; vertexSum += one.vertexCurrent; }
+    EXPECT(relative(all.edgeCurrent, edgeSum) < 1e-12 && relative(all.vertexCurrent, vertexSum) < 1e-12, "three components: the sum of the components read alone");
+  }
+
+  // ── readoutTimeCellFlow against timeCellFlow ──
+  {
+    const Eigen::MatrixXd G = ns::sharp(c, Eigen::MatrixXd(c.d0 * Phi));
+    const std::int64_t N = 64, first = 3, bins = 9, ownFirst = 16, own = 32, cell = 8;
+    const Eigen::MatrixXcd X = crandn(K, bins);
+    Eigen::VectorXd h = Eigen::VectorXd::Ones(K);
+    for (Eigen::Index j = 0; j < K; ++j) h(j) = 1.0 / (1.0 + j);
+    const ns::CellFlow want = ns::timeCellFlow(X, first, N, ownFirst, own, cell, Phi, G, c.edges, h);
+    const ns::CellFlow got = ns::readoutTimeCellFlow(X, first, N, ownFirst, own, cell, Phi * h.asDiagonal(), 1, c.edges, sharpWeights);
+    const double e = std::max({relative(got.power, want.power), relative(got.edgeCurrent, want.edgeCurrent), relative(got.vertexCurrent, want.vertexCurrent)});
+    std::printf("  readoutTimeCellFlow vs timeCellFlow: %.2e\n", e);
+    EXPECT(e < 1e-9, "readoutTimeCellFlow = timeCellFlow (the inverse transform on the coordinates' side)");
+  }
+
+  // ── OneFormRemainderSplit ──
+  {
+    const ns::OneFormRemainderSplit splitter(c);
+    Eigen::VectorXd phi = randn(nV, 1);
+    phi = phi.array() - phi.dot(c.star0) / c.star0.sum();
+    const ns::OneFormRemainderSplit::Parts exactParts = splitter.split(c.d0 * phi);
+    EXPECT(relative(exactParts.potential, phi) < 1e-6 && exactParts.stream.cwiseAbs().maxCoeff() < 1e-6 * phi.cwiseAbs().maxCoeff(), "an exact 1-form: its potential back, no stream");
+    Eigen::VectorXd starredBeta = randn(c.nF, 1);
+    starredBeta = starredBeta.array() - starredBeta.mean();                // orthogonal to the face Laplacian's constant
+    const Eigen::VectorXd beta = starredBeta.cwiseQuotient(c.star2);
+    const Eigen::VectorXd coexact = c.star1.cwiseInverse().cwiseProduct(c.d1.transpose() * starredBeta);
+    const ns::OneFormRemainderSplit::Parts coexactParts = splitter.split(coexact);
+    Eigen::VectorXd streamWant = ns::vertexDensity(c, beta);
+    streamWant = streamWant.array() - streamWant.dot(c.star0) / c.star0.sum();
+    EXPECT(relative(coexactParts.stream, streamWant) < 1e-6 && coexactParts.potential.cwiseAbs().maxCoeff() < 1e-6 * coexact.cwiseAbs().maxCoeff(), "a coexact 1-form: its stream back, no potential");
+  }
+
+  std::cout << (failures ? "FAILED " : "OK ") << failures << "\n";
+  return failures ? 1 : 0;
+}
