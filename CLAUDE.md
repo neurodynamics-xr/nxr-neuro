@@ -44,6 +44,21 @@ cheap and suited to a GPU, so the same graph runs on a CPU or a GPU, in nxr-neur
 - **The Studio as a reference, for now.** Until the four-class system is consolidated (`docs/vocabulary.md`), consult the Studio's design of the four
   classes, selections and measurements when designing them here; where it differs from nxr-neuro's rules, nxr-neuro's rules win.
 
+## Templates and reference maps
+
+(The design: `docs/specs/2026-11-16-subject-centred-datasets.md`, section 4.)
+1. **A template is a subject**: a subject package of kind `template`, opened and read exactly as any subject is. Its reference maps (receptor or
+   tracer maps, cortical gradients) are fields on its cortex. No special reader, store or layout for templates or maps.
+2. **Never a default template.** The template a dataset uses is the one its data were computed in, named by the caller or the importer and recorded
+   by name, version and content hash; no code picks one (not fsaverage, not any other). The search path says only where to look, never which.
+3. **Provenance on every item.** Every template item and every reference map carries its `origin` record (source, URL, version, checksum, citation,
+   licence, attribution, processing; no local paths), carried into everything derived from it. An item without one is not released.
+4. **Released templates are read-only.** A released version is never written again; a change is a new version. A subject moves to a new version only
+   when the caller asks (a re-registration).
+5. **Compare through registrations, never by converting.** Datasets in different template spaces are compared by carrying their results through a
+   registration between the templates (e.g. one template's sphere to the other's). A dataset is never converted to another template (re-imported or
+   recomputed there) to make it comparable; it stays in the template it was computed in.
+
 ## The rules most often broken, all in those documents
 - NO WASTE in builds and tests (CONTRIBUTING.md, *No waste*): build only the targets you changed; `tools/tests.py run REGEX` builds and runs only
   the named tests and never reruns a green one; edit, build once, test once; the full build and suite only with `--suite`, at the end of a round.
