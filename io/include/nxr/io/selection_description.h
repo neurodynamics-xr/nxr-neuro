@@ -87,8 +87,8 @@ struct Grid {
 // A KERNEL member's profile (the selection system: a kernel = an anchor + a profile + a chart): io stores what it is given (as type `kernel`, the anchor as its own type stores it);
 // compute evaluates it on a line (nxr::signal::kernelGains). The same fields as compute's Profile, kept here because io never depends on compute.
 struct Profile {
-  std::string family;                          // `box` | `gaussian` | ...
-  std::map<std::string, double> params;        // the family's parameters (gaussian: fwhm, in the chart's units); the centre is the member's anchor
+  std::string family;                          // gaussian | box | cos2_partition | morlet_band | meyer_band | mexican_hat
+  std::map<std::string, double> params;        // the family's parameters (gaussian, box: fwhm or fwhm_per_centre; meyer_band: half_width); the centre is the member's anchor
   std::string chart;                           // `linear` | `log2` | `log10`: the coordinates the widths are in
   double gain = 1;                             // the peak amplitude g at the profile's centre
 };

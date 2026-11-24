@@ -814,7 +814,7 @@ KernelsPrepared kernels_of(const Json& p) {
   if (profile != "cos2_partition") need(p.contains("gain") && p["gain"].is_number(), std::string(who) + ": gain has no default: name it");
   if (profile == "meyer_band") need(p.contains("half_width") && p["half_width"].is_number(), std::string(who) + ": half_width (octaves) has no default: name it");
   if (centred) need(p.contains("width_rule") && p["width_rule"].is_string(), std::string(who) + ": width_rule has no default: name it (absolute | proportional)");
-  const std::string width_rule = p.contains("width_rule") && p["width_rule"].is_string() ? p["width_rule"].get<std::string>() : "not read";
+  const std::string width_rule = centred ? p["width_rule"].get<std::string>() : std::string();   // read for gaussian and box only
   need(!centred || width_rule == "absolute" || width_rule == "proportional", std::string(who) + ": width_rule is absolute (the width as given) or proportional (the width times the member's centre)");
   need(chart == "log2" || chart == "linear", std::string(who) + ": chart is log2 (octaves) or linear");
   need(quantity == "frequency" || quantity == "wavelength" || quantity == "wavenumber", std::string(who) + ": quantity is frequency (Hz), wavelength (2 pi / mu) or wavenumber (mu)");
@@ -857,7 +857,7 @@ KernelsPrepared kernels_of(const Json& p) {
                              {"gain", profile == "cos2_partition" ? Json(1.0) : p["gain"]}, {"params", params}, {"name", names.empty() ? std::string(buf) : names[i]},
                              {"centre", centres[i]}, {"unit", unit}});
   }
-  k.params = Json{{"kernels", Json{{"quantity", quantity}, {"unit", unit}, {"profile", profile}, {"chart", chart}, {"width", p.value("width", Json())}, {"width_rule", width_rule}, {"gain", p.value("gain", Json())}, {"half_width", p.value("half_width", Json())}, {"members", k.members}}},
+  k.params = Json{{"kernels", Json{{"quantity", quantity}, {"unit", unit}, {"profile", profile}, {"chart", chart}, {"width", p.value("width", Json())}, {"width_rule", centred ? Json(width_rule) : Json()}, {"gain", p.value("gain", Json())}, {"half_width", p.value("half_width", Json())}, {"members", k.members}}},
                   // a factor of a product (the cells of a joint filterbank): its member count; a regular ladder (voices per octave) is a grid, listed centres an irregular set
                   {"grid", Json{{"kind", "kernels"}, {"size", static_cast<std::int64_t>(k.members.size())}, {"quantity", quantity},
                                 {"family", p.contains("voices") && p["voices"].is_number_integer() && !(p.contains("centres") && p["centres"].is_array() && !p["centres"].empty()) ? "grid" : "irregular"}}}};

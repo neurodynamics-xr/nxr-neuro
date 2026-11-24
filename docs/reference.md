@@ -2474,7 +2474,7 @@ pairs at a distance, a filterbank band's matrix).
 **Why.** The FFT route to a band's complex signal: the chunk (with its halo, from io's chunk service) Fourier transformed, the band's gain put on the bins,
 transformed back; any number of members at once, so a time–frequency cross-spectrum or an average over frequencies is the same call. Every transform returns its coefficients at the input's rate: it never decimates, resamples or windows its input (`wt(bank, member, x, at)` reads one member's analytic signal at instants the caller gives, exactly). The bank is the
 caller's `timebank::Design`: the Signal chain's single Meyer band (`bands = {{8, 12}}`, the Studio's `meyerBand`, not the tight frame: alpha's edges are
-closer than the frame allows), Morlet centres, or any of the frame families. The bank is designed on the block's own grid (zero-padded, no wrap) and only
+closer than the frame allows), Morlet centres, or any of the frame families. The caller designs the bank ONCE per block width, on the block's own grid (`timeBank(design, gridLength(width, FastLen), fs)`: zero-padded, no wrap), and `wtBlock(bank, block, left, own)` refuses a bank on another grid; only
 the own columns are kept. **The halo** (`haloOf(bank, member)`) is the member's response length, as the Studio's device chain sizes its HALO by the band's
 taps (1e-6 of the energy left out): alpha [8, 12] Hz at 1000 Hz needs 783 samples, about 6 periods (the Studio's CPU rule of 3 periods leaves 1 % at the
 chunk edges). Tested (`test_cross_spectrum`): chunks of 4096 with that halo equal the whole record transformed at once to 2.5e-4; the FFT route equals the

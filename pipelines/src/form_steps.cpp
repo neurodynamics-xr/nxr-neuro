@@ -323,10 +323,14 @@ ng::NodeSpec flow_map() {
     // the scale members' amplitudes on the kept modes (anchors on the mode axis's coordinate mu)
     Eigen::VectorXd keptMu(K);
     for (std::int64_t j = 0; j < K; ++j) keptMu(j) = m.mu[modes[static_cast<std::size_t>(j)]];
-    const Eigen::MatrixXd Hs = nxr::signal::kernelGains(sk, keptMu, nxr::signal::NonPositiveCoordinates::zero).gains.transpose();   // [K x NS]
+    auto gainsOf = [](const nxr::selection::Selection& set, const Eigen::VectorXd& line, const char* port) {
+      try { return nxr::signal::kernelGains(set, line, nxr::signal::NonPositiveCoordinates::zero).gains; }
+      catch (const std::invalid_argument& e) { ng::refuse(std::string("signal.flow_map: ") + port + ": " + e.what()); }
+    };
+    const Eigen::MatrixXd Hs = gainsOf(sk, keptMu, "scale").transpose();   // [K x NS]
     Eigen::VectorXd binFrequency(B);
     for (std::int64_t k = 0; k < B; ++k) binFrequency(k) = static_cast<double>(first + k) * fs / nt;
-    const Eigen::MatrixXd frequencyGains = nxr::signal::kernelGains(fk, binFrequency, nxr::signal::NonPositiveCoordinates::zero).gains;   // [NF x B]
+    const Eigen::MatrixXd frequencyGains = gainsOf(fk, binFrequency, "frequency");   // [NF x B]
     const int NV = 6;                                                            // power, exact_potential, coexact_stream, one_form_energy, exact_energy, coexact_energy
     ng::Array maps, edges, totals;
     const int NT = 5;                                                            // per region: power, one_form_energy, exact_energy, coexact_energy (sums over its vertices), count

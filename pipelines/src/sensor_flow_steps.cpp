@@ -286,11 +286,11 @@ nxr::selection::Selection kernelSetOf(const ng::Array& stored, const char* who, 
   if (!p.contains("kernels") || !p["kernels"].contains("members")) ng::refuse(std::string(who) + ": " + port + " is not a kernel set (`nxr-neuro run select_kernels`)");
   std::vector<nxr::selection::Selection> members;
   for (const Json& k : p["kernels"]["members"]) {
-    for (const char* key : {"start", "stop", "family", "chart"}) if (!k.contains(key)) ng::refuse(std::string(who) + ": a member of " + port + " does not record " + key);
+    for (const char* key : {"start", "stop", "family", "chart", "gain"}) if (!k.contains(key)) ng::refuse(std::string(who) + ": a member of " + port + " does not record " + key);
     nxr::selection::Profile profile;
     profile.family = k.at("family").get<std::string>();
     profile.chart = k.at("chart").get<std::string>();
-    profile.gain = k.value("gain", 1.0);
+    profile.gain = k.at("gain").get<double>();
     const Json params = k.value("params", Json::object());   // held: the loop below iterates over it (a temporary would be gone before the body)
     for (const auto& [name, value] : params.items()) {
       if (name == "width_rule")

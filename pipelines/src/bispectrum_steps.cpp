@@ -116,10 +116,9 @@ Eigen::MatrixXd atom_gains(const ng::Array& atoms, const Eigen::VectorXd& x, con
   return g;
 }
 std::vector<double> centres_of(const ng::Array& atoms, const char* who) {
-  const nxr::selection::Selection set = spectra_readers::kernelSetOf(atoms, who, "frequency");
-  std::vector<double> c;
-  for (const auto& member : set.members) c.push_back(member.extents[0].start);
-  return c;
+  // each atom's centre as the one evaluator reports it (a band family's: the midpoint of [lo, hi], never its low edge)
+  const Eigen::VectorXd centres = spectra_readers::kernel_gains_of(atoms, Eigen::VectorXd(0), who, "frequency").centres;
+  return std::vector<double>(centres.data(), centres.data() + centres.size());
 }
 
 const char* const kWarnings[] = {
