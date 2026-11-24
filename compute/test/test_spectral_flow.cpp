@@ -2,9 +2,8 @@
 //   overlappedSpectrum: the operator applied before the transform equals after it; the left side reflected at a recording's start equals the transform of the
 //     explicitly reflected samples (numpy `reflect`); a chunk with its whole overlap present is the plain transform of those samples;
 //   normaliseBySumOfSquaredGains (on Gaussian atoms): the squared gains sum to one on the support; cosineSquaredPartition: the gains sum to one at every point;
-//   bandPairFlow: the pairs of an amplitude partition sum to the whole field's values; the whole field's values equal the direct sums over the draws of the
-//     cross-spectrum (power |z|², phaseCurrent(z), Im(conj(z) G y));
-//   timeCellFlow: the cells' sums equal the direct sums of the inverse transform's samples.
+//   pairFlow on the field coordinates: the pairs of an amplitude partition sum to the whole field's values; the whole field's values equal the direct sums over the draws
+//     of the cross-spectrum (power |z|², phaseCurrent(z), Im(conj(z) sharp(d0 z))). (The time cells: test_flow_readout.)
 #include <cmath>
 #include <complex>
 #include <iostream>
@@ -14,6 +13,7 @@
 #include "nxr/geometry/surface_arrays.h"
 #include "nxr/signal/fourier.h"
 #include "nxr/signal/intrinsic_forms.h"
+#include "nxr/signal/flow_readout.h"
 #include "nxr/signal/spectral_flow.h"
 
 // Gaussian gains on a frequency line, standard deviations in Hz, 0 at f <= 0: the test's own synthetic atoms (a kernel set's gains are nxr::signal::kernelGains)
@@ -86,59 +86,33 @@ int main() {
     EXPECT((p.colwise().sum().array() - 1.0).abs().maxCoeff() < 1e-12 && p(0, 0) == 1.0 && p(2, 5) == 1.0 && p(1, 3) == 1.0, "cos² partition: the gains sum to one; the constant in the first band; the last the complement");
   }
 
-  // ── bandPairFlow ──
+  // ── pairFlow on the field coordinates: the whole field against the direct sums over the draws; the band pairs of an amplitude partition sum to the whole ──
   std::vector<double> Vx; std::vector<int32_t> F;
   icosphere(1, Vx, F, 1.0);
   const ns::IntrinsicComplex c = ns::intrinsicComplex(nxr::geometry::surfaceArrays(Vx.data(), static_cast<int>(Vx.size() / 3), F.data(), static_cast<int>(F.size() / 3)));
   const int S = c.nV, K = 9, draws = 40;
-  const Eigen::MatrixXd Psi = randn(S, K), G = randn(3 * S, K);
+  const Eigen::MatrixXd Psi = randn(S, K);
+  const Eigen::SparseMatrix<double> sharpWeights = ns::sharpOperator(c);
   {
     const Eigen::MatrixXcd Y = crandn(K, draws);
-    const Eigen::MatrixXcd C = Y * Y.adjoint();
     Eigen::VectorXd mu = Eigen::VectorXd::LinSpaced(K, 0.5, 4.0);
     const Eigen::MatrixXd H = ns::cosineSquaredPartition(mu.array().log() / std::log(2.0), {0.0, 1.0, 2.0});
-    const ns::BandPairFlow pairs = ns::bandPairFlow(C, Psi, G, c.edges, H);
-    const ns::BandPairFlow whole = ns::bandPairFlow(C, Psi, G, c.edges, Eigen::MatrixXd::Ones(1, K));
-    const Eigen::MatrixXcd z = Psi.cast<cd>() * Y, gz = G.cast<cd>() * Y;
+    std::vector<Eigen::MatrixXd> bandReadouts;
+    for (Eigen::Index q = 0; q < H.rows(); ++q) bandReadouts.push_back(Psi * H.row(q).transpose().asDiagonal());
+    const ns::PairFlow pairs = ns::pairFlow(Y, bandReadouts, 1, c.edges, &sharpWeights);
+    const ns::PairFlow whole = ns::pairFlow(Y, {Psi}, 1, c.edges, &sharpWeights);
+    const Eigen::MatrixXcd z = Psi.cast<cd>() * Y;
     const Eigen::VectorXd power = z.cwiseAbs2().rowwise().sum();
     const Eigen::VectorXd current = ns::phaseCurrent(c, z).rowwise().sum();
-    Eigen::VectorXd vertex(3 * S);
-    for (int r = 0; r < 3 * S; ++r) { double s = 0; for (int n = 0; n < draws; ++n) s += (std::conj(z(r / 3, n)) * gz(r, n)).imag(); vertex(r) = s; }
+    Eigen::VectorXd vertex = Eigen::VectorXd::Zero(3 * S);                                    // Σ_draws Im(conj(z_v) (grad z)_v), the gradient sharp(d0 z) of each draw
+    const Eigen::MatrixXd gradientReal = ns::sharp(c, Eigen::MatrixXd(c.d0 * z.real())), gradientImaginary = ns::sharp(c, Eigen::MatrixXd(c.d0 * z.imag()));
+    for (int r = 0; r < 3 * S; ++r) for (int n = 0; n < draws; ++n) vertex(r) += (std::conj(z(r / 3, n)) * cd(gradientReal(r, n), gradientImaginary(r, n))).imag();
     EXPECT((whole.power.col(0) - power).cwiseAbs().maxCoeff() < 1e-8 * power.maxCoeff(), "whole field: power = Σ |z|² over the draws");
-    EXPECT((whole.edgeCurrent.col(0) - current).cwiseAbs().maxCoeff() < 1e-8 * current.cwiseAbs().maxCoeff(), "whole field: edge phase current = Σ phaseCurrent(z)");
-    EXPECT((whole.vertexCurrent.col(0) - vertex).cwiseAbs().maxCoeff() < 1e-8 * vertex.cwiseAbs().maxCoeff(), "whole field: vertex phase current = Σ Im(conj(z) G y)");
+    EXPECT((whole.pairImaginary.col(0) - current).cwiseAbs().maxCoeff() < 1e-8 * current.cwiseAbs().maxCoeff(), "whole field: edge phase current = Σ phaseCurrent(z)");
+    EXPECT((whole.vertexCurrent.col(0) - vertex).cwiseAbs().maxCoeff() < 1e-8 * vertex.cwiseAbs().maxCoeff(), "whole field: vertex phase current = Σ Im(conj(z) sharp(d0 z))");
     EXPECT((pairs.power.rowwise().sum() - whole.power.col(0)).cwiseAbs().maxCoeff() < 1e-8 * power.maxCoeff() &&
-           (pairs.edgeCurrent.rowwise().sum() - whole.edgeCurrent.col(0)).cwiseAbs().maxCoeff() < 1e-8 * current.cwiseAbs().maxCoeff() &&
+           (pairs.pairImaginary.rowwise().sum() - whole.pairImaginary.col(0)).cwiseAbs().maxCoeff() < 1e-8 * current.cwiseAbs().maxCoeff() &&
            (pairs.vertexCurrent.rowwise().sum() - whole.vertexCurrent.col(0)).cwiseAbs().maxCoeff() < 1e-8 * vertex.cwiseAbs().maxCoeff(), "the band pairs of an amplitude partition sum to the whole");
-  }
-
-  // ── timeCellFlow ──
-  {
-    const int N = 64, first = 3, bins = 9, ownFirst = 16, own = 32, cell = 8;
-    const Eigen::MatrixXcd X = crandn(K, bins);
-    const Eigen::VectorXd h = Eigen::VectorXd::LinSpaced(K, 0.2, 1.0);
-    const ns::CellFlow cells = ns::timeCellFlow(X, first, N, ownFirst, own, cell, Psi, G, c.edges, h);
-    Eigen::MatrixXcd full = Eigen::MatrixXcd::Zero(N, 4 * S);                                // time along rows for ns::ifft (axis 0)
-    const Eigen::MatrixXcd spectral = (Eigen::MatrixXd(Psi.rows() + G.rows(), K) << Psi, G).finished().cast<cd>() * h.cast<cd>().asDiagonal() * X;
-    for (int k = 0; k < bins; ++k) full.row(first + k) = spectral.col(k).transpose();
-    const Eigen::MatrixXcd t = ns::ifft(full, 0);                                             // [N x 4S]
-    double err = 0, scale = 0;
-    for (int q = 0; q < own / cell; ++q) {
-      for (int e = 0; e < c.nE; ++e) {
-        const int tail = c.edges[2 * e], tip = c.edges[2 * e + 1];
-        double s = 0; for (int n = ownFirst + q * cell; n < ownFirst + (q + 1) * cell; ++n) s += (std::conj(t(n, tail)) * t(n, tip)).imag();
-        err = std::max(err, std::abs(s - cells.edgeCurrent(e, q))); scale = std::max(scale, std::abs(s));
-      }
-      for (int r = 0; r < 3 * S; ++r) {
-        double s = 0; for (int n = ownFirst + q * cell; n < ownFirst + (q + 1) * cell; ++n) s += (std::conj(t(n, r / 3)) * t(n, S + r)).imag();
-        err = std::max(err, std::abs(s - cells.vertexCurrent(r, q)));
-      }
-      for (int v = 0; v < S; ++v) {
-        double s = 0; for (int n = ownFirst + q * cell; n < ownFirst + (q + 1) * cell; ++n) s += std::norm(t(n, v));
-        err = std::max(err, std::abs(s - cells.power(v, q)));
-      }
-    }
-    EXPECT(cells.edgeCurrent.cols() == own / cell && err < 1e-10 * std::max(scale, 1e-30), "time cells: the sums over each cell equal the direct sums of the inverse transform");
   }
 
   std::cout << (failures ? "FAILED\n" : "all passed\n");

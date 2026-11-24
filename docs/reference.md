@@ -1274,7 +1274,7 @@ wavelengths the kernel cannot resolve is leakage, not travel); rank at most the 
 appear only in the complement band; per hemisphere no flow across the midline, glued no medial-wall sources; the three components summed make no claim about the normal
 or tangent direction; the apparent speed is an upper bound. Cost: the time cells are a product of 3 x vertices x columns x the cell's samples per cell (about 0.5 T
 multiply-adds per chunk, atom and band on a 20 000-vertex cortex); `--time-cells false` skips them. The operator is bound per run, not stored (issue). Tests:
-`test_source_flow` (compute: equal to `bandPairFlow` and `timeCellFlow` for one component, the bands add back to the kernel, the remainder split) and
+`test_source_flow` (compute: the bands add back to the kernel), `test_flow_readout` (compute: `pairFlow`, `timeCellPairFlow`, `takeWholeCells`, `flowSplit` against their definitions written out, the remainder split) and
 `test_source_flow_nodes` (two spheres as hemispheres and a 42-channel sheet: hemisphere selection, a glued package's zero bridge, option A = option B with a complete
 sensor basis, a travelling source mapped to an exact flow, the band pairs adding back, the time cells' sign-flip test).
 

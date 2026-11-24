@@ -3,8 +3,7 @@
 //   synthesisFromAnalysis: analysis x synthesis = I for mass-orthonormal coordinates;
 //   bandReadouts: the bands add back to the kernel exactly; a band below the last equals the vertex filter Phi g Phiᵀ M W (the reference's band kernel); with every mode kept and the
 //     last band's gain zero on them, the last band is the kernel's content outside the modes, zero for a complete basis;
-//   readoutPairFlow: with one component and the readouts Psi diag(h_q), it equals bandPairFlow (dense and factored orders); three components sum their single-component values;
-//   readoutTimeCellFlow: with the readout Psi diag(h) it equals timeCellFlow;
+//   (the flow readout through these readouts: test_flow_readout)
 #include <cmath>
 #include <complex>
 #include <iostream>
@@ -85,53 +84,6 @@ int main() {
     EXPECT(relative(bands[2].middleRows(0, nV), lastOwn + outside) < 1e-10, "the last band = its own gain + the content outside the modes");
   }
 
-  const Eigen::SparseMatrix<double> sharpWeights = ns::sharpOperator(c);   // the one sharp (test_intrinsic_forms checks it)
-
-  // ── readoutPairFlow against bandPairFlow ──
-  {
-    const Eigen::MatrixXd G = ns::sharp(c, Eigen::MatrixXd(c.d0 * Phi));
-    Eigen::VectorXd logMu(K);
-    for (Eigen::Index j = 0; j < K; ++j) logMu(j) = mu(j) > 0 ? std::log2(mu(j)) : -std::numeric_limits<double>::infinity();
-    const Eigen::MatrixXd H = ns::cosineSquaredPartition(logMu, {std::log2(mu(3)), std::log2(mu(K - 1))});
-    std::vector<Eigen::MatrixXd> readouts;
-    for (Eigen::Index q = 0; q < H.rows(); ++q) readouts.push_back(Phi * H.row(q).transpose().asDiagonal());
-    for (const Eigen::Index draws : {Eigen::Index(4), Eigen::Index(3 * K)}) {                 // factored (few draws) and dense
-      const Eigen::MatrixXcd Y = crandn(K, draws);
-      const Eigen::MatrixXcd C = Y * Y.adjoint();
-      const ns::BandPairFlow want = ns::bandPairFlow(C, Phi, G, c.edges, H);
-      const ns::BandPairFlow got = ns::readoutPairFlow(Y, readouts, 1, c.edges, sharpWeights);
-      const double e = std::max({relative(got.power, want.power), relative(got.edgeCurrent, want.edgeCurrent), relative(got.vertexCurrent, want.vertexCurrent)});
-      std::printf("  readoutPairFlow vs bandPairFlow (%s): %.2e\n", draws < K ? "factored" : "dense", e);
-      EXPECT(e < 1e-9, std::string("one component: readoutPairFlow = bandPairFlow, ") + (draws < K ? "factored order" : "dense order"));
-    }
-    // three components: the sum of each component read alone
-    const Eigen::MatrixXcd Y = crandn(K, 9);
-    std::vector<Eigen::MatrixXd> parts[3];
-    std::vector<Eigen::MatrixXd> stacked;
-    for (Eigen::Index q = 0; q < H.rows(); ++q) {
-      Eigen::MatrixXd s(3 * nV, K);
-      for (int comp = 0; comp < 3; ++comp) { parts[comp].push_back(randn(nV, K)); s.middleRows(comp * nV, nV) = parts[comp].back(); }
-      stacked.push_back(s);
-    }
-    const ns::BandPairFlow all = ns::readoutPairFlow(Y, stacked, 3, c.edges, sharpWeights);
-    Eigen::MatrixXd edgeSum = Eigen::MatrixXd::Zero(all.edgeCurrent.rows(), all.edgeCurrent.cols()), vertexSum = Eigen::MatrixXd::Zero(all.vertexCurrent.rows(), all.vertexCurrent.cols());
-    for (int comp = 0; comp < 3; ++comp) { const ns::BandPairFlow one = ns::readoutPairFlow(Y, parts[comp], 1, c.edges, sharpWeights); edgeSum += one.edgeCurrent; vertexSum += one.vertexCurrent; }
-    EXPECT(relative(all.edgeCurrent, edgeSum) < 1e-12 && relative(all.vertexCurrent, vertexSum) < 1e-12, "three components: the sum of the components read alone");
-  }
-
-  // ── readoutTimeCellFlow against timeCellFlow ──
-  {
-    const Eigen::MatrixXd G = ns::sharp(c, Eigen::MatrixXd(c.d0 * Phi));
-    const std::int64_t N = 64, first = 3, bins = 9, ownFirst = 16, own = 32, cell = 8;
-    const Eigen::MatrixXcd X = crandn(K, bins);
-    Eigen::VectorXd h = Eigen::VectorXd::Ones(K);
-    for (Eigen::Index j = 0; j < K; ++j) h(j) = 1.0 / (1.0 + j);
-    const ns::CellFlow want = ns::timeCellFlow(X, first, N, ownFirst, own, cell, Phi, G, c.edges, h);
-    const ns::CellFlow got = ns::readoutTimeCellFlow(X, first, N, ownFirst, own, cell, Phi * h.asDiagonal(), 1, c.edges, sharpWeights);
-    const double e = std::max({relative(got.power, want.power), relative(got.edgeCurrent, want.edgeCurrent), relative(got.vertexCurrent, want.vertexCurrent)});
-    std::printf("  readoutTimeCellFlow vs timeCellFlow: %.2e\n", e);
-    EXPECT(e < 1e-9, "readoutTimeCellFlow = timeCellFlow (the inverse transform on the coordinates' side)");
-  }
 
   std::cout << (failures ? "FAILED " : "OK ") << failures << "\n";
   return failures ? 1 : 0;

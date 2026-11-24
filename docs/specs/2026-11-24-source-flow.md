@@ -116,7 +116,7 @@ with a GPU run the same definition; every node is a GEMM or a gathered dot produ
 - Changed: `signal.mode_analysis` selects a hemisphere's or the glued cortex's rows of the kernel (it had refused a hemisphere and blended the bridge); the glued carry of a
   kernel (`gluedKernel`) is a selection with the bridge rows zero.
 - New: `signal.source_mode_operator`, `signal.cortical_flow`, `signal.cortical_time_cells`; compute `selectVertexRows`, `synthesisFromAnalysis`, `bandReadouts`,
-  `sharpOperator`, `readoutPairFlow`, `readoutTimeCellFlow`, `OneFormRemainderSplit`.
+  `sharpOperator`, `readoutPairFlow`, `readoutTimeCellFlow`, `OneFormRemainderSplit` (since merged with the sensor and connectome copies into `flow_readout.h`: `pairFlow`, `timeCellPairFlow`, `flowSplit`; `sharpOperator` is in `intrinsic_forms.h`).
 - Not built here: storing the composed operator as an operator of the dataset (it is bound per run), and carrying the cortical maps to a template (a selection of rows by
   a registration match at readback).
 
