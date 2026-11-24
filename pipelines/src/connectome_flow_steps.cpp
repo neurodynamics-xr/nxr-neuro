@@ -24,6 +24,7 @@
 
 #include <Eigen/Dense>
 
+#include "chunk_spectra_readers.h"
 #include "nxr/graph/node.h"
 #include "nxr/meeg/tile_network.h"
 #include "nxr/select/grid.h"
@@ -104,63 +105,21 @@ std::vector<std::int64_t> distinct_codes(const std::vector<std::int64_t>& codes)
   return out;
 }
 
-// ── the stored chunk spectra and the atoms: read as the sensor chain reads them (signal.spectral_flow's readers, the same rules) ──────────────────────────────
-// (kept here until the sensor chain's readers are declared in a shared header; no rule differs)
-struct Spectra {
-  std::int64_t chunks = 0, bins = 0, rows = 0, first = 0, transform = 0, overlap = 0;
-  double sfreq = 0;
-  std::vector<std::int64_t> modes, owns, firsts;   // per chunk: its own samples and its first sample on the recording's line
-  const ng::Array* array = nullptr;
-  cd at(std::int64_t t, std::int64_t k, std::int64_t r) const {
-    const std::size_t i = static_cast<std::size_t>(((t * bins + k) * rows + r) * 2);
-    return cd(array->at(i), array->at(i + 1));
-  }
-  double frequency(std::int64_t k) const { return static_cast<double>(first + k) * sfreq / static_cast<double>(transform); }
-};
-Spectra spectra_of(const ng::Array& A, const char* who) {
-  const Json& d = A.meta.contains("shape") ? A.meta : A.meta.value("describe", Json::object());
-  const Json pr = producer_of(A);
-  if (!d.contains("shape") || d["shape"].size() != 4 || d["shape"][3] != 2) ng::refuse(std::string(who) + ": spectra are not [chunks x bins x coordinates x 2] (signal.chunk_spectra)");
-  Spectra s;
-  s.chunks = d["shape"][0]; s.bins = d["shape"][1]; s.rows = d["shape"][2];
-  for (const char* k : {"sfreq", "transform_samples", "first_bin", "modes"}) if (!pr.contains(k)) ng::refuse(std::string(who) + ": the spectra do not record " + k);
-  s.sfreq = pr["sfreq"]; s.transform = pr["transform_samples"]; s.first = pr["first_bin"]; s.overlap = pr.value("overlap_samples", std::int64_t(0));
-  s.modes = pr["modes"].get<std::vector<std::int64_t>>();
-  for (const auto& c : pr.value("chunks", Json::array())) { s.owns.push_back(c.value("samples", std::int64_t(0))); s.firsts.push_back(c.value("first", std::int64_t(0))); }
-  if (static_cast<std::int64_t>(s.modes.size()) != s.rows) ng::refuse(std::string(who) + ": the spectra's coordinates are not their modes");
-  s.array = &A;
-  return s;
-}
-std::vector<Json> members_of(const ng::Array& sel, const char* who) {
-  const Json p = sel.meta.value("params", Json::object());
-  if (!p.contains("kernels") || !p["kernels"].contains("members")) ng::refuse(std::string(who) + ": frequency is not a kernel set (`nxr-neuro run select_kernels`)");
-  return p["kernels"]["members"].get<std::vector<Json>>();
-}
-// the atoms' gains per bin (Gaussians or boxes on a linear or log2 chart), normalised as the parameter says; their centres and time standard deviations
+// ── the stored chunk spectra and the atoms: the sensor chain's readers (chunk_spectra_readers.h), the same rules ──────────────────────────────
+using Spectra = spectra_readers::Spectra;
+using spectra_readers::spectra_of;
+// the atoms' gains per bin (a kernel set: nxr::signal::kernelGains), normalised as the parameter says; their centres and time standard deviations (Gaussians on a linear chart)
 struct Atoms { Eigen::MatrixXd gains; std::vector<double> centres, standardDeviations; };
 Atoms atoms_of(const Spectra& s, const ng::Array& sel, const Json& p, const char* who) {
-  const std::vector<Json> members = members_of(sel, who);
-  if (members.empty()) ng::refuse(std::string(who) + ": a kernel set with no member");
+  Eigen::VectorXd frequency(s.bins);
+  for (std::int64_t i = 0; i < s.bins; ++i) frequency(i) = s.frequency(i);
+  const nxr::signal::KernelGains kernels = spectra_readers::kernel_gains_of(sel, frequency, who, "frequency");
   Atoms a;
-  a.gains = Eigen::MatrixXd::Zero(static_cast<Eigen::Index>(members.size()), s.bins);
-  for (std::size_t m = 0; m < members.size(); ++m) {
-    const Json& k = members[m];
-    const double c = k.at("start").get<double>(), gain = k.value("gain", 1.0);
-    const std::string family = k.value("family", std::string()), chart = k.value("chart", std::string("linear"));
-    const Json params = k.value("params", Json::object());
-    double fwhm = params.value("fwhm", 0.0);
-    if (params.value("width_rule", std::string("absolute")) == "proportional") fwhm *= c;
-    const double sd = fwhm / (2.0 * std::sqrt(2.0 * std::log(2.0)));
-    a.centres.push_back(c);
-    a.standardDeviations.push_back(family == "gaussian" && chart == "linear" ? sd : std::numeric_limits<double>::quiet_NaN());
-    for (std::int64_t i = 0; i < s.bins; ++i) {
-      const double f = s.frequency(i);
-      if (!(f > 0)) continue;                                                                   // one-sided: nothing at 0
-      const double u = chart == "log2" ? std::log2(f) - std::log2(c) : f - c;
-      if (family == "gaussian") a.gains(static_cast<Eigen::Index>(m), i) = gain * std::exp(-u * u / (2.0 * sd * sd));
-      else if (family == "box") a.gains(static_cast<Eigen::Index>(m), i) = std::abs(u) <= fwhm / 2.0 ? gain : 0.0;
-      else ng::refuse(std::string(who) + ": an atom's profile is gaussian or box, not " + family);
-    }
+  a.gains = kernels.gains;
+  const bool timeWidths = kernels.family == "gaussian" && kernels.chart == "linear";
+  for (Eigen::Index m = 0; m < kernels.centres.size(); ++m) {
+    a.centres.push_back(kernels.centres(m));
+    a.standardDeviations.push_back(timeWidths ? kernels.fullWidths(m) / (2.0 * std::sqrt(2.0 * std::log(2.0))) : std::numeric_limits<double>::quiet_NaN());
   }
   const std::string normalisation = text_param(p, "frequency_normalisation", who);
   if (normalisation == "sum_of_squared_gains") a.gains = nxr::signal::normaliseBySumOfSquaredGains(a.gains, number_param(p, "support_floor", who));

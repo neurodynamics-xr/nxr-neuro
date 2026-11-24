@@ -262,7 +262,7 @@ CorticalPrepared prepare_cortical(const ng::Arrays& c, const Json& p, const char
   pr.outsideModesShare = all > 0 ? outside / all : 0;
   pr.readouts.push_back(whole);
   if (handed(c, "scale")) {
-    Eigen::MatrixXd gains = readers::gains_of(readers::members_of(c.at("scale"), who, "scale"), mu, who);
+    Eigen::MatrixXd gains = readers::kernel_gains_of(c.at("scale"), mu, who, "scale").gains;
     for (Eigen::Index j = 0; j < mu.size(); ++j) if (!(mu(j) > 0) && gains.col(j).sum() == 0) gains(0, j) = 1.0;   // the constant (mu 0) lies in the coarsest band of a partition
     const std::vector<Eigen::MatrixXd> bands = nxr::signal::bandReadouts(modeOperator, modeSynthesis, gains, kernelColumns, 3);
     pr.bands = static_cast<Eigen::Index>(bands.size());

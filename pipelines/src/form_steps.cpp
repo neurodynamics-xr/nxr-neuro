@@ -19,6 +19,8 @@
 #include <Eigen/Dense>
 
 #include "nxr/geometry/surface_arrays.h"
+#include "chunk_spectra_readers.h"
+#include "nxr/signal/kernel_gains.h"
 #include "nxr/graph/node.h"
 #include "nxr/signal/intrinsic_forms.h"
 #include "nxr/signal/mode_spectrum.h"
@@ -259,20 +261,6 @@ ng::NodeSpec hodge_one_form_parts() {
 // surface z = Phi diag(g_s) Y (Phi the kept modes' 0-form parts, normalised as the coefficients were), then pointwise: the POWER per vertex sum |z|^2 (0-form) and the PHASE CURRENT
 // Im(conj(z_tail) z_tip) per intrinsic edge summed over the columns and components (1-form), and the phase current's Hodge split by the package's modes. Nothing reduces across space;
 // across time each map is the sum over the coefficients' tiles and the member's bins (the mean is sum / tiles). Every value is ONE MEASUREMENT per cell: found by its member.
-double kernel_gain(const Json& k, double x) {
-  const std::string fam = k.at("family"), chart = k.at("chart");
-  const double c = k.at("start").get<double>(), fw = k.at("params").at("fwhm").get<double>(), g = k.value("gain", 1.0);
-  if (chart != "linear" && !(x > 0)) return 0.0;
-  const double u = chart == "log2" ? std::log2(x) - std::log2(c) : x - c;
-  if (fam == "gaussian") { const double sd = fw / (2.0 * std::sqrt(2.0 * std::log(2.0))); return g * std::exp(-u * u / (2.0 * sd * sd)); }
-  if (fam == "box") return std::abs(u) <= fw / 2.0 ? g : 0.0;
-  ng::refuse("signal.flow_map: a kernel's family is gaussian or box, not " + fam);
-}
-std::vector<Json> kernel_members(const ng::Array& sel, const char* port) {
-  const Json p = sel.meta.value("params", Json::object());
-  if (!p.contains("kernels") || !p["kernels"].contains("members")) ng::refuse(std::string("signal.flow_map: ") + port + " is not a kernel set (`nxr-neuro run select_kernels`)");
-  return p["kernels"]["members"].get<std::vector<Json>>();
-}
 ng::NodeSpec flow_map() {
   ng::NodeSpec n;
   n.name = "signal.flow_map";
@@ -304,11 +292,11 @@ ng::NodeSpec flow_map() {
     const ng::Array& G = c.at("regions");
     if (G.meta.value("type", std::string()) != "set" || G.data.empty()) ng::refuse("signal.flow_map: regions is a stored partition of the surface (a member number per vertex)");
     std::vector<std::int32_t> region(G.data.begin(), G.data.end());
-    return std::any(std::make_tuple(bind_package(c.at("package"), "signal.flow_map"), c.at("package"), c.at("coefficients"), kernel_members(c.at("frequency"), "frequency"),
-                                    kernel_members(c.at("scale"), "scale"), region, G.meta.value("n_members", std::int64_t(0))));
+    return std::any(std::make_tuple(bind_package(c.at("package"), "signal.flow_map"), c.at("package"), c.at("coefficients"), spectra_readers::kernelSetOf(c.at("frequency"), "signal.flow_map", "frequency"),
+                                    spectra_readers::kernelSetOf(c.at("scale"), "signal.flow_map", "scale"), region, G.meta.value("n_members", std::int64_t(0))));
   };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
-    const auto& [sp, H, A, fk, sk, region, NRm] = std::any_cast<const std::tuple<SplitPrepared, ng::Array, ng::Array, std::vector<Json>, std::vector<Json>, std::vector<std::int32_t>, std::int64_t>&>(prepared);
+    const auto& [sp, H, A, fk, sk, region, NRm] = std::any_cast<const std::tuple<SplitPrepared, ng::Array, ng::Array, nxr::selection::Selection, nxr::selection::Selection, std::vector<std::int32_t>, std::int64_t>&>(prepared);
     const nxr::signal::IntrinsicComplex& c = *sp.complex;
     const nxr::signal::Modes& m = *sp.modes;
     const Json pr = A.meta.value("producer", Json::object());
@@ -331,10 +319,14 @@ ng::NodeSpec flow_map() {
       Phi.col(j) = m.P.col(modes[static_cast<std::size_t>(j)]);
       if (unit_mass) { double s2 = 0; for (Eigen::Index v = 0; v < V; ++v) s2 += mass[static_cast<std::size_t>(v)] * Phi(v, j) * Phi(v, j); Phi.col(j) /= std::sqrt(s2); }
     }
-    const std::int64_t NF = static_cast<std::int64_t>(fk.size()), NS = static_cast<std::int64_t>(sk.size()), M = NF * NS;
+    const std::int64_t NF = static_cast<std::int64_t>(fk.members.size()), NS = static_cast<std::int64_t>(sk.members.size()), M = NF * NS;
     // the scale members' amplitudes on the kept modes (anchors on the mode axis's coordinate mu)
-    Eigen::MatrixXd Hs(K, NS);
-    for (std::int64_t s2 = 0; s2 < NS; ++s2) for (std::int64_t j = 0; j < K; ++j) Hs(j, s2) = kernel_gain(sk[static_cast<std::size_t>(s2)], m.mu[modes[static_cast<std::size_t>(j)]]);
+    Eigen::VectorXd keptMu(K);
+    for (std::int64_t j = 0; j < K; ++j) keptMu(j) = m.mu[modes[static_cast<std::size_t>(j)]];
+    const Eigen::MatrixXd Hs = nxr::signal::kernelGains(sk, keptMu, nxr::signal::NonPositiveCoordinates::zero).gains.transpose();   // [K x NS]
+    Eigen::VectorXd binFrequency(B);
+    for (std::int64_t k = 0; k < B; ++k) binFrequency(k) = static_cast<double>(first + k) * fs / nt;
+    const Eigen::MatrixXd frequencyGains = nxr::signal::kernelGains(fk, binFrequency, nxr::signal::NonPositiveCoordinates::zero).gains;   // [NF x B]
     const int NV = 6;                                                            // power, exact_potential, coexact_stream, one_form_energy, exact_energy, coexact_energy
     ng::Array maps, edges, totals;
     const int NT = 5;                                                            // per region: power, one_form_energy, exact_energy, coexact_energy (sums over its vertices), count
@@ -346,8 +338,8 @@ ng::NodeSpec flow_map() {
       // the frequency member's bins and their weight g^2 (a quadratic field); its low-rank cross-spectrum Y [rows x tiles.bins]
       std::vector<std::int64_t> bins; std::vector<double> w;
       double wmax = 0;
-      for (std::int64_t k = 0; k < B; ++k) { const double g = kernel_gain(fk[static_cast<std::size_t>(f)], static_cast<double>(first + k) * fs / nt); wmax = std::max(wmax, g * g); }
-      for (std::int64_t k = 0; k < B; ++k) { const double g = kernel_gain(fk[static_cast<std::size_t>(f)], static_cast<double>(first + k) * fs / nt); if (g * g > 1e-6 * wmax && g > 0) { bins.push_back(k); w.push_back(g * g); } }
+      for (std::int64_t k = 0; k < B; ++k) { const double g = frequencyGains(f, k); wmax = std::max(wmax, g * g); }
+      for (std::int64_t k = 0; k < B; ++k) { const double g = frequencyGains(f, k); if (g * g > 1e-6 * wmax && g > 0) { bins.push_back(k); w.push_back(g * g); } }
       double sw = 0, sw2 = 0; for (double x : w) { sw += x; sw2 += x * x; }
       dof.push_back(Json{{"member", f}, {"bins", bins.size()}, {"weighted_bins", sw2 > 0 ? sw * sw / sw2 : 0.0}, {"tiles", T}});
       if (bins.empty()) continue;

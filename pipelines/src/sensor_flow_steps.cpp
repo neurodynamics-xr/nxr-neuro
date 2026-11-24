@@ -259,7 +259,7 @@ Spectra spectra_of(const ng::Array& A, const char* who) {
   s.sfreq = pr["sfreq"]; s.transform = pr["transform_samples"]; s.first = pr["first_bin"]; s.overlap = pr.value("overlap_samples", std::int64_t(0));
   s.modes = pr["modes"].get<std::vector<std::int64_t>>();
   s.unit_mass = pr.value("normalisation", Json("unit_mass")) != Json("as_stored");
-  for (const auto& c : pr.value("chunks", Json::array())) s.owns.push_back(c.value("samples", std::int64_t(0)));
+  for (const auto& c : pr.value("chunks", Json::array())) { s.owns.push_back(c.value("samples", std::int64_t(0))); s.firsts.push_back(c.value("first", std::int64_t(0))); }
   if (static_cast<std::int64_t>(s.modes.size()) != s.rows) ng::refuse(std::string(who) + ": the spectra's coordinates are not their modes");
   s.array = &A;
   return s;
@@ -280,41 +280,38 @@ std::pair<Eigen::MatrixXd, Eigen::VectorXd> synthesis_of(const Spectra& s, const
   }
   return {Psi, mu};
 }
-// a kernel set's members (select.kernels), and their gains on points of the line's coordinate (Hz on a frequency line; mu on an eigenvalue line)
-std::vector<Json> members_of(const ng::Array& sel, const char* who, const char* port) {
-  const Json p = sel.meta.value("params", Json::object());
+// THE ONE READER of a stored kernel set: the members select.kernels wrote, as a typed selection (the only place their stored form is read)
+nxr::selection::Selection kernelSetOf(const ng::Array& stored, const char* who, const char* port) {
+  const Json p = stored.meta.value("params", Json::object());
   if (!p.contains("kernels") || !p["kernels"].contains("members")) ng::refuse(std::string(who) + ": " + port + " is not a kernel set (`nxr-neuro run select_kernels`)");
-  return p["kernels"]["members"].get<std::vector<Json>>();
-}
-Eigen::MatrixXd gains_of(const std::vector<Json>& members, const Eigen::VectorXd& x, const char* who) {
-  const Eigen::Index M = static_cast<Eigen::Index>(members.size());
-  if (M == 0) ng::refuse(std::string(who) + ": a kernel set with no member");
-  const std::string family = members.front().value("family", std::string());
-  for (const auto& k : members) if (k.value("family", std::string()) != family) ng::refuse(std::string(who) + ": a kernel set's members have one profile");
-  if (family == "cos2_partition") {
-    std::vector<double> centres;
-    for (const auto& k : members) centres.push_back(std::log2(k.at("start").get<double>()));
-    Eigen::VectorXd lx(x.size());
-    for (Eigen::Index i = 0; i < x.size(); ++i) lx(i) = x(i) > 0 ? std::log2(x(i)) : -std::numeric_limits<double>::infinity();
-    return nxr::signal::cosineSquaredPartition(lx, centres);
-  }
-  Eigen::MatrixXd g = Eigen::MatrixXd::Zero(M, x.size());
-  for (Eigen::Index m = 0; m < M; ++m) {
-    const Json& k = members[static_cast<std::size_t>(m)];
-    const double c = k.at("start").get<double>(), gain = k.value("gain", 1.0);
-    const std::string chart = k.value("chart", std::string("linear"));
-    const Json params = k.value("params", Json::object());
-    double fwhm = params.value("fwhm", 0.0);
-    if (params.value("width_rule", std::string("absolute")) == "proportional") fwhm *= c;
-    for (Eigen::Index i = 0; i < x.size(); ++i) {
-      if (!(x(i) > 0)) continue;                                                            // one-sided: nothing at 0 (a frequency's mean, an eigenvalue's constant)
-      const double u = chart == "log2" ? std::log2(x(i)) - std::log2(c) : x(i) - c;
-      if (family == "gaussian") { const double sd = fwhm / (2.0 * std::sqrt(2.0 * std::log(2.0))); g(m, i) = gain * std::exp(-u * u / (2.0 * sd * sd)); }
-      else if (family == "box") g(m, i) = std::abs(u) <= fwhm / 2.0 ? gain : 0.0;
-      else ng::refuse(std::string(who) + ": a kernel's profile is gaussian, box or cos2_partition, not " + family);
+  std::vector<nxr::selection::Selection> members;
+  for (const Json& k : p["kernels"]["members"]) {
+    for (const char* key : {"start", "stop", "family", "chart"}) if (!k.contains(key)) ng::refuse(std::string(who) + ": a member of " + port + " does not record " + key);
+    nxr::selection::Profile profile;
+    profile.family = k.at("family").get<std::string>();
+    profile.chart = k.at("chart").get<std::string>();
+    profile.gain = k.value("gain", 1.0);
+    for (const auto& [name, value] : k.value("params", Json::object()).items()) {
+      if (name == "width_rule")
+        ng::refuse(std::string(who) + ": " + port + " was made before the proportional width was stored as fwhm_per_centre: re-make it with `select_kernels`");
+      if (value.is_number()) profile.params[name] = value.get<double>();   // a text entry is a description (a partition's), not a number of the profile
     }
+    nxr::selection::Selection member = nxr::selection::span({{0, k.at("start").get<double>(), k.at("stop").get<double>()}}, k.value("code", static_cast<std::int64_t>(members.size())));
+    member.profile = profile;
+    members.push_back(std::move(member));
   }
-  return g;
+  try {
+    return nxr::selection::set(std::move(members));
+  } catch (const std::invalid_argument& e) {
+    ng::refuse(std::string(who) + ": " + port + ": " + e.what());
+  }
+}
+nxr::signal::KernelGains kernel_gains_of(const ng::Array& stored, const Eigen::VectorXd& line, const char* who, const char* port) {
+  try {
+    return nxr::signal::kernelGains(kernelSetOf(stored, who, port), line, nxr::signal::NonPositiveCoordinates::zero);
+  } catch (const std::invalid_argument& e) {
+    ng::refuse(std::string(who) + ": " + port + ": " + e.what());
+  }
 }
 // the frequency weighting's members: each a gain per bin (the atoms; normalised as the parameter says) or every bin alone
 Eigen::MatrixXd frequency_gains(const Spectra& s, const ng::Arrays& c, const Json& p, const char* who, std::vector<double>* standardDeviations) {
@@ -326,16 +323,12 @@ Eigen::MatrixXd frequency_gains(const Spectra& s, const ng::Arrays& c, const Jso
     return Eigen::MatrixXd::Identity(s.bins, s.bins);
   }
   if (weighting != "kernels") ng::refuse(std::string(who) + ": frequency_weighting is kernels or every_bin");
-  const std::vector<Json> members = members_of(constant_input(c, "frequency", who), who, "frequency");
-  Eigen::MatrixXd g = gains_of(members, f, who);
-  if (standardDeviations)
-    for (const auto& k : members) {
-      const Json params = k.value("params", Json::object());
-      double fwhm = params.value("fwhm", 0.0);
-      if (params.value("width_rule", std::string("absolute")) == "proportional") fwhm *= k.at("start").get<double>();
-      if (k.value("family", std::string()) != "gaussian" || k.value("chart", std::string()) != "linear") ng::refuse(std::string(who) + ": the time cells need Gaussian atoms on a linear chart");
-      standardDeviations->push_back(fwhm / (2.0 * std::sqrt(2.0 * std::log(2.0))));
-    }
+  const nxr::signal::KernelGains atoms = kernel_gains_of(constant_input(c, "frequency", who), f, who, "frequency");
+  Eigen::MatrixXd g = atoms.gains;
+  if (standardDeviations) {
+    if (atoms.family != "gaussian" || atoms.chart != "linear") ng::refuse(std::string(who) + ": the time cells need Gaussian atoms on a linear chart");
+    for (Eigen::Index m = 0; m < atoms.fullWidths.size(); ++m) standardDeviations->push_back(atoms.fullWidths(m) / (2.0 * std::sqrt(2.0 * std::log(2.0))));
+  }
   const std::string normalisation = text_param(p, "frequency_normalisation", who);
   if (normalisation == "sum_of_squared_gains") {
     if (!p.contains("support_floor") || !p["support_floor"].is_number()) ng::refuse(std::string(who) + ": support_floor has no default: name it");
@@ -377,7 +370,7 @@ FlowPrepared prepare_flow(const ng::Arrays& c, const Json& p, const char* who, b
   const std::vector<double> mass = H.meta.at("mass").get<std::vector<double>>();
   const auto [Psi, mu] = synthesis_of(s, *pr.package.modes, Eigen::Map<const Eigen::VectorXd>(mass.data(), static_cast<Eigen::Index>(mass.size())), who);
   (void)Psi;
-  if (c.count("scale") && !c.at("scale").meta.value("placeholder", false)) pr.scale = gains_of(members_of(c.at("scale"), who, "scale"), mu, who);
+  if (c.count("scale") && !c.at("scale").meta.value("placeholder", false)) pr.scale = kernel_gains_of(c.at("scale"), mu, who, "scale").gains;
   if (pr.scale.rows() > 0)                                                                   // the constant (mu 0) lies in the coarsest band of a partition
     for (Eigen::Index j = 0; j < mu.size(); ++j) if (!(mu(j) > 0) && pr.scale.col(j).sum() == 0) pr.scale(0, j) = 1.0;
   pr.p = p;

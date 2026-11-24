@@ -21,6 +21,7 @@
 
 #include "nxr/graph/node.h"
 #include "nxr/pipelines/form_steps.h"
+#include "chunk_spectra_readers.h"
 #include "nxr/signal/bispectrum.h"
 #include "nxr/signal/flow_across_frequencies.h"
 #include "nxr/signal/intrinsic_forms.h"
@@ -104,45 +105,9 @@ std::pair<Eigen::MatrixXd, Eigen::VectorXd> synthesis_of(const ChunkSpectra& s, 
   }
   return {Psi, mu};
 }
-// a kernel set's members (select.kernels) and their gains at points of the line's coordinate (Hz on a frequency line; mu on an eigenvalue line)
-std::vector<Json> members_of(const ng::Array& sel, const char* who, const char* port) {
-  const Json p = sel.meta.value("params", Json::object());
-  if (!p.contains("kernels") || !p["kernels"].contains("members")) ng::refuse(std::string(who) + ": " + port + " is not a kernel set (`nxr-neuro run select_kernels`)");
-  return p["kernels"]["members"].get<std::vector<Json>>();
-}
-Eigen::MatrixXd gains_of(const std::vector<Json>& members, const Eigen::VectorXd& x, const char* who) {
-  const Eigen::Index M = static_cast<Eigen::Index>(members.size());
-  if (M == 0) ng::refuse(std::string(who) + ": a kernel set with no member");
-  const std::string family = members.front().value("family", std::string());
-  for (const auto& k : members) if (k.value("family", std::string()) != family) ng::refuse(std::string(who) + ": a kernel set's members have one profile");
-  if (family == "cos2_partition") {
-    std::vector<double> centres;
-    for (const auto& k : members) centres.push_back(std::log2(k.at("start").get<double>()));
-    Eigen::VectorXd lx(x.size());
-    for (Eigen::Index i = 0; i < x.size(); ++i) lx(i) = x(i) > 0 ? std::log2(x(i)) : -std::numeric_limits<double>::infinity();
-    return nxr::signal::cosineSquaredPartition(lx, centres);
-  }
-  Eigen::MatrixXd g = Eigen::MatrixXd::Zero(M, x.size());
-  for (Eigen::Index m = 0; m < M; ++m) {
-    const Json& k = members[static_cast<std::size_t>(m)];
-    const double c = k.at("start").get<double>(), gain = k.value("gain", 1.0);
-    const std::string chart = k.value("chart", std::string("linear"));
-    const Json params = k.value("params", Json::object());
-    double fwhm = params.value("fwhm", 0.0);
-    if (params.value("width_rule", std::string("absolute")) == "proportional") fwhm *= c;
-    for (Eigen::Index i = 0; i < x.size(); ++i) {
-      if (!(x(i) > 0)) continue;                                                            // one-sided: nothing at 0
-      const double u = chart == "log2" ? std::log2(x(i)) - std::log2(c) : x(i) - c;
-      if (family == "gaussian") { const double sd = fwhm / (2.0 * std::sqrt(2.0 * std::log(2.0))); g(m, i) = gain * std::exp(-u * u / (2.0 * sd * sd)); }
-      else if (family == "box") g(m, i) = std::abs(u) <= fwhm / 2.0 ? gain : 0.0;
-      else ng::refuse(std::string(who) + ": a kernel's profile is gaussian, box or cos2_partition, not " + family);
-    }
-  }
-  return g;
-}
 // the atoms' gains at the points x, normalised as the parameter says (the same choice as signal.spectral_flow's, so the atoms are the flow's)
-Eigen::MatrixXd atom_gains(const std::vector<Json>& members, const Eigen::VectorXd& x, const Json& p, const char* who) {
-  Eigen::MatrixXd g = gains_of(members, x, who);
+Eigen::MatrixXd atom_gains(const ng::Array& atoms, const Eigen::VectorXd& x, const Json& p, const char* who) {
+  Eigen::MatrixXd g = spectra_readers::kernel_gains_of(atoms, x, who, "frequency").gains;
   const std::string normalisation = text_of(p, "frequency_normalisation", who);
   if (normalisation == "sum_of_squared_gains") {
     if (!p.contains("support_floor") || !p["support_floor"].is_number()) ng::refuse(std::string(who) + ": support_floor has no default: name it");
@@ -150,9 +115,10 @@ Eigen::MatrixXd atom_gains(const std::vector<Json>& members, const Eigen::Vector
   } else if (normalisation != "none") ng::refuse(std::string(who) + ": frequency_normalisation is sum_of_squared_gains or none");
   return g;
 }
-std::vector<double> centres_of(const std::vector<Json>& members) {
+std::vector<double> centres_of(const ng::Array& atoms, const char* who) {
+  const nxr::selection::Selection set = spectra_readers::kernelSetOf(atoms, who, "frequency");
   std::vector<double> c;
-  for (const auto& k : members) c.push_back(k.at("start").get<double>());
+  for (const auto& member : set.members) c.push_back(member.extents[0].start);
   return c;
 }
 
@@ -171,7 +137,8 @@ const char* const kWarnings[] = {
 const char* const kBispectrum = "signal.bispectrum";
 struct BispectrumPrepared {
   ng::Array spectra;
-  std::vector<Json> atoms;
+  ng::Array atoms;                    // the atoms: a stored kernel set (select.kernels) on the frequency line
+  std::size_t atom_count = 0;
   Eigen::MatrixXd bands;              // [bands x K] (empty: the whole field)
   std::shared_ptr<const nxr::signal::IntrinsicComplex> complex;
   std::shared_ptr<const nxr::signal::Modes> modes;
@@ -231,7 +198,8 @@ ng::NodeSpec bispectrum() {
     check_bispectrum_parameters(p);
     BispectrumPrepared pr;
     pr.spectra = handed(c, "spectra", kBispectrum);
-    pr.atoms = members_of(handed(c, "frequency", kBispectrum), kBispectrum, "frequency");
+    pr.atoms = handed(c, "frequency", kBispectrum);
+    pr.atom_count = spectra_readers::kernelSetOf(pr.atoms, kBispectrum, "frequency").members.size();
     pr.p = p;
     if (p.at("space") != "coordinates") {
       const BoundPackage b = bind_hodge_package(handed(c, "package", kBispectrum), kBispectrum);
@@ -240,7 +208,7 @@ ng::NodeSpec bispectrum() {
         const ChunkSpectra s = chunk_spectra_of(pr.spectra, kBispectrum);
         const auto [Psi, mu] = synthesis_of(s, *pr.modes, pr.complex->star0, kBispectrum);
         (void)Psi;
-        pr.bands = gains_of(members_of(c.at("scale"), kBispectrum, "scale"), mu, kBispectrum);
+        pr.bands = spectra_readers::kernel_gains_of(c.at("scale"), mu, kBispectrum, "scale").gains;
         for (Eigen::Index j = 0; j < mu.size(); ++j) if (!(mu(j) > 0) && pr.bands.col(j).sum() == 0) pr.bands(0, j) = 1.0;   // the constant lies in the coarsest band
       }
     }
@@ -251,12 +219,12 @@ ng::NodeSpec bispectrum() {
     const ChunkSpectra s = chunk_spectra_of(pr.spectra, kBispectrum);
     Eigen::VectorXd f(s.bins);
     for (std::int64_t k = 0; k < s.bins; ++k) f(k) = s.frequency(k);
-    const Eigen::Index A = static_cast<Eigen::Index>(pr.atoms.size());
+    const Eigen::Index A = static_cast<Eigen::Index>(pr.atom_count);
     // the gain rows: the atoms [0, A), then each atom at twice its frequency [A, 2A) (its gain at f / 2), the same normalisation
     Eigen::MatrixXd gains(2 * A, s.bins);
     gains.topRows(A) = atom_gains(pr.atoms, f, pr.p, kBispectrum);
     gains.bottomRows(A) = atom_gains(pr.atoms, f / 2.0, pr.p, kBispectrum);
-    const std::vector<double> centres = centres_of(pr.atoms);
+    const std::vector<double> centres = centres_of(pr.atoms, kBispectrum);
     std::vector<nxr::signal::AtomTriple> triples;
     Json listed = Json::array();
     for (const auto& reading : pr.p.at("readings")) {
@@ -357,7 +325,7 @@ ng::NodeSpec bispectrum() {
   };
   n.record = [](const std::any& prepared) {
     const BispectrumPrepared& pr = std::any_cast<const BispectrumPrepared&>(prepared);
-    return Json{{"readings", pr.p.at("readings")}, {"normalisation", pr.p.at("normalisation")}, {"space", pr.p.at("space")}, {"atoms", pr.atoms.size()}, {"bands", pr.bands.rows()}};
+    return Json{{"readings", pr.p.at("readings")}, {"normalisation", pr.p.at("normalisation")}, {"space", pr.p.at("space")}, {"atoms", pr.atom_count}, {"bands", pr.bands.rows()}};
   };
   return n;
 }
@@ -408,7 +376,7 @@ ng::NodeSpec flow_across_frequencies() {
     AcrossPrepared pr;
     pr.package = bind_hodge_package(handed(c, "package", kAcross), kAcross);
     pr.edges = handed(c, "edges", kAcross); pr.modes = handed(c, "modes", kAcross); pr.vertices = handed(c, "vertices", kAcross);
-    pr.centres = centres_of(members_of(handed(c, "frequency", kAcross), kAcross, "frequency"));
+    pr.centres = centres_of(handed(c, "frequency", kAcross), kAcross);
     return std::any(std::move(pr));
   };
   n.run = [](const std::any& prepared, const ng::Arrays&) {

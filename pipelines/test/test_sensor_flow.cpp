@@ -208,6 +208,13 @@ int main() {
   }
 
   // ── refusals ──
+  {  // a kernel set stored before the proportional width was a number (fwhm + a width_rule flag) is refused, never read as an absolute width
+    Json old = atoms;
+    for (auto& member : old) { const double perCentre = member["params"]["fwhm_per_centre"]; member["params"] = Json{{"fwhm", perCentre}, {"width_rule", "proportional"}}; }
+    ng::Arrays withOld = inputs;
+    withOld["frequency"] = kernel_set(old);
+    CHECK(refused([&] { run_array(ng::registry().at("signal.spectral_flow"), withOld, fp); }));
+  }
   CHECK(refused([&] { run_array(ng::registry().at("signal.spectral_flow"), inputs, Json{{"frequency_weighting", "kernels"}}); }));          // no normalisation named
   CHECK(refused([&] { run_array(ng::registry().at("signal.atom_time_cells"), ng::Arrays{{"spectra", spectra}, {"package", H}, {"frequency", kernel_set(bands)}, {"scale", kernel_set(bands)}}, cp); }));   // not Gaussian atoms
   const Json overlapOnly = Json{{"overlap_samples", overlap}};
