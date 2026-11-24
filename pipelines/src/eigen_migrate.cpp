@@ -107,6 +107,16 @@ Eigen::SparseMatrix<double> csr_of(const Store& store, const Json& op) {
   return M;
 }
 
+// THE KINDS LABELLING as stored: its dictionary {0 exact, 1 harmonic, 2 coexact} and one member per entry, the member number the code itself, so the element array holds the codes the dictionary
+// names (a harmonic member is empty on a closed surface of genus 0)
+void kinds_selection(tk::SelectionOut& ks, const std::string& stem, const std::string& line_id, const std::vector<std::int32_t>& kind) {
+  ks.name = stem + "_kinds"; ks.output = "kinds"; ks.type = "partition"; ks.manifold_id = line_id;
+  ks.entries = {"exact", "harmonic", "coexact"};
+  if (!ks.description) ks.description = "the kind of each mode: exact (label 0, a 0-form potential) or coexact (label 2, a 2-form potential); no mode is harmonic on a closed surface of genus 0";
+  ks.member_of.assign(kind.begin(), kind.end());
+  ks.member_codes = {0, 1, 2};
+}
+
 // the rows [r0, r1) of every column of a stored 2-D float32 array, into `out` (row-major [rows x cols]) at row r0: one block of rows at a time (`block`), never the raw bytes of the whole array
 void read_rows_into(const Store& store, const std::string& key, std::int64_t r0, std::int64_t r1, std::int64_t cols, std::int64_t block, std::vector<float>& out) {
   ArrayReader r = ArrayReader::open(store, key);
@@ -120,8 +130,9 @@ void read_rows_into(const Store& store, const std::string& key, std::int64_t r0,
 
 // A SOLVE ALREADY IN THE FOUR CLASSES, made by an earlier version, brought to the current form in place (no solve), each part only when it differs:
 //   - a coexact mode's vertex rows held its stream function (the face-to-vertex mean of *2 chi/sqrt2), not its 0-form part: set to 0 (the eigenvectors and the eigenvalues, a field OF them, written again);
-//     The kind of each mode is read from its PARTS: a mode whose 2-form rows (the faces) are all 0 is exact, one with a non-zero 2-form part coexact (an exact mode's face rows are stored as exact
-//     zeros); the stored labelling must agree, or the stem is refused;
+//   - the kinds labelling held member NUMBERS (0 exact, 1 coexact, with labels 0 and 2 beside them) under the dictionary {0 exact, 1 harmonic, 2 coexact}: written again with the codes as members.
+//     The kind of each mode is read from its PARTS, not from the old labelling: a mode whose 2-form rows (the faces) are all 0 is exact, one with a non-zero 2-form part coexact (an exact mode's
+//     face rows are stored as exact zeros); the old labelling, decoded through its labels, must agree, or the stem is refused;
 //   - the support selection of an earlier form moved aside (the glue's correspondence is derived).
 // Memory: the eigenvectors, (V + E + F) x K float32, read one chunk row (V rows) at a time.
 Json migrate_current(SubjectWriter& sub, const std::string& stem, const Json& ev, const std::optional<Json>& support, const std::function<void(const Json&)>& say) {
@@ -146,19 +157,26 @@ Json migrate_current(SubjectWriter& sub, const std::string& stem, const Json& ev
       for (std::int64_t v = 0; v < V; ++v) stacked[static_cast<std::size_t>(v * K + k)] = 0.0f;
     }
   }
-  if (!zeroed && !support) return Json{{"stem", stem}, {"status", "already in the new form"}};
+  const auto kn = row_named(sub, "selection", stem + "_kinds");
+  const nxr::io::selection::ElementMembers em = tk::Subject::of(sub).element_members(js(*kn, "id"));
+  bool recode = em.member_codes.size() != 3;
+  for (std::size_t i = 0; i < em.member_codes.size() && !recode; ++i) recode = em.member_codes[i] != static_cast<std::int64_t>(i);
+  for (std::int64_t k = 0; k < K && !recode; ++k) recode = em.member_of[static_cast<std::size_t>(k)] != kind[static_cast<std::size_t>(k)];
+  if (!zeroed && !recode && !support) return Json{{"stem", stem}, {"status", "already in the new form"}};
   Json from = Json{{"date", now_utc(false)}, {"from", "the four classes of an earlier version"}, {"items", Json::object()}};
   if (zeroed) from["vertex_rows"] = "the vertex rows of " + std::to_string(zeroed) + " coexact modes held the stream function; set to 0 (the 0-form part)";
+  if (recode) from["kinds"] = "member numbers stored for the kinds; the codes of its dictionary stored instead (coexact 2), each mode's kind read from its parts";
   const auto lamf = row_named(sub, "field", stem + "_eigenvalues");
   if (zeroed) { from["items"][stem + "_eigenvectors"] = Json{{"class", "operator"}, {"id", js(ev, "id")}}; if (lamf) from["items"][stem + "_eigenvalues"] = Json{{"class", "field"}, {"id", js(*lamf, "id")}}; }
+  if (recode) from["items"][stem + "_kinds"] = Json{{"class", "selection"}, {"id", js(*kn, "id")}};
   if (support) from["items"][stem + "_support"] = Json{{"class", "selection"}, {"id", js(*support, "id")}};
-  if (say) say(Json{{"stage", "migrate"}, {"stem", stem}, {"coexact_vertex_rows_zeroed", zeroed}, {"support_removed", static_cast<bool>(support)}});
+  if (say) say(Json{{"stage", "migrate"}, {"stem", stem}, {"coexact_vertex_rows_zeroed", zeroed}, {"kinds_recoded", recode}, {"support_removed", static_cast<bool>(support)}});
   std::vector<double> lam;
   if (zeroed && lamf) lam = read_as<double>(store, js(*lamf, "path"));
   const tk::Subject ts = tk::Subject::of(sub);
   tk::Unit u = ts.unit(tk::By{"nxr-neuro migrate eigensolve", Json{{"migrated_from", from}}});
   const std::string what = "the eigensolve " + stem + " of an earlier version";
-  Json out = Json{{"stem", stem}, {"status", "migrated"}, {"coexact_vertex_rows_zeroed", zeroed}};
+  Json out = Json{{"stem", stem}, {"status", "migrated"}, {"coexact_vertex_rows_zeroed", zeroed}, {"kinds_recoded", recode}};
   if (zeroed) {
     if (lamf) u.replace(tk::Cls::field, js(*lamf, "path"), true, what);
     u.replace(tk::Cls::operator_, path, true, what);
@@ -184,6 +202,14 @@ Json migrate_current(SubjectWriter& sub, const std::string& stem, const Json& ev
       u.field(lf);
     }
     out["eigenvectors"] = oid;
+  }
+  if (recode) {
+    u.replace(tk::Cls::selection, js(*kn, "path"), true, what);
+    tk::SelectionOut ks;
+    ks.description = jo(*kn, "description");
+    ks.params = json_column(*kn, "params_json");
+    kinds_selection(ks, stem, text(e.line, "id"), kind);
+    u.selection(ks);
   }
   if (support) { u.replace(tk::Cls::selection, js(*support, "path"), true, "the support of the eigensolve " + stem + ": derived from the glued cortex's hemispheres labelling and the medial wall"); out["removed"] = stem + "_support"; }
   u.commit();
@@ -366,15 +392,7 @@ Json migrate_one(SubjectWriter& sub, const std::string& stem, const std::functio
   lf.data.shape = {K}; lf.data.f64 = lam;
   u.field(lf);
   tk::SelectionOut ks;
-  ks.name = stem + "_kinds"; ks.output = "kinds"; ks.type = "partition"; ks.manifold_id = js(*line, "id");
-  ks.entries = {"exact", "harmonic", "coexact"};
-  ks.description = "the kind of each mode: exact (label 0, a 0-form potential) or coexact (label 2, a 2-form potential); no mode is harmonic on a closed surface of genus 0";
-  {
-    nxr::selection::Lookup names;
-    for (std::size_t k = 0; k < ks.entries.size(); ++k) names.push_back(nxr::selection::Entry{static_cast<std::int64_t>(k), ks.entries[k], std::nullopt});
-    const nxr::selection::Selection sel = nxr::selection::from_labels(kind, names);
-    ks.member_of = sel.member_of; ks.member_codes = sel.member_codes;
-  }
+  kinds_selection(ks, stem, js(*line, "id"), kind);
   u.selection(ks);
   u.commit();
   return Json{{"stem", stem}, {"status", "migrated"}, {"eigenvectors", oid}, {"triangulation", tid}, {"rows", N}, {"modes", K}, {"forms1", forms1_made}};

@@ -1098,7 +1098,10 @@ is not stored: a vertex reader derives it from the 2-form part with the referenc
 of the two definitions. A solve stored in the earlier form (three operators `_eigenvectors` to the surface, `_forms1`, `_forms2`; a kind field; stored d0, d1 and stars) is refused by the readers, naming
 `nxr-neuro migrate eigensolve --dataset D --subject S [--name STEM]`: it converts it in place with no solve (absent 1-form parts are made from the stored parts and operators by `signal::oneFormFromParts`),
 moves the replaced items aside, records `migrated_from` in the new items, is idempotent and refuses a form it does not know. A solve stored in the four classes by an earlier version holds a coexact
-mode's stream function in its vertex rows: `migrate eigensolve` sets those rows to 0 (the mode's 0-form part; no solve). No support is stored: the input's vertex under each solved vertex is the
+mode's stream function in its vertex rows: `migrate eigensolve` sets those rows to 0 (the mode's 0-form part; no solve). Its kinds labelling held each mode's member number (exact 0, coexact 1)
+under the dictionary {0 exact, 1 harmonic, 2 coexact}: `migrate eigensolve` stores the codes instead (coexact 2), each mode's kind read from its parts (a mode with a non-zero 2-form part is coexact,
+one whose 2-form part is zero exact), the old labelling checked against them. A labelling a definition stores with its own dictionary (`entries`) holds the codes the dictionary names, one member
+per entry. No support is stored: the input's vertex under each solved vertex is the
 glue's correspondence (the glued cortex's hemispheres labelling and the input's medial wall), or every vertex when the input itself was solved; `migrate eigensolve` moves a stored `<stem>_support` aside.
 
 ## The sensor surface (`run sensor_surface`; the nodes `meeg.channel_positions`, `geometry.point_set_mesh`, `geometry.surface_from_parts`)

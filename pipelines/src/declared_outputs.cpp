@@ -1010,9 +1010,20 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       } else
         for (std::size_t k = 0; k < s.entries.size(); ++k) names.push_back(nxr::selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});
       try {
-        const nxr::selection::Selection set = nxr::selection::from_labels(labels, names);
-        s.member_of = set.member_of;
-        s.member_codes = set.member_codes;
+        if (!d.contains("lookup") && !s.entries.empty()) {
+          // a labelling with its own DICTIONARY (entry k names code k): one member per entry, the member number the code itself, so the stored elements hold the codes the dictionary names
+          // (an entry no element carries is an empty member: the kinds' `harmonic` on a closed surface)
+          std::vector<std::int64_t> codes;
+          for (std::size_t k = 0; k < s.entries.size(); ++k) codes.push_back(static_cast<std::int64_t>(k));
+          for (const std::int32_t c : labels) if (c < -1 || c >= static_cast<std::int32_t>(codes.size())) bad(o, "label " + std::to_string(c) + " is not a code of its dictionary (0.." + std::to_string(codes.size() - 1) + ")");
+          const nxr::selection::Selection set = nxr::selection::set_of_members(labels, codes, names);
+          s.member_of = set.member_of;
+          s.member_codes = set.member_codes;
+        } else {
+          const nxr::selection::Selection set = nxr::selection::from_labels(labels, names);
+          s.member_of = set.member_of;
+          s.member_codes = set.member_codes;
+        }
       } catch (const std::invalid_argument& e) { bad(o, e.what()); }
     }
     else if (t == "kernels") {                     // a KERNEL SET: the node describes each member's anchor and profile

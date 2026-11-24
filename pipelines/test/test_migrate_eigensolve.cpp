@@ -193,6 +193,20 @@ int main() {
   const double orth = gram_error(all);
   std::printf("  the stored eigenvectors under the stars *0, *1, *2: max |Gram - I| %.1e\n", orth);
   CHECK(orth < 1e-6);
+  // THE KINDS: the stored elements hold the codes the dictionary names (exact 0, coexact 2), one member per entry
+  auto kinds_stored = [&](const std::string& st, bool current = true) {
+    tk::Want w{.cls = tk::Cls::selection}; w.name = st + "_kinds";
+    const auto n = tk::Subject::of(sub).find(w);
+    CHECK(n.has_value() && n->array_path.has_value());
+    const nxr::io::selection::ElementMembers em = tk::Subject::of(sub).element_members(n->id);
+    if (current) CHECK(em.member_codes.empty() || em.member_codes == std::vector<std::int64_t>({0, 1, 2}));
+    CHECK(em.names.count(0) && em.names.at(0) == "exact" && em.names.count(1) && em.names.at(1) == "harmonic" && em.names.count(2) && em.names.at(2) == "coexact");
+    return bytes_as<std::int32_t>(sub, *n->array_path);
+  };
+  {
+    const std::vector<std::int32_t> codes = kinds_stored(stem);
+    CHECK(std::equal(codes.begin(), codes.end(), h.kind.begin(), h.kind.end(), [](std::int32_t a, std::uint8_t b) { return a == static_cast<std::int32_t>(b); }));
+  }
   // the readers: the basis and the forms of the new form; the basis' coexact rows are the stream functions the earlier form stored, derived from the 2-form rows
   const HodgePackageData d = hodge_package_data(sub, stem + "_eigenvectors", std::nullopt);
   CHECK(d.basis.P.rows() == K && d.basis.P.cols() == V);
@@ -228,7 +242,7 @@ int main() {
   const Json again = migrate_eigensolve(sub, stem);
   CHECK(again["stems"][0]["status"] == "already in the new form");
 
-  // A SOLVE IN THE FOUR CLASSES OF AN EARLIER VERSION: the coexact vertex rows hold the stream function
+  // A SOLVE IN THE FOUR CLASSES OF AN EARLIER VERSION: the coexact vertex rows hold the stream function, the kinds hold member numbers (0 exact, 1 coexact, labels 0 and 2 beside them)
   const std::string stem2 = "hodgeDirac__earlier_version";
   {
     const tk::Subject ts = tk::Subject::of(sub);
@@ -252,15 +266,19 @@ int main() {
     u.commit();
   }
   {
+    const std::vector<std::int32_t> numbers = kinds_stored(stem2, false);
+    CHECK(std::find(numbers.begin(), numbers.end(), 2) == numbers.end() && std::find(numbers.begin(), numbers.end(), 1) != numbers.end());   // the earlier encoding: coexact stored as 1
     const Json m2 = migrate_eigensolve(sub, stem2);
     std::printf("  an earlier version's four classes: %s\n", m2.dump().substr(0, 220).c_str());
     const Json& st = m2["stems"][0];
-    CHECK(st["status"] == "migrated" && st["coexact_vertex_rows_zeroed"].get<std::int64_t>() == std::count(h.kind.begin(), h.kind.end(), 2));
+    CHECK(st["status"] == "migrated" && st["kinds_recoded"] == true && st["coexact_vertex_rows_zeroed"].get<std::int64_t>() == std::count(h.kind.begin(), h.kind.end(), 2));
     const StoredEigensolve e2 = stored_eigensolve(sub, stem2);
     CHECK(e2.kind == h.kind);
     const std::vector<float> all2 = bytes_as<float>(sub, text(e2.eigenvectors, "path"));
     CHECK(all2 == all);                                                                          // the current form: the vertex rows of a coexact mode 0
     CHECK(gram_error(all2) < 1e-6);
+    const std::vector<std::int32_t> codes = kinds_stored(stem2);
+    CHECK(std::equal(codes.begin(), codes.end(), h.kind.begin(), h.kind.end(), [](std::int32_t a, std::uint8_t b) { return a == static_cast<std::int32_t>(b); }));
     tk::Want lw{.cls = tk::Cls::field}; lw.name = stem2 + "_eigenvalues";
     const auto ef = tk::Subject::of(sub).find(lw);
     CHECK(ef && ef->row.value("of_operator_id", std::string()) == text(e2.eigenvectors, "id"));
