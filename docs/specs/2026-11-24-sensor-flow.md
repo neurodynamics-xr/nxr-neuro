@@ -186,7 +186,7 @@ the atom's band signal (which removes the shape by construction for a narrow ato
 | an atom's weighted cross-spectrum C_a (a sum) | K x K | 1.1 MB | <= min(K, T B_a) |
 | R_q per band | K x 4 S | 2.3 MB | <= rank C_a |
 | a time-cell step: the synthesised band signal | S x N complex | 280 MB transient (one atom, one band, one chunk) | <= K |
-| time cells stored | cells x (E + 4 S) per atom and band | about 0.5 GB for 17 atoms x 7 bands, float32 | |
+| time cells | cells x (E + 4 S) per atom and band, in the run only (not stored: the sign-flip test's results are) | about 0.5 GB for 17 atoms x 7 bands, float32, while the run holds them | |
 
 The dense cross-spectrum (B x K x K, about 1 GB single precision) is never built on the CPU: per atom the weighted sum is formed directly from the factored
 form (the same numbers; cheaper when the atoms are fewer than the bins). A GPU backend may build the dense form once and read every atom from it (the
