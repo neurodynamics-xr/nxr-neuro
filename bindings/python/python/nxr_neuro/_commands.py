@@ -40,6 +40,8 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("compact", "dataset", "", "dataset* dry_run! no_shard! no_small_files! subject"),
     ("split", "dataset", "", "dataset* dry_run! registered_by*"),
     ("join", "dataset", "", "dataset*"),
+    ("migrate", "eigensolve", "", "dataset* name subject* templates+"),
+    ("migrate", "glue", "", "dataset* hemispheres left name right subject* templates+"),
     ("migrate", "measurements", "", "dataset* dry_run! remove_statistics!"),
     ("migrate", "selections", "", "dataset* dry_run!"),
     # subject packages and the catalogue
