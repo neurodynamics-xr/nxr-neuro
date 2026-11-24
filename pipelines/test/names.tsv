@@ -27,6 +27,7 @@ node	geometry.frame_embed	-	composite
 node	geometry.frame_project	-	composite
 node	geometry.frame_rotate	-	composite
 node	geometry.glue	-	composite
+node	geometry.intrinsic	-	composite
 node	signal.gradient_power	-	composite
 node	operators.hodge_dirac	-	composite
 node	operators.hodge_one_form_parts	-	composite
