@@ -241,6 +241,13 @@ struct HodgeSolveOptions {
     int ncv = 0;               // Absolute, no slice: Krylov dimension, 0 = min(max(2k+1, 20), n) (SciPy's eigsh default)
     int maxit = 100000;        // Absolute, no slice: restarts allowed (generous: a large k converges in one solve)
     int limit = 0;             // hodgeDiracModes only: keep at most this many of the lowest modes (0 = all under the λ cut, about `count`, as the reference)
+    // THE COMPLETE SOLVE of a small mesh (0 = never). When both ladders are at most this size (nV and nF) AND `count` asks for every mode (count >= nV + nF − 2, the
+    // complete count of a closed surface), each ladder is solved DENSE (a generalised symmetric eigendecomposition of the whole ladder, every eigenpair, M-orthonormal),
+    // the constants dropped (a dense null rule: λ ≤ 10 n eps max λ, the solve's backward error) and NO λ cut: every exact mode and every coexact mode, so the exact vertex rows and the constant are a basis of the
+    // vertex functions and the modes' 1-form parts a basis of the edge 1-forms (a disc: nV − 1 exact, nF coexact; a closed sphere: nV − 1 and nF − 1). The iterative
+    // solve cannot give this (it asks for at most n − 2 pairs, and the single λ cut drops the coexact modes above the exact ladder's top). Memory: about five n × n
+    // doubles for the larger ladder (3000: about 360 MB); time O(n³). The shift, slice and tolerance options are not read by the dense solve.
+    int denseLimit = 0;
 };
 
 // One ladder: the k smallest eigenpairs of (S, M), ascending, λ clamped to ≥ 0, by the options' method.
@@ -253,9 +260,11 @@ struct HodgeLadders {
     struct Mode { double mu; int kind; int col; };   // kind 0 exact · 2 coexact; col indexes the ladder's columns
     std::vector<Mode> modes;           // the kept modes, merged by μ ascending (the constants and the μ ≤ 1e-6·max out)
     int nExact = 0, nCoexact = 0;      // how many of `modes` are of each kind
+    bool dense = false;                // the complete solve was used (HodgeSolveOptions::denseLimit): every mode, no λ cut (`top` is then the largest λ)
 };
 
 // The reference split: both ladders (`count` as above), the null cut, the single λ cut and the merge. S2 = (⋆2d1)⋆1⁻¹(⋆2d1)ᵀ.
+// With options.denseLimit and a small mesh asked for every mode: the complete dense solve instead (see HodgeSolveOptions::denseLimit).
 HodgeLadders hodgeLadders(const Eigen::SparseMatrix<double>& L0, const Eigen::SparseMatrix<double>& M0,
                           const Eigen::SparseMatrix<double>& S2, const Eigen::SparseMatrix<double>& M2,
                           int count, const HodgeSolveOptions& opt = {},

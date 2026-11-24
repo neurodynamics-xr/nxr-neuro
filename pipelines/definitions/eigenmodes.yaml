@@ -40,13 +40,14 @@ parameters:
   sigma: {default: null, meaning: "the absolute shift (only with shift absolute); null: the reference method's -1e-3", unit: "1/m^2"}
   slice: {default: 0, meaning: "spectrum slicing: solve in windows of this many modes, each with its own shift; 0: one solve per ladder", unit: modes}
   normalize: {default: false, meaning: "make the modes orthonormal under the mass matrix after the solve (Cholesky whitening); the reference method does not", unit: "-"}
+  dense_limit: {default: 3000, meaning: "the complete solve of a small mesh: when the surface has at most this many vertices and faces and modes asks for every mode (at least vertices + faces - 2), both ladders are solved dense and whole (every exact and coexact mode, no lambda cut; about 5 x dense_limit^2 doubles, 360 MB at 3000); larger surfaces, or fewer modes asked, the iterative solve; 0: never", unit: "vertices and faces"}
   star1_floor: {default: null, meaning: "raise the edge cotan weights (the 1-form Hodge star) that fall below this up to it; null: no floor (nxr's; Rheome used 1e-6)", unit: "-"}
 
 steps:
   before:
     - step: operators.hodge_dirac
       in: {surface: surface, intrinsic: intrinsic}
-      with: {modes: $modes, shift: $shift, sigma: $sigma, slice: $slice, normalize: $normalize, star1_floor: $star1_floor}
+      with: {modes: $modes, shift: $shift, sigma: $sigma, slice: $slice, normalize: $normalize, star1_floor: $star1_floor, dense_limit: $dense_limit}
       out: [modes, eigenvalues, kinds, eigenvectors]
 
 outputs:
