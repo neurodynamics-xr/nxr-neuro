@@ -9,6 +9,13 @@
 //                           a mesh's edges and its sharp operator is given, the phase current per vertex Im(U_p,v conj(C) (grad U_q)_vᵀ) (3 components), the gradient never
 //                           formed (sharp acts on each vertex's own edges). Readouts: the sensor surface's synthesis Psi diag(h_q); a composed source kernel; tile averages.
 //                           Order: the cheaper of conj(C) U_qᵀ (dense) and conj(Y) (Yᵀ U_qᵀ) (factored: when Y has fewer than half as many draws as columns), once per band
+//   timeCellPairFlow        one chunk's weighted spectrum (an atom's gains applied) back in time through one readout, summed over the cells of a level of the time line:
+//                           per cell the power, the pair sums Σ conj(z_tail) z_tip (real and imaginary) and, with a sharp operator, the vertex phase current
+//                           Σ Im(conj(z_v) (grad z)_v) = sharp of the edge sums (one band: Im(conj(z_v) z_v) = 0). Cells are anchored at the line's sample 0
+//                           (cell c holds the line's samples [c cellSamples, (c + 1) cellSamples)); a cell the chunk's edge cuts is returned with its sample count,
+//                           its other part in the neighbouring chunk (the caller adds them). Order (compose first): the readout applied to the atom's bins before the
+//                           inverse transform when it has fewer rows (components V) than the spectrum's columns, else the inverse transform on the columns first.
+//                           The per-sample products are never held beyond one cell
 //   flowSplit               an edge current [E x m] split on the STORED Hodge-Dirac edge rows: its coefficients (projectOneForm: inner products, no solve), the travel
 //                           potential Σ_exact (c / mu) mode and the rotation stream Σ_coexact (c / mu) mode (the 1/mu gain: the full Poisson split when the basis is
 //                           complete), its ⋆1 energy; and, when a remainder split is given, the part beyond the kept modes split by sparse solves (a cortex)
@@ -45,6 +52,20 @@ struct PairFlow {
  *  (tail, tip), `sharpWeights` [3V x P] (sharpOperator, only when the pairs are the complex's edges) or null. Throws std::invalid_argument on sizes that disagree. */
 PairFlow pairFlow(const Eigen::MatrixXcd& weightedColumns, const std::vector<Eigen::MatrixXd>& readouts, int components, const std::vector<std::int32_t>& pairs,
                   const Eigen::SparseMatrix<double>* sharpWeights);
+
+struct TimeCellPairFlow {
+  std::int64_t firstCell = 0;                  // the line's cell index of column 0
+  Eigen::MatrixXd power;                       // [V x cells]
+  Eigen::MatrixXd pairReal, pairImaginary;     // [P x cells] Σ_c Σ_t Re, Im of conj(z_tail) z_tip
+  Eigen::MatrixXd vertexCurrent;               // [3V x cells], empty without a sharp operator
+  std::vector<std::int64_t> samples;           // [cells] the samples of this chunk in each cell
+};
+/** `weightedSpectrum` [columns x bins] (the bins [firstBin, firstBin + bins) of a transform of `transformSamples`), the chunk's own samples [ownFirst, ownFirst + ownSamples)
+ *  of that transform, which are the line's samples [lineFirst, lineFirst + ownSamples); `readout` [components V x columns] component-major; `pairs` [P x 2] flat (tail, tip);
+ *  `sharpWeights` [3V x P] or null. Throws std::invalid_argument on sizes that disagree. */
+TimeCellPairFlow timeCellPairFlow(const Eigen::MatrixXcd& weightedSpectrum, std::int64_t firstBin, std::int64_t transformSamples, std::int64_t ownFirst, std::int64_t ownSamples,
+                                  std::int64_t lineFirst, std::int64_t cellSamples, const Eigen::MatrixXd& readout, int components, const std::vector<std::int32_t>& pairs,
+                                  const Eigen::SparseMatrix<double>* sharpWeights);
 
 struct FlowSplit {
   Eigen::MatrixXd coefficients;                          // [M x m] on the stored edge rows (exact: travel; coexact: rotation)

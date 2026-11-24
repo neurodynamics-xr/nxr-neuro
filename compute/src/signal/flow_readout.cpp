@@ -1,16 +1,89 @@
 // nxr::signal — the flow readout (see the header).
 #include "nxr/signal/flow_readout.h"
 
+#include <algorithm>
 #include <complex>
 #include <stdexcept>
 #include <string>
+
+#include "nxr/signal/fourier.h"
 
 namespace nxr::signal {
 
 namespace {
 [[noreturn]] void bad(const std::string& message) { throw std::invalid_argument(message); }
 using ComplexValue = std::complex<double>;
+using RowMajorComplex = Eigen::Matrix<ComplexValue, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+
+// rows [rows x the atom's bins] (only the bins listed) inverted to time; the own samples kept [rows x ownSamples]
+RowMajorComplex inverseOwnSamples(const Eigen::MatrixXcd& rows, const std::vector<Eigen::Index>& bins, std::int64_t firstBin, std::int64_t transformSamples, std::int64_t ownFirst,
+                                  std::int64_t ownSamples) {
+  std::vector<ComplexValue> buffer(static_cast<std::size_t>(rows.rows() * transformSamples), ComplexValue(0, 0));
+  for (Eigen::Index r = 0; r < rows.rows(); ++r)
+    for (std::size_t q = 0; q < bins.size(); ++q) buffer[static_cast<std::size_t>(r * transformSamples + firstBin + bins[q])] = rows(r, static_cast<Eigen::Index>(q));
+  c2c(buffer.data(), buffer.data(), {static_cast<std::size_t>(rows.rows()), static_cast<std::size_t>(transformSamples)}, 1, false);
+  const Eigen::Map<const RowMajorComplex> inTime(buffer.data(), rows.rows(), transformSamples);
+  return inTime.middleCols(ownFirst, ownSamples);
+}
 }  // namespace
+
+TimeCellPairFlow timeCellPairFlow(const Eigen::MatrixXcd& X, std::int64_t firstBin, std::int64_t N, std::int64_t ownFirst, std::int64_t ownSamples, std::int64_t lineFirst,
+                                  std::int64_t cellSamples, const Eigen::MatrixXd& readout, int components, const std::vector<std::int32_t>& pairs,
+                                  const Eigen::SparseMatrix<double>* sharpWeights) {
+  const Eigen::Index columns = X.rows(), binCount = X.cols();
+  if (components < 1 || readout.rows() % components != 0 || readout.cols() != columns) bad("timeCellPairFlow: a readout [components V x columns] on the spectrum's rows");
+  const Eigen::Index vertices = readout.rows() / components, pairCount = static_cast<Eigen::Index>(pairs.size() / 2);
+  if (pairs.size() % 2 != 0) bad("timeCellPairFlow: the pairs are (tail, tip)");
+  if (sharpWeights && (sharpWeights->rows() != 3 * vertices || sharpWeights->cols() != pairCount)) bad("timeCellPairFlow: the sharp weights are [3V x P] (the pairs are the complex's edges)");
+  if (firstBin < 0 || firstBin + binCount > N) bad("timeCellPairFlow: the bins fall outside the transform");
+  if (ownFirst < 0 || ownSamples < 1 || ownFirst + ownSamples > N) bad("timeCellPairFlow: the chunk's own samples fall outside the transform");
+  if (cellSamples < 1 || lineFirst < 0) bad("timeCellPairFlow: a cell holds at least one sample; the line starts at sample 0");
+  for (const auto v : pairs) if (v < 0 || v >= vertices) bad("timeCellPairFlow: a pair's vertex is outside the readout's vertices");
+  TimeCellPairFlow out;
+  out.firstCell = lineFirst / cellSamples;
+  const std::int64_t cells = (lineFirst + ownSamples - 1) / cellSamples - out.firstCell + 1;
+  out.power = Eigen::MatrixXd::Zero(vertices, cells);
+  out.pairReal = Eigen::MatrixXd::Zero(pairCount, cells);
+  out.pairImaginary = Eigen::MatrixXd::Zero(pairCount, cells);
+  out.samples.assign(static_cast<std::size_t>(cells), 0);
+  std::vector<std::int64_t> cellStart(static_cast<std::size_t>(cells));                     // each cell's first own sample (relative to ownFirst)
+  for (std::int64_t c = 0; c < cells; ++c) {
+    const std::int64_t lo = std::max(lineFirst, (out.firstCell + c) * cellSamples), hi = std::min(lineFirst + ownSamples, (out.firstCell + c + 1) * cellSamples);
+    out.samples[static_cast<std::size_t>(c)] = hi - lo;
+    cellStart[static_cast<std::size_t>(c)] = lo - lineFirst;
+  }
+  // the atom's bins only (its gains are in X)
+  std::vector<Eigen::Index> bins;
+  for (Eigen::Index k = 0; k < binCount; ++k) if (X.col(k).squaredNorm() > 0) bins.push_back(k);
+  Eigen::MatrixXcd reached(columns, static_cast<Eigen::Index>(bins.size()));
+  for (std::size_t q = 0; q < bins.size(); ++q) reached.col(static_cast<Eigen::Index>(q)) = X.col(bins[q]);
+  // one cell's vertex signals of one component [V x the cell's samples] → its sums
+  auto accumulate = [&](std::int64_t c, const RowMajorComplex& block) {
+    for (Eigen::Index v = 0; v < vertices; ++v) out.power(v, c) += block.row(v).squaredNorm();
+    for (Eigen::Index e = 0; e < pairCount; ++e) {
+      const ComplexValue s = block.row(pairs[static_cast<std::size_t>(2 * e)]).dot(block.row(pairs[static_cast<std::size_t>(2 * e + 1)]));   // Σ_t conj(z_tail) z_tip
+      out.pairReal(e, c) += s.real();
+      out.pairImaginary(e, c) += s.imag();
+    }
+  };
+  if (!bins.empty() && vertices < columns) {
+    // compose first: per component the readout on the atom's bins [V x bins], then V inverse transforms (at most columns x ownSamples held)
+    for (int component = 0; component < components; ++component) {
+      const RowMajorComplex z = inverseOwnSamples(readout.middleRows(component * vertices, vertices).cast<ComplexValue>() * reached, bins, firstBin, N, ownFirst, ownSamples);
+      for (std::int64_t c = 0; c < cells; ++c) accumulate(c, z.middleCols(cellStart[static_cast<std::size_t>(c)], out.samples[static_cast<std::size_t>(c)]));
+    }
+  } else if (!bins.empty()) {
+    // the inverse transform on the columns' side, then per cell z = U y (never more than one cell's vertex signals held)
+    const RowMajorComplex inTime = inverseOwnSamples(reached, bins, firstBin, N, ownFirst, ownSamples);
+    for (int component = 0; component < components; ++component) {
+      const Eigen::MatrixXcd componentReadout = readout.middleRows(component * vertices, vertices).cast<ComplexValue>();
+      for (std::int64_t c = 0; c < cells; ++c)
+        accumulate(c, componentReadout * inTime.middleCols(cellStart[static_cast<std::size_t>(c)], out.samples[static_cast<std::size_t>(c)]));
+    }
+  }
+  if (sharpWeights) out.vertexCurrent = *sharpWeights * out.pairImaginary;                   // Σ_e sharp(v, e) Σ_t Im(conj(z_v) (z_tip - z_tail)): the edge sum at both ends
+  return out;
+}
 
 PairFlow pairFlow(const Eigen::MatrixXcd& Y, const std::vector<Eigen::MatrixXd>& readouts, int components, const std::vector<std::int32_t>& pairs,
                   const Eigen::SparseMatrix<double>* sharpWeights) {

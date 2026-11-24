@@ -4,6 +4,9 @@
 //   splitPhases: a batch of 1-forms equals splitPhase on each;
 //   pairFlow: with one component and the readouts Psi diag(h_q) it equals bandPairFlow (dense and factored orders); with three components readoutPairFlow; on tiles
 //     (all pairs i < j, no sharp) the conjugate of the tile cross-spectrum sums S_ij = Σ z_i conj(z_j) of accumulateTileCrossSpectra;
+//   timeCellPairFlow: equals readoutTimeCellFlow (three components), timeCellFlow (one component, Psi diag(h)) and tileTimeCells (conjugated); both orders of the products
+//     (the readout applied before or after the inverse transform) equal a direct inverse transform written out here; a chunk cut in two, its cells anchored at the line's
+//     sample 0 and a cell straddling the cut, adds back to the uncut chunk;
 //   OneFormRemainderSplit: an exact 1-form d0 phi gives back phi and no stream; a coexact 1-form gives back its stream and no potential.
 #include <cmath>
 #include <complex>
@@ -148,6 +151,101 @@ int main() {
     }
     const double gap = std::max({relative(got.power.col(0), power), relative(got.pairReal.col(0), pairReal), relative(got.pairImaginary.col(0), pairImaginary)});
     EXPECT(gap < 1e-10 && got.vertexCurrent.size() == 0, "pairFlow on tiles = conj(S_ij), S_ii of accumulateTileCrossSpectra; no vertex current without sharp (gap " << gap << ")");
+  }
+
+  // ── timeCellPairFlow ──
+  {
+    const std::int64_t transformSamples = 64, firstBin = 3, bins = 9, ownFirst = 16, ownSamples = 32, cellSamples = 8;
+    const Eigen::MatrixXcd spectrum = crandn(coordinateCount, bins);
+    Eigen::VectorXd bandGain(coordinateCount);
+    for (Eigen::Index j = 0; j < coordinateCount; ++j) bandGain(j) = 1.0 / (1.0 + static_cast<double>(j));
+    auto gap = [&](const ns::TimeCellPairFlow& got, const Eigen::MatrixXd& power, const Eigen::MatrixXd& pairImaginary, const Eigen::MatrixXd& vertexCurrent) {
+      double worst = std::max(relative(got.power, power), relative(got.pairImaginary, pairImaginary));
+      if (vertexCurrent.size()) worst = std::max(worst, relative(got.vertexCurrent, vertexCurrent));
+      return worst;
+    };
+    // the sensor version: one component, the synthesis with its band gain
+    {
+      const Eigen::MatrixXd gradients = ns::sharp(complex, Eigen::MatrixXd(complex.d0 * synthesis));
+      const ns::CellFlow want = ns::timeCellFlow(spectrum, firstBin, transformSamples, ownFirst, ownSamples, cellSamples, synthesis, gradients, complex.edges, bandGain);
+      const ns::TimeCellPairFlow got = ns::timeCellPairFlow(spectrum, firstBin, transformSamples, ownFirst, ownSamples, 0, cellSamples, synthesis * bandGain.asDiagonal(), 1, complex.edges, &sharpWeights);
+      const double worst = gap(got, want.power, want.edgeCurrent, want.vertexCurrent);
+      EXPECT(worst < 1e-10 && got.firstCell == 0 && got.samples == std::vector<std::int64_t>(4, cellSamples), "timeCellPairFlow = timeCellFlow (one component; gap " << worst << ")");
+    }
+    // the source version: three components
+    const Eigen::MatrixXd sourceReadout = randn(3 * vertexCount, coordinateCount);
+    {
+      const ns::CellFlow want = ns::readoutTimeCellFlow(spectrum, firstBin, transformSamples, ownFirst, ownSamples, cellSamples, sourceReadout, 3, complex.edges, sharpWeights);
+      const ns::TimeCellPairFlow got = ns::timeCellPairFlow(spectrum, firstBin, transformSamples, ownFirst, ownSamples, 0, cellSamples, sourceReadout, 3, complex.edges, &sharpWeights);
+      const double worst = gap(got, want.power, want.edgeCurrent, want.vertexCurrent);
+      EXPECT(worst < 1e-10, "timeCellPairFlow = readoutTimeCellFlow (three components; gap " << worst << ")");
+    }
+    // the tile version: every pair i < j, no sharp, cells anchored at the line with a straddling cell (lineFirst 5)
+    {
+      const Eigen::Index tiles = 5;
+      const Eigen::MatrixXd tileOperator = randn(3 * tiles, coordinateCount);              // tile-major
+      std::vector<std::int32_t> tilePairs;
+      for (std::int32_t i = 0; i < tiles; ++i) for (std::int32_t j = i + 1; j < tiles; ++j) { tilePairs.push_back(i); tilePairs.push_back(j); }
+      const ns::TileCells want = ns::tileTimeCells(spectrum, firstBin, transformSamples, ownFirst, ownSamples, 5, cellSamples, tileOperator);
+      const ns::TimeCellPairFlow got = ns::timeCellPairFlow(spectrum, firstBin, transformSamples, ownFirst, ownSamples, 5, cellSamples, ns::componentMajor(tileOperator, 3), 3, tilePairs, nullptr);
+      const double worst = std::max({relative(got.power, want.power), relative(got.pairReal, want.pairReal), relative(got.pairImaginary, Eigen::MatrixXd(-want.pairImaginary))});
+      EXPECT(worst < 1e-10 && got.firstCell == want.firstCell && got.samples == want.samples && got.vertexCurrent.size() == 0,
+             "timeCellPairFlow = tileTimeCells conjugated, the same cells and sample counts (gap " << worst << ")");
+    }
+    // both orders of the products against a direct inverse transform: z(t) = (1/N) Σ_k X(:, k) e^{2 pi i (firstBin + k) t / N}, then z = U y per sample
+    auto direct = [&](const Eigen::MatrixXd& readout, int components, const std::vector<std::int32_t>& pairs) {
+      const Eigen::Index vertices = readout.rows() / components;
+      ns::TimeCellPairFlow want;
+      const std::int64_t cells = ownSamples / cellSamples;
+      want.power = Eigen::MatrixXd::Zero(vertices, cells);
+      want.pairReal = Eigen::MatrixXd::Zero(static_cast<Eigen::Index>(pairs.size() / 2), cells);
+      want.pairImaginary = want.pairReal;
+      for (std::int64_t sample = 0; sample < ownSamples; ++sample) {
+        Eigen::VectorXcd coordinatesInTime = Eigen::VectorXcd::Zero(spectrum.rows());
+        for (Eigen::Index k = 0; k < bins; ++k)
+          coordinatesInTime += spectrum.col(k) * std::polar(1.0 / static_cast<double>(transformSamples), 2 * M_PI * static_cast<double>((firstBin + k) * (ownFirst + sample)) / static_cast<double>(transformSamples));
+        const Eigen::VectorXcd z = readout.cast<ComplexValue>() * coordinatesInTime;
+        const std::int64_t cell = sample / cellSamples;
+        for (int c = 0; c < components; ++c) {
+          for (Eigen::Index v = 0; v < vertices; ++v) want.power(v, cell) += std::norm(z(c * vertices + v));
+          for (std::size_t pair = 0; pair < pairs.size() / 2; ++pair) {
+            const ComplexValue product = std::conj(z(c * vertices + pairs[2 * pair])) * z(c * vertices + pairs[2 * pair + 1]);
+            want.pairReal(static_cast<Eigen::Index>(pair), cell) += product.real();
+            want.pairImaginary(static_cast<Eigen::Index>(pair), cell) += product.imag();
+          }
+        }
+      }
+      return want;
+    };
+    {
+      const std::vector<std::int32_t> fewPairs = {0, 1, 1, 2, 0, 3};
+      const Eigen::MatrixXd smallReadout = randn(3 * 4, coordinateCount);                   // fewer rows than columns: the readout first
+      const ns::TimeCellPairFlow small = ns::timeCellPairFlow(spectrum, firstBin, transformSamples, ownFirst, ownSamples, 0, cellSamples, smallReadout, 3, fewPairs, nullptr);
+      const ns::TimeCellPairFlow smallWant = direct(smallReadout, 3, fewPairs);
+      const ns::TimeCellPairFlow large = ns::timeCellPairFlow(spectrum, firstBin, transformSamples, ownFirst, ownSamples, 0, cellSamples, sourceReadout, 3, fewPairs, nullptr);
+      const ns::TimeCellPairFlow largeWant = direct(sourceReadout, 3, fewPairs);
+      const double smallGap = std::max({relative(small.power, smallWant.power), relative(small.pairReal, smallWant.pairReal), relative(small.pairImaginary, smallWant.pairImaginary)});
+      const double largeGap = std::max({relative(large.power, largeWant.power), relative(large.pairReal, largeWant.pairReal), relative(large.pairImaginary, largeWant.pairImaginary)});
+      EXPECT(smallGap < 1e-10 && largeGap < 1e-10, "timeCellPairFlow: the readout applied first (" << smallGap << ") or after the inverse transform (" << largeGap << ") = the direct sums");
+    }
+    // a chunk cut in two at a sample that is not a cell boundary: the parts, added by the line's cell index, are the uncut chunk's cells
+    {
+      const std::int64_t lineFirst = 3, cut = 13;
+      const ns::TimeCellPairFlow whole = ns::timeCellPairFlow(spectrum, firstBin, transformSamples, ownFirst, ownSamples, lineFirst, cellSamples, sourceReadout, 3, complex.edges, &sharpWeights);
+      const ns::TimeCellPairFlow first = ns::timeCellPairFlow(spectrum, firstBin, transformSamples, ownFirst, cut, lineFirst, cellSamples, sourceReadout, 3, complex.edges, &sharpWeights);
+      const ns::TimeCellPairFlow second = ns::timeCellPairFlow(spectrum, firstBin, transformSamples, ownFirst + cut, ownSamples - cut, lineFirst + cut, cellSamples, sourceReadout, 3, complex.edges, &sharpWeights);
+      Eigen::MatrixXd power = Eigen::MatrixXd::Zero(whole.power.rows(), whole.power.cols()), pairImaginary = Eigen::MatrixXd::Zero(whole.pairImaginary.rows(), whole.pairImaginary.cols());
+      Eigen::MatrixXd vertexCurrent = Eigen::MatrixXd::Zero(whole.vertexCurrent.rows(), whole.vertexCurrent.cols());
+      std::vector<std::int64_t> samples(whole.samples.size(), 0);
+      for (const ns::TimeCellPairFlow* part : {&first, &second})
+        for (Eigen::Index cell = 0; cell < part->power.cols(); ++cell) {
+          const Eigen::Index at = part->firstCell + cell - whole.firstCell;
+          power.col(at) += part->power.col(cell); pairImaginary.col(at) += part->pairImaginary.col(cell); vertexCurrent.col(at) += part->vertexCurrent.col(cell);
+          samples[static_cast<std::size_t>(at)] += part->samples[static_cast<std::size_t>(cell)];
+        }
+      const double worst = std::max({relative(power, whole.power), relative(pairImaginary, whole.pairImaginary), relative(vertexCurrent, whole.vertexCurrent)});
+      EXPECT(worst < 1e-10 && samples == whole.samples && whole.samples.front() == cellSamples - lineFirst, "a chunk cut in two: its parts add back to the uncut chunk's cells (gap " << worst << ")");
+    }
   }
 
   // ── OneFormRemainderSplit ──
