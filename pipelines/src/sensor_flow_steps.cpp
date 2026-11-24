@@ -117,6 +117,8 @@ ng::NodeSpec overlapped_spectrum() {
     const ng::ManifoldRef rows = ng::manifold_id("coordinates", "operator");
     s.domain.factors = {rows, ng::made_line("frequency", "signal.overlapped_spectrum.spectrum", "Hz", 0.0, x.sfreq, x.domain.factors.empty() ? ng::ManifoldRef() : x.domain.factors.back())};
     s.domain.cells = "0,1";
+    s.facts["overlap_samples"] = overlap; s.facts["transform_samples"] = transform;   // the spectrum carries how it was made: signal.chunk_spectra reads them, never asked twice
+    s.facts["frequency_span"] = Json::array({lo, hi});
     out.out["spectrum"] = s;
     out.halo = overlap;
     return out;
@@ -171,32 +173,31 @@ ng::NodeSpec chunk_spectra() {
   n.inputs = {{"spectrum", "each chunk's spectrum (signal.overlapped_spectrum), once a block", false},
               {"operator", "the serving operator the spectra were read through (its rows: the coordinates and their eigenvalues)", false}};
   n.outputs = {{"spectra", "[chunks x bins x rows] complex: each chunk's spectrum, one value per member of the chunk grid (the cross-spectrum in its exact factored form)", false}};
-  n.parameters = {
-      {"overlap_samples", Json(), "the overlap the spectra were made with (as signal.overlapped_spectrum's)", "samples", {}, false},
-      {"transform_samples", Json(), "the transform's length the spectra were made with (as signal.overlapped_spectrum's)", "samples", {}, false},
-      {"frequency_span", Json(), "[lo, hi) the spectra keep (as signal.overlapped_spectrum's)", "Hz", {}, false}};
+  n.parameters = {};   // the overlap, the transform's length and the span are the spectrum's own (its port's facts, from signal.overlapped_spectrum): stated once
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float32, ng::OutputPrecision::follows_input,
                              "each block's spectrum kept in time order (a measurement over the chunk partition: one value a member, nothing summed)");
   n.matches = "the flow analysis's served chunk spectra (each chunk's rfft in the field coordinates, stored); no reduction";
   n.description = "the chunk spectra of a run gathered into one statistic: the cross-spectrum per bin is the sum over its chunks of each spectrum times its conjugate";
-  n.plan = [](const ng::Types& in, const Json& p) {
+  n.plan = [](const ng::Types& in, const Json&) {
     const auto it = in.find("spectrum");
     if (it == in.end() || !it->second.per_block()) ng::refuse(std::string(kGather) + ": spectrum is a value made once per block (signal.overlapped_spectrum)");
     if (!in.count("operator")) ng::refuse(std::string(kGather) + ": operator is not given");
-    integer_param(p, "overlap_samples", kGather); integer_param(p, "transform_samples", kGather); span_param(p, kGather);
+    for (const char* k : {"overlap_samples", "transform_samples", "frequency_span"})
+      if (!it->second.facts.contains(k)) ng::refuse(std::string(kGather) + ": spectrum does not say its " + k + " (made by signal.overlapped_spectrum)");
     ng::Planned out;
     out.out["spectra"] = constant_of("statistic");
     return out;
   };
-  n.prepare = [](const ng::Types& in, const ng::Arrays& c, const Json& p, ng::Shared&) {
+  n.prepare = [](const ng::Types& in, const ng::Arrays& c, const Json&, ng::Shared&) {
     GatherPrepared pr;
     pr.op_meta = constant_input(c, "operator", kGather).meta;
     pr.op_meta.erase("channels");
-    pr.overlap = p["overlap_samples"].get<std::int64_t>(); pr.transform = p["transform_samples"].get<std::int64_t>();
     const auto it = in.find("spectrum");
     if (it == in.end() || !it->second.sfreq) ng::refuse(std::string(kGather) + ": spectrum has no sampling rate");
+    const Json& made = it->second.facts;
+    pr.overlap = made.at("overlap_samples").get<std::int64_t>(); pr.transform = made.at("transform_samples").get<std::int64_t>();
     pr.sfreq = *it->second.sfreq;
-    const auto [lo, hi] = span_param(p, kGather);
+    const double lo = made.at("frequency_span")[0].get<double>(), hi = made.at("frequency_span")[1].get<double>();
     std::tie(pr.first, pr.bins) = bins_of(lo, hi, pr.sfreq, pr.transform, kGather);
     return std::any(std::move(pr));
   };
@@ -208,7 +209,7 @@ ng::NodeSpec chunk_spectra() {
     if (b.width != pr.bins || !b.complex()) ng::refuse(std::string(kGather) + ": a block's spectrum holds " + std::to_string(b.width) + " bins, not " + std::to_string(pr.bins));
     if (s.rows < 0) s.rows = b.rows;
     if (b.rows != s.rows) ng::refuse(std::string(kGather) + ": the blocks' spectra have different rows");
-    for (std::int64_t k = 0; k < b.width; ++k)                                            // bin-major then row, as the coefficients of `spectral_coefficients`
+    for (std::int64_t k = 0; k < b.width; ++k)                                            // bin-major then row
       for (std::int64_t r = 0; r < b.rows; ++r) { s.values.push_back(b.re[static_cast<std::size_t>(r * b.width + k)]); s.values.push_back(b.im[static_cast<std::size_t>(r * b.width + k)]); }
     s.firsts.push_back(at.first); s.owns.push_back(at.n);
     return std::make_pair(ng::Blocks{}, std::move(state));
@@ -323,6 +324,8 @@ Eigen::MatrixXd frequency_gains(const Spectra& s, const ng::Arrays& c, const Jso
   for (std::int64_t k = 0; k < s.bins; ++k) f(k) = s.frequency(k);
   if (weighting == "every_bin") {
     if (standardDeviations) ng::refuse(std::string(who) + ": every_bin has no atom (no time width)");
+    if (c.count("frequency") && !c.at("frequency").meta.value("placeholder", false))
+      ng::refuse(std::string(who) + ": frequency_weighting every_bin reads every bin alone: the frequency kernel set handed to it would be ignored (leave it out, or choose kernels)");
     return Eigen::MatrixXd::Identity(s.bins, s.bins);
   }
   if (weighting != "kernels") ng::refuse(std::string(who) + ": frequency_weighting is kernels or every_bin");
@@ -357,8 +360,6 @@ namespace {
 
 struct FlowPrepared {
   nxr::pipelines::graph::BoundPackage package;
-  const ng::Array* spectra_array = nullptr;
-  ng::Array spectra_copy;
   Eigen::MatrixXd frequency, scale;          // [members x bins], [bands x K] (scale empty: no bands)
   std::vector<double> standardDeviations;
   Json p;
@@ -366,8 +367,7 @@ struct FlowPrepared {
 FlowPrepared prepare_flow(const ng::Arrays& c, const Json& p, const char* who, bool needAtoms) {
   FlowPrepared pr;
   pr.package = bind_hodge_package(constant_input(c, "package", who), who);
-  pr.spectra_copy = constant_input(c, "spectra", who);
-  const Spectra s = spectra_of(pr.spectra_copy, who);
+  const Spectra s = spectra_of(constant_input(c, "spectra", who), who);   // read in place: the run reads the same stored array (its `in`), never a copy
   pr.frequency = frequency_gains(s, c, p, who, needAtoms ? &pr.standardDeviations : nullptr);
   const ng::Array& H = constant_input(c, "package", who);
   const std::vector<double> mass = H.meta.at("mass").get<std::vector<double>>();
@@ -418,9 +418,9 @@ ng::NodeSpec spectral_flow() {
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_flow(c, p, kFlow, false)); };
-  n.run = [](const std::any& prepared, const ng::Arrays&) {
+  n.run = [](const std::any& prepared, const ng::Arrays& in) {
     const FlowPrepared& pr = std::any_cast<const FlowPrepared&>(prepared);
-    const Spectra s = spectra_of(pr.spectra_copy, kFlow);
+    const Spectra s = spectra_of(constant_input(in, "spectra", kFlow), kFlow);
     const nxr::signal::IntrinsicComplex& cx = *pr.package.complex;
     const nxr::signal::Modes& m = *pr.package.modes;
     const Eigen::Map<const Eigen::VectorXd> mass(cx.star0.data(), cx.star0.size());
@@ -474,6 +474,7 @@ ng::NodeSpec spectral_flow() {
     describe(pv, vertexMeasures, S, A * pairs, "the vertices of the surface", pairsAre);
     describe(pe, Json::array({Json{{"measure", "phase_current"}}}), E, A * pairs, "the edges of the intrinsic complex (tail -> tip)", pairsAre);
     describe(pm, Json::array({Json{{"measure", "flow_coefficient"}}}), M, A * pairs, "the Hodge-Dirac modes", pairsAre);
+    if (Q == 0) for (ng::Array* none : {&pv, &pe, &pm}) { *none = ng::Array{}; none->meta["absent"] = true; }   // no bands wired: no band pairs (the runner stores none)
     return ng::Arrays{{"whole_vertices", std::move(wv)}, {"whole_edges", std::move(we)}, {"whole_modes", std::move(wm)},
                       {"pair_vertices", std::move(pv)}, {"pair_edges", std::move(pe)}, {"pair_modes", std::move(pm)}};
   };
@@ -514,9 +515,9 @@ ng::NodeSpec atom_time_cells() {
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_flow(c, p, kCells, true)); };
-  n.run = [](const std::any& prepared, const ng::Arrays&) {
+  n.run = [](const std::any& prepared, const ng::Arrays& in) {
     const FlowPrepared& pr = std::any_cast<const FlowPrepared&>(prepared);
-    const Spectra s = spectra_of(pr.spectra_copy, kCells);
+    const Spectra s = spectra_of(constant_input(in, "spectra", kCells), kCells);
     const nxr::signal::IntrinsicComplex& cx = *pr.package.complex;
     const auto [Psi, mu] = synthesis_of(s, *pr.package.modes, cx.star0, kCells);
     const Eigen::SparseMatrix<double> sharpWeights = nxr::signal::sharpOperator(cx);

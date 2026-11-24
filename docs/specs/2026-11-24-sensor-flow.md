@@ -40,7 +40,7 @@ A = the frequency atoms, Q = the eigenvalue bands.
 ### Preparation (host, `pipelines/`)
 - Type checks before any data: the operator's channels against the recording's rows; the map's surface against the eigenvectors' surface; the kernel sets'
   lines against the frequency line the serving node makes and the eigenvalue line of the eigenvectors; the span snapped to the chunk grid.
-- Constants bound once: the composed serving operator (below); the intrinsic complex and the modes (`bind_package`, as `signal.flow_map` binds them).
+- Constants bound once: the composed serving operator (below); the intrinsic complex and the modes (`bind_package`, as `signal.phase_split` binds them).
 
 ### The graph of pure nodes
 
@@ -216,8 +216,8 @@ with no file, chunk loop or subject inside.
 ## Reused, changed, new
 
 - Reused as they are: `sensor_surface`, `eigenmodes`, `select_kernels` (two new profiles), `signal.mode_analysis` (one new `modes` choice), the intrinsic
-  forms (`phaseCurrent`, `projectOneForm`, `exactPotential`, `coexactStream`, `sharp`), `modeCrossSpectrum`, the chunk service's halo (the overlap).
-- Not reused, and why: `spectral_coefficients` (its tiles have no overlap; an accumulate node can take context only to its right), `flowmap` /
+  forms (`phaseCurrent`, `projectOneForm`, `exactPotential`, `coexactStream`, `sharp`), the chunk service's halo (the overlap).
+- Retired (2026-11-24, the flow consolidation): `spectral_coefficients` (its tiles have no overlap; an accumulate node can take context only to its right), `flowmap` /
   `signal.flow_map` (synthesises every cell's field on the surface, V x columns per cell, where the cheaper order forms C_a once; no band pairs, no
   normalised atoms, no vertex phase current), `crossspectrum` (Welch: windows and tapers), `speedspectrum` and `hodgepower` (source space, windowed).
 - New: the serving per chunk with overlap, the chunk spectra statistic, the atoms' normalisation, the cos² and Mexican hat partitions as kernel profiles,

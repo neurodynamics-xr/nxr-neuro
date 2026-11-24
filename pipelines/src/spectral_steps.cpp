@@ -1,9 +1,5 @@
-// nxr-pipelines — the mode-space Fourier coefficients as graph nodes (the definition `spectral_coefficients`).
-//
-// THE GRAPH. before: package (+ a free kernel, or the sensor surface's vertex-to-channel map) --[signal.mode_analysis]--> the composed spatial operator, rows x channels, bound once.
-// chunks: recording (streamed, the caller's span) --[signal.spectral_coefficients: per time tile of `tile_samples`, the one-sided transform of the tile and the operator applied at the bins of
-// the caller's frequency span; one slice a tile, nothing summed]--> A [tiles x bins x rows], complex, handed to io as a measurement of the recording over its tile grid (one value per member).
-// The transform and the operator are linear and commute (the operator acts on the channels, the transform on time), so vertex x time is never formed.
+// nxr-pipelines — the mode analysis as a graph node (signal.mode_analysis): a surface's modes, composed with a free kernel or the sensor surface's
+// vertex-to-channel map, the operator that serves a recording in those coordinates (the flow definitions).
 #include "nxr/pipelines/spectral_steps.h"
 
 #include <algorithm>
@@ -16,7 +12,6 @@
 
 #include "nxr/graph/node.h"
 #include "nxr/operators/hodge_synthesis_weights.h"
-#include "nxr/signal/fourier.h"
 #include "nxr/signal/mode_spectrum.h"
 #include "nxr/signal/source_flow.h"
 #include "source_flow_readers.h"
@@ -26,16 +21,9 @@ namespace nxr::pipelines::graph {
 namespace ng = nxr::graph;
 using nxr::graph::Json;
 using RowMajor = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-using RowMajorF = Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 
 namespace {
 
-ng::PortType constant_of(const char* cls) {
-  ng::PortType t;
-  t.cls = ng::PortClass::constant;
-  t.facts["cls"] = cls;
-  return t;
-}
 std::string text_param(const Json& p, const char* key, const char* who) {
   if (!p.contains(key) || !p[key].is_string()) ng::refuse(std::string(who) + ": " + key + " has no default: name it");
   return p[key].get<std::string>();
@@ -164,158 +152,11 @@ ng::NodeSpec mode_analysis() {
   return n;
 }
 
-// ── signal.spectral_coefficients ────────────────────────────────────────────────────────────────────────────────
-const char* const kCoefficients = "signal.spectral_coefficients";
-struct CoefPrepared {
-  Eigen::MatrixXd op;
-  std::vector<std::int32_t> channels;
-  std::int64_t tile = 0, first_bin = 0, bins = 0;
-  double sfreq = 0, lo = 0, hi = 0;
-  bool exclude = true;
-  Json op_meta;
-};
-struct CoefState {
-  std::int64_t origin = -1;                       // the first sample of the tile being filled
-  Eigen::MatrixXd buffer;                         // [channels x tile]
-  std::int64_t filled = 0;
-  bool tile_bad = false;
-  std::vector<std::int64_t> tiles, left_out;      // the tiles kept and those touching a bad sample (members of the tile grid: sample / tile)
-  std::vector<float> values;                      // re, im of each value, tile-major then bin then row
-};
-
-ng::NodeSpec spectral_coefficients() {
-  ng::NodeSpec n;
-  n.name = kCoefficients;
-  n.kind = ng::Kind::accumulate;
-  n.inputs = {{"x", "the recording: channels x samples (streamed, the caller's span)", false},
-              {"operator", "the composed spatial operator (signal.mode_analysis, or any operator from the recording's channels)", false},
-              {"exclude", "the recording's bad segments (spans): with bad_segments exclude, a tile touching one is left out", true}};
-  n.outputs = {{"coefficients", "per time tile, at the bins of the frequency span, the operator's rows: [tiles x bins x rows] complex, one value per member of the tile grid (a measurement)", false}};
-  n.parameters = {
-      {"tile_samples", Json(), "the time tile, in samples: a power of two, the tile grid the span snaps to (the flow analysis: 2^15, the chunk grid) (no default)", "samples", {}, false},
-      {"frequency_span", Json(), "[lo, hi): the bins k with lo <= k fs / n < hi of each tile's frequency line (no default; the flow analysis: [0, 60])", "Hz", {}, false},
-      {"bad_segments", Json(), "exclude = a tile touching one of the recording's bad samples is left out (listed) | ignore = every tile is kept (no default)", "-", {"exclude", "ignore"}, false}};
-  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::follows_input,
-                             "the tile is filled across blocks in time order (the only state), transformed in double when whole; each tile's values are kept (nothing summed), in float32 for float32 input");
-  n.matches = "numpy.fft.rfft per tile (norm backward, no window) then the operator's rows (the nxr flow scripts' per-chunk FFT and mode expansion); compute nxr::signal::spectralCoefficients";
-  n.description = "the mode-space Fourier coefficients per time tile: each tile's one-sided transform at the bins of a frequency span, read through a spatial operator (one value per tile, per bin, per row)";
-  n.plan = [](const ng::Types& in, const Json& p) {
-    const auto it = in.find("x");
-    if (it == in.end() || !it->second.streamed() || it->second.axis != ng::Axis::samples) ng::refuse(std::string(kCoefficients) + ": x is a recording's samples (a streamed field)");
-    if (it->second.value != ng::ValueType::real) ng::refuse(std::string(kCoefficients) + ": x is real");
-    if (!it->second.sfreq || !(*it->second.sfreq > 0)) ng::refuse(std::string(kCoefficients) + ": x has no sampling rate");
-    if (!in.count("operator")) ng::refuse(std::string(kCoefficients) + ": operator is not given");
-    if (!p.contains("tile_samples") || !p["tile_samples"].is_number_integer()) ng::refuse(std::string(kCoefficients) + ": tile_samples has no default: name it");
-    const std::int64_t t = p["tile_samples"].get<std::int64_t>();
-    if (t < 2 || (t & (t - 1)) != 0) ng::refuse(std::string(kCoefficients) + ": tile_samples is a power of two (the tile grid)");
-    if (!p.contains("frequency_span") || !p["frequency_span"].is_array() || p["frequency_span"].size() != 2) ng::refuse(std::string(kCoefficients) + ": frequency_span [lo, hi) has no default: name it");
-    text_param(p, "bad_segments", kCoefficients);
-    // A STATISTIC of the run whose axes the definition declares and the runner links (the four classes): the tiles (positions on the recording's time line), the bins kept of the
-    // frequency line a tile's transform makes (keyed by (time line, n, fs)), the modes kept of the package's mode axis (one block a Cartesian component)
-    ng::Planned out;
-    out.out["coefficients"] = constant_of("statistic");
-    out.align = t;
-    return out;
-  };
-  n.prepare = [](const ng::Types& in, const ng::Arrays& c, const Json& p, ng::Shared&) {
-    CoefPrepared pr;
-    const auto it = c.find("operator");
-    if (it == c.end() || it->second.meta.value("placeholder", false)) ng::refuse(std::string(kCoefficients) + ": the operator was not handed over");
-    const ng::Array& O = it->second;
-    const std::vector<double> ov = O.values();
-    pr.op = Eigen::Map<const RowMajor>(ov.data(), O.rows, O.cols);
-    pr.channels = O.meta.value("channels", std::vector<std::int32_t>());
-    if (static_cast<std::int64_t>(pr.channels.size()) != O.cols) ng::refuse(std::string(kCoefficients) + ": the operator's channels do not fit its columns");
-    pr.op_meta = O.meta;
-    pr.op_meta.erase("channels");
-    pr.sfreq = *in.at("x").sfreq;
-    pr.tile = p["tile_samples"].get<std::int64_t>();
-    pr.lo = p["frequency_span"][0].get<double>(); pr.hi = p["frequency_span"][1].get<double>();
-    if (!(pr.lo >= 0) || !(pr.hi > pr.lo)) ng::refuse(std::string(kCoefficients) + ": frequency_span is [lo, hi) with 0 <= lo < hi");
-    const double df = pr.sfreq / static_cast<double>(pr.tile);
-    const std::int64_t nb = pr.tile / 2 + 1;
-    pr.first_bin = static_cast<std::int64_t>(std::ceil(pr.lo / df - 1e-9));
-    const std::int64_t end = std::min<std::int64_t>(nb, static_cast<std::int64_t>(std::ceil(pr.hi / df - 1e-9)));
-    pr.bins = end - pr.first_bin;
-    if (pr.bins < 1) ng::refuse(std::string(kCoefficients) + ": the frequency span holds no bin of a tile's line (spacing " + std::to_string(df) + " Hz)");
-    pr.exclude = p["bad_segments"].get<std::string>() == "exclude";
-    return std::any(std::move(pr));
-  };
-  n.start = [](const std::any&) { return std::any(CoefState{}); };
-  n.step = [](const std::any& prepared, std::any state, const ng::Blocks& in, std::int64_t, const ng::Place& at) {
-    const CoefPrepared& pr = std::any_cast<const CoefPrepared&>(prepared);
-    CoefState& s = std::any_cast<CoefState&>(state);
-    const ng::Block& b = in.at("x");
-    const std::int64_t own = b.own();
-    const Eigen::Map<const RowMajorF> all(b.re.data(), b.rows, b.width);
-    for (const std::int32_t ch : pr.channels) if (ch < 0 || ch >= b.rows) ng::refuse(std::string(kCoefficients) + ": a channel of the operator is outside the recording's channels");
-    for (std::int64_t t = 0; t < own; ++t) {
-      const std::int64_t sample = at.first + t;
-      if (s.filled == 0) {
-        if (sample % pr.tile != 0) ng::refuse(std::string(kCoefficients) + ": the span does not start on the tile grid (sample " + std::to_string(sample) + ")");
-        s.origin = sample;
-        s.buffer.resize(static_cast<Eigen::Index>(pr.channels.size()), pr.tile);
-        s.tile_bad = false;
-      }
-      for (std::size_t i = 0; i < pr.channels.size(); ++i) s.buffer(static_cast<Eigen::Index>(i), s.filled) = all(pr.channels[i], b.left + t);
-      if (at.good && static_cast<std::int64_t>(at.good->size()) == own && !(*at.good)[static_cast<std::size_t>(t)]) s.tile_bad = true;
-      if (++s.filled == pr.tile) {
-        const std::int64_t member = s.origin / pr.tile;
-        if (pr.exclude && s.tile_bad) {
-          s.left_out.push_back(member);
-        } else {
-          const Eigen::MatrixXcd A = nxr::signal::spectralCoefficients(pr.op, s.buffer, pr.first_bin, pr.bins);   // [rows x bins]
-          for (Eigen::Index k = 0; k < A.cols(); ++k)
-            for (Eigen::Index r = 0; r < A.rows(); ++r) { s.values.push_back(static_cast<float>(A(r, k).real())); s.values.push_back(static_cast<float>(A(r, k).imag())); }
-          s.tiles.push_back(member);
-        }
-        s.filled = 0;
-      }
-    }
-    return std::make_pair(ng::Blocks{}, std::move(state));
-  };
-  n.finish = [](const std::any& prepared, std::any state) {
-    const CoefPrepared& pr = std::any_cast<const CoefPrepared&>(prepared);
-    CoefState& s = std::any_cast<CoefState&>(state);
-    if (s.filled != 0)
-      ng::refuse(std::string(kCoefficients) + ": the span ends inside a tile (" + std::to_string(s.filled) + " of " + std::to_string(pr.tile) +
-                 " samples): a part tile lies on another frequency line; state a span of whole tiles");
-    if (s.tiles.empty()) ng::refuse(std::string(kCoefficients) + ": no tile was kept (" + std::to_string(s.left_out.size()) + " left out by the bad segments)");
-    const std::int64_t T = static_cast<std::int64_t>(s.tiles.size()), R = pr.op.rows();
-    ng::Array a;
-    a.rows = T * pr.bins * R; a.cols = 2;
-    a.single = std::move(s.values);                                          // float32 values (precision follows the input), moved: no double copy
-    const double df = pr.sfreq / static_cast<double>(pr.tile);
-    Json tiles = Json::array();
-    for (const auto m : s.tiles) tiles.push_back(Json{{"member", m}, {"span", Json::array({static_cast<double>(m * pr.tile) / pr.sfreq, static_cast<double>((m + 1) * pr.tile) / pr.sfreq})}});
-    Json bins = Json::array();
-    for (std::int64_t k = 0; k < pr.bins; ++k) bins.push_back(pr.first_bin + k);
-    Json mode = Json{{"name", "mode"}, {"size", R}, {"members", pr.op_meta.value("modes", Json::array())}};
-    const std::int64_t components = pr.op_meta.value("components", std::int64_t(1));
-    if (components > 1) { Json parts = Json::array({"x", "y", "z"}); parts.erase(parts.begin() + components, parts.end()); mode["parts"] = parts; }
-    a.rows = T; a.cols = pr.bins * R * 2;
-    a.meta["describe"] = Json{{"measure", "fourier_coefficient"}, {"method", "spectral_coefficients"}, {"label", "spectral_coefficients"}, {"precision", "float32"}, {"value_type", "complex"},
-                              {"shape", Json::array({T, pr.bins, R, 2})}, {"unit", "(operator output) x samples"},
-                              {"axes", Json::array({Json{{"name", "tile"}, {"size", T}, {"values", tiles}},
-                                                    Json{{"name", "frequency"}, {"size", pr.bins}, {"members", bins},
-                                                         {"line", Json{{"spacing", df}, {"origin", 0.0}, {"unit", "Hz"}, {"dimension", "frequency"}, {"fft", Json{{"n", pr.tile}, {"fs", pr.sfreq}}}}}},
-                                                    mode})},
-                              {"options", Json{{"tiles_left_out", s.left_out}, {"tile_samples", pr.tile}, {"frequency_span", Json::array({pr.lo, pr.hi})},
-                                               {"transform", "one-sided, unscaled, no window (numpy rfft norm backward)"}, {"operator", pr.op_meta}}},
-                              {"producer", Json{{"sfreq", pr.sfreq}, {"tile_samples", pr.tile}, {"first_bin", pr.first_bin}, {"bins", pr.bins}, {"frequency_resolution_hz", df},
-                                                {"modes", pr.op_meta.value("modes", Json::array())}, {"mu", pr.op_meta.value("mu", Json::array())}, {"components", components},
-                                                {"normalisation", pr.op_meta.value("normalisation", Json())}, {"tiles", s.tiles}}},
-                              {"description", "the mode-space Fourier coefficients per time tile: [tiles x bins x modes] (complex)"}};
-    return ng::Arrays{{"coefficients", std::move(a)}};
-  };
-  return n;
-}
-
 }  // namespace
 
 void register_spectral_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {mode_analysis(), spectral_coefficients()})
+  for (ng::NodeSpec n : {mode_analysis()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 

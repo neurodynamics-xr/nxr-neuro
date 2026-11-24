@@ -370,9 +370,10 @@ ng::NodeSpec tile_operator() {
 }
 
 // ── signal.tile_flow ─────────────────────────────────────────────────────────────────────────────────────────
-struct FlowPrepared { ng::Array spectra, op, frequency; Json p; };
+struct FlowPrepared { ng::Array op, frequency; Json p; };   // the spectra are read in place from the run's `in` (never copied)
 FlowPrepared prepare_flow(const ng::Arrays& c, const Json& p) {
-  return FlowPrepared{handed(c, "spectra", "connectome flow"), handed(c, "operator", "connectome flow"), handed(c, "frequency", "connectome flow"), p};
+  handed(c, "spectra", "connectome flow");
+  return FlowPrepared{handed(c, "operator", "connectome flow"), handed(c, "frequency", "connectome flow"), p};
 }
 const char* const kFlow = "signal.tile_flow";
 ng::NodeSpec tile_flow() {
@@ -395,9 +396,9 @@ ng::NodeSpec tile_flow() {
     ng::Planned out; out.out["flow"] = statistic_port(); return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_flow(c, p)); };
-  n.run = [](const std::any& prepared, const ng::Arrays&) {
+  n.run = [](const std::any& prepared, const ng::Arrays& in) {
     const FlowPrepared& pr = std::any_cast<const FlowPrepared&>(prepared);
-    const Spectra s = spectra_of(pr.spectra, kFlow);
+    const Spectra s = spectra_of(handed(in, "spectra", "connectome flow"), kFlow);
     check_operator_against_spectra(pr.op, s, kFlow);
     const Atoms atoms = atoms_of(s, pr.frequency, pr.p, kFlow);
     const Eigen::MatrixXd M = matrix_of(pr.op);
@@ -460,9 +461,9 @@ ng::NodeSpec tile_time_cells() {
     ng::Planned out; out.out["cells"] = statistic_port(); return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_flow(c, p)); };
-  n.run = [](const std::any& prepared, const ng::Arrays&) {
+  n.run = [](const std::any& prepared, const ng::Arrays& in) {
     const FlowPrepared& pr = std::any_cast<const FlowPrepared&>(prepared);
-    const Spectra s = spectra_of(pr.spectra, kCells);
+    const Spectra s = spectra_of(handed(in, "spectra", "connectome flow"), kCells);
     check_operator_against_spectra(pr.op, s, kCells);
     if (static_cast<std::int64_t>(s.owns.size()) != s.chunks || static_cast<std::int64_t>(s.firsts.size()) != s.chunks) ng::refuse(std::string(kCells) + ": the spectra do not record each chunk's samples");
     const Atoms atoms = atoms_of(s, pr.frequency, pr.p, kCells);

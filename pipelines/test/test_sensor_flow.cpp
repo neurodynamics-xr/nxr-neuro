@@ -36,7 +36,7 @@ ng::Arrays run_array(const ng::NodeSpec& node, const ng::Arrays& c, const Json& 
   const ng::Arrays none;
   ng::NodeCall prep = ng::NodeCall::prepare(types, c, p, shared);
   ng::dispatch(node, prep);
-  ng::NodeCall go = ng::NodeCall::run(prep.made, none);
+  ng::NodeCall go = ng::NodeCall::run(prep.made, c);   // as the executor does: run is handed the arrays prepare was
   ng::dispatch(node, go);
   return go.made_arrays;
 }
@@ -109,7 +109,8 @@ int main() {
   ng::dispatch(serve, sprep);
   const ng::NodeSpec& gather = ng::registry().at("signal.chunk_spectra");
   ng::Types gtypes;
-  ng::PortType st; st.sfreq = fs; gtypes["spectrum"] = st; gtypes["operator"] = pk;
+  ng::PortType st; st.sfreq = fs; for (const auto& [k, v] : sp.items()) st.facts[k] = v; gtypes["spectrum"] = st;   // the spectrum carries how it was made (overlapped_spectrum's plan)
+  gtypes["operator"] = pk;
   ng::NodeCall gprep = ng::NodeCall::prepare(gtypes, operatorInput, sp, shared);
   ng::dispatch(gather, gprep);
   ng::NodeCall gs = ng::NodeCall::start(gprep.made);
@@ -172,6 +173,10 @@ int main() {
   // every bin: one member per bin
   const ng::Arrays bins = run_array(ng::registry().at("signal.spectral_flow"), ng::Arrays{{"spectra", spectra}, {"package", H}}, Json{{"frequency_weighting", "every_bin"}});
   CHECK(bins.at("whole_edges").rows == cx.nE * spectra.meta.at("shape")[1].get<std::int64_t>());
+  // no bands wired: the band-pair outputs are ABSENT (the runner stores none), never empty arrays; a frequency kernel set every_bin would ignore is refused
+  CHECK(bins.at("pair_vertices").meta.value("absent", false) && bins.at("pair_edges").meta.value("absent", false) && bins.at("pair_modes").meta.value("absent", false));
+  CHECK(!flow.at("pair_vertices").meta.value("absent", false));
+  CHECK(refused([&] { run_array(ng::registry().at("signal.spectral_flow"), inputs, Json{{"frequency_weighting", "every_bin"}}); }));
 
   // ── time cells and the sign-flip statistic ──
   const Json cp = Json{{"frequency_weighting", "kernels"}, {"frequency_normalisation", "sum_of_squared_gains"}, {"support_floor", 1e-3}, {"cell_width", 2.0}};

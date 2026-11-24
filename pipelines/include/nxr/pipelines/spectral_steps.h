@@ -1,5 +1,5 @@
-// nxr-pipelines — the nodes of the mode-space Fourier coefficients (signal.mode_analysis, signal.spectral_coefficients) registered in nxr::graph::registry(); idempotent.
-// See src/spectral_steps.cpp and the definition `spectral_coefficients`.
+// nxr-pipelines — the mode analysis node (signal.mode_analysis) registered in nxr::graph::registry(); idempotent.
+// See src/spectral_steps.cpp.
 #pragma once
 
 namespace nxr::pipelines::graph {

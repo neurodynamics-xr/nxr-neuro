@@ -459,7 +459,6 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro migrate glue` | A glued cortex of an earlier form (a map field and a bridge selection, or kept vertices beside the labelling) converted in place to the hemispheres labelling alone; a glue that removed more than the medial wall is refused (re-run glue). | `package migrate-glue` |
 | `nxr-neuro run sensor_surface` | The channels as a surface: a triangulated helmet whose vertices are the picked channels, a derived manifold with its vertex-to-channel map. | (new) |
 | `nxr-neuro run sensor_mesh` | The good channels of one sensor type (MEG or EEG) as a surface, chosen from the channels' type and quality labellings; made by `import subject` for every channels manifold. | (new) |
-| `nxr-neuro run spectral_coefficients` | The mode-space Fourier coefficients of a recording per time tile, through a composed spatial operator (a package's modes and a free kernel, or the sensor surface's channel map). | (new) |
 | `nxr-neuro run sensor_flow` | The flow of the field on the sensor surface per atom of the joint frequency x eigenvalue level: chunk spectra with overlap, power, phase currents, Hodge-Dirac flow, band pairs, time cells and their sign-flip test, an optional aperiodic fit. | (new) |
 | `nxr-neuro run sensor_bispectrum` | The bispectrum of the stored chunk spectra in eigenmode coordinates, weighted by the flow's frequency atoms (one gain per axis): phase-amplitude coupling and harmonics (waveform shape from the biphase), with the bicoherence's sums; per coordinate or per vertex (per band). | (new) |
 | `nxr-neuro run sensor_flow_across_frequencies` | Whether the sensor flow moves at the same speed and direction across frequencies: per pair of atoms the cosines of their flows, per vertex the direction consistency and the slope of apparent speed against frequency, from the flow's stored results. | (new) |
@@ -1141,25 +1140,12 @@ exactly them); the position rule and the mesher's options are `sensor_surface`'s
 sensor type among its channels, and lists in the result's `sensor_meshes` what it made and in `skipped` what was refused, with the reason (`--no-sensor-mesh`
 skips the step). Tests: `test_channel_positions`, `test_sensor_surface`, `test_face` (synthetic).
 
-## The mode-space Fourier coefficients (`run spectral_coefficients`; the nodes `signal.mode_analysis`, `signal.spectral_coefficients`; compute `nxr/signal/mode_spectrum.h`)
+## The mode analysis (the node `signal.mode_analysis`; compute `nxr/signal/mode_spectrum.h`)
 
-Why: the flow analysis reads power, in-phase and quadrature coupling, flow maps and their Hodge split on the cells of a joint (frequency x spatial scale) grid, at
-the whole run or tile by tile. All of them are measurements of ONE stored ingredient: the coefficients of each time tile's Fourier transform in a surface's
-Hodge-Dirac modes, A[tile, bin, row]. `run spectral_coefficients` makes it in one pass over the caller's span: `signal.mode_analysis` composes the spatial operator once
-(the selected modes' 0-form parts, `--modes exact | coexact | all`, normalised `--normalisation unit_mass | as_stored`, times the vertex mass; with `--kernel` a
-free-orientation inverse kernel carried onto the package's surface, each Cartesian component expanded on the same modes, component-major rows; with
-`--channel-map` the sensor surface's vertex-to-channel map, no inverse), then `signal.spectral_coefficients` transforms each tile of `--tile-samples` (one-sided,
-unscaled, no window: numpy's rfft) and applies the operator at the bins `lo <= f < hi` of `--frequency-span`. The two maps are linear and commute, so vertex x time is
-never formed. Stored: a complex measurement of the recording over its tile grid (`<recording>_chunks`), values [tiles x bins x rows], with the tiles kept, those
-left out (`--bad-segments exclude`: a tile touching a bad segment), the tile's frequency line and the operator's description in its attributes. No choice has a
-default; the preset `flow_reference` is the nxr flow scripts' expansion (exact modes, unit vertex-mass norm). Glued or per-hemisphere modes are the package named
-(a hemisphere's package needs a kernel on that hemisphere: refused otherwise). The readings (compute, `mode_spectrum.h`): `modeCrossSpectrum` (the weighted sum
-over tiles and bins: the cell's statistic), `contractComponents`, `flowMap` (power per vertex, phase current per intrinsic edge; with the forward transform a
-pattern travelling tail to tip gives a negative current), `cellMeasures` (power, in-phase and quadrature energies and the quadrature's noise ingredient per pair of
-scale members), `effectiveDegreesOfFreedom`. What it cannot resolve: a tile's bins are its own line (spacing fs / tile), so a span must hold whole tiles; motion
-that reverses within the tiles summed cancels in the quadrature (the whole-run view is net motion only); on sensors the coefficients describe the field on the
-helmet, nothing about its sources. Memory: the coefficients are held until the run ends (tiles x bins x rows complex). Tests: `test_mode_spectrum`,
-`test_spectral_coefficients` (synthetic).
+`signal.mode_analysis` composes a surface's Hodge-Dirac modes (exact, coexact, all, or the exact modes and the constant; normalised as stated) with a free kernel or
+the sensor surface's vertex-to-channel map: the operator that serves a recording in the modes' coordinates (compute `modeAnalysis`, `modeAnalysisOfComponents`). The
+flow definitions read it; the flow itself is `flow_readout.h` (`pairFlow`, `timeCellPairFlow`, `flowSplit`). (The tile chain `run spectral_coefficients` /
+`run flowmap` was retired: its tiles had no overlap and its maps synthesised every cell's field; the flow definitions replace it.)
 
 ## The sensor-space flow analysis (`run sensor_flow`; the nodes `signal.overlapped_spectrum`, `signal.chunk_spectra`, `signal.spectral_flow`, `signal.atom_time_cells`, `stats.sign_flip_consistency`, `signal.sensor_power`, `stats.aperiodic_fit`; compute `nxr/signal/spectral_flow.h`, `nxr/signal/aperiodic.h`, `nxr/stats/sign_flip.h`; spec `docs/specs/2026-11-24-sensor-flow.md`)
 

@@ -55,7 +55,7 @@ steps:
     over: recording
     do:
       - {node: signal.overlapped_spectrum, in: {x: recording, operator: operator}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectrum}
-      - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: operator}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectra}
+      - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: operator}, out: spectra}
   after:
     - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: atoms, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes]}
     - {node: signal.atom_time_cells, in: {spectra: spectra, package: package, frequency: atoms, scale: bands}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cell_width: $cell_width}, out: cells}

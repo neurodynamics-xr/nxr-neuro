@@ -10,6 +10,7 @@
 #
 #   nxr-neuro run surrogate_lagfree_spatial_events --dataset <folder> --subject sub-01 --recording rest --cross-spectrum rest_crossspectrum_alpha --seed 1 --all
 pipeline: surrogate_lagfree_spatial_events
+# WHY WELCH: a lag-free surrogate is a NULL ported from nxr (noise with the data's own Welch spectrum); nulls are never changed without a new design, so it stays on Welch.
 version: 2
 description: one draw of the lag-free surrogate of the spatial events (the same graph on a lag-free surrogate of the recording), its home map and patch summary as statistics
 scope: subject

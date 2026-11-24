@@ -35,7 +35,7 @@ ng::Arrays run_array(const ng::NodeSpec& node, const ng::Arrays& c, const Json& 
   const ng::Arrays none;
   ng::NodeCall prep = ng::NodeCall::prepare(types, c, p, shared);
   ng::dispatch(node, prep);
-  ng::NodeCall go = ng::NodeCall::run(prep.made, none);
+  ng::NodeCall go = ng::NodeCall::run(prep.made, c);   // as the executor does: run is handed the arrays prepare was
   ng::dispatch(node, go);
   return go.made_arrays;
 }
@@ -102,7 +102,8 @@ int main() {
   auto serve = [&](const std::function<double(int, double)>& make) {
     ng::Types stypes, gtypes;
     ng::PortType xt; xt.sfreq = fs; xt.axis = ng::Axis::samples; stypes["x"] = xt; stypes["operator"] = pk;
-    ng::PortType st; st.sfreq = fs; gtypes["spectrum"] = st; gtypes["operator"] = pk;
+    ng::PortType st; st.sfreq = fs; for (const auto& [k, v] : sp.items()) st.facts[k] = v; gtypes["spectrum"] = st;   // the spectrum carries how it was made (overlapped_spectrum's plan)
+    gtypes["operator"] = pk;
     const ng::NodeSpec& s = ng::registry().at("signal.overlapped_spectrum");
     const ng::NodeSpec& g = ng::registry().at("signal.chunk_spectra");
     const ng::Arrays operatorInput{{"operator", O}};
