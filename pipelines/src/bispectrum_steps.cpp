@@ -163,7 +163,7 @@ const char* const kWarnings[] = {
     "the recording's two ends are reflected into the first and last transforms' overlaps: time runs backwards there, which reverses a rise-decay asymmetry in those samples",
     "phase-amplitude coupling is read only where the high atom is wider than the low frequency (Zandvoort and Nolte 2021): a narrow high atom gives a small value that is not an absence "
     "of coupling (each triple's weight is stored: 0 where no pair of bins carries it)",
-    "a harmonic whose double frequency lies above the span is not read (weight 0); bicoherence at (f, f, 2f) is a harmonic or a coupling of f with itself: it does not tell them apart",
+    "a harmonic whose centre (twice the atom's) lies above the span is not read (left out of the triples); bicoherence at (f, f, 2f) is a harmonic or a coupling of f with itself: it does not tell them apart",
     "bicoherence is biased upward by few chunks: compare with a null (surrogates or noise of the same length), never with 0",
     "per coordinate: each coordinate with itself only (no coupling between coordinates is read); on the surface: each vertex's own field (no coupling between vertices)"};
 
@@ -267,6 +267,7 @@ ng::NodeSpec bispectrum() {
             }
       if (reading == "harmonics")
         for (Eigen::Index a = 0; a < A; ++a) {
+          if (!(2 * centres[static_cast<std::size_t>(a)] < s.frequency(s.bins - 1))) continue;   // the harmonic's centre above the span: not read (only its gain's tail would be)
           triples.push_back({a, a, A + a});
           listed.push_back(Json{{"reading", "harmonics"}, {"first", a}, {"second", a}, {"sum", A + a}, {"fundamental_hz", centres[static_cast<std::size_t>(a)]}, {"harmonic_hz", 2 * centres[static_cast<std::size_t>(a)]}});
         }

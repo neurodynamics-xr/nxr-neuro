@@ -1192,7 +1192,7 @@ transform of the gains' supports, rows at a time), read with each first gain by 
 the producer); the cube sums and the sum power need only the gains' own correlations, made once per triple. Stored: one statistic [elements x triples (x bands) x measures]
 (`bispectrum_real`, `bispectrum_imaginary` and the normalisation's sums) with each triple's atoms, centres and weight. What it cannot resolve: the field on the helmet only; a
 whole-run sum (coupling whose phase drifts cancels; single events are the burst pipelines'); coupling only where the high atom is wider than the low frequency (the weight is
-stored); harmonics above the span are not read; a harmonic and a coupling of f with itself are not told apart; the reflected ends reverse time in the first and last
+stored); harmonics whose centre lies above the span are not read (left out); a harmonic and a coupling of f with itself are not told apart; the reflected ends reverse time in the first and last
 overlaps; each element with itself only (no coupling between coordinates or vertices); bicoherence is biased upward by few chunks (compare with a null). Tests:
 `test_bispectrum` (against the direct sums for both groupings; synthetic coupling, sawtooth and waves with sharp peaks; Gaussian noise), `test_sensor_bispectrum` (the node on
 chunk spectra served on a synthetic sphere).

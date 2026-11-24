@@ -128,7 +128,7 @@ per-atom results: never the recording.
 - The field on the helmet only: no source, no field spread, no cortical claim.
 - A whole-run sum: coupling or shape whose phase drifts over the run cancels.
 - Coupling only where the high atom is wider than the low frequency (Zandvoort and Nolte 2021); the weight is stored.
-- A harmonic above the span is not read; bicoherence at (f, f, 2f) does not tell a harmonic from a coupling of f with itself.
+- A harmonic whose centre lies above the span is not read (left out); bicoherence at (f, f, 2f) does not tell a harmonic from a coupling of f with itself.
 - The recording's ends are reflected into the first and last overlaps: time runs backwards there and a rise-decay asymmetry is reversed in those samples.
 - Each element with itself only: coupling between coordinates or between vertices is not read.
 - Bicoherence is biased upward by few chunks: compare with a null of the same length.

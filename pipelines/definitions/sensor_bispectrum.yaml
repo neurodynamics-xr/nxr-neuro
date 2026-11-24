@@ -12,7 +12,7 @@
 # Every value below is a stated choice of this definition (the node defaults nothing). The atoms are the flow's (frequency_normalisation as sensor_flow's).
 #
 # What it cannot resolve: the field on the helmet only; a whole-run sum (coupling whose phase drifts cancels; single events are the burst pipelines'); phase-amplitude coupling only where
-# the high atom is wider than the low frequency (each triple's weight is stored); a harmonic above the span is not read; bicoherence is biased upward by few chunks (compare with a null).
+# the high atom is wider than the low frequency (each triple's weight is stored); a harmonic whose centre lies above the span is not read (left out); bicoherence is biased upward by few chunks (compare with a null).
 #
 #   nxr-neuro run sensor_bispectrum --dataset D --subject S --spectra NAME_chunk_spectra --atoms ATOMS [--space surface --package hodgeDirac__SURFACE [--banded true --bands BANDS]]
 pipeline: sensor_bispectrum
