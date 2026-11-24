@@ -109,6 +109,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("import", "condition", "protocol", "all_surfaces! channel_file condition* dataset* extra_surface+ include_imported! no_gain! no_raw! recording resample subject* surface templates+"),
     ("import", "surface", "", "bst_root dataset* file+ subject* templates+"),
     ("import", "mri", "", "anat* dataset* only+ subject* templates+"),
+    ("import", "covariance", "", "condition* dataset* kind name protocol* replace! subject* templates+"),
     ("import", "inverse", "", "acquisition* bst_root* channel_file channels_id dataset* file* forward_id name subject* surface_id templates+"),
     ("import", "map", "", "acquisition bst_root* dataset* file*+ provenance replace! subject* templates+"),
     ("import", "resample", "", "dataset* name recording* subject* to* templates+"),
