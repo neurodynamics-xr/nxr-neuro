@@ -87,3 +87,5 @@ vertex lists, which are also the boundary map; the discrete derivatives are its 
 | halo | overlap |
 | gather | a measurement |
 | cell (anything other than a manifold's cell) | the word above that fits |
+| group package (a package of kind `group`) | the dataset's **template**: a cohort's results are written into it (format 56) |
+| template reference (a subject naming its template) | none: a subject names no template; the template refers to its subjects (format 56) |
