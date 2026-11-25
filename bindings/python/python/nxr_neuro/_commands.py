@@ -93,7 +93,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("add", "selection", "", "by dataset* description entries indices manifold* members name* of_field producer replace! spans subject* type* weights"),
     ("add", "statistic", "", "append! axes+ begin! by commit! dataset* description dtype measure method name of_field partition region replace! shape subject unit value_type values write"),
     ("add", "measurements", "", "by dataset* field measure*+ replace! selection* subject* unit"),
-    ("add", "operator", "", "by data dataset* description from_manifold* from_selection indices indptr kind layout method name* params producer replace! subject* to_manifold* values"),
+    ("add", "operator", "", "by data dataset* description from_coordinate_system from_manifold* from_selection indices indptr kind layout method name* params producer replace! subject* to_coordinate_system to_manifold values"),
     ("add", "points", "", "by coordinate_system dataset* description name* positions* replace! subject*"),
     ("add", "line", "", "by coordinates dataset* dimension kinds n name* origin replace! spacing subject* unit*"),
     ("add", "product", "", "by dataset* factors* name* subject*"),

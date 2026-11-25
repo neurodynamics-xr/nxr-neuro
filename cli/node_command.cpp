@@ -10,6 +10,7 @@
 //   nxr-neuro add statistic --dataset D --subject S --name N --measure M --method X --values FILE.npy --axes NAME:MANIFOLD ... [--value-type T] [--of-field F] [--partition P] [--unit U] [--description TEXT] [--replace]
 //   nxr-neuro add measurements --dataset D --subject S --selection SEL --measure NAME=FILE.npy ... [--field F] [--unit U] [--replace]
 //   nxr-neuro add operator --dataset D --subject S --name N --from-manifold A --to-manifold B (--values FILE.npy | --data F --indices F --indptr F) [--kind K] [--description TEXT] [--replace]
+//   nxr-neuro add operator --dataset D --subject S --name N --from-manifold A --from-coordinate-system SPACE:NAME --to-coordinate-system SPACE:NAME --values AFFINE_3x4.npy   (a transition)
 //   nxr-neuro add points --dataset D --subject S --name N --positions FILE.npy [--coordinate-system KEY] [--description TEXT] [--replace]
 //   nxr-neuro add line --dataset D --subject S --name N --n N --spacing X --unit U [--origin X] [--dimension time|frequency|...] [--replace]
 //   nxr-neuro add line --dataset D --subject S --name N --coordinates FILE.npy --dimension eigenvalue --unit U [--kinds FILE.npy] [--replace]
@@ -284,14 +285,14 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.measure = values_of(a, "--measure");
     r = call(prog, [&] { return task::add_measurements(rq, progress()); });
   } else if (what == "operator") {
-    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--kind", "--from-manifold", "--to-manifold", "--values", "--data", "--indices", "--indptr", "--description", "--layout", "--method", "--params", "--from-selection", "--producer"}, {"--replace"},
-                         {"--dataset", "--subject", "--name", "--from-manifold", "--to-manifold"});
+    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--kind", "--from-manifold", "--to-manifold", "--values", "--data", "--indices", "--indptr", "--description", "--layout", "--method", "--params", "--from-selection", "--from-coordinate-system", "--to-coordinate-system", "--producer"}, {"--replace"},
+                         {"--dataset", "--subject", "--name", "--from-manifold"});
     task::AddOperatorRequest rq;
     common(a, rq);
     rq.name = a.get("--name");
     if (const auto v = a.maybe("--kind")) rq.kind = *v;
     rq.from_manifold = a.get("--from-manifold");
-    rq.to_manifold = a.get("--to-manifold");
+    if (const auto v = a.maybe("--to-manifold")) rq.to_manifold = *v;
     rq.values = a.maybe("--values");
     rq.data = a.maybe("--data");
     rq.indices = a.maybe("--indices");
@@ -301,6 +302,8 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.method = a.maybe("--method");
     rq.params = a.maybe("--params");
     rq.from_selection = a.maybe("--from-selection");
+    rq.from_coordinate_system = a.maybe("--from-coordinate-system");
+    rq.to_coordinate_system = a.maybe("--to-coordinate-system");
     rq.producer = a.maybe("--producer");
     r = call(prog, [&] { return task::add_operator(rq, progress()); });
   } else if (what == "points") {

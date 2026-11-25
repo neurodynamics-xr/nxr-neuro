@@ -816,6 +816,7 @@ export interface AddOperatorOptions {
   data?: ArrayInput | string;
   dataset: string | number;
   description?: string | number;
+  from_coordinate_system?: string | number;
   from_manifold: string | number;
   from_selection?: string | number;
   indices?: ArrayInput | string;
@@ -828,7 +829,8 @@ export interface AddOperatorOptions {
   producer?: Record<string, unknown> | unknown[] | string;
   replace?: boolean;
   subject: string | number;
-  to_manifold: string | number;
+  to_coordinate_system?: string | number;
+  to_manifold?: string | number;
   values?: ArrayInput | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;

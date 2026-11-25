@@ -448,7 +448,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.subject = o.str("subject");
     q.name = o.str("name");
     q.from_manifold = o.str("from_manifold");
-    q.to_manifold = o.str("to_manifold");
+    if (const auto v = o.maybe("to_manifold")) q.to_manifold = *v;
     if (const auto v = o.maybe("kind")) q.kind = *v;
     q.values = o.array("values");
     q.data = o.array("data");
@@ -459,6 +459,8 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.method = o.maybe("method");
     q.params = o.maybe("params");
     q.from_selection = o.maybe("from_selection");
+    q.from_coordinate_system = o.maybe("from_coordinate_system");
+    q.to_coordinate_system = o.maybe("to_coordinate_system");
     q.producer = o.maybe("producer");
     q.replace = o.flag("replace");
     q.by = o.maybe("by");

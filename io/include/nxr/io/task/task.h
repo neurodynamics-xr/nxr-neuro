@@ -150,7 +150,8 @@ struct StatisticOut {
 };
 // an Operator from one manifold to another
 struct OperatorOut {
-  std::string name, output, kind, from_manifold_id, to_manifold_id;
+  std::string name, output, kind, from_manifold_id, to_manifold_id;   // to_manifold_id empty: none (a transition between coordinate systems)
+  std::optional<std::string> from_coordinate_system_id, to_coordinate_system_id;   // a TRANSITION: the two coordinate systems it maps between (both or neither)
   std::optional<std::string> path;                 // default: the name
   std::string from_value_type = "scalar", to_value_type = "scalar";
   std::optional<std::string> inverts_id, inverse_kind;   // the operator it is the (regularized) inverse of: a kernel of its head model
@@ -434,6 +435,8 @@ class Subject {
   std::vector<Node> fields_of_operator(const std::string& operator_id) const;
   // the CHARTS of a manifold's space: its coordinate systems, the reference first (the Frequency line's `linear` and `log10`, the Eigenvalue line's eigenvalue and wavelength). Empty: no geometry
   std::vector<Chart> charts(const std::string& manifold_id) const;
+  // every coordinate system of the subject's spaces: (id, `SPACE:NAME`), by key (a transition operator names two of them)
+  std::vector<std::pair<std::string, std::string>> coordinate_systems() const;
 
   // ---- what is measured on a selection
   std::vector<Json> measured_kinds(const std::string& selection_id) const;            // io's measurement_kinds: {of_field_id, measure, members, min, max, computed_by, unit}

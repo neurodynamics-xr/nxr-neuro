@@ -1212,10 +1212,10 @@ R"TBL(--templates@add measurements	DIR	A folder of released templates to look in
 R"TBL(--templates@add operator	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
 --name@add operator	NAME	Name the operator is stored under in the subject; a name already used is refused unless --replace.	required	-
 --description@add operator	TEXT	A sentence on what the values are and how they were made, kept with the node and in its producer record.	none	-
---from-manifold@add operator	NAME	The manifold the operator maps from (its columns), by name or id.	required	-
---to-manifold@add operator	NAME	The manifold the operator maps to (its rows), by name or id.	required	-
---kind@add operator	TEXT	What the operator is (stored as its kind).	added	-
---values@add operator	FILE.npy	A dense operator [to x from] (rows the --to-manifold's elements, columns the --from-manifold's); float32 or float64.	none (or --data, --indices, --indptr)	-
+--from-manifold@add operator	NAME	The manifold the operator maps from (its columns), by name or id. For a transition between coordinate systems, the manifold whose positions are in the from system (an image's volume).	required	-
+--to-manifold@add operator	NAME	The manifold the operator maps to (its rows), by name or id. Left out for a transition between coordinate systems.	required (not for a transition)	-
+--kind@add operator	TEXT	What the operator is (stored as its kind).	added (transition with --from-coordinate-system)	-
+--values@add operator	FILE.npy	A dense operator [to x from] (rows the --to-manifold's elements, columns the --from-manifold's); float32 or float64. For a transition between coordinate systems, one affine [3 x 4]: the to system's numbers are the matrix applied to [x y z 1] in the from system's numbers.	none (or --data, --indices, --indptr)	-
 --data@add operator	FILE.npy	A sparse CSR operator's nonzero values [nnz] (scipy.sparse.csr_matrix's data); float32 or float64.	none	-
 --indices@add operator	FILE.npy	A sparse CSR operator's column of each value [nnz] (scipy.sparse.csr_matrix's indices).	none	-
 --indptr@add operator	FILE.npy	A sparse CSR operator's row offsets [rows + 1] (scipy.sparse.csr_matrix's indptr).	none	-
@@ -1293,9 +1293,9 @@ opts: --by --dataset* --field --measure+* --replace --selection* --subject* --un
 )TBL",
 R"TBL(@ add operator
 old: __add operator
-summary: Store a linear operator between two manifolds computed elsewhere, dense or sparse (CSR), from .npy files, as one unit.
+summary: Store a linear operator between two manifolds, or a transition between two coordinate systems, computed elsewhere, dense or sparse (CSR), from .npy files, as one unit.
 example: nxr-neuro add operator --dataset /data/study --subject sub-01 --name smoother --from-manifold cortex --to-manifold cortex --data d.npy --indices i.npy --indptr p.npy
-opts: --by --data --dataset* --description --from-manifold* --from-selection --indices --indptr --kind --layout --method --name* --params --producer --replace --subject* --to-manifold* --values
+opts: --by --data --dataset* --description --from-coordinate-system --from-manifold* --from-selection --indices --indptr --kind --layout --method --name* --params --producer --replace --subject* --to-coordinate-system --to-manifold --values
 )TBL",
 R"TBL(@ add points
 old: __add points
@@ -1453,6 +1453,8 @@ R"TBL(--begin@add field		Write the field in pieces, step 1: take its shape (--sh
 --method@add operator	NAME	With --layout analytic: how the operator is evaluated (its method's name).	none	-
 --params@add operator	JSON	With --layout analytic: the method's parameters, a JSON object.	none	-
 --from-selection@add operator	NAME	The selection of the --from-manifold the operator reads, by name or id.	none	-
+--from-coordinate-system@add operator	SPACE:NAME	A transition: the coordinate system the --values affine maps from, as SPACE:NAME (head:scs); the subject must hold it. Given with --to-coordinate-system; stores kind transition, as the MRI importer does.	none	-
+--to-coordinate-system@add operator	SPACE:NAME	A transition: the coordinate system the --values affine maps to, as SPACE:NAME (head:ncs); the subject must hold it. Given with --from-coordinate-system.	none	-
 --producer@add operator	JSON	What the maker says of how the operator was made, a JSON object kept in its producer record (not under the keys the command records itself: command, program, inputs, output, cache).	none	-
 --coordinates@add line	FILE.npy	A line whose points are not evenly spaced: one coordinate a point [n], strictly increasing, in --unit; float32 or float64, stored in float64. Not with --n, --spacing or --origin.	none (an evenly spaced line)	-
 --kinds@add line	FILE.npy	With --coordinates: one integer code a point [n] (what each point is, e.g. the kind of an eigenmode).	none	-
