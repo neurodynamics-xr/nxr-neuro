@@ -49,8 +49,29 @@ vertex lists, which are also the boundary map; the discrete derivatives are its 
 |---|---|
 | **number type** | Real, complex or quaternion. |
 | **components** | How many numbers each cell holds: 1 (a scalar), 2 (a tangent vector), 3 (a vector in a coordinate system). |
-| **quantity** | What the values are: power, current, phase current. |
+| **quantity** | What the values are: power, current, phase current (the words of the flow analysis: *Phase and amplitude*, above). |
 | **unit** | The values' unit: T, nA·m, m/s. |
+
+## Phase and amplitude: the words of the flow analysis
+
+One name each, used the same way in the code, its docs and its outputs.
+
+| word | means |
+|---|---|
+| **phase** θ | Where in its cycle a band signal is, at one place and time: w = \|w\| e^{iθ}. |
+| **power** | \|w\|², the band signal's amplitude squared, at one place and time. |
+| **phase gradient** | ∇θ: how fast the phase changes across the surface, and in which direction (rad/m). For one wave, its wavenumber. |
+| **phase current** | P = \|w\|² ∇θ = Im(w̄ ∇w): the phase gradient weighted by power, at one place and time. |
+| **total phase current** | P̄: the phase current summed over a stated span (a time cell, or the whole recording). Through a linear read-out it is a closed form of the cross-spectrum's imaginary part, Im C. |
+| **standing part**, **travelling part** | The two parts of a cross-spectrum: the real part (in-phase coupling, standing patterns) and the imaginary, lagged part (from which the phase current comes). A whole-recording cross-spectrum keeps only the net travelling part: motion that cancels over the span appears as standing. |
+| **gradient part**, **rotational part**, **harmonic part** | The Helmholtz–Hodge split of a phase current: the gradient of a potential α (exact; no rotation), the circulation of a stream function ψ (coexact; no sources or sinks), and the remainder. On a mesh they are the exact, coexact and harmonic parts of the edge 1-form. |
+| **energy shares** | Each part's fraction of the total phase current's energy (\|P̄\|² over the surface); the parts are orthogonal, so the shares sum to 1. |
+| **phase direction** | −P̄ / \|P̄\|: the way the phase travels (the phase current points toward where the phase is ahead). |
+| **phase speed** | 2πf · power / \|P̄\| (m/s), f the frequency member's. Exact for one travelling wave; standing parts and mixtures inflate it. |
+| **phase velocity** | Phase speed times phase direction: −2πf · power · P̄ / \|P̄\|². Read only where the phase current is consistent. |
+| **amplitude lag** | The lag between two places' amplitude envelopes (orthogonalised, so zero-lag leakage is removed): a separate method from the phase current. |
+| **group speed**, **group direction**, **group velocity** | The motion of the amplitude envelope, from amplitude lags. Equal to the phase velocity only for a packet moving rigidly. |
+| **envelope flow** | The optical flow of the amplitude envelope. Not a phase current. |
 
 ## Storage, not scale
 
@@ -78,6 +99,10 @@ vertex lists, which are also the boundary map; the discrete derivatives are its 
 | band, sub-band | a cell of a level of a spectral line (frequency, eigenvalues). Names of particular cells stay ("the alpha band") |
 | partition, kernel set | a coarser level and its reduction operator (sharp, soft) |
 | separable / joint level | a product of levels / a level of a product manifold |
+| flow (alone, for the phase current), flow map, total flow, lag flow, lagged flow, phase-gradient flux | phase current; total phase current (with its span) |
+| summed phase current | total phase current |
+| travel part, rotation part (of a phase current) | gradient part, rotational part (exact, coexact) |
+| travel direction, travel speed (of the phase) | phase direction, phase speed |
 | voices per octave, cells per octave | a level's spacing on a logarithmic axis |
 | member, leaf, rung | a cell of a level, or a level |
 | pyramid, ladder (of levels), roll-up | the levels of a manifold and their reductions |
