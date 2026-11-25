@@ -86,6 +86,37 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
   const nxr::operators::hodgedirac::HodgeDirac hd =
       nxr::operators::hodgedirac::assemble(surface, method.star1_floor.value_or(0.0), method.mollify, method.flip_eps);
   nxr::operators::hodgedirac::requireComplete(hd);   // a closed genus-0 surface or a disc, and no unaccepted negative weights: the split is complete
+  // THE STORED ORIENTATION MUST BE THE PENCIL'S, checked BEFORE the solve (a cortex's solve takes half an hour): d0 (-1 at the edge's tail, +1 at its tip)
+  // and d1 (each face's signed edges). An intrinsic triangulation may hold an edge from a vertex to itself (a loop, after Delaunay flips): its d0 row is zero
+  // (the -1 and the +1 fall in one column), which is right for it; any other edge must carry exactly -1 and +1. A failure names the edge, its ends and its row.
+  {
+    const auto& cx0 = hd.complex;
+    if (cx0.edges.size() != 2 * static_cast<std::size_t>(hd.nE) || cx0.faceEdges.size() != 3 * static_cast<std::size_t>(nF)) throw nxr::io::Error(nxr::io::code::invalid_argument, "solve_hodge_dirac: the operator mesh and the pencil disagree in size");
+    const Eigen::SparseMatrix<double, Eigen::RowMajor> D0(hd.d0), D1(hd.d1);
+    for (int e = 0; e < hd.nE; ++e) {
+      const int a = cx0.edges[2 * static_cast<std::size_t>(e)], b = cx0.edges[2 * static_cast<std::size_t>(e) + 1];
+      double tail = 0, tip = 0, other = 0;
+      std::string row;
+      for (Eigen::SparseMatrix<double, Eigen::RowMajor>::InnerIterator it(D0, e); it; ++it) {
+        row += (row.empty() ? "" : ", ") + std::to_string(it.col()) + ": " + std::to_string(it.value());
+        if (it.col() == a) tail += it.value();
+        if (it.col() == b && b != a) tip += it.value();
+        if (it.col() != a && it.col() != b) other += std::abs(it.value());
+      }
+      const bool ok = a == b ? (tail == 0.0 && other == 0.0) : (tail == -1.0 && tip == 1.0 && other == 0.0);
+      if (!ok) throw nxr::io::Error(nxr::io::code::invalid_argument, "solve_hodge_dirac: d0's orientation is not the operator mesh's at edge " + std::to_string(e) + " (" +
+                                    std::to_string(a) + " -> " + std::to_string(b) + "; its d0 row {" + row + "})");
+    }
+    for (int f = 0; f < nF; ++f) {
+      double sum = 0;
+      for (Eigen::SparseMatrix<double, Eigen::RowMajor>::InnerIterator it(D1, f); it; ++it) {
+        double want = 0;
+        for (int k = 0; k < 3; ++k) { const int se = cx0.faceEdges[3 * static_cast<std::size_t>(f) + static_cast<std::size_t>(k)]; if (std::abs(se) - 1 == it.col()) want += se > 0 ? 1.0 : -1.0; }
+        sum += std::abs(it.value() - want);
+      }
+      if (sum > 0) throw nxr::io::Error(nxr::io::code::invalid_argument, "solve_hodge_dirac: d1's signs are not the operator mesh's at face " + std::to_string(f));
+    }
+  }
   const int nE = hd.nE;
   const std::int64_t clamped = hd.star1Clamped;
 
@@ -143,27 +174,6 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
     out.lengths = cx.length;
     out.faces = cx.faces;
     out.face_edges = cx.faceEdges;
-    // the stored orientation must be the pencil's: d0 (−1 tail, +1 tip) and d1 (the face's signed edges)
-    {
-      const Eigen::SparseMatrix<double, Eigen::RowMajor> D0(hd.d0), D1(hd.d1);
-      for (int e = 0; e < nE; ++e) {
-        double tail = 0, tip = 0;
-        for (Eigen::SparseMatrix<double, Eigen::RowMajor>::InnerIterator it(D0, e); it; ++it) {
-          if (it.col() == out.edges[2 * static_cast<std::size_t>(e)]) tail = it.value();
-          if (it.col() == out.edges[2 * static_cast<std::size_t>(e) + 1]) tip = it.value();
-        }
-        if (tail != -1.0 || tip != 1.0) throw nxr::io::Error(nxr::io::code::invalid_argument, "solve_hodge_dirac: d0's orientation is not the operator mesh's at edge " + std::to_string(e));
-      }
-      for (int f = 0; f < nF; ++f) {
-        double sum = 0;
-        for (Eigen::SparseMatrix<double, Eigen::RowMajor>::InnerIterator it(D1, f); it; ++it) {
-          double want = 0;
-          for (int k = 0; k < 3; ++k) { const int se = out.face_edges[3 * static_cast<std::size_t>(f) + static_cast<std::size_t>(k)]; if (std::abs(se) - 1 == it.col()) want += se > 0 ? 1.0 : -1.0; }
-          sum += std::abs(it.value() - want);
-        }
-        if (sum > 0) throw nxr::io::Error(nxr::io::code::invalid_argument, "solve_hodge_dirac: d1's signs are not the operator mesh's at face " + std::to_string(f));
-      }
-    }
     out.star0.assign(hd.star0.data(), hd.star0.data() + hd.star0.size());
     out.star1.assign(hd.star1.data(), hd.star1.data() + hd.star1.size());
     out.star2.assign(hd.star2.data(), hd.star2.data() + hd.star2.size());
