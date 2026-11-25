@@ -17,7 +17,6 @@ target_sources(nxr_compute PRIVATE
   src/signal/gabor.cpp
   src/signal/graphfilterbank.cpp
   src/signal/graphtransforms.cpp
-  src/signal/graphfilterbank_operator.cpp
   src/signal/graphwavelet.cpp
   src/signal/istft.cpp
   src/signal/jointtransforms.cpp
@@ -27,7 +26,13 @@ target_sources(nxr_compute PRIVATE
   src/signal/intrinsic_forms.cpp
   src/signal/mode_spectrum.cpp
   src/signal/spectral_flow.cpp
+  src/signal/kernel_gains.cpp
+  src/signal/source_flow.cpp
+  src/signal/flow_readout.cpp
   src/signal/aperiodic.cpp
+  src/signal/bispectrum.cpp
+  src/signal/tile_flow.cpp
+  src/signal/flow_across_frequencies.cpp
   src/signal/hodge_decomposition.cpp
   src/signal/isolines.cpp
   src/signal/streamlines.cpp
@@ -68,10 +73,25 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_spectral_flow test/test_spectral_flow.cpp)
   target_link_libraries(test_spectral_flow PRIVATE nxr_compute)
   add_test(NAME test_spectral_flow COMMAND test_spectral_flow)
+  add_executable(test_kernel_gains test/test_kernel_gains.cpp)   # kernelGains: the one evaluator of a kernel set; the flow's old gains bit for bit, the banks' own shapes
+  target_link_libraries(test_kernel_gains PRIVATE nxr_compute)
+  add_test(NAME test_kernel_gains COMMAND test_kernel_gains)
+  add_executable(test_flow_readout test/test_flow_readout.cpp)   # the one flow readout, time cells and split (sensor, source, tiles); synthetic
+  target_link_libraries(test_flow_readout PRIVATE nxr_compute)
+  add_test(NAME test_flow_readout COMMAND test_flow_readout)
+  add_executable(test_source_flow test/test_source_flow.cpp)
+  target_link_libraries(test_source_flow PRIVATE nxr_compute)
+  add_test(NAME test_source_flow COMMAND test_source_flow)
   add_executable(test_aperiodic test/test_aperiodic.cpp)
   target_link_libraries(test_aperiodic PRIVATE nxr_compute)
   target_compile_definitions(test_aperiodic PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
   add_test(NAME test_aperiodic COMMAND test_aperiodic)
+  add_executable(test_tile_flow test/test_tile_flow.cpp)   # the tiles' cross-spectrum and time cells: a planted directed lag
+  target_link_libraries(test_tile_flow PRIVATE nxr_compute)
+  add_test(NAME test_tile_flow COMMAND test_tile_flow)
+  add_executable(test_bispectrum test/test_bispectrum.cpp)
+  target_link_libraries(test_bispectrum PRIVATE nxr_compute)
+  add_test(NAME test_bispectrum COMMAND test_bispectrum)
   add_executable(test_patterns test/test_patterns.cpp)
   target_link_libraries(test_patterns PRIVATE nxr_compute)
   add_test(NAME test_patterns COMMAND test_patterns)

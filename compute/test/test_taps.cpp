@@ -18,7 +18,7 @@
 #include <string>
 #include <vector>
 
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 static int fails = 0;
@@ -71,7 +71,7 @@ int main() {
   for (const Case& c : {Case{"alpha1200", 1200.0, 8.0, 12.0}, Case{"beta250", 250.0, 15.0, 29.0}}) {
     for (bool odd : {false, true}) {
       const std::string kind = odd ? "odd" : "even";
-      const auto h = gainTaps([&](double f) { return nxr::signal::graphfilterbank::meyerBand(f, c.lo, c.hi, 1.0 / 3.0); }, c.fs, odd);
+      const auto h = gainTaps([&](double f) { return nxr::signal::timefilterbank::meyerBand(f, c.lo, c.hi, 1.0 / 3.0); }, c.fs, odd);
       const auto& want = g.at(std::string("taps ") + c.name + " " + kind);
       const auto dt = diff(h, want);
       std::printf("  %s %s taps: %zu of %zu (K %zu, nxr's %zu) differ from nxr's, max %.1e relative\n", c.name, kind.c_str(), dt.first, want.size(), h.size() - 1,
@@ -92,7 +92,7 @@ int main() {
   }
   // Σ h = G(0): a band-pass has no DC
   const double fs = 1200.0;
-  auto alpha = [](double f) { return nxr::signal::graphfilterbank::meyerBand(f, 8.0, 12.0, 1.0 / 3.0); };
+  auto alpha = [](double f) { return nxr::signal::timefilterbank::meyerBand(f, 8.0, 12.0, 1.0 / 3.0); };
   const auto he = gainTaps(alpha, fs, false), ho = gainTaps(alpha, fs, true);
   double dc = he[0];
   for (std::size_t k = 1; k < he.size(); ++k) dc += 2.0 * he[k];

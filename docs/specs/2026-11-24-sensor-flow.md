@@ -1,5 +1,8 @@
 # The sensor-space flow analysis (2026-11-24): the graph
 
+> **Storage, since the flow consolidation (2026-11-24):** the per-member flow results named below as statistics are stored as MEASUREMENTS over the atoms and their products, and the time cells are not stored; see `docs/reference.md`, "How the flow results are stored".
+
+
 **Status:** design, written before the code (CONTRIBUTING, "Adding a node or a pipeline", step 0). Sensor space only: no inverse kernel, no cortex.
 
 ## Why
@@ -40,7 +43,7 @@ A = the frequency atoms, Q = the eigenvalue bands.
 ### Preparation (host, `pipelines/`)
 - Type checks before any data: the operator's channels against the recording's rows; the map's surface against the eigenvectors' surface; the kernel sets'
   lines against the frequency line the serving node makes and the eigenvalue line of the eigenvectors; the span snapped to the chunk grid.
-- Constants bound once: the composed serving operator (below); the intrinsic complex and the modes (`bind_package`, as `signal.flow_map` binds them).
+- Constants bound once: the composed serving operator (below); the intrinsic complex and the modes (`bind_package`, as `signal.phase_split` binds them).
 
 ### The graph of pure nodes
 
@@ -186,7 +189,7 @@ the atom's band signal (which removes the shape by construction for a narrow ato
 | an atom's weighted cross-spectrum C_a (a sum) | K x K | 1.1 MB | <= min(K, T B_a) |
 | R_q per band | K x 4 S | 2.3 MB | <= rank C_a |
 | a time-cell step: the synthesised band signal | S x N complex | 280 MB transient (one atom, one band, one chunk) | <= K |
-| time cells stored | cells x (E + 4 S) per atom and band | about 0.5 GB for 17 atoms x 7 bands, float32 | |
+| time cells | cells x (E + 4 S) per atom and band, in the run only (not stored: the sign-flip test's results are) | about 0.5 GB for 17 atoms x 7 bands, float32, while the run holds them | |
 
 The dense cross-spectrum (B x K x K, about 1 GB single precision) is never built on the CPU: per atom the weighted sum is formed directly from the factored
 form (the same numbers; cheaper when the atoms are fewer than the bins). A GPU backend may build the dense form once and read every atom from it (the
@@ -216,8 +219,8 @@ with no file, chunk loop or subject inside.
 ## Reused, changed, new
 
 - Reused as they are: `sensor_surface`, `eigenmodes`, `select_kernels` (two new profiles), `signal.mode_analysis` (one new `modes` choice), the intrinsic
-  forms (`phaseCurrent`, `projectOneForm`, `exactPotential`, `coexactStream`, `sharp`), `modeCrossSpectrum`, the chunk service's halo (the overlap).
-- Not reused, and why: `spectral_coefficients` (its tiles have no overlap; an accumulate node can take context only to its right), `flowmap` /
+  forms (`phaseCurrent`, `projectOneForm`, `exactPotential`, `coexactStream`, `sharp`), the chunk service's halo (the overlap).
+- Retired (2026-11-24, the flow consolidation): `spectral_coefficients` (its tiles have no overlap; an accumulate node can take context only to its right), `flowmap` /
   `signal.flow_map` (synthesises every cell's field on the surface, V x columns per cell, where the cheaper order forms C_a once; no band pairs, no
   normalised atoms, no vertex phase current), `crossspectrum` (Welch: windows and tapers), `speedspectrum` and `hodgepower` (source space, windowed).
 - New: the serving per chunk with overlap, the chunk spectra statistic, the atoms' normalisation, the cos² and Mexican hat partitions as kernel profiles,

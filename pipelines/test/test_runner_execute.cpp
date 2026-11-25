@@ -15,7 +15,7 @@
 #include "check.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/runner.h"
@@ -131,7 +131,7 @@ int main() {
   // THE DIRECT COMPUTATION on the whole recording: the band's taps over every sample (reflected at the recording's ends), the kernel, |x|² summed over a
   // source's three rows, the mean over [s0, s1) without the bad samples
   auto direct = [&](const std::vector<float>& K, int rows, int per, double lo, double hi, std::int64_t s0, std::int64_t s1, bool analytic) {
-    const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, lo, hi); };
+    const auto gain = [&](double f) { return nxr::signal::timefilterbank::morletBand(f, lo, hi); };
     const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
     const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false);
     const auto im = analytic ? nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true) : std::vector<float>();

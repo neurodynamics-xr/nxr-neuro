@@ -458,8 +458,14 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run glue` | The two hemispheres of a cortex (read from the caller's hemisphere labelling) glued by a bridge after exactly their medial walls are cut: a derived manifold with its hemispheres labelling. | `--glued` of `run eigenmodes` |
 | `nxr-neuro migrate glue` | A glued cortex of an earlier form (a map field and a bridge selection, or kept vertices beside the labelling) converted in place to the hemispheres labelling alone; a glue that removed more than the medial wall is refused (re-run glue). | `package migrate-glue` |
 | `nxr-neuro run sensor_surface` | The channels as a surface: a triangulated helmet whose vertices are the picked channels, a derived manifold with its vertex-to-channel map. | (new) |
-| `nxr-neuro run spectral_coefficients` | The mode-space Fourier coefficients of a recording per time tile, through a composed spatial operator (a package's modes and a free kernel, or the sensor surface's channel map). | (new) |
+| `nxr-neuro run sensor_mesh` | The good channels of one sensor type (MEG or EEG) as a surface, chosen from the channels' type and quality labellings; made by `import subject` for every channels manifold. | (new) |
 | `nxr-neuro run sensor_flow` | The flow of the field on the sensor surface per atom of the joint frequency x eigenvalue level: chunk spectra with overlap, power, phase currents, Hodge-Dirac flow, band pairs, time cells and their sign-flip test, an optional aperiodic fit. | (new) |
+| `nxr-neuro run sensor_bispectrum` | The bispectrum of the stored chunk spectra in eigenmode coordinates, weighted by the flow's frequency atoms (one gain per axis): phase-amplitude coupling and harmonics (waveform shape from the biphase), with the bicoherence's sums; per coordinate or per vertex (per band). | (new) |
+| `nxr-neuro run sensor_flow_across_frequencies` | Whether the sensor flow moves at the same speed and direction across frequencies: per pair of atoms the cosines of their flows, per vertex the direction consistency and the slope of apparent speed against frequency, from the flow's stored results. | (new) |
+| `nxr-neuro run tile_network` | The fibre network on the tiles of a surface's dyadic grid: per pair of tiles the streamlines joining them, their median length, the tiles' distance and whether they lie on different hemispheres; the connectome Laplacian of the edges and all its eigenmodes. | (new) |
+| `nxr-neuro run connectome_flow` | The flow through the fibre network: the tiles' cross-spectrum per atom from the stored chunk spectra (the kernel averaged over each tile, composed once), per segment, nxr's nulls (sign flip with its family-wise maximum, the distance-matched control), the network's divergence and graph potential in the connectome eigenmodes. | (new) |
+| `nxr-neuro run connectome_flow_replication` | The run-to-run replication of the flow through the fibre network: per atom the correlation of two runs' edge flows over the joined and the not-joined pairs. | (new) |
+| `nxr-neuro run source_flow`, `source_flow_bins` | The flow of the cortical current: a minimum-norm kernel projected onto the cortex's eigenmodes (option A on the sensor field coordinates, option B on the channels; per hemisphere or glued), per atom (or per bin of the whole recording), with cortical band pairs, the remainder beyond the kept modes, time cells and their sign-flip test. | (new) |
 | `nxr-neuro run roll_up` | A measurement rolled up through its grid's hierarchy, or across a group's subjects (scope group). | `run roll_up` |
 | `nxr-neuro run band_analytic`, `cortical_band`, `member_activation`, `band_outer` | Field chains: pointwise fields (a band's analytic signal, the band on the cortex, one filter-bank member's activation, z z^H), run alone or composed into `measure`. | the steps of `pyramid`, `cortical_band_cells`, `opticalflow` |
 | `nxr-neuro run lowpass` | A zero-phase low-pass filter, written as a new recording. | `lowpass` |
@@ -658,7 +664,7 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
 |---|---|---|
 | `nxr-neuro import list PROTOCOL` | List the subjects of a Brainstorm protocol. | `convert list` |
 | `nxr-neuro import scan PROTOCOL` | Scan a Brainstorm protocol and describe what it holds. | `convert scan` |
-| `nxr-neuro import subject PROTOCOL` | Import a Brainstorm subject's anatomy into a dataset. | `convert subject` |
+| `nxr-neuro import subject PROTOCOL` | Import a Brainstorm subject into a dataset, then make its sensor meshes (MEG, EEG) from the good channels. | `convert subject` |
 | `nxr-neuro import template PROTOCOL` | Import a Brainstorm protocol's template subject into a dataset. | `convert template` |
 | `nxr-neuro import group PROTOCOL` | Import a Brainstorm protocol's group subject into a dataset. | `convert group` |
 | `nxr-neuro import templates TEMPLATES_DIR` | Import the fsaverage reference templates (and optional fibre tracts) into a dataset. | `convert templates` |
@@ -1125,27 +1131,32 @@ surface; its resolution is the sensor spacing (no pattern shorter than about two
 currents), and on ragged layouts the repair's choices (which fan is dropped at a pinch) can depend on ties. Tests: `test_point_set_mesh`, `test_channel_positions`,
 `test_sensor_surface` (synthetic).
 
-## The mode-space Fourier coefficients (`run spectral_coefficients`; the nodes `signal.mode_analysis`, `signal.spectral_coefficients`; compute `nxr/signal/mode_spectrum.h`)
+**The sensor mesh** (`run sensor_mesh`; the node `meeg.good_channels_of_type`, compute `nxr::meeg::goodChannelsOfType`): the same surface with the channels chosen
+from the channels manifold's own labellings instead of a pick named by hand: `run sensor_mesh --channels NAME --sensor-type MEG|EEG [--name NAME]` takes the
+good channels (the `quality` labelling: the recording's channel flags) of one sensor type (the `type` labelling): MEG is MEG, MEG MAG and MEG GRAD, never MEG REF;
+EEG is EEG; the two are never meshed together, and `--sensor-type` has no default. Fewer than four channels are refused. Stored: the surface
+(`<channels>_<type>_surface` by default), its map `<name>_map` and its channels `<name>_channels` (an indices selection, so a cross-spectrum can be made on
+exactly them); the position rule and the mesher's options are `sensor_surface`'s. `import subject` runs it once for every channels manifold it stores and every
+sensor type among its channels, and lists in the result's `sensor_meshes` what it made and in `skipped` what was refused, with the reason (`--no-sensor-mesh`
+skips the step). Tests: `test_channel_positions`, `test_sensor_surface`, `test_face` (synthetic).
 
-Why: the flow analysis reads power, in-phase and quadrature coupling, flow maps and their Hodge split on the cells of a joint (frequency x spatial scale) grid, at
-the whole run or tile by tile. All of them are measurements of ONE stored ingredient: the coefficients of each time tile's Fourier transform in a surface's
-Hodge-Dirac modes, A[tile, bin, row]. `run spectral_coefficients` makes it in one pass over the caller's span: `signal.mode_analysis` composes the spatial operator once
-(the selected modes' 0-form parts, `--modes exact | coexact | all`, normalised `--normalisation unit_mass | as_stored`, times the vertex mass; with `--kernel` a
-free-orientation inverse kernel carried onto the package's surface, each Cartesian component expanded on the same modes, component-major rows; with
-`--channel-map` the sensor surface's vertex-to-channel map, no inverse), then `signal.spectral_coefficients` transforms each tile of `--tile-samples` (one-sided,
-unscaled, no window: numpy's rfft) and applies the operator at the bins `lo <= f < hi` of `--frequency-span`. The two maps are linear and commute, so vertex x time is
-never formed. Stored: a complex measurement of the recording over its tile grid (`<recording>_chunks`), values [tiles x bins x rows], with the tiles kept, those
-left out (`--bad-segments exclude`: a tile touching a bad segment), the tile's frequency line and the operator's description in its attributes. No choice has a
-default; the preset `flow_reference` is the nxr flow scripts' expansion (exact modes, unit vertex-mass norm). Glued or per-hemisphere modes are the package named
-(a hemisphere's package needs a kernel on that hemisphere: refused otherwise). The readings (compute, `mode_spectrum.h`): `modeCrossSpectrum` (the weighted sum
-over tiles and bins: the cell's statistic), `contractComponents`, `flowMap` (power per vertex, phase current per intrinsic edge; with the forward transform a
-pattern travelling tail to tip gives a negative current), `cellMeasures` (power, in-phase and quadrature energies and the quadrature's noise ingredient per pair of
-scale members), `effectiveDegreesOfFreedom`. What it cannot resolve: a tile's bins are its own line (spacing fs / tile), so a span must hold whole tiles; motion
-that reverses within the tiles summed cancels in the quadrature (the whole-run view is net motion only); on sensors the coefficients describe the field on the
-helmet, nothing about its sources. Memory: the coefficients are held until the run ends (tiles x bins x rows complex). Tests: `test_mode_spectrum`,
-`test_spectral_coefficients` (synthetic).
+## The mode analysis (the node `signal.mode_analysis`; compute `nxr/signal/mode_spectrum.h`)
+
+`signal.mode_analysis` composes a surface's Hodge-Dirac modes (exact, coexact, all, or the exact modes and the constant; normalised as stated) with a free kernel or
+the sensor surface's vertex-to-channel map: the operator that serves a recording in the modes' coordinates (compute `modeAnalysis`, `modeAnalysisOfComponents`). The
+flow definitions read it; the flow itself is `flow_readout.h` (`pairFlow`, `timeCellPairFlow`, `flowSplit`). (The tile chain `run spectral_coefficients` /
+`run flowmap` was retired: its tiles had no overlap and its maps synthesised every cell's field; the flow definitions replace it.)
 
 ## The sensor-space flow analysis (`run sensor_flow`; the nodes `signal.overlapped_spectrum`, `signal.chunk_spectra`, `signal.spectral_flow`, `signal.atom_time_cells`, `stats.sign_flip_consistency`, `signal.sensor_power`, `stats.aperiodic_fit`; compute `nxr/signal/spectral_flow.h`, `nxr/signal/aperiodic.h`, `nxr/stats/sign_flip.h`; spec `docs/specs/2026-11-24-sensor-flow.md`)
+
+**How the flow results are stored (all flow pipelines).** A flow result per member of the frequency atoms is a MEASUREMENT over them (a value over a selection's
+members is a measurement): the whole field's power, phase currents, potential, stream and flow coefficients over the atoms; the band pairs over the product atoms x bands
+x bands; the sign-flip test's per-element results and per-member summary over atoms x bands (and, in the source flow, the whole field's over the atoms). The products are
+made first by `run select_kernel_product` (`--factors 3 --first ATOMS --second BANDS --third BANDS`; `--factors 2` for atoms x bands), their code mixed radix, the first
+factor fastest: atom a, then the band q at the tip, then the band p at the tail (the stored member order a + A (q + Q p)). With `frequency_weighting every_bin` the frequency line's bins are an axis, not members: statistics. The time
+cells are made and tested inside the run, never stored. The order on a new recording: `run sensor_flow_bins` (no atoms: its chunk spectra make the frequency line
+`<time line>_freq_L<log2 transform>`), `run select_kernels` (the atoms on that line, the bands on the solve's eigenvalue line), `run select_kernel_product`, `run sensor_flow`.
+Per hemisphere, each side's measures carry a stated suffix (`measure_suffix`: `_left`, `_right`) until a measurement's key names the surface its rows are on.
 
 Why: the cross-spectrum of the MEG channels holds their lags but no spatial meaning; read on the sensor surface with its Hodge-Dirac eigenmodes the lags become a
 phase current on a surface, split into travel (exact) and rotation (coexact). Graph: `signal.mode_analysis` (`modes exact_and_constant`: the constant and the exact
@@ -1170,6 +1181,97 @@ two sensor spacings; a whole-run cross-spectrum keeps the net quadrature only; a
 flow depends on the eigenvalue bands (always stated). Memory: the chunk spectra (coordinates x bins x chunks complex float32, about 7 MB a chunk for 268 sensors
 and [0, 60) Hz at 1200 Hz) and, in the time cells, one atom's band signal of one chunk (vertices x transform samples complex). Tests: `test_spectral_flow`,
 `test_sign_flip` (golden: numpy and nxr's flip_test), `test_aperiodic` (golden: nxr), `test_sensor_flow` (the nodes on a synthetic sphere).
+
+## The bispectrum in eigenmode coordinates (`run sensor_bispectrum`; the node `signal.bispectrum`; compute `nxr/signal/bispectrum.h`; spec `docs/specs/2026-11-24-bispectrum.md`)
+
+Why: the relations between frequencies that survive a sum over a run are triple products (a cross-spectrum holds none). One pipeline reads them from the SAME stored chunk
+spectra the sensor flow serves (each chunk's spectrum in the sensor surface's field coordinates; never the recording again). Per triple of frequency atoms (one gain per axis:
+g1 on the first frequency, g2 on the second, g3 on their sum) and per element, B = Σ over the chunks and every pair of bins of g1 x(f1) g2 x(f2) conj(g3 x(f1 + f2)): the direct
+(FFT-based) estimate (Hagihira et al. 2001; Sigl and Chamoun 1994) weighted by atoms. Readings, each with its published reference as the default: `phase_amplitude_coupling`
+(low, high, high) for every pair with the high centre above the low (bispectral phase-amplitude coupling, Zandvoort and Nolte 2021: B = N² Σ over the transform's samples
+of z_low |z_high|², its modulus the coupling and its argument the low phase where the high amplitude peaks), `harmonics` (atom, atom, the atom at twice its frequency: the
+harmonic of a non-sinusoidal waveform; the biphase gives its shape, Bartz et al. 2019: real part > 0 sharp peaks, < 0 sharp troughs; imaginary part > 0 slow rise and fast
+decay, < 0 the reverse). `--normalisation`: `threenorm` (default; Shahbazi Avarvand et al. 2018, used by both references: the cube sums Σ w|x(f1)|³, Σ w|x(f2)|³,
+Σ w|x(f1 + f2)|³, w = g1 g2 g3; bicoherence |B| / cbrt of their product, at most 1), `kim_powers` (Kim and Powers 1979, Hagihira et al. 2001: Σ w|x(f1) x(f2)|² and
+Σ w|x(f1 + f2)|²; bicoherence² |B|² over their product), `none`. Every ratio (bicoherence, biphase, asymmetry) is derived at read from the stored sums. `--space`:
+`coordinates` (each field coordinate with itself; a band is a selection of these rows at read) or `surface` (each vertex: the coordinates' synthesis, composed with each
+eigenvalue band's gains first with `--banded true`, applied to the coefficients) or `band_triples` (coupling across spatial scales: each vertex, every triple of bands p, q, r,
+the first axis on band p's field, the second on q's, the sum on r's; one correlation per pair of bands (q, r) read with every p). No null yet (it waits for a design
+ported from nxr's nulls); the empty-room recording is the control (the same pipeline on its spectra, by name). The atoms are the flow's (`--frequency-normalisation`, `--support-floor` as `sensor_flow`'s).
+Cheapest order: never per pair of bins and never a modes³ x bins² object; triples sharing their (second, sum) gains share one correlation along the frequency line (one
+transform of the gains' supports, rows at a time), read with each first gain by a dot product (or (first, second) convolved once, whichever has fewer distinct pairs, stated in
+the producer); the cube sums and the sum power need only the gains' own correlations, made once per triple. Stored: one statistic [elements x triples (x bands) x measures]
+(`bispectrum_real`, `bispectrum_imaginary` and the normalisation's sums) with each triple's atoms, centres and weight. What it cannot resolve: the field on the helmet only; a
+whole-run sum (coupling whose phase drifts cancels; single events are the burst pipelines'); coupling only where the high atom is wider than the low frequency (the weight is
+stored); harmonics whose centre lies above the span are not read (left out); a harmonic and a coupling of f with itself are not told apart; the reflected ends reverse time in the first and last
+overlaps; each element with itself only (no coupling between coordinates or vertices); bicoherence is biased upward by few chunks (compare with a null). Tests:
+`test_bispectrum` (against the direct sums for both groupings; synthetic coupling, sawtooth and waves with sharp peaks; Gaussian noise), `test_sensor_bispectrum` (the node on
+chunk spectra served on a synthetic sphere).
+
+## The flow across frequencies (`run sensor_flow_across_frequencies`; the node `signal.flow_across_frequencies`; compute `nxr/signal/flow_across_frequencies.h`; spec `docs/specs/2026-11-24-bispectrum.md`)
+
+Why: whether a flow moves at the same speed and in the same direction at every frequency is a READOUT of the flow pipeline's own per-atom results, a statistic over the
+members of the atoms' level: it reads `sensor_flow`'s stored measurements of the recording over the atoms (`phase_current`, `flow_coefficient`, `power`, `vertex_phase_current_x/_y/_z`), never the recording. Per pair of atoms: the cosine of
+their edge phase currents in the edges' Hodge inner product (star1), of their travel (exact) and of their rotation (coexact) Hodge-Dirac coefficients. Per vertex: the
+direction consistency |Σ_a u_a| / n (u_a the unit vertex phase current of atom a) and the least-squares slope and intercept of log apparent speed (2 pi f power / |vertex
+phase current|, an upper bound) against log frequency: 0 the same speed at every frequency, 1 the same wavelength. Stored: `<name>_atom_pairs` [atoms x atoms x 3],
+`<name>_dispersion` [vertices x 4]. What it cannot resolve: the apparent speed is an upper bound; a whole-run flow keeps the net quadrature only (an event's flow is compared by
+the same node from the atoms' time cells measured over the event: the graph is in the spec); one run gives descriptions, not a test. Tests: `test_bispectrum`,
+`test_sensor_bispectrum` (waves at two frequencies with the same wavelength: slope 1; the same speed: slope 0).
+
+## The flow through the fibre network (`run tile_network`, `run connectome_flow`; the nodes `meeg.fiber_lengths`, `meeg.tile_pairs`, `meeg.laplacian_eigenmodes`, `signal.tile_operator`, `signal.tile_flow`, `signal.tile_time_cells`, `meeg.network_flow`; compute `nxr/meeg/tile_network.h`, `nxr/signal/tile_flow.h`; spec `docs/specs/2026-11-24-connectome-flow.md`)
+
+Why: the surface flow moves between neighbouring vertices; whether part of the coordination between distant regions travels ALONG the white-matter fibres (a lag specific to
+joined regions, growing with the bundle, repeatable) needs the fibre network. The reference is nxr's flow through the fibre network. `tile_network` (no recording): the
+fibres' ends on the end surface (`meeg.fiber_ends`, `meeg.nearest_vertex`, `meeg.end_gate`: the `connectome` definition's steps; `--max-end-distance none`, nxr's ends), each
+fibre's length (`meeg.fiber_lengths`, the points' unit), the tiles of the surface's dyadic grid at `--tiles-per-piece` (a power of two: the grid's level; nxr: 32) and
+every pair of tiles (`meeg.tile_pairs`: the streamlines with one end in each, their median length, the centroids' distance, across the hemispheres), the edges (pairs
+joined by at least `--min-streamlines`, nxr 10) and the connectome Laplacian L = D - W (W the edges' streamline counts) with ALL its eigenmodes (`meeg.laplacian_eigenmodes`,
+one dense solve; its null modes, one per connected component, counted with `--null-tolerance`). `connectome_flow` reads the sensor flow's stored chunk spectra (never the
+recording): `signal.tile_operator` averages the caller's free-orientation kernel over each tile's vertices (three components, no orientation assumed) and composes it with
+the synthesis of the served coordinates back to the kernel's channels (the pseudo-inverse of the serving operator `signal.mode_analysis` makes, as `sensor_flow` binds it): one
+operator [3 tiles x coordinates]; `signal.tile_flow` gives per atom the whole run's tile cross-spectrum S_ij = Σ over chunks and the atom's bins of g² Σ_c z_i conj(z_j)
+(Re and Im per pair, power per tile; the sensor chain's whole-run form); `signal.tile_time_cells` the same sums per cell of a level of the time line (`--cells segments`, the
+default and nxr's: non-overlapping 4 s segments from the run's first sample, `--segment-seconds`; or `atom_width`, each atom's own cells); `stats.network_sign_flip` ports nxr's
+nulls exactly (numpy's `default_rng(--seed)` bit for bit, drawn in nxr's order): per pair the mean over the cells of Im C_ij / sqrt(C_ii C_jj), its sign-flip p over the cells
+(`--patterns`) and the family-wise p (the null maximum of the normalised sums), the distance-matched control (as many not-joined pairs per distance bin, `--distance-bin-edges`,
+as joined ones, numpy's `choice`), and the phase of the summed cross-spectrum; `meeg.network_flow` reads that mean edge flow F (or the whole-run ratio Im S_ij / sqrt(S_ii S_jj))
+on the edges and gives the divergence Bᵀ F, the graph potential phi of L phi = Bᵀ W F as the 1/eigenvalue gain on the complete connectome
+eigenmodes (the minimum-norm solution: the null modes left out) and its coefficients, and the weighted sums of squares of the gradient part and of the flow. Derived at
+read, never stored: the edge flow (> 0 when tile j lags tile i), the lag -arg S_ij / (2 pi f), the speed (median length / |lag|, an upper bound), the gradient share, the
+potential's energy over the connectome's eigenvalues, the counts over the edges and over the distance-matched not-joined pairs (the control). What it cannot resolve: a
+tile's current is the kernel's mean over its vertices; tractography ends are not cortical terminations; leakage pulls lags towards zero; a consistent lag between joined tiles
+does not by itself show that the fibres carry it (the control); a whole-run cross-spectrum keeps the net quadrature only. Memory: the fibre bundle is read whole (10^6
+fibres of 100 points: 2.4 GB in double); the tile operator [3T x K]; per chunk the tiles' coefficients [3T x bins] and one atom's band signal of one component [T x transform
+samples]. `run connectome_flow_replication` (`stats.run_replication`): per atom the correlation of two runs' mean edge flows over the joined and the not-joined pairs. Tests:
+`test_tile_network` (the potential against a direct solve; a gradient and a circulation), `test_tile_flow` (a planted directed lag), `test_network_flip` (golden: numpy and nxr's
+flip and control), `test_connectome_flow` (the nodes on hand-made arrays with a planted lag).
+## The source mapping of the flow (`run source_flow`, `run source_flow_bins`; the nodes `signal.source_mode_operator`, `signal.cortical_flow`, `signal.cortical_time_cells`; compute `nxr/signal/source_flow.h`; spec `docs/specs/2026-11-24-source-flow.md`)
+
+Why: the sensor-space flow describes the field on the helmet only. The source step carries the same cross-spectrum onto the cortex through an EXISTING minimum-norm kernel
+written in the cortex's eigenmode coordinates: a change of coordinates, composed once, with no inverse derived here and no prior over modes. Graph: `signal.mode_analysis`
+(`modes exact_and_constant`, `unit_mass`) composes the cortex's analysis rows with the kernel, each Cartesian component as a scalar field (no orientation assumed); the
+kernel's rows are SELECTED onto the cortex package's vertices (a hemisphere's vertex range, or the glued cortex's kept vertices with the bridge rows zero; never a blend).
+`signal.source_mode_operator` gives option B (`--columns channels`: the operator acts on the channels; the default, as the reference's kernel does) or option A
+(`--columns sensor_coordinates`: composed with the sensor surface's field coordinates' synthesis back to the channels, so it acts on the served chunk spectra; what the
+sensor solve leaves out, B (I - Q P), is stated as a share), the kernel's rows in the same columns, and the serving operator of the chunk spectra. The chunk spectra are
+served as in `sensor_flow`. `signal.cortical_flow` weights them per frequency member (atoms, or `every_bin` / sharp groups in `source_flow_bins`) and reads, through the
+readout of the whole field (the kernel) and of each cortical band (a cos² amplitude partition on the cortex's eigenvalue line; band q < last is
+(I ⊗ Phi diag(g_q)) times the mode operator, the LAST band the complement: the kernel minus every other band, holding the content outside the kept modes), per band pair:
+power per vertex, the phase current per intrinsic edge (the three components summed), the phase current per vertex (its gradient by the sparse sharp operator, never
+formed), the flow coefficients on the cortex's STORED Hodge-Dirac edge rows, the potential and stream (sum of coefficient / mu times the mode), and the REMAINDER of the
+flow beyond the kept modes split by sparse Poisson solves (stored as its own potential and stream; its star1 energy beside the flow's, so its share is derived at read).
+The cross-spectrum stays in sensor coordinates: per band one product conj(C) U_qᵀ (or conj(Y) (Yᵀ U_qᵀ) when the member has fewer draws than columns), then only the
+entries read. `signal.cortical_time_cells` inverts each atom's spectrum on the columns' side (one inverse transform of the columns, not of the vertices), then reads the
+cells through the readout; `stats.sign_flip_consistency` tests them unchanged. Per hemisphere (`--cortex per_hemisphere --left L --right R`, the reference) or glued
+(`--cortex glued --glued G`). What it cannot resolve: it is the kernel's estimate in other coordinates (point spread, depth bias, field spread inherited; flow at
+wavelengths the kernel cannot resolve is leakage, not travel); rank at most the sensor coordinates (A) or the kernel's (B); wavelengths shorter than the last kept mode
+appear only in the complement band; per hemisphere no flow across the midline, glued no medial-wall sources; the three components summed make no claim about the normal
+or tangent direction; the apparent speed is an upper bound. Cost: the time cells are a product of 3 x vertices x columns x the cell's samples per cell (about 0.5 T
+multiply-adds per chunk, atom and band on a 20 000-vertex cortex); `--time-cells false` skips them. The operator is bound per run, not stored (issue). Tests:
+`test_source_flow` (compute: the bands add back to the kernel), `test_flow_readout` (compute: `pairFlow`, `timeCellPairFlow`, `takeWholeCells`, `flowSplit` against their definitions written out, the remainder split) and
+`test_source_flow_nodes` (two spheres as hemispheres and a 42-channel sheet: hemisphere selection, a glued package's zero bridge, option A = option B with a complete
+sensor basis, a travelling source mapped to an exact flow, the band pairs adding back, the time cells' sign-flip test).
 
 ## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 
@@ -1386,9 +1488,9 @@ reference is nxr's `nxr/pipelines/` (`definition.py`, `registry.py`, `inputs.py`
 - **`signal.phase_split`** (`form_steps.cpp`; spec `docs/specs/2026-11-19-intrinsic-form-nodes.md`): a complex scalar field on the surface a Hodge-Dirac package is solved on (the
   glued surface of a cortex: `meeg.apply_kernel` with `glued`) and the package → per sample, at the vertices: `potential` (the exact part's potential φ, d0 φ = the exact part of the
   1-form; for a phase step, a timing map, φ / ω), `stream` (the coexact part's stream function), `propagation` (−∇φ, vector3), and the ⋆1 energies `one_form_energy`, `exact_energy`, `coexact_energy`,
-  `exact_misfit_energy` (`splitPhase`, `vertexEnergy`) of the 1-form the parameter **`one_form`** names: `phase_gradient` (the DEFAULT, the reference: the earlier lab design used phase lags;
+  `exact_misfit_energy` (`splitPhase`, `vertexEnergy`) of the 1-form the parameter **`one_form`** names: `phase_gradient` (nxr's reference: the earlier design used phase lags;
   `nxr::signal::phaseGradient(complex, x)`, the phase step on the intrinsic edges: exact part = timing, coexact part = rotation) or `phase_current` (`nxr::signal::phaseCurrent(complex, x)`,
-  Im(conj(x_tail) x_tip): the exact part is the curl-free part of the current, not a timing); any other value is refused at the check. `one_form` is a step parameter, so it is in the provenance and
+  Im(conj(x_tail) x_tip): the exact part is the curl-free part of the current, not a timing); any other value, or none, is refused at the check (no default: the definition states it). `one_form` is a step parameter, so it is in the provenance and
   the cache key. The provenance record also holds `boundary`: `none` (closed surface) or `neumann_potential_dirichlet_stream` (open surface: Neumann potential, Dirichlet stream function), a fact of the method.
   The 1-forms stay inside the node. **Phase-wrap limit:** a phase step per edge is taken in (−π, π], so a wave with more than half a cycle per edge aliases; nothing in the output flags it. The runner binds the package's 2-form parts
   and its complex's options (mollify, flip_eps, star1_floor, from the solve's provenance) with its eigenvectors, in preparation; the node rebuilds the same complex and refuses
@@ -2132,6 +2234,23 @@ is a STATISTIC: "field -> selection/measurements -> statistic. the statistic is 
 - **Next** (the spec's order): the other spectral producers, the histogram, Brainstorm's sensor-level timefreq on import. (`run psd`'s PSD is a statistic since 2026-11-13; checked
   against the code 2026-11-14: the `<recording>_psd_welch` Field of the spec's table is already gone.)
 
+## Kernel sets: bands, scale bands and atoms (`run select_kernels`; `compute/include/nxr/signal/kernel_gains.h`)
+
+A kernel set is ONE stored selection on a line (a frequency line in Hz, or an eigenvalue line in mu) whose members are kernels: an anchor, a profile (its family and
+numbers), a chart and a peak gain. `select_kernels` makes it; every node that uses one evaluates it with `nxr::signal::kernelGains`, the one evaluator, which
+calls the filterbanks' own shapes. Every parameter is the caller's (no default). The families:
+
+| family | anchor | parameters | gain at x (x > 0; a coordinate <= 0 has gain 0) |
+|---|---|---|---|
+| `gaussian` | the centre | `--width` (FWHM in the chart) and `--width-rule absolute`, or `--width-rule proportional` (the width per unit of centre: constant Q) | gain exp(-u² / (2 sd²)), u in the chart (linear or log2) |
+| `box` | the centre | as gaussian | gain where \|u\| <= FWHM / 2 |
+| `cos2_partition` | the centres | none (log2 chart) | an amplitude partition: sin² rising from the previous centre, cos² falling to the next; the gains sum to one |
+| `morlet_band` | `--bands [[lo, hi], ...]` Hz | none (linear chart) | gain times the time bank's Morlet band (FWHM hi - lo) |
+| `meyer_band` | `--bands` | `--half-width` octaves (log2 chart) | gain times the time bank's Meyer band |
+| `mexican_hat` | the centre | none (linear chart) | gain times the graph bank's hat, unit peak at the centre |
+
+Atoms are the cells of a frequency kernel set times a scale kernel set: the two are evaluated apart and applied as two gains in turn, never as a product matrix.
+
 ## One selection and measurement system (spec `docs/specs/2026-11-17-consolidation.md`; definitions in `pipelines/definitions/`)
 
 **Why.** Selections and reductions had grown several competing definitions (tiles, joint cells, frame tilings, pyramids, per-verb sums). There is now ONE of each: five
@@ -2350,7 +2469,7 @@ pairs at a distance, a filterbank band's matrix).
 **Why.** The FFT route to a band's complex signal: the chunk (with its halo, from io's chunk service) Fourier transformed, the band's gain put on the bins,
 transformed back; any number of members at once, so a time–frequency cross-spectrum or an average over frequencies is the same call. Every transform returns its coefficients at the input's rate: it never decimates, resamples or windows its input (`wt(bank, member, x, at)` reads one member's analytic signal at instants the caller gives, exactly). The bank is the
 caller's `timebank::Design`: the Signal chain's single Meyer band (`bands = {{8, 12}}`, the Studio's `meyerBand`, not the tight frame: alpha's edges are
-closer than the frame allows), Morlet centres, or any of the frame families. The bank is designed on the block's own grid (zero-padded, no wrap) and only
+closer than the frame allows), Morlet centres, or any of the frame families. The caller designs the bank ONCE per block width, on the block's own grid (`timeBank(design, gridLength(width, FastLen), fs)`: zero-padded, no wrap), and `wtBlock(bank, block, left, own)` refuses a bank on another grid; only
 the own columns are kept. **The halo** (`haloOf(bank, member)`) is the member's response length, as the Studio's device chain sizes its HALO by the band's
 taps (1e-6 of the energy left out): alpha [8, 12] Hz at 1000 Hz needs 783 samples, about 6 periods (the Studio's CPU rule of 3 periods leaves 1 % at the
 chunk edges). Tested (`test_cross_spectrum`): chunks of 4096 with that halo equal the whole record transformed at once to 2.5e-4; the FFT route equals the

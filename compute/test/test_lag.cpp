@@ -53,7 +53,7 @@ int main() {
       for (Eigen::Index t = 0; t < x.cols(); ++t) x(0, t) = nd(rng);
       Eigen::MatrixXd y(2, n + 2 * pad);
       for (Eigen::Index t = 0; t < y.cols(); ++t) { y(0, t) = x(0, t + 1) + 0.8 * nd(rng); y(1, t) = x(0, t) + 0.8 * nd(rng); }   // channel 1 one sample behind
-      const auto tr = nxr::signal::wtBlock(meyer, y, fs, static_cast<std::size_t>(pad), static_cast<std::size_t>(n));
+      const auto tr = nxr::signal::wtBlock(bank, y, static_cast<std::size_t>(pad), static_cast<std::size_t>(n));   // the bank designed once, above
       const auto cs = crossSpectrumTiles(tr.own[0], static_cast<std::size_t>(n), 1);
       const auto& S = cs.sum[0];
       const auto st = nxr::stats::lagStatistics({S(0, 1)}, Eigen::VectorXd::Constant(1, S(0, 0).real()), Eigen::VectorXd::Constant(1, S(1, 1).real()), nEst);

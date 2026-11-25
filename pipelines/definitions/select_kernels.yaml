@@ -2,9 +2,9 @@
 # a product with another set: a joint filterbank of frequency members x scale members) is found by its member. The line is a stored manifold named by the caller: a frequency line (the
 # coefficients' `<recording>_freq`), or a mode axis (a Hodge-Dirac package's, its coordinate the wavenumber mu). Every centre is a quantity, every profile parameter the caller's.
 #
-#   nxr-neuro run select_kernels --dataset D --subject S --line <recording>_freq --quantity frequency --profile gaussian --chart log2 --width 0.125 --gain 1
+#   nxr-neuro run select_kernels --dataset D --subject S --line <recording>_freq --quantity frequency --profile gaussian --chart log2 --width 0.125 --width-rule absolute --gain 1
 #                                --grid-from 1 --grid-to 58 --voices 8 --name "<recording> frequency kernels V8"
-#   nxr-neuro run select_kernels --dataset D --subject S --line hodgeDirac__cortex_pial_low_glued --quantity wavelength --profile gaussian --chart log2 --width 0.5 --gain 1
+#   nxr-neuro run select_kernels --dataset D --subject S --line hodgeDirac__cortex_pial_low_glued --quantity wavelength --profile gaussian --chart log2 --width 0.5 --width-rule absolute --gain 1
 #                                --centres '[400, 200, 100, 50]' --name "glued scale kernels"
 pipeline: select_kernels
 version: 1
@@ -17,10 +17,12 @@ inputs:
 parameters:
   line: {default: null, meaning: "the line's name", unit: "-"}
   quantity: {default: null, meaning: "frequency (Hz) | wavelength (2 pi / mu) | wavenumber (mu)", unit: "-", choices: [frequency, wavelength, wavenumber]}
-  profile: {default: null, meaning: "gaussian | box | cos2_partition (an amplitude partition in log2 whose gains sum to one; no width)", unit: "-", choices: [gaussian, box, cos2_partition]}
+  profile: {default: null, meaning: "gaussian | box | cos2_partition (an amplitude partition in log2 whose gains sum to one; no width) | morlet_band | meyer_band (bands [lo, hi] Hz: the time bank's band shapes) | mexican_hat (the graph bank's hat at each centre)", unit: "-", choices: [gaussian, box, cos2_partition, morlet_band, meyer_band, mexican_hat]}
   chart: {default: null, meaning: "the chart the width is in: log2 (octaves) | linear", unit: "-", choices: [log2, linear]}
   width: {default: null, meaning: "each member's FWHM (gaussian) or full width (box), in the chart", unit: "-"}
-  width_rule: {default: null, meaning: "absolute (the width as given; null means this) | proportional (the width times the member's centre: constant Q)", unit: "-"}
+  width_rule: {default: null, meaning: "absolute (the width as given) | proportional (the width times the member's centre: constant Q); stated for gaussian and box", unit: "-"}
+  half_width: {default: null, meaning: "a Meyer band's transition half-width (meyer_band)", unit: "octave"}
+  bands: {default: null, meaning: "the bands [[lo, hi], ...] of a band profile (morlet_band, meyer_band), instead of centres", unit: "Hz"}
   gain: {default: null, meaning: "each member's peak amplitude g", unit: "-"}
   centres: {default: null, meaning: "the members' centres in the quantity's unit (or a grid: grid_from, grid_to, voices)", unit: "-"}
   grid_from: {default: null, meaning: "a grid's first centre", unit: "-"}
@@ -31,7 +33,7 @@ parameters:
 
 steps:
   before:
-    - {node: select.kernels, with: {quantity: $quantity, profile: $profile, chart: $chart, width: $width, width_rule: $width_rule, gain: $gain, centres: $centres, grid_from: $grid_from, grid_to: $grid_to, voices: $voices, names: $names}, out: kernels}
+    - {node: select.kernels, with: {quantity: $quantity, profile: $profile, chart: $chart, width: $width, width_rule: $width_rule, gain: $gain, half_width: $half_width, bands: $bands, centres: $centres, grid_from: $grid_from, grid_to: $grid_to, voices: $voices, names: $names}, out: kernels}
 
 outputs:
   kernels: {kind: selection, type: kernels, name: $name, on: line}

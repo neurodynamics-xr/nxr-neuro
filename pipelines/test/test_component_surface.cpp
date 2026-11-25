@@ -2,11 +2,16 @@
 // faces wholly inside them); `read_surface` hands out that view, re-indexed from 0, never the union under the hemisphere's name (it did, so a hemisphere was "2 pieces").
 //   - two separate icospheres stored as one cortex with two hemispheres: each hemisphere reads back as its own sphere (its positions, its faces, indices from 0)
 //   - the union reads back unchanged
+//   - a manifold made ON a hemisphere (its intrinsic triangulation, which shares the hemisphere's geometry: the union's arrays) reads back with the hemisphere's
+//     vertex range, not the union's positions (the eigensolve of a hemisphere refused it as "not its intrinsic triangulation")
 #include <unistd.h>
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 
 #include "check.h"
+#include "run_definition.h"
 #include "mesh_helpers.h"
 #include "nxr/io.h"
 #include "nxr/pipelines/input.h"
@@ -48,6 +53,16 @@ int main() {
     CHECK(static_cast<std::int64_t>(h.faces.size()) == 3 * nf);
     CHECK(h.faces == F0);                                                   // re-indexed from 0: exactly the sphere's own faces
     for (std::int64_t i = 0; i < 3 * nv; ++i) CHECK(h.vertices[i] == pos[3 * k * nv + i]);
+  }
+  nxrtest::run_definition(ds, s, "intrinsic", nxr::io::Json{{"surface", "cortex_2"}});
+  {
+    SubjectWriter again = SubjectWriter::open(ds, "S1");
+    const SurfaceInput t = read_surface(again, std::string("cortex_2_intrinsic"), true);
+    CHECK(t.n_vertices() == nv);
+    double worst = 0;
+    for (std::int64_t i = 0; i < 3 * nv; ++i) worst = std::max(worst, std::abs(t.vertices[i] - pos[3 * nv + i]));
+    std::printf("  the right hemisphere's intrinsic triangulation: %lld vertices, positions differ by at most %.3g\n", static_cast<long long>(t.n_vertices()), worst);
+    CHECK(worst < 1e-6);
   }
   std::printf("component surfaces: each hemisphere reads back as its own closed piece (%lld vertices, %lld faces)\n", static_cast<long long>(nv), static_cast<long long>(nf));
   return nxrtest::finish("test_component_surface");

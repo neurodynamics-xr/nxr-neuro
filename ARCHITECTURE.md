@@ -3,22 +3,21 @@
 nxr-neuro is a C++ toolkit for measuring the spatiotemporal patterns of cortical activity from MEG/EEG: the nxr dataset format, the maths on the cortex,
 MEG/EEG source imaging, the pipelines that join them, and one command, `nxr-neuro`. This document is the architecture every change must follow. It is
 the first thing to read before contributing; the practical workflow (building, testing, adding a verb, style) is in `CONTRIBUTING.md`, and every verb and
-method is described in `docs/reference.md`. "The Studio" below is the Cortical Flow Studio, the project's TypeScript/WebGPU application, whose engine the
-pipelines mirror; "nxr" is the project's Python reference implementation.
+method is described in `docs/reference.md`.
 
 ## The architecture is paramount
 
 **Every change follows the architecture below. It is never broken. If a change seems to need breaking it, stop and ask the maintainers before writing any code;
 a workaround, a "temporary" exception or a shortcut is a breach.** Every other rule in this file and in CONTRIBUTING.md applies inside it.
 
-Four parts, as the Studio's GPU engine has them (resident store → device plan → passes / compute nodes → readback):
+Four parts (resident store → device plan → passes / compute nodes → readback):
 1. **Data loading (io).** Recordings come as blocks through the chunk service; stored nodes (kernels, surfaces, cross-spectra) are read by name.
    Nothing is computed here.
 2. **Preparation and orchestration (host, `pipelines/`).** Select and match the inputs (e.g. the MEG channels a kernel uses, in its order); TYPE-CHECK
    everything before any data flows (field types ℝ/ℂ/ℍ, shapes, units, channels against kernel, surface against kernel, each node's output against the
    next node's input: a mismatch is refused with its reason); build the graph from the caller's request; bind the constants once (kernel, mesh
    operators, normals).
-3. **The pipeline: a GRAPH of pure functions** (the Studio's GPU/TSL chain). Each node is a pure function of matrices with typed input and output
+3. **The pipeline: a GRAPH of pure functions.** Each node is a pure function of matrices with typed input and output
    ports (in `compute/`, `meeg/`; the same function a test calls directly). Edges carry data from one node's output to the next node's input; per block
    the data flows through the graph. Nodes are POINTWISE: a reduction across time or space is never a node's own; it is a measurement over a
    partition (the cardinal rule below). The graph knows nothing of files, chunks or subjects, and decides nothing about which data it is given.
@@ -32,7 +31,7 @@ composable.
   reduces across time or space on its own.
 - **At the end of a chain, its outputs are either MATERIALIZED or REDUCED:**
   - materialized: stored as Fields (time frames, a time-resolved source map, a series);
-  - reduced: through **partition Selections and the measurement functions**, the one reduction system (the Studio's `measureOverPartition`, the
+  - reduced: through **partition Selections and the measurement functions**, the one reduction system (the
     measure registry, the lookup).
 - **Time is partitioned as space is.** A chunk is a time partition (the chunk grid `<recording>_chunks` is a Selection), as are a window or a frame
   tiling. A reduction over time, over space, or both is a measurement over a partition, never a bespoke loop or accumulator.
@@ -53,13 +52,12 @@ composable.
   to it for storage, export and display, the bridge dropped. **An operator a node builds** is stored through io with its provenance and found by its key, never held
   in a process-wide cache.
 
-The detailed rules are below: the dependency table, **the architecture policy** (what each layer may decide), **pipelines as replicas of the Studio's GPU
-chains**, the chunk service, and the PR checklist. Design a new pipeline as its graph first (nodes, ports, inputs, outputs), check it against the
-Studio's chain, and only then write code.
+The detailed rules are below: the dependency table, **the architecture policy** (what each layer may decide), **pipelines as chains of passes over
+blocks**, the chunk service, and the PR checklist. Design a new pipeline as its graph first (nodes, ports, inputs, outputs), and only then write code.
 
 ## Compose first; never transform an outer product (never broken)
 
-How every computation is ordered, in compute nodes, pipelines and the Studio's GPU graphs alike:
+How every computation is ordered, in compute nodes, pipelines and any executor of the same graphs alike:
 1. **Compose linear operators first.** A chain of linear maps (a kernel, an analysis onto eigenmodes, gains on a level, a synthesis) is multiplied into
    one operator at its smallest size and applied once; nothing re-applies the chain per segment, per cell or per frame.
 2. **Never form an outer product to transform it.** A single sample's or segment's cross-spectrum x xᴴ holds nothing more than x, and
@@ -111,8 +109,8 @@ composes what the caller asks for. The dependency table says what a library may 
    - Orchestration never loops over samples or chunks (the chunk service's job), never does maths (compute's), never knows file layouts (io's).
    - Defaults exist only for a method's reference parameters (the method rule: Brainstorm's bands, Welch's window), never for which data is used.
    - The command line parses and prints. It composes nothing the library doesn't.
-4. **Port, don't redesign.** Before building any loading, looping, orchestration or compute structure, find the Studio's (and nxr's) design of it and
-   port it, with its names.
+4. **Reuse before building.** Before building a loading, looping, orchestration or compute structure, look for the one nxr-neuro already has and
+   extend it; never build a second one beside it.
 5. **Before every PR, each answer must be yes** (and the PR description says so):
    - Can each new compute function be called with a matrix from anywhere?
    - Can the pipeline run the same chain on another input of the same kind just by naming it?
@@ -122,21 +120,20 @@ composes what the caller asks for. The dependency table says what a library may 
    include in `compute/` or `meeg/`; `layering_sql_only_in_io`: SQL, `database.h` and `nxr/io/records/` only inside io; `layering_nodes_without_io`: the registered nodes include no io header and hold no
    database, subject, dataset or file: what a node needs beside its inputs is bound by the runner and handed over as data, `nxr::pipelines::graph::Bound`), and the checklist in each PR.
 
-**Pipelines are CPU replicas of the Studio's GPU/TSL chains.** Design every pipeline as if it were one of the Studio's
-device chains, so nxr-neuro can later supply data to them, or run them, with no redesign.
-- **Host (the Studio's CPU side): loading and orchestration.** The chunk service (residency, the chunk loop, the halo) delivers blocks; the
+**Pipelines are chains of passes over blocks.** Design every pipeline as a device chain, so the same graph runs on a CPU or a GPU, in nxr-neuro or
+in a program that reads it, with no redesign.
+- **Host: loading and orchestration.** The chunk service (residency, the chunk loop, the halo) delivers blocks; the
   orchestration picks the chain from the caller's request and runs it block by block.
-- **Device (the Studio's GPU side): the chain.** An ordered series of pure stages, each a pass over a block (a chunk plus its halo), as the Studio's
-  `SignalChain` (`studio/src/engine/toolbox/signal/chain.ts`) and its device form (`studio/src/studio/engine/gpu/deviceChain.ts`):
+- **Device: the chain.** An ordered series of pure stages, each a pass over a block (a chunk plus its halo):
   - members (a linear spatial map) → filter (zero-phase sections, a band, a Meyer or Morlet wavelet band) → transform (none · envelope ·
-    wavelet power or complex · spectrum, with the Studio's output shapes `xt`, `xft`, `xf`);
+    wavelet power or complex · spectrum, with the output shapes `xt`, `xft`, `xf`);
   - a linear map (a kernel, a form's operator) reads the chain BEFORE any non-linear transform (D106); consecutive linear maps of the rows are composed ONCE
     into one operator (the type system's compose move: a kernel's `pre_operator`, e.g. a surrogate's zero-lag mixing, which commutes with the per-channel time
     filters before it), and a value that awaits its operator reaches no non-linear step or reduction before it is applied (`docs/specs/2026-11-17-surrogates.md`);
-  - then the field's forms (`fieldForms.ts`) and the measures (reductions as sums folded across blocks).
-  - Stages keep the Studio's order and names; state carried between blocks is an accumulator, as a device chain's is.
+  - then the field's forms and the measures (reductions as sums folded across blocks).
+  - State carried between blocks is an accumulator, as a device chain's is.
 - **Readback (gather):** the chain's outputs come back to the host, which stores them (io) or hands them to the next analysis.
-- A new pipeline is first written as its chain (stages, inputs, outputs) and checked against the Studio's chain before any code.
+- A new pipeline is first written as its chain (stages, inputs, outputs) before any code.
 - The chain is a GRAPH of pure nodes with typed ports (the paramount architecture, top of this file); its executor is generic: it validates types,
   binds constants, runs the nodes over each block, folds reducing nodes and gathers outputs, with no analysis-specific code.
 
@@ -149,7 +146,6 @@ device chains, so nxr-neuro can later supply data to them, or run them, with no 
   It never opens a recording's array, loops over its samples, or works out chunks.
 - Compute (`compute/`, `meeg/`) receives a data matrix and never knows its size or where it came from.
 - Enforced by the test `layering_recordings_read_by_chunk_service` (`cmake/check_layering.cmake`). A new recording reader goes through the service, never around the guard.
-- Before building any io, loading or orchestration piece, look for the Studio's (and nxr's) design of it first and port it. Do not design it again here.
 
 ## Decided structure (2026-11-17): data access, verbs, pipelines, faces
 

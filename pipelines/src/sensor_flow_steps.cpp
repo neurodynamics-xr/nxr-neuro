@@ -11,6 +11,7 @@
 #include "nxr/pipelines/sensor_flow_steps.h"
 
 #include <algorithm>
+#include <functional>
 #include <cmath>
 #include <complex>
 #include <string>
@@ -21,7 +22,9 @@
 
 #include "nxr/graph/node.h"
 #include "nxr/pipelines/form_steps.h"
+#include "chunk_spectra_readers.h"
 #include "nxr/signal/aperiodic.h"
+#include "nxr/signal/flow_readout.h"
 #include "nxr/signal/intrinsic_forms.h"
 #include "nxr/signal/spectral_flow.h"
 #include "nxr/stats/sign_flip.h"
@@ -35,6 +38,12 @@ using cd = std::complex<double>;
 
 namespace {
 
+// a stated suffix on every measure an output describes (e.g. "_left", "_right"): two measurements of one recording over one selection, made on two surfaces
+// (the hemispheres), stay two (the store's key has no surface: #264). Empty: the names as they are.
+void suffix_measures(ng::Array& a, const std::string& suffix) {
+  if (suffix.empty() || !a.meta.contains("describe") || !a.meta["describe"].contains("measures")) return;
+  for (auto& m : a.meta["describe"]["measures"]) m["measure"] = m["measure"].get<std::string>() + suffix;
+}
 ng::PortType constant_of(const char* cls) {
   ng::PortType t;
   t.cls = ng::PortClass::constant;
@@ -114,6 +123,8 @@ ng::NodeSpec overlapped_spectrum() {
     const ng::ManifoldRef rows = ng::manifold_id("coordinates", "operator");
     s.domain.factors = {rows, ng::made_line("frequency", "signal.overlapped_spectrum.spectrum", "Hz", 0.0, x.sfreq, x.domain.factors.empty() ? ng::ManifoldRef() : x.domain.factors.back())};
     s.domain.cells = "0,1";
+    s.facts["overlap_samples"] = overlap; s.facts["transform_samples"] = transform;   // the spectrum carries how it was made: signal.chunk_spectra reads them, never asked twice
+    s.facts["frequency_span"] = Json::array({lo, hi});
     out.out["spectrum"] = s;
     out.halo = overlap;
     return out;
@@ -168,32 +179,31 @@ ng::NodeSpec chunk_spectra() {
   n.inputs = {{"spectrum", "each chunk's spectrum (signal.overlapped_spectrum), once a block", false},
               {"operator", "the serving operator the spectra were read through (its rows: the coordinates and their eigenvalues)", false}};
   n.outputs = {{"spectra", "[chunks x bins x rows] complex: each chunk's spectrum, one value per member of the chunk grid (the cross-spectrum in its exact factored form)", false}};
-  n.parameters = {
-      {"overlap_samples", Json(), "the overlap the spectra were made with (as signal.overlapped_spectrum's)", "samples", {}, false},
-      {"transform_samples", Json(), "the transform's length the spectra were made with (as signal.overlapped_spectrum's)", "samples", {}, false},
-      {"frequency_span", Json(), "[lo, hi) the spectra keep (as signal.overlapped_spectrum's)", "Hz", {}, false}};
+  n.parameters = {};   // the overlap, the transform's length and the span are the spectrum's own (its port's facts, from signal.overlapped_spectrum): stated once
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float32, ng::OutputPrecision::follows_input,
                              "each block's spectrum kept in time order (a measurement over the chunk partition: one value a member, nothing summed)");
   n.matches = "the flow analysis's served chunk spectra (each chunk's rfft in the field coordinates, stored); no reduction";
   n.description = "the chunk spectra of a run gathered into one statistic: the cross-spectrum per bin is the sum over its chunks of each spectrum times its conjugate";
-  n.plan = [](const ng::Types& in, const Json& p) {
+  n.plan = [](const ng::Types& in, const Json&) {
     const auto it = in.find("spectrum");
     if (it == in.end() || !it->second.per_block()) ng::refuse(std::string(kGather) + ": spectrum is a value made once per block (signal.overlapped_spectrum)");
     if (!in.count("operator")) ng::refuse(std::string(kGather) + ": operator is not given");
-    integer_param(p, "overlap_samples", kGather); integer_param(p, "transform_samples", kGather); span_param(p, kGather);
+    for (const char* k : {"overlap_samples", "transform_samples", "frequency_span"})
+      if (!it->second.facts.contains(k)) ng::refuse(std::string(kGather) + ": spectrum does not say its " + k + " (made by signal.overlapped_spectrum)");
     ng::Planned out;
     out.out["spectra"] = constant_of("statistic");
     return out;
   };
-  n.prepare = [](const ng::Types& in, const ng::Arrays& c, const Json& p, ng::Shared&) {
+  n.prepare = [](const ng::Types& in, const ng::Arrays& c, const Json&, ng::Shared&) {
     GatherPrepared pr;
     pr.op_meta = constant_input(c, "operator", kGather).meta;
     pr.op_meta.erase("channels");
-    pr.overlap = p["overlap_samples"].get<std::int64_t>(); pr.transform = p["transform_samples"].get<std::int64_t>();
     const auto it = in.find("spectrum");
     if (it == in.end() || !it->second.sfreq) ng::refuse(std::string(kGather) + ": spectrum has no sampling rate");
+    const Json& made = it->second.facts;
+    pr.overlap = made.at("overlap_samples").get<std::int64_t>(); pr.transform = made.at("transform_samples").get<std::int64_t>();
     pr.sfreq = *it->second.sfreq;
-    const auto [lo, hi] = span_param(p, kGather);
+    const double lo = made.at("frequency_span")[0].get<double>(), hi = made.at("frequency_span")[1].get<double>();
     std::tie(pr.first, pr.bins) = bins_of(lo, hi, pr.sfreq, pr.transform, kGather);
     return std::any(std::move(pr));
   };
@@ -205,7 +215,7 @@ ng::NodeSpec chunk_spectra() {
     if (b.width != pr.bins || !b.complex()) ng::refuse(std::string(kGather) + ": a block's spectrum holds " + std::to_string(b.width) + " bins, not " + std::to_string(pr.bins));
     if (s.rows < 0) s.rows = b.rows;
     if (b.rows != s.rows) ng::refuse(std::string(kGather) + ": the blocks' spectra have different rows");
-    for (std::int64_t k = 0; k < b.width; ++k)                                            // bin-major then row, as the coefficients of `spectral_coefficients`
+    for (std::int64_t k = 0; k < b.width; ++k)                                            // bin-major then row
       for (std::int64_t r = 0; r < b.rows; ++r) { s.values.push_back(b.re[static_cast<std::size_t>(r * b.width + k)]); s.values.push_back(b.im[static_cast<std::size_t>(r * b.width + k)]); }
     s.firsts.push_back(at.first); s.owns.push_back(at.n);
     return std::make_pair(ng::Blocks{}, std::move(state));
@@ -244,19 +254,10 @@ ng::NodeSpec chunk_spectra() {
   return n;
 }
 
-// ── what the readers of the chunk spectra share ─────────────────────────────────────────────────────────────────
-struct Spectra {
-  std::int64_t chunks = 0, bins = 0, rows = 0, first = 0, transform = 0, overlap = 0;
-  double sfreq = 0;
-  std::vector<std::int64_t> modes, owns;
-  bool unit_mass = true;
-  const ng::Array* array = nullptr;
-  cd at(std::int64_t t, std::int64_t k, std::int64_t r) const {
-    const std::size_t i = static_cast<std::size_t>(((t * bins + k) * rows + r) * 2);
-    return cd(array->at(i), array->at(i + 1));
-  }
-  double frequency(std::int64_t k) const { return static_cast<double>(first + k) * sfreq / static_cast<double>(transform); }
-};
+}  // namespace
+
+// ── what the readers of the chunk spectra share (declared in chunk_spectra_readers.h: the source-flow nodes read them too) ────────────────────────────
+namespace spectra_readers {
 Spectra spectra_of(const ng::Array& A, const char* who) {
   const Json& d = A.meta.contains("shape") ? A.meta : A.meta.value("describe", Json::object());
   const Json pr = A.meta.contains("producer") ? A.meta["producer"] : d.value("producer", Json::object());
@@ -267,7 +268,7 @@ Spectra spectra_of(const ng::Array& A, const char* who) {
   s.sfreq = pr["sfreq"]; s.transform = pr["transform_samples"]; s.first = pr["first_bin"]; s.overlap = pr.value("overlap_samples", std::int64_t(0));
   s.modes = pr["modes"].get<std::vector<std::int64_t>>();
   s.unit_mass = pr.value("normalisation", Json("unit_mass")) != Json("as_stored");
-  for (const auto& c : pr.value("chunks", Json::array())) s.owns.push_back(c.value("samples", std::int64_t(0)));
+  for (const auto& c : pr.value("chunks", Json::array())) { s.owns.push_back(c.value("samples", std::int64_t(0))); s.firsts.push_back(c.value("first", std::int64_t(0))); }
   if (static_cast<std::int64_t>(s.modes.size()) != s.rows) ng::refuse(std::string(who) + ": the spectra's coordinates are not their modes");
   s.array = &A;
   return s;
@@ -288,62 +289,58 @@ std::pair<Eigen::MatrixXd, Eigen::VectorXd> synthesis_of(const Spectra& s, const
   }
   return {Psi, mu};
 }
-// a kernel set's members (select.kernels), and their gains on points of the line's coordinate (Hz on a frequency line; mu on an eigenvalue line)
-std::vector<Json> members_of(const ng::Array& sel, const char* who, const char* port) {
-  const Json p = sel.meta.value("params", Json::object());
+// THE ONE READER of a stored kernel set: the members select.kernels wrote, as a typed selection (the only place their stored form is read)
+nxr::selection::Selection kernelSetOf(const ng::Array& stored, const char* who, const char* port) {
+  const Json p = stored.meta.value("params", Json::object());
   if (!p.contains("kernels") || !p["kernels"].contains("members")) ng::refuse(std::string(who) + ": " + port + " is not a kernel set (`nxr-neuro run select_kernels`)");
-  return p["kernels"]["members"].get<std::vector<Json>>();
-}
-Eigen::MatrixXd gains_of(const std::vector<Json>& members, const Eigen::VectorXd& x, const char* who) {
-  const Eigen::Index M = static_cast<Eigen::Index>(members.size());
-  if (M == 0) ng::refuse(std::string(who) + ": a kernel set with no member");
-  const std::string family = members.front().value("family", std::string());
-  for (const auto& k : members) if (k.value("family", std::string()) != family) ng::refuse(std::string(who) + ": a kernel set's members have one profile");
-  if (family == "cos2_partition") {
-    std::vector<double> centres;
-    for (const auto& k : members) centres.push_back(std::log2(k.at("start").get<double>()));
-    Eigen::VectorXd lx(x.size());
-    for (Eigen::Index i = 0; i < x.size(); ++i) lx(i) = x(i) > 0 ? std::log2(x(i)) : -std::numeric_limits<double>::infinity();
-    return nxr::signal::cosineSquaredPartition(lx, centres);
-  }
-  Eigen::MatrixXd g = Eigen::MatrixXd::Zero(M, x.size());
-  for (Eigen::Index m = 0; m < M; ++m) {
-    const Json& k = members[static_cast<std::size_t>(m)];
-    const double c = k.at("start").get<double>(), gain = k.value("gain", 1.0);
-    const std::string chart = k.value("chart", std::string("linear"));
-    const Json params = k.value("params", Json::object());
-    double fwhm = params.value("fwhm", 0.0);
-    if (params.value("width_rule", std::string("absolute")) == "proportional") fwhm *= c;
-    for (Eigen::Index i = 0; i < x.size(); ++i) {
-      if (!(x(i) > 0)) continue;                                                            // one-sided: nothing at 0 (a frequency's mean, an eigenvalue's constant)
-      const double u = chart == "log2" ? std::log2(x(i)) - std::log2(c) : x(i) - c;
-      if (family == "gaussian") { const double sd = fwhm / (2.0 * std::sqrt(2.0 * std::log(2.0))); g(m, i) = gain * std::exp(-u * u / (2.0 * sd * sd)); }
-      else if (family == "box") g(m, i) = std::abs(u) <= fwhm / 2.0 ? gain : 0.0;
-      else ng::refuse(std::string(who) + ": a kernel's profile is gaussian, box or cos2_partition, not " + family);
+  std::vector<nxr::selection::Selection> members;
+  for (const Json& k : p["kernels"]["members"]) {
+    for (const char* key : {"start", "stop", "family", "chart", "gain"}) if (!k.contains(key)) ng::refuse(std::string(who) + ": a member of " + port + " does not record " + key);
+    nxr::selection::Profile profile;
+    profile.family = k.at("family").get<std::string>();
+    profile.chart = k.at("chart").get<std::string>();
+    profile.gain = k.at("gain").get<double>();
+    const Json params = k.value("params", Json::object());   // held: the loop below iterates over it (a temporary would be gone before the body)
+    for (const auto& [name, value] : params.items()) {
+      if (name == "width_rule")
+        ng::refuse(std::string(who) + ": " + port + " was made before the proportional width was stored as fwhm_per_centre: re-make it with `select_kernels`");
+      if (value.is_number()) profile.params[name] = value.get<double>();   // a text entry is a description (a partition's), not a number of the profile
     }
+    nxr::selection::Selection member = nxr::selection::span({{0, k.at("start").get<double>(), k.at("stop").get<double>()}}, k.value("code", static_cast<std::int64_t>(members.size())));
+    member.profile = profile;
+    members.push_back(std::move(member));
   }
-  return g;
+  try {
+    return nxr::selection::set(std::move(members));
+  } catch (const std::invalid_argument& e) {
+    ng::refuse(std::string(who) + ": " + port + ": " + e.what());
+  }
+}
+nxr::signal::KernelGains kernel_gains_of(const ng::Array& stored, const Eigen::VectorXd& line, const char* who, const char* port) {
+  try {
+    return nxr::signal::kernelGains(kernelSetOf(stored, who, port), line, nxr::signal::NonPositiveCoordinates::zero);
+  } catch (const std::invalid_argument& e) {
+    ng::refuse(std::string(who) + ": " + port + ": " + e.what());
+  }
 }
 // the frequency weighting's members: each a gain per bin (the atoms; normalised as the parameter says) or every bin alone
-Eigen::MatrixXd frequency_gains(const Spectra& s, const ng::Arrays& c, const Json& p, const char* who, std::vector<double>* standardDeviations = nullptr) {
+Eigen::MatrixXd frequency_gains(const Spectra& s, const ng::Arrays& c, const Json& p, const char* who, std::vector<double>* standardDeviations) {
   const std::string weighting = text_param(p, "frequency_weighting", who);
   Eigen::VectorXd f(s.bins);
   for (std::int64_t k = 0; k < s.bins; ++k) f(k) = s.frequency(k);
   if (weighting == "every_bin") {
     if (standardDeviations) ng::refuse(std::string(who) + ": every_bin has no atom (no time width)");
+    if (c.count("frequency") && !c.at("frequency").meta.value("placeholder", false))
+      ng::refuse(std::string(who) + ": frequency_weighting every_bin reads every bin alone: the frequency kernel set handed to it would be ignored (leave it out, or choose kernels)");
     return Eigen::MatrixXd::Identity(s.bins, s.bins);
   }
   if (weighting != "kernels") ng::refuse(std::string(who) + ": frequency_weighting is kernels or every_bin");
-  const std::vector<Json> members = members_of(constant_input(c, "frequency", who), who, "frequency");
-  Eigen::MatrixXd g = gains_of(members, f, who);
-  if (standardDeviations)
-    for (const auto& k : members) {
-      const Json params = k.value("params", Json::object());
-      double fwhm = params.value("fwhm", 0.0);
-      if (params.value("width_rule", std::string("absolute")) == "proportional") fwhm *= k.at("start").get<double>();
-      if (k.value("family", std::string()) != "gaussian" || k.value("chart", std::string()) != "linear") ng::refuse(std::string(who) + ": the time cells need Gaussian atoms on a linear chart");
-      standardDeviations->push_back(fwhm / (2.0 * std::sqrt(2.0 * std::log(2.0))));
-    }
+  const nxr::signal::KernelGains atoms = kernel_gains_of(constant_input(c, "frequency", who), f, who, "frequency");
+  Eigen::MatrixXd g = atoms.gains;
+  if (standardDeviations) {
+    if (atoms.family != "gaussian" || atoms.chart != "linear") ng::refuse(std::string(who) + ": the time cells need Gaussian atoms on a linear chart");
+    for (Eigen::Index m = 0; m < atoms.fullWidths.size(); ++m) standardDeviations->push_back(atoms.fullWidths(m) / (2.0 * std::sqrt(2.0 * std::log(2.0))));
+  }
   const std::string normalisation = text_param(p, "frequency_normalisation", who);
   if (normalisation == "sum_of_squared_gains") {
     if (!p.contains("support_floor") || !p["support_floor"].is_number()) ng::refuse(std::string(who) + ": support_floor has no default: name it");
@@ -352,7 +349,7 @@ Eigen::MatrixXd frequency_gains(const Spectra& s, const ng::Arrays& c, const Jso
   return g;
 }
 // one frequency member's weighted columns Y [K x chunks.bins] (each bin's column times its gain; the cross-spectrum it weights is Y Yᴴ)
-Eigen::MatrixXcd weighted_columns(const Spectra& s, const Eigen::RowVectorXd& gain, double floorFraction = 1e-12) {
+Eigen::MatrixXcd weighted_columns(const Spectra& s, const Eigen::RowVectorXd& gain, double floorFraction) {
   const double top = gain.cwiseAbs().maxCoeff();
   std::vector<std::int64_t> bins;
   for (std::int64_t k = 0; k < s.bins; ++k) if (std::abs(gain(k)) > floorFraction * top && gain(k) != 0) bins.push_back(k);
@@ -362,11 +359,13 @@ Eigen::MatrixXcd weighted_columns(const Spectra& s, const Eigen::RowVectorXd& ga
       for (std::int64_t r = 0; r < s.rows; ++r) Y(r, t * static_cast<std::int64_t>(bins.size()) + static_cast<std::int64_t>(q)) = gain(bins[q]) * s.at(t, bins[q], r);
   return Y;
 }
+}  // namespace spectra_readers
+using namespace spectra_readers;
+
+namespace {
 
 struct FlowPrepared {
   nxr::pipelines::graph::BoundPackage package;
-  const ng::Array* spectra_array = nullptr;
-  ng::Array spectra_copy;
   Eigen::MatrixXd frequency, scale;          // [members x bins], [bands x K] (scale empty: no bands)
   std::vector<double> standardDeviations;
   Json p;
@@ -374,14 +373,13 @@ struct FlowPrepared {
 FlowPrepared prepare_flow(const ng::Arrays& c, const Json& p, const char* who, bool needAtoms) {
   FlowPrepared pr;
   pr.package = bind_hodge_package(constant_input(c, "package", who), who);
-  pr.spectra_copy = constant_input(c, "spectra", who);
-  const Spectra s = spectra_of(pr.spectra_copy, who);
+  const Spectra s = spectra_of(constant_input(c, "spectra", who), who);   // read in place: the run reads the same stored array (its `in`), never a copy
   pr.frequency = frequency_gains(s, c, p, who, needAtoms ? &pr.standardDeviations : nullptr);
   const ng::Array& H = constant_input(c, "package", who);
   const std::vector<double> mass = H.meta.at("mass").get<std::vector<double>>();
   const auto [Psi, mu] = synthesis_of(s, *pr.package.modes, Eigen::Map<const Eigen::VectorXd>(mass.data(), static_cast<Eigen::Index>(mass.size())), who);
   (void)Psi;
-  if (c.count("scale") && !c.at("scale").meta.value("placeholder", false)) pr.scale = gains_of(members_of(c.at("scale"), who, "scale"), mu, who);
+  if (c.count("scale") && !c.at("scale").meta.value("placeholder", false)) pr.scale = kernel_gains_of(c.at("scale"), mu, who, "scale").gains;
   if (pr.scale.rows() > 0)                                                                   // the constant (mu 0) lies in the coarsest band of a partition
     for (Eigen::Index j = 0; j < mu.size(); ++j) if (!(mu(j) > 0) && pr.scale.col(j).sum() == 0) pr.scale(0, j) = 1.0;
   pr.p = p;
@@ -413,7 +411,7 @@ ng::NodeSpec spectral_flow() {
       {"support_floor", Json(), "with sum_of_squared_gains: a bin whose squared gains' sum is below this fraction of its largest is outside the set (gain 0) (no default)", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64,
                              "once a run: per frequency member one weighted cross-spectrum (a sum over the chunks and the member's bins), then per band the readings' right factor, per pair only the entries read");
-  n.matches = "the flow analysis's per-atom readout (dev check: Im(Psi_tail C Psi_tipᵀ), its projection on the Hodge-Dirac edge rows; nxr's flow analysis's P = grad k Im(C) kᵀ); compute nxr::signal::bandPairFlow, projectOneForm, exactPotential, coexactStream";
+  n.matches = "the flow analysis's per-atom readout (dev check: Im(Psi_tail C Psi_tipᵀ), its projection on the Hodge-Dirac edge rows; nxr's flow analysis's P = grad k Im(C) kᵀ); compute nxr::signal::pairFlow, flowSplit";
   n.description = "the flow of a weighted cross-spectrum in a surface's field coordinates: per frequency member (an atom, or a bin), the whole field's and every band pair's power, phase current per edge and per vertex, "
                   "Hodge-Dirac flow coefficients, potential and stream";
   n.plan = [](const ng::Types& in, const Json& p) {
@@ -422,44 +420,49 @@ ng::NodeSpec spectral_flow() {
     if (w == "kernels" && !in.count("frequency")) ng::refuse(std::string(kFlow) + ": frequency_weighting kernels needs the frequency kernel set");
     if (w == "kernels") text_param(p, "frequency_normalisation", kFlow);
     ng::Planned out;
-    for (const char* o : {"whole_vertices", "whole_edges", "whole_modes", "pair_vertices", "pair_edges", "pair_modes"}) { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "statistic"; out.out[o] = t; }
+    // per member of the frequency kernel set (and of the band pairs): MEASUREMENTS over those members; every_bin's axis is the frequency line's bins (no members): statistics
+    const char* kind = w == "kernels" ? "measurement" : "statistic";
+    for (const char* o : {"whole_vertices", "whole_edges", "whole_modes", "pair_vertices", "pair_edges", "pair_modes"}) out.out[o] = constant_of(kind);
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_flow(c, p, kFlow, false)); };
-  n.run = [](const std::any& prepared, const ng::Arrays&) {
+  n.run = [](const std::any& prepared, const ng::Arrays& in) {
     const FlowPrepared& pr = std::any_cast<const FlowPrepared&>(prepared);
-    const Spectra s = spectra_of(pr.spectra_copy, kFlow);
+    const Spectra s = spectra_of(constant_input(in, "spectra", kFlow), kFlow);
     const nxr::signal::IntrinsicComplex& cx = *pr.package.complex;
     const nxr::signal::Modes& m = *pr.package.modes;
     const Eigen::Map<const Eigen::VectorXd> mass(cx.star0.data(), cx.star0.size());
     const auto [Psi, mu] = synthesis_of(s, m, cx.star0, kFlow);
-    const Eigen::MatrixXd G = nxr::signal::sharp(cx, Eigen::MatrixXd(cx.d0 * Psi));            // [3S x K] each coordinate's tangent gradient
+    const Eigen::SparseMatrix<double> sharpWeights = nxr::signal::sharpOperator(cx);         // the vertex phase current from the edge sums: no gradient matrix formed
     const Eigen::Index S = Psi.rows(), K = Psi.cols(), E = cx.nE, M = m.mu.size(), A = pr.frequency.rows(), Q = pr.scale.rows();
     const Eigen::Index pairs = Q * Q;
     auto measured = [](Eigen::Index rows, Eigen::Index cells, Eigen::Index measures) { ng::Array a; a.rows = rows * cells; a.cols = measures; a.data.assign(static_cast<std::size_t>(rows * cells * measures), 0.0); return a; };
     ng::Array wv = measured(S, A, 6), we = measured(E, A, 1), wm = measured(M, A, 1), pv = measured(S, A * pairs, 6), pe = measured(E, A * pairs, 1), pm = measured(M, A * pairs, 1);
-    auto store = [&](ng::Array& vertices, ng::Array& edges, ng::Array& modes, Eigen::Index cells, Eigen::Index cell, const Eigen::VectorXd& power, const Eigen::VectorXd& edge, const Eigen::VectorXd& vertex) {
-      const Eigen::MatrixXd coef = nxr::signal::projectOneForm(cx, m, edge);
-      const Eigen::MatrixXd potential = nxr::signal::exactPotential(m, coef), stream = nxr::signal::coexactStream(cx, m, coef);
-      for (Eigen::Index v = 0; v < S; ++v) {
-        const std::size_t r = static_cast<std::size_t>((v * cells + cell) * 6);
-        vertices.data[r] = power(v); vertices.data[r + 1] = potential(v, 0); vertices.data[r + 2] = stream(v, 0);
-        for (int comp = 0; comp < 3; ++comp) vertices.data[r + 3 + comp] = vertex(3 * v + comp);
+    // one reading's columns j stored as cells cellOf(j): power, potential, stream, vertex phase current per vertex; phase current per edge; flow coefficient per mode
+    auto store = [&](ng::Array& vertices, ng::Array& edges, ng::Array& modes, Eigen::Index cells, const std::function<Eigen::Index(Eigen::Index)>& cellOf, const nxr::signal::PairFlow& flow) {
+      const nxr::signal::FlowSplit split = nxr::signal::flowSplit(cx, m, flow.pairImaginary, nullptr);   // the complete sensor basis: no remainder
+      for (Eigen::Index j = 0; j < flow.pairImaginary.cols(); ++j) {
+        const Eigen::Index cell = cellOf(j);
+        for (Eigen::Index v = 0; v < S; ++v) {
+          const std::size_t r = static_cast<std::size_t>((v * cells + cell) * 6);
+          vertices.data[r] = flow.power(v, j); vertices.data[r + 1] = split.potential(v, j); vertices.data[r + 2] = split.stream(v, j);
+          for (int comp = 0; comp < 3; ++comp) vertices.data[r + 3 + comp] = flow.vertexCurrent(3 * v + comp, j);
+        }
+        for (Eigen::Index e = 0; e < E; ++e) edges.data[static_cast<std::size_t>(e * cells + cell)] = flow.pairImaginary(e, j);
+        for (Eigen::Index k = 0; k < M; ++k) modes.data[static_cast<std::size_t>(k * cells + cell)] = split.coefficients(k, j);
       }
-      for (Eigen::Index e = 0; e < E; ++e) edges.data[static_cast<std::size_t>(e * cells + cell)] = edge(e);
-      for (Eigen::Index k = 0; k < M; ++k) modes.data[static_cast<std::size_t>(k * cells + cell)] = coef(k, 0);
     };
+    std::vector<Eigen::MatrixXd> bandReadouts;                                                 // Psi diag(h_q): each band's readout
+    for (Eigen::Index q = 0; q < Q; ++q) bandReadouts.push_back(Psi * pr.scale.row(q).transpose().asDiagonal());
+    const std::vector<Eigen::MatrixXd> wholeReadout{Psi};
     Json members = Json::array();
     for (Eigen::Index a = 0; a < A; ++a) {
-      const Eigen::MatrixXcd Y = weighted_columns(s, pr.frequency.row(a));
+      const Eigen::MatrixXcd Y = weighted_columns(s, pr.frequency.row(a));                    // the member's weighting of the cross-spectrum, factored: C = Y Yᴴ, a SUM over chunks and bins
       members.push_back(Json{{"member", a}, {"columns", Y.cols()}});
       if (Y.cols() == 0) continue;
-      const Eigen::MatrixXcd C = Y * Y.adjoint();                                             // the member's weighting of the cross-spectrum: a SUM over chunks and bins
-      const nxr::signal::BandPairFlow whole = nxr::signal::bandPairFlow(C, Psi, G, cx.edges, Eigen::MatrixXd::Ones(1, K));
-      store(wv, we, wm, A, a, whole.power.col(0), whole.edgeCurrent.col(0), whole.vertexCurrent.col(0));
+      store(wv, we, wm, A, [&](Eigen::Index) { return a; }, nxr::signal::pairFlow(Y, wholeReadout, 1, cx.edges, &sharpWeights));
       if (Q == 0) continue;
-      const nxr::signal::BandPairFlow bp = nxr::signal::bandPairFlow(C, Psi, G, cx.edges, pr.scale);
-      for (Eigen::Index pq = 0; pq < pairs; ++pq) store(pv, pe, pm, A * pairs, a + A * pq, bp.power.col(pq), bp.edgeCurrent.col(pq), bp.vertexCurrent.col(pq));
+      store(pv, pe, pm, A * pairs, [&](Eigen::Index pq) { return a + A * pq; }, nxr::signal::pairFlow(Y, bandReadouts, 1, cx.edges, &sharpWeights));
     }
     Json vertexMeasures = Json::array();
     for (const char* name : kVertexMeasures) vertexMeasures.push_back(Json{{"measure", name}});
@@ -479,6 +482,7 @@ ng::NodeSpec spectral_flow() {
     describe(pv, vertexMeasures, S, A * pairs, "the vertices of the surface", pairsAre);
     describe(pe, Json::array({Json{{"measure", "phase_current"}}}), E, A * pairs, "the edges of the intrinsic complex (tail -> tip)", pairsAre);
     describe(pm, Json::array({Json{{"measure", "flow_coefficient"}}}), M, A * pairs, "the Hodge-Dirac modes", pairsAre);
+    if (Q == 0) for (ng::Array* none : {&pv, &pe, &pm}) { *none = ng::Array{}; none->meta["absent"] = true; }   // no bands wired: no band pairs (the runner stores none)
     return ng::Arrays{{"whole_vertices", std::move(wv)}, {"whole_edges", std::move(we)}, {"whole_modes", std::move(wm)},
                       {"pair_vertices", std::move(pv)}, {"pair_edges", std::move(pe)}, {"pair_modes", std::move(pm)}};
   };
@@ -508,7 +512,7 @@ ng::NodeSpec atom_time_cells() {
       {"cell_width", Json(), "a time cell's width in the atom's time standard deviations (1 / (2 pi sigma_f)); the cell is the power of two of samples nearest it (no default; the flow analysis: 2)", "-", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64,
                              "once a run, chunk by chunk of the stored spectra: the atom's band signal back in time (the synthesis composed on the atom's bins, one inverse transform), summed over the cells");
-  n.matches = "the flow analysis's time-cell check (dev: z = Psi a per sample, Im(conj z_tail z_tip) summed per cell); compute nxr::signal::timeCellFlow";
+  n.matches = "the flow analysis's time-cell check (dev: z = Psi a per sample, Im(conj z_tail z_tip) summed per cell); compute nxr::signal::timeCellPairFlow, takeWholeCells";
   n.description = "the flow of each atom and band in the atom's own time cells: per cell the sums of the edge and vertex phase currents and of the power (a measurement over the cells of a dyadic level of the time line)";
   n.plan = [](const ng::Types& in, const Json& p) {
     for (const char* k : {"spectra", "package", "frequency", "scale"}) if (!in.count(k)) ng::refuse(std::string(kCells) + ": " + k + " is not given");
@@ -519,44 +523,49 @@ ng::NodeSpec atom_time_cells() {
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_flow(c, p, kCells, true)); };
-  n.run = [](const std::any& prepared, const ng::Arrays&) {
+  n.run = [](const std::any& prepared, const ng::Arrays& in) {
     const FlowPrepared& pr = std::any_cast<const FlowPrepared&>(prepared);
-    const Spectra s = spectra_of(pr.spectra_copy, kCells);
+    const Spectra s = spectra_of(constant_input(in, "spectra", kCells), kCells);
     const nxr::signal::IntrinsicComplex& cx = *pr.package.complex;
     const auto [Psi, mu] = synthesis_of(s, *pr.package.modes, cx.star0, kCells);
-    const Eigen::MatrixXd G = nxr::signal::sharp(cx, Eigen::MatrixXd(cx.d0 * Psi));
+    const Eigen::SparseMatrix<double> sharpWeights = nxr::signal::sharpOperator(cx);
     const Eigen::Index S = Psi.rows(), E = cx.nE, A = pr.frequency.rows(), Q = pr.scale.rows();
     if (Q == 0) ng::refuse(std::string(kCells) + ": scale is a kernel set with members");
-    if (static_cast<std::int64_t>(s.owns.size()) != s.chunks) ng::refuse(std::string(kCells) + ": the spectra do not record each chunk's own samples");
+    if (static_cast<std::int64_t>(s.owns.size()) != s.chunks || static_cast<std::int64_t>(s.firsts.size()) != s.chunks) ng::refuse(std::string(kCells) + ": the spectra do not record each chunk's samples");
     const double width = pr.p["cell_width"].get<double>();
     ng::Array out;
     out.cols = E + 4 * S;
     Json groups = Json::array();
     std::int64_t row = 0;
-    for (Eigen::Index q = 0; q < Q; ++q)
+    for (Eigen::Index q = 0; q < Q; ++q) {
+      const Eigen::MatrixXd bandReadout = Psi * pr.scale.row(q).transpose().asDiagonal();     // Psi diag(h_q), once per band
       for (Eigen::Index a = 0; a < A; ++a) {
         const double sigmaT = 1.0 / (2.0 * M_PI * pr.standardDeviations[static_cast<std::size_t>(a)]);
         const std::int64_t cell = std::int64_t(1) << static_cast<int>(std::lround(std::log2(width * sigmaT * s.sfreq)));
         std::int64_t cells = 0;
+        nxr::signal::TimeCellPairFlow carried;                                               // a cell cut by a chunk's end, completed from the next chunk
         for (std::int64_t t = 0; t < s.chunks; ++t) {
           Eigen::MatrixXcd X(s.rows, s.bins);
           for (std::int64_t k = 0; k < s.bins; ++k) for (std::int64_t r = 0; r < s.rows; ++r) X(r, k) = pr.frequency(a, k) * s.at(t, k, r);
-          const nxr::signal::CellFlow f = nxr::signal::timeCellFlow(X, s.first, s.transform, s.overlap, s.owns[static_cast<std::size_t>(t)], cell, Psi, G, cx.edges, pr.scale.row(q).transpose());
-          for (Eigen::Index j = 0; j < f.edgeCurrent.cols(); ++j) {
-            for (Eigen::Index e = 0; e < E; ++e) out.single.push_back(static_cast<float>(f.edgeCurrent(e, j)));
+          const nxr::signal::TimeCellPairFlow part = nxr::signal::timeCellPairFlow(X, s.first, s.transform, s.overlap, s.owns[static_cast<std::size_t>(t)], s.firsts[static_cast<std::size_t>(t)],
+                                                                                   cell, bandReadout, 1, cx.edges, &sharpWeights);
+          const nxr::signal::TimeCellPairFlow f = nxr::signal::takeWholeCells(carried, part, cell);
+          for (Eigen::Index j = 0; j < f.power.cols(); ++j) {
+            for (Eigen::Index e = 0; e < E; ++e) out.single.push_back(static_cast<float>(f.pairImaginary(e, j)));
             for (Eigen::Index r = 0; r < 3 * S; ++r) out.single.push_back(static_cast<float>(f.vertexCurrent(r, j)));
             for (Eigen::Index v = 0; v < S; ++v) out.single.push_back(static_cast<float>(f.power(v, j)));
           }
-          cells += f.edgeCurrent.cols();
+          cells += f.power.cols();
         }
         groups.push_back(Json{{"atom", a}, {"band", q}, {"first_row", row}, {"cells", cells}, {"cell_samples", cell}, {"cell_seconds", static_cast<double>(cell) / s.sfreq}});
         row += cells;
       }
+    }
     out.rows = row;
     out.meta["describe"] = Json{{"method", "atom_time_cells"}, {"measure", "time_cell_flow"}, {"shape", Json::array({row, E + 4 * S})}, {"axes", Json::array({indexed_axis("cell", row), indexed_axis("column", E + 4 * S)})}, {"measures", Json::array({Json{{"measure", "phase_current"}, {"columns", Json::array({0, E})}}, Json{{"measure", "vertex_phase_current"}, {"columns", Json::array({E, E + 3 * S})}},
                                                          Json{{"measure", "power"}, {"columns", Json::array({E + 3 * S, E + 4 * S})}}})},
                                 {"values_shape", Json::array({row, E + 4 * S})}, {"precision", "float32"},
-                                {"attributes", Json{{"groups", groups}, {"rows", "the time cells of each atom x band, in the groups' order; within a group chunk by chunk, a trailing part cell of a chunk left out"},
+                                {"attributes", Json{{"groups", groups}, {"rows", "the whole time cells of each atom x band, in the groups' order; cells anchored at the recording's first sample, a cell cut by a chunk's edge completed from the next chunk, a part cell at the recording's ends left out"},
                                                     {"columns", "the edges' phase currents, then each vertex's x y z phase current, then each vertex's power"},
                                                     {"cell_width", width}, {"sum_over", "the cell's samples (each sample once)"}}}};
     return ng::Arrays{{"cells", std::move(out)}};
@@ -571,8 +580,12 @@ ng::NodeSpec sign_flip_consistency() {
   n.name = kFlip;
   n.kind = ng::Kind::array;
   n.inputs = {{"cells", "the time cells of each atom x band (signal.atom_time_cells)", false}};
-  n.outputs = {{"consistency", "per atom x band: R1 per element, its p and family-wise p, the threshold, the median and its null, the neighbouring cells' correlation", false}};
+  n.outputs = {{"consistency", "a MEASUREMENT over the members of atoms x bands (the band groups, the atom fastest): per element its R1, p and family-wise p", false},
+               {"consistency_summary", "a MEASUREMENT over the same members, one row: the threshold, the median R1, the median's null 95th percentile, its p, the neighbouring cells' correlation, the cells, the groups flipped", false},
+               {"whole_consistency", "as consistency, over the atoms, for the whole field's groups (band -1); absent when the cells have none", false},
+               {"whole_consistency_summary", "as consistency_summary, over the atoms, for the whole field's groups; absent when the cells have none", false}};
   n.parameters = {
+      {"measure_suffix", Json(""), "a suffix on every measure name (e.g. _left, _right: per-hemisphere runs of one recording over one selection); empty: none", "-", {}, false},
       {"elements", Json(), "which values are tested: edges (the edge phase current, one component) | vertices (the vertex phase current, three components) (no default)", "-", {"edges", "vertices"}, false},
       {"patterns", Json(), "the random sign patterns over the cells (no default; nxr's flow analysis: 500 for its spectrum, 2000 for its maps)", "-", {}, false},
       {"seed", Json(), "the seed of numpy's default_rng, created once a run and drawn in the groups' order (no default; nxr's flow analysis: 0)", "-", {}, false},
@@ -584,7 +597,7 @@ ng::NodeSpec sign_flip_consistency() {
     if (!in.count("cells")) ng::refuse(std::string(kFlip) + ": cells is not given");
     text_param(p, "elements", kFlip); integer_param(p, "patterns", kFlip); integer_param(p, "seed", kFlip); integer_param(p, "cells_per_flip", kFlip);
     ng::Planned out;
-    out.out["consistency"] = constant_of("statistic");
+    for (const char* o : {"consistency", "consistency_summary", "whole_consistency", "whole_consistency_summary"}) out.out[o] = constant_of("measurement");
     return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(std::make_pair(constant_input(c, "cells", kFlip), p)); };
@@ -598,27 +611,55 @@ ng::NodeSpec sign_flip_consistency() {
     const std::vector<std::int64_t> columns = measures[edges ? 0 : 1].at("columns").get<std::vector<std::int64_t>>();
     const int components = edges ? 1 : 3;
     nxr::stats::NumpyGenerator generator(static_cast<std::uint64_t>(p["seed"].get<std::int64_t>()));
-    ng::Array out;
     const std::int64_t width = columns[1] - columns[0], elements = width / components;
-    out.cols = 3 * elements + 7;
-    Json rows = Json::array();
+    std::vector<nxr::stats::SignFlipConsistency> tests;
+    Json members = Json::array();
     for (const auto& g : groups) {
       const std::int64_t first = g["first_row"], count = g["cells"];
       if (count < 2) ng::refuse(std::string(kFlip) + ": an atom x band has fewer than two cells");
       Eigen::MatrixXd values(count, width);
       for (std::int64_t r = 0; r < count; ++r) for (std::int64_t j = 0; j < width; ++j) values(r, j) = cells.at(static_cast<std::size_t>((first + r) * cells.cols + columns[0] + j));
-      const nxr::stats::SignFlipConsistency t = nxr::stats::signFlipConsistency(values, components, p["patterns"].get<std::int64_t>(), generator, p["cells_per_flip"].get<std::int64_t>());
-      for (std::int64_t e = 0; e < elements; ++e) out.data.push_back(t.consistency(e));
-      for (std::int64_t e = 0; e < elements; ++e) out.data.push_back(t.p(e));
-      for (std::int64_t e = 0; e < elements; ++e) out.data.push_back(t.familywiseP(e));
-      for (const double v : {t.threshold, t.median, t.medianNull95, t.medianP, t.neighbourCorrelation, static_cast<double>(t.cells), static_cast<double>(t.groups)}) out.data.push_back(v);
-      rows.push_back(Json{{"atom", g["atom"]}, {"band", g["band"]}});
+      tests.push_back(nxr::stats::signFlipConsistency(values, components, p["patterns"].get<std::int64_t>(), generator, p["cells_per_flip"].get<std::int64_t>()));
+      members.push_back(Json{{"atom", g["atom"]}, {"band", g["band"]}});
     }
-    out.rows = static_cast<std::int64_t>(rows.size());
-    out.meta["describe"] = Json{{"statistic", "sign_flip_consistency"}, {"method", "sign_flip_consistency"}, {"measure", "consistency"}, {"axes", Json::array({indexed_axis("atom_band", out.rows, rows), indexed_axis("column", out.cols)})}, {"elements", p["elements"]}, {"shape", Json::array({out.rows, out.cols})},
-                                {"columns", "R1 per element, p per element, family-wise p per element, then threshold, median R1, the median's null 95th percentile, its p, the neighbouring cells' correlation, cells, groups flipped"},
-                                {"rows", rows}, {"options", Json{{"patterns", p["patterns"]}, {"seed", p["seed"]}, {"cells_per_flip", p["cells_per_flip"]}, {"generator", "numpy default_rng (SeedSequence, PCG64), random() < 0.5 -> -1"}}}};
-    return ng::Arrays{{"consistency", std::move(out)}};
+    // MEASUREMENTS over the members, rows x members x measures, value (r members + m) measures + k: the band groups (band >= 0: atom x band, the atom fastest, the
+    // groups' order) and the whole field's groups (band -1: the atoms), each its own pair of outputs (absent when the cells have none)
+    const Json options = Json{{"elements", p["elements"]}, {"patterns", p["patterns"]}, {"seed", p["seed"]}, {"cells_per_flip", p["cells_per_flip"]}, {"generator", "numpy default_rng (SeedSequence, PCG64), random() < 0.5 -> -1"}};
+    auto measured = [&](bool whole) {
+      std::vector<std::size_t> picked;
+      Json picked_members = Json::array();
+      for (std::size_t m = 0; m < tests.size(); ++m)
+        if ((members[m].value("band", 0) < 0) == whole) { picked.push_back(m); picked_members.push_back(members[m]); }
+      const std::int64_t G = static_cast<std::int64_t>(picked.size());
+      ng::Array perElement, summary;
+      if (G == 0) { perElement.meta["absent"] = true; summary.meta["absent"] = true; return std::make_pair(perElement, summary); }
+      perElement.rows = elements * G; perElement.cols = 3;
+      perElement.data.assign(static_cast<std::size_t>(elements * G * 3), 0.0);
+      for (std::int64_t e = 0; e < elements; ++e)
+        for (std::int64_t j = 0; j < G; ++j) {
+          const auto& t = tests[picked[static_cast<std::size_t>(j)]];
+          const std::size_t at = static_cast<std::size_t>((e * G + j) * 3);
+          perElement.data[at] = t.consistency(e); perElement.data[at + 1] = t.p(e); perElement.data[at + 2] = t.familywiseP(e);
+        }
+      summary.rows = G; summary.cols = 7;
+      for (const std::size_t m : picked) {
+        const auto& t = tests[m];
+        for (const double v : {t.threshold, t.median, t.medianNull95, t.medianP, t.neighbourCorrelation, static_cast<double>(t.cells), static_cast<double>(t.groups)}) summary.data.push_back(v);
+      }
+      auto describe = [&](ng::Array& a, const std::vector<const char*>& names, std::int64_t rows, const char* rowsAre) {
+        Json measures = Json::array();
+        for (const char* m : names) measures.push_back(Json{{"measure", m}});
+        a.meta["describe"] = Json{{"method", "sign_flip_consistency"}, {"measures", measures}, {"shape", Json::array({rows, G, static_cast<std::int64_t>(names.size())})},
+                                  {"values_shape", Json::array({rows, G})}, {"attributes", Json{{"rows", rowsAre}, {"members", picked_members}, {"options", options}}}};
+      };
+      describe(perElement, {"consistency", "p", "familywise_p"}, elements, edges ? "the edges of the intrinsic complex" : "the vertices of the surface");
+      describe(summary, {"threshold", "median_consistency", "median_null_95", "median_p", "neighbour_correlation", "cells", "groups_flipped"}, 1, "one row: the member's summary");
+      return std::make_pair(perElement, summary);
+    };
+    auto [banded, bandedSummary] = measured(false);
+    auto [whole, wholeSummary] = measured(true);
+    for (ng::Array* a : {&banded, &bandedSummary, &whole, &wholeSummary}) suffix_measures(*a, p.value("measure_suffix", std::string()));
+    return ng::Arrays{{"consistency", std::move(banded)}, {"consistency_summary", std::move(bandedSummary)}, {"whole_consistency", std::move(whole)}, {"whole_consistency_summary", std::move(wholeSummary)}};
   };
   return n;
 }

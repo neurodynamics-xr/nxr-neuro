@@ -2,6 +2,7 @@
 // (gen_timebank_nxr.py), and the joint frame's own laws (separable bounds are products, exact and polynomial transforms, rotation sense on a ridge,
 // refusals). Synthetic data only.
 #include "nxr/signal/jointwavelet.h"
+#include "nxr/signal/wavelet.h"
 #include "nxr/signal/graphtransforms.h"
 #include "nxr/measurement/band_energy.h"
 #include "nxr/signal/jointfilterbank.h"

@@ -20,6 +20,8 @@ formats_layering_check_catches	guard
 layering_nodes_without_io	guard
 layering_nodes_without_io_catches	guard
 layering_recordings_read_by_chunk_service	guard
+layering_recordings_read_by_chunk_service_brackets	guard
+layering_recordings_read_by_chunk_service_brackets_catches	guard
 layering_sql_only_in_io	guard
 layering_sql_only_in_io_catches	guard
 layering_toolboxes_catches	guard
@@ -165,6 +167,13 @@ test_intrinsic_delaunay	unit
 test_intrinsic_forms	unit
 test_mode_spectrum	unit
 test_spectral_flow	unit
+test_kernel_gains	unit
+test_bispectrum	unit
+test_tile_flow	unit
+test_tile_network	unit
+test_network_flip	golden
+test_flow_readout	unit
+test_source_flow	unit
 test_sign_flip	golden
 test_aperiodic	golden
 test_intrinsic_surface	unit
@@ -186,7 +195,6 @@ test_projector_choice	integration
 test_channels_by_name	integration
 test_member_analytic	integration
 test_phase_split	integration
-test_spectral_coefficients	integration
 test_mesh_bundles	unit
 test_migrate	unit
 test_migrate_measurement	unit
@@ -315,6 +323,8 @@ test_component_surface	unit
 test_derived_origin	integration
 test_glue_onto	integration
 test_import_covariance	integration
-test_flow_map	integration
 test_sensor_flow	integration
+test_sensor_bispectrum	integration
+test_connectome_flow	integration
+test_source_flow_nodes	integration
 test_migrate_eigensolve	integration

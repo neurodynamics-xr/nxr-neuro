@@ -12,6 +12,8 @@
 #include "nxr/pipelines/select_nodes.h"
 #include "nxr/selection/selection.h"
 
+#include <memory>
+#include <mutex>
 #include <algorithm>
 #include <optional>
 #include <cmath>
@@ -764,10 +766,24 @@ std::vector<std::int32_t> channels_picked(const ng::PortType& x, const ng::Array
     return it->second.meta.value("channels", std::vector<std::int32_t>());
   return good_channels(x, p.value("channel_types", Json::array()), who);
 }
+// the banks of the bands, one per block width (a bank is designed on its block's grid): designed the first time a width is met, then reused for every block of it
+struct AnalyticBanks {
+  std::mutex lock;
+  std::map<std::size_t, nxr::signal::timefilterbank::TimeFilterbank> byGrid;
+};
 struct AnalyticBands {
   nxr::signal::timefilterbank::Design design{nxr::signal::timefilterbank::Family::Meyer, 2.0, nxr::signal::timefilterbank::Sides::Analytic};
   std::vector<std::int32_t> channels;
   double sfreq = 0;
+  std::shared_ptr<AnalyticBanks> banks = std::make_shared<AnalyticBanks>();
+  const nxr::signal::timefilterbank::TimeFilterbank& bankFor(std::size_t width) const {
+    namespace tb = nxr::signal::timefilterbank;
+    const std::size_t grid = tb::gridLength(width, tb::Padding::FastLen);
+    std::lock_guard<std::mutex> guard(banks->lock);
+    auto it = banks->byGrid.find(grid);
+    if (it == banks->byGrid.end()) it = banks->byGrid.emplace(grid, tb::timeBank(design, grid, sfreq)).first;
+    return it->second;   // std::map never moves its elements: the reference stays valid while other widths are added
+  }
 };
 std::int64_t analytic_halo(const Json& p, double sfreq) {
   nxr::signal::timefilterbank::Design d(nxr::signal::timefilterbank::Family::Meyer, 2.0, nxr::signal::timefilterbank::Sides::Analytic);
@@ -822,7 +838,7 @@ ng::NodeSpec analytic_bands() {
     Eigen::MatrixXd block(M, b.width);
     for (std::int64_t i = 0; i < M; ++i) block.row(i) = all.row(a.channels[static_cast<std::size_t>(i)]).cast<double>();
     const std::int64_t left = b.left - keep, own = b.own() + 2 * keep;
-    const auto t = nxr::signal::wtBlock(a.design, block, a.sfreq, static_cast<std::size_t>(left), static_cast<std::size_t>(own));
+    const auto t = nxr::signal::wtBlock(a.bankFor(static_cast<std::size_t>(b.width)), block, static_cast<std::size_t>(left), static_cast<std::size_t>(own));
     const std::int64_t B = static_cast<std::int64_t>(t.own.size());
     ng::Block z;
     z.rows = B * M; z.width = own; z.left = keep; z.right = keep;

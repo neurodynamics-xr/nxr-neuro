@@ -99,6 +99,14 @@ struct TimeFilterbank {
     int size() const { return static_cast<int>(members.size()); }
 };
 
+// ── THE BAND SHAPES (one band [lo, hi], a gain of the coordinate x: Hz on the time line; the graph bank's Meyer frame uses meyerBand on λ too) ──
+/** A band with Meyer edges: sin of the rise at `lo`, cos of the fall at `hi`, each over ±halfWidth octaves. lo ≤ 0: no rise; hi = ∞: no fall. */
+double meyerBand(double x, double lo, double hi, double halfWidth);   // the half-width is always stated
+/** A band's MORLET gain: a Gaussian in frequency, UNIT peak, centred on the
+ *  band's ARITHMETIC centre (lo + hi)/2, the band's width hi − lo its FULL WIDTH AT HALF MAXIMUM, so σ = (hi − lo)/(2√(2 ln 2)). Even in x (the real band; the analytic signal's
+ *  one-sided gain is twice it, as the taps route's odd taps give). Not a tight frame: neighbouring bands overlap and do not add up (Meyer's do). lo < hi required. */
+double morletBand(double x, double lo, double hi);
+
 /** The family named "morlet" | "power_partition" (the node parameter `shape`); throws std::invalid_argument naming both. */
 Family bandFamilyOf(const std::string& name);
 const char* bandFamilyName(Family family);
@@ -135,6 +143,17 @@ GaborGrid gaborGrid(double sigmaMin, double sigmaMax, int perOctave, double fMin
  *  cycles = 1 / (2^(1/2V) − 2^(−1/2V)), so Σ g² is flat inside the ladder; normalised so the largest Σ g² over [2 ladderMin, ladderMax / 2] is 1): Σ g_m(f)² over the members whose centre lies in [lo, hi].
  *  A real gain of |f| (Hz); the members are the bank's Morlet family. Throws on 0 < ladderMin < ladderMax, voices >= 1 not met. */
 std::function<double(double)> morletLadderGain(double lo, double hi, double ladderMin, double ladderMax, int voices);
+/** ONE BAND'S GAIN as the nodes that take a band and a shape name it: `morlet` (morletBand), `meyer` (meyerBand, `halfWidth` octaves, required) or
+ *  `morlet_ladder` (morletLadderGain: `ladderMinimum`, `ladderMaximum`, `voices` required), over [lo, hi] Hz. Throws std::invalid_argument naming a missing
+ *  setting or an unknown family. The one place a node's band and shape become a gain. */
+struct BandShape {
+    std::string family;
+    double lo = 0, hi = 0;
+    std::optional<double> halfWidth;
+    std::optional<double> ladderMinimum, ladderMaximum;
+    std::optional<int> voices;
+};
+Gain1 bandGain(const BandShape& shape);
 
 /** Build the bank on a grid of `nfft` samples at `fs`. Throws on an unsatisfiable design (no member fits; gain <= 0; missing centres). */
 TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs);
@@ -161,23 +180,10 @@ Eigen::VectorXd centerFrequencies(const TimeFilterbank& bank);
 /** Rheome's rates(): the sampling rate of each member's own sub-band (own-rate) transform: next_fast_len(oversample·bins)·fs/nfft; and the lengths. */
 std::pair<Eigen::VectorXd, std::vector<std::size_t>> rates(const TimeFilterbank& bank, double oversample = 2.0);
 
-// THE TRANSFORMS ARE NOT HERE: a bank only designs (nxr/signal/wavelet.h: wt, iwt, iwtComplex, wtBlock; the scalogram and energies are measurements, nxr/measurement/band_energy.h).
+// THE TRANSFORMS ARE NOT HERE: a bank only designs (nxr/signal/wavelet.h: wt, iwt, iwtComplex, wtBlock and the Fourier primitives spectrum, filterSpectrum, inverseReal, inverseComplex, coefficientSpectrum; nxr/signal/decimation.h: downsample; the scalogram and energies are measurements, nxr/measurement/band_energy.h).
 using nxr::signal::graphfilterbank::Synthesis;
 /** One [nfft x C] complex block per member (C signals, one per column). Rows beyond the record's n are its zero padding. */
 using Coefficients = std::vector<Eigen::MatrixXcd>;
-
-// ── the time-domain primitives the transforms are built from (wt / iwt and the joint bank) ─────────────────────────────────────────────────────────────
-
-/** Forward spectrum of a record on the bank's grid: rfft (Analytic, real) or fft (TwoSided) of x zero-padded to nfft → [bins × C]. */
-Eigen::MatrixXcd spectrum(const TimeFilterbank& bank, const Eigen::MatrixXd& x);
-Eigen::MatrixXcd spectrum(const TimeFilterbank& bank, const Eigen::MatrixXcd& x);   // Analytic refuses
-/** ifft of (spec ⊙ gain) on the grid → [nfft × C] (Analytic: the negative bins are zero). `gain` has one entry per bin. */
-Eigen::MatrixXcd filterSpectrum(const TimeFilterbank& bank, const Eigen::VectorXd& gain, const Eigen::MatrixXcd& spec);
-/** Back to the record: irfft (Analytic) or ifft (TwoSided) of a spectrum [bins × C], cropped to n rows. Analytic returns the real part in `real`. */
-Eigen::MatrixXd inverseReal(const TimeFilterbank& bank, const Eigen::MatrixXcd& spec, std::size_t n);
-Eigen::MatrixXcd inverseComplex(const TimeFilterbank& bank, const Eigen::MatrixXcd& spec, std::size_t n);
-/** Spectrum of a member's coefficients [nfft × C] on the bank's grid (fft, first `bins` rows). */
-Eigen::MatrixXcd coefficientSpectrum(const TimeFilterbank& bank, const Eigen::MatrixXcd& coefficients);
 
 // ── THE HALO of a haloed block (the transform of a block is wtBlock, nxr/signal/wavelet.h) ──
 /** THE HALO a member needs, samples on each side: the length of its response, as the Studio's device chain sizes its HALO by the band's taps (deviceChain.ts:
@@ -201,13 +207,6 @@ double independentEstimates(const TimeFilterbank& bank, int member, std::int64_t
  *  |c| = (G/2) A), so white noise of one-sided density d gives var(Re z) = d ∫₀^{fs/2} (g/2)² df = d · B_n, and ⟨|z|²⟩ = 2 var(Re z). A density from
  *  the analytic signal is ⟨|z|²⟩ / (2 B_n) (nxr::spectral, Stored::BandPower). Evaluated on `grid` points of [0, fs/2]. */
 double noiseBandwidth(const TimeFilterbank& bank, int member, int grid = 1 << 16);
-
-// ── DECIMATION of a band-limited block (the analytic signal of a band, whose content sits far below the new Nyquist rate: nothing aliases) ──
-/** Every d-th column of Z [channels x T], starting at column `offset` (0 ≤ offset < d): [channels x ⌈(T − offset) / d⌉]. The caller places the grid (a
- *  global one across chunks: offset = (d − (first − s0) mod d) mod d for a block whose first column is sample `first` of a span starting at s0). Not a
- *  filter: a signal that is not already band-limited below fs / (2d) aliases. Σ z zᴴ over the kept columns is the full-rate sum divided by d, up to the
- *  band-limited signal's sampling error. */
-Eigen::MatrixXcd downsample(const Eigen::MatrixXcd& Z, int d, int offset = 0);
 
 /** The kind of each member (Rheome's `kinds`): "lowpass" (the low-pass and the scaling member), "band" (a band or a wavelet), "highpass" (the high-pass and the top member), or "dc" (the DC bin
  *  of a two-sided bank, which has no sense). One entry per member, in the bank's order. */

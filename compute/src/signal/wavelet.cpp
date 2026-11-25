@@ -5,6 +5,58 @@
 #include <numeric>
 #include <stdexcept>
 
+namespace nxr::signal::timefilterbank {
+using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXd;
+
+// ── the Fourier primitives of a bank's grid (declared in wavelet.h) ────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+static void requireBankSides(const TimeFilterbank& b, Sides s, const char* what) {
+    if (b.sides != s) throw std::invalid_argument(std::string("timebank::") + what + (s == Sides::Analytic ? ": needs an analytic bank" : ": needs a two-sided bank"));
+}
+
+MatrixXcd spectrum(const TimeFilterbank& b, const MatrixXd& x) {
+    if (static_cast<std::size_t>(x.rows()) > b.nfft) throw std::invalid_argument("timebank: the record is longer than the bank's grid");
+    MatrixXd xp = MatrixXd::Zero(static_cast<Eigen::Index>(b.nfft), x.cols());
+    xp.topRows(x.rows()) = x;
+    if (b.sides == Sides::Analytic) return rfft(xp);
+    return fft(xp.cast<cd>());
+}
+
+MatrixXcd spectrum(const TimeFilterbank& b, const MatrixXcd& x) {
+    if (b.sides == Sides::Analytic)
+        throw std::invalid_argument("timebank: an ANALYTIC bank is one-sided and cannot take a complex signal (it would drop its negative frequencies silently); "
+                                    "use a two-sided bank, or pass the real signal");
+    if (static_cast<std::size_t>(x.rows()) > b.nfft) throw std::invalid_argument("timebank: the record is longer than the bank's grid");
+    MatrixXcd xp = MatrixXcd::Zero(static_cast<Eigen::Index>(b.nfft), x.cols());
+    xp.topRows(x.rows()) = x;
+    return fft(xp);
+}
+
+MatrixXcd filterSpectrum(const TimeFilterbank& b, const VectorXd& g, const MatrixXcd& X) {
+    if (g.size() != X.rows()) throw std::invalid_argument("timebank::filterSpectrum: one gain per bin");
+    MatrixXcd Y = MatrixXcd::Zero(static_cast<Eigen::Index>(b.nfft), X.cols());
+    for (Eigen::Index j = 0; j < X.cols(); ++j)
+        for (Eigen::Index k = 0; k < X.rows(); ++k) Y(k, j) = X(k, j) * g(k);
+    return ifft(Y);
+}
+
+MatrixXcd coefficientSpectrum(const TimeFilterbank& b, const MatrixXcd& W) {
+    MatrixXcd S = fft(W);
+    return b.sides == Sides::Analytic ? MatrixXcd(S.topRows(static_cast<Eigen::Index>(rfftBins(b.nfft)))) : S;
+}
+
+MatrixXd inverseReal(const TimeFilterbank& b, const MatrixXcd& S, std::size_t n) {
+    requireBankSides(b, Sides::Analytic, "inverseReal");
+    return irfft(S, b.nfft).topRows(static_cast<Eigen::Index>(n));
+}
+
+MatrixXcd inverseComplex(const TimeFilterbank& b, const MatrixXcd& S, std::size_t n) {
+    requireBankSides(b, Sides::TwoSided, "inverseComplex");
+    return ifft(S).topRows(static_cast<Eigen::Index>(n));
+}
+
+}  // namespace nxr::signal::timefilterbank
+
 namespace nxr::signal {
 using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXcd; using Eigen::VectorXd;
 using cd = std::complex<double>;
@@ -122,11 +174,15 @@ MatrixXcd wt(const tb::TimeFilterbank& b, int member, const MatrixXd& x, const V
     return out;
 }
 
-BlockTransform wtBlock(const tb::Design& design, const Eigen::MatrixXd& block, double fs, std::size_t left, std::size_t own) {
+BlockTransform wtBlock(const tb::TimeFilterbank& bank, const Eigen::MatrixXd& block, std::size_t left, std::size_t own) {
   const std::size_t width = static_cast<std::size_t>(block.cols());
   if (left + own > width) throw std::invalid_argument("wtBlock: the own columns [left, left + own) are not inside the block");
-  BlockTransform r{tb::timeBank(design, tb::gridLength(width, tb::Padding::FastLen), fs), {}};
-  const tb::Coefficients all = wt(r.bank, Eigen::MatrixXd(block.transpose()));   // wt takes [samples x signals]
+  const std::size_t grid = tb::gridLength(width, tb::Padding::FastLen);
+  if (bank.nfft != grid)
+    throw std::invalid_argument("wtBlock: the bank is designed on a grid of " + std::to_string(bank.nfft) + " samples; a block of " + std::to_string(width) +
+                                " samples needs one of " + std::to_string(grid) + " (timeBank(design, gridLength(width, FastLen), fs))");
+  BlockTransform r;
+  const tb::Coefficients all = wt(bank, Eigen::MatrixXd(block.transpose()));   // wt takes [samples x signals]
   r.own.reserve(all.size());
   for (const auto& w : all) r.own.push_back(w.middleRows(static_cast<Eigen::Index>(left), static_cast<Eigen::Index>(own)).transpose());
   return r;

@@ -1,0 +1,14 @@
+name: Task
+description: Known work left to do (a test to port, a missing check, a feature a design names but the code lacks).
+labels: [task]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What is left, and why it matters
+    validations: {required: true}
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: The check that closes it (a test, a command that works, a page that is true).

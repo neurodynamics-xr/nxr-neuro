@@ -385,7 +385,7 @@ ng::NodeSpec velocity() {
   n.parameters = {{"method", Json("pcg"), "pcg | direct (perscale is a set of spatial bands: not built here)", "-", {"pcg", "direct"}, false},
                   {"regulariser", Json("connection"), "connection (the connection Laplacian on the signpost gauge) | ambient (Lefevre and Baillet 2008)", "-", {"connection", "ambient"}, false},
                   {"datafit", Json("auto"), "auto | gauge | triangle", "-", {}, false},
-                  {"alpha", Json(), "the smoothness weight; null: the regulariser's own (connection 0.01, ambient 1)", "-", {}, true},
+                  {"alpha", Json(), "the smoothness weight (> 0; no default: the definition states it; the references use 0.01 with the connection regulariser, 1 with the ambient one)", "-", {}, false},
                   {"flow_tolerance", Json(1e-8), "relative residual at which the iterative solver stops", "-", {}, false},
                   {"max_iterations", Json(500), "most iterations of the iterative solver for one frame", "-", {}, false},
                   {"preconditioner", Json("ldlt"), "ldlt | ic", "-", {"ldlt", "ic"}, false}};
@@ -403,7 +403,8 @@ ng::NodeSpec velocity() {
       nxr::signal::parseFlowMethod(p["method"].get<std::string>());
     } catch (const std::invalid_argument& e) { ng::refuse(std::string("signal.flow_velocity: ") + e.what()); }
     if (p["method"] == "perscale") ng::refuse("signal.flow_velocity: perscale is one flow per spatial band (a band set): not built here");
-    if (p.contains("alpha") && p["alpha"].is_number() && !(p["alpha"].get<double>() > 0)) ng::refuse("signal.flow_velocity: alpha must be positive");
+    if (!p.contains("alpha") || !p["alpha"].is_number()) ng::refuse("signal.flow_velocity: alpha is not given: the definition states the smoothness weight (no default)");
+    if (!(p["alpha"].get<double>() > 0)) ng::refuse("signal.flow_velocity: alpha must be positive");
     ng::Planned out;
     ng::PortType v = a;
     v.value = ng::ValueType::real; v.rows = 0;
@@ -423,7 +424,7 @@ ng::NodeSpec velocity() {
     v.fo.method = nxr::signal::parseFlowMethod(p["method"].get<std::string>());
     v.fo.regulariser = nxr::signal::parseRegulariser(p["regulariser"].get<std::string>());
     v.fo.dataFit = nxr::signal::resolveDataFit(v.fo.regulariser, nxr::signal::parseDataFit(p["datafit"].get<std::string>()));
-    v.alpha = p.contains("alpha") && p["alpha"].is_number() ? p["alpha"].get<double>() : (v.fo.regulariser == nxr::signal::Regulariser::Connection ? 0.01 : 1.0);
+    v.alpha = p.at("alpha").get<double>();
     v.fo.tolerance = p["flow_tolerance"].get<double>(); v.fo.maxIterations = p["max_iterations"].get<int>();
     v.fo.preconditioner = p["preconditioner"] == "ic" ? nxr::optimisation::PcgOptions::Preconditioner::IncompleteCholesky : nxr::optimisation::PcgOptions::Preconditioner::Ldlt;
     return std::any(std::move(v));

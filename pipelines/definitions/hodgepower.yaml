@@ -4,6 +4,7 @@
 #
 #   nxr-neuro run hodgepower --dataset <folder> --subject sub-01 --recording rest --all --kernel KERNEL [--package hodgeDirac] [--modes 200]
 pipeline: hodgepower
+# WHY WELCH: the Hodge power ports nxr's (the fused inverse on a Welch band power); it stays as the reference made it. The flow definitions read the chunk spectra.
 version: 1
 description: the band power of the Hodge-Dirac mode weights (normal-current and flow parts) of a recording's sources
 scope: subject

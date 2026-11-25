@@ -100,5 +100,20 @@ int main() {
   std::printf("  whole run vs wt: %.2e; chunks of 1024 vs whole: %.2e; of 700: %.2e (peak %.3g)\n", e0, e1, e2, peak);
   CHECK(e0 < 1e-5 * peak);
   CHECK(e1 < 1e-6 * peak && e2 < 1e-6 * peak);          // the halo is the impulse response down to 1e-6 of its L1 norm: chunked == whole to the float32 storage
+  {   // signal.flow_velocity states its regulariser's weight: alpha has no default (a definition states it), so its absence is refused
+    const ng::NodeSpec& flow = ng::registry().at("signal.flow_velocity");
+    Json fp = Json::object();
+    for (const auto& ps : flow.parameters) fp[ps.name] = ps.def;
+    ng::Types fin;
+    ng::PortType activation; activation.cls = ng::PortClass::field; activation.value = ng::ValueType::real; activation.axis = ng::Axis::frames;
+    fin["a"] = activation; fin["surface"] = ng::PortType{}; fin["scale"] = ng::PortType{};
+    std::string why;
+    try { flow.plan(fin, fp); } catch (const std::exception& e) { why = e.what(); }
+    CHECK(why.find("alpha") != std::string::npos);
+    fp["alpha"] = 0.01;
+    bool planned = true;
+    try { flow.plan(fin, fp); } catch (const std::exception&) { planned = false; }
+    CHECK(planned);
+  }
   return nxrtest::finish("member_analytic");
 }

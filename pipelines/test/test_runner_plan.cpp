@@ -157,7 +157,7 @@ int main() {
     if (!sd.inputs.contains("recording") || !sd.inputs["recording"].value("each", false)) continue;   // the definitions that run once per recording
     CHECK(sd.parameters.contains("recording") && sd.parameters["recording"] == "none");
     CHECK(!sd.inputs.contains("kernel") || (sd.parameters.contains("kernel") && (sd.parameters["kernel"] == "none" || sd.parameters["kernel"] == "required"
-          || sd.parameters["kernel"].is_null())));   // a required kernel is the caller's choice; so is an optional one (null: no kernel unless the caller names one, e.g. spectral_coefficients' sensor route)
+          || sd.parameters["kernel"].is_null())));   // a required kernel is the caller's choice; so is an optional one (null: no kernel unless the caller names one)
   }
   // an ambiguous input is refused, naming the matches
   CHECK(has(refusal([&] { g::plan_runs(def("pipeline: t\ninputs:\n  r: {field: recording}\n  k: {operator: inverse kernel, from: r.manifold.0}\nsteps:\n  chunks:\n    over: r\n    do:\n"

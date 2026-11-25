@@ -26,7 +26,7 @@
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/filters_fir.h"
 #include "make_grids.h"
 
@@ -136,7 +136,7 @@ int main() {
   const SpatialBand sband = make_spatial_band(ds, sub, S, SL, sbo);
   const std::int64_t Vg = sband.glued_vertices;
   CHECK(Vg > N && sband.glued_surface == "cortex_glued");
-  const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 12.0); };
+  const auto gain = [&](double f) { return nxr::signal::timefilterbank::morletBand(f, 8.0, 12.0); };
   const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
   const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
   Eigen::MatrixXd Re(M, T), Im(M, T);

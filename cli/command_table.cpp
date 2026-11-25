@@ -259,6 +259,7 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --no-raw		Do not import the raw recording, only the condition's other data.	off	-
 --no-raw@import condition		Do not import the condition's raw recording; import only its other data files.	off	-
 --no-remove-mean		Do not remove the mean (DC offset) of each block before computing or filtering.	off (mean removed)	-
+--no-sensor-mesh@import subject		Do not make the subject's sensor meshes (the definition sensor_mesh, one per channels manifold and sensor type, MEG or EEG, on the good channels) after importing it; the result says so.	off (the sensor meshes are made)	-
 --no-shard		Do not group chunks into shards when compacting	off	-
 --no-shard@compact dataset		Do not group chunks into shards; only the key separator changes, so an array over 4 MiB stays unsharded.	off (arrays are sharded)	-
 )TBL",
@@ -963,9 +964,9 @@ opts: --out --prefer --summary
 R"TBL(@ import subject
 old: convert subject
 alias: refused
-summary: Import a Brainstorm subject's anatomy into a dataset.
+summary: Import a Brainstorm subject into a dataset, then make its sensor meshes (MEG, EEG) from the good channels.
 pos: PROTOCOL
-opts: --dataset* --resample --subject* --templates+
+opts: --dataset* --no-sensor-mesh --resample --subject* --templates+
 )TBL",
 R"TBL(@ import template
 old: convert template

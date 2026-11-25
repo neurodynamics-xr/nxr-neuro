@@ -18,6 +18,7 @@
 #include "nxr/graph/node.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/eigen.h"
+#include "nxr/pipelines/select_nodes.h"
 #include "nxr/pipelines/sensor_flow_steps.h"
 #include "nxr/pipelines/spectral_steps.h"
 #include "nxr/signal/intrinsic_forms.h"
@@ -35,7 +36,7 @@ ng::Arrays run_array(const ng::NodeSpec& node, const ng::Arrays& c, const Json& 
   const ng::Arrays none;
   ng::NodeCall prep = ng::NodeCall::prepare(types, c, p, shared);
   ng::dispatch(node, prep);
-  ng::NodeCall go = ng::NodeCall::run(prep.made, none);
+  ng::NodeCall go = ng::NodeCall::run(prep.made, c);   // as the executor does: run is handed the arrays prepare was
   ng::dispatch(node, go);
   return go.made_arrays;
 }
@@ -43,6 +44,7 @@ ng::Arrays run_array(const ng::NodeSpec& node, const ng::Arrays& c, const Json& 
 
 int main() {
   nxr::pipelines::graph::register_sensor_flow_nodes();
+  nxr::pipelines::graph::register_select_nodes();
   nxr::pipelines::graph::register_spectral_nodes();
   for (const char* name : {"signal.overlapped_spectrum", "signal.chunk_spectra", "signal.spectral_flow", "signal.atom_time_cells", "stats.sign_flip_consistency", "signal.sensor_power", "stats.aperiodic_fit"})
     CHECK(ng::registry().at(name).traits.declared());
@@ -107,7 +109,8 @@ int main() {
   ng::dispatch(serve, sprep);
   const ng::NodeSpec& gather = ng::registry().at("signal.chunk_spectra");
   ng::Types gtypes;
-  ng::PortType st; st.sfreq = fs; gtypes["spectrum"] = st; gtypes["operator"] = pk;
+  ng::PortType st; st.sfreq = fs; for (const auto& [k, v] : sp.items()) st.facts[k] = v; gtypes["spectrum"] = st;   // the spectrum carries how it was made (overlapped_spectrum's plan)
+  gtypes["operator"] = pk;
   ng::NodeCall gprep = ng::NodeCall::prepare(gtypes, operatorInput, sp, shared);
   ng::dispatch(gather, gprep);
   ng::NodeCall gs = ng::NodeCall::start(gprep.made);
@@ -147,7 +150,7 @@ int main() {
   auto kernel_set = [](const Json& members) { ng::Array a; a.meta["params"] = Json{{"kernels", Json{{"members", members}}}}; a.meta["type"] = "set"; return a; };
   Json atoms = Json::array();
   for (const double c : {5.0, 10.0, 20.0})
-    atoms.push_back(Json{{"start", c}, {"stop", c}, {"family", "gaussian"}, {"chart", "linear"}, {"gain", 2.0}, {"params", Json{{"fwhm", 2.0 * std::sqrt(2.0 * std::log(2.0)) / 12.0 * 3.0}, {"width_rule", "proportional"}}}});
+    atoms.push_back(Json{{"start", c}, {"stop", c}, {"family", "gaussian"}, {"chart", "linear"}, {"gain", 2.0}, {"params", Json{{"fwhm_per_centre", 2.0 * std::sqrt(2.0 * std::log(2.0)) / 12.0 * 3.0}}}});
   Json bands = Json::array();
   for (const double c : {1.0, 4.0}) bands.push_back(Json{{"start", c}, {"stop", c}, {"family", "cos2_partition"}, {"chart", "log2"}, {"gain", 1.0}});
   const Json fp = Json{{"frequency_weighting", "kernels"}, {"frequency_normalisation", "sum_of_squared_gains"}, {"support_floor", 1e-3}};
@@ -170,6 +173,10 @@ int main() {
   // every bin: one member per bin
   const ng::Arrays bins = run_array(ng::registry().at("signal.spectral_flow"), ng::Arrays{{"spectra", spectra}, {"package", H}}, Json{{"frequency_weighting", "every_bin"}});
   CHECK(bins.at("whole_edges").rows == cx.nE * spectra.meta.at("shape")[1].get<std::int64_t>());
+  // no bands wired: the band-pair outputs are ABSENT (the runner stores none), never empty arrays; a frequency kernel set every_bin would ignore is refused
+  CHECK(bins.at("pair_vertices").meta.value("absent", false) && bins.at("pair_edges").meta.value("absent", false) && bins.at("pair_modes").meta.value("absent", false));
+  CHECK(!flow.at("pair_vertices").meta.value("absent", false));
+  CHECK(refused([&] { run_array(ng::registry().at("signal.spectral_flow"), inputs, Json{{"frequency_weighting", "every_bin"}}); }));
 
   // ── time cells and the sign-flip statistic ──
   const Json cp = Json{{"frequency_weighting", "kernels"}, {"frequency_normalisation", "sum_of_squared_gains"}, {"support_floor", 1e-3}, {"cell_width", 2.0}};
@@ -179,10 +186,13 @@ int main() {
   CHECK(groups.size() == 6 && tc.cols == cx.nE + 4 * nV);
   const ng::Arrays flip = run_array(ng::registry().at("stats.sign_flip_consistency"), ng::Arrays{{"cells", tc}}, Json{{"elements", "edges"}, {"patterns", 200}, {"seed", 0}, {"cells_per_flip", 1}});
   const ng::Array& fc = flip.at("consistency");
-  // group 1: the 10 Hz atom, band 0 (the coarse band holds the wave): its median R1 high and p small
+  const ng::Array& fs_ = flip.at("consistency_summary");
+  // measurements over the members atom x band (the groups' order): per element R1, p, family-wise p [E x 6 x 3]; the summary [1 x 6 x 7]
   const std::int64_t E = cx.nE;
-  const double median = fc.data[static_cast<std::size_t>(1 * fc.cols + 3 * E + 1)], medianP = fc.data[static_cast<std::size_t>(1 * fc.cols + 3 * E + 3)];
-  std::printf("  10 Hz, coarse band: median R1 %.3f, its p %.4f, cells %g\n", median, medianP, fc.data[static_cast<std::size_t>(1 * fc.cols + 3 * E + 5)]);
+  CHECK(fc.rows == E * 6 && fc.cols == 3 && fs_.rows == 6 && fs_.cols == 7);
+  // member 1: the 10 Hz atom, band 0 (the coarse band holds the wave): its median R1 high and p small
+  const double median = fs_.data[static_cast<std::size_t>(1 * 7 + 1)], medianP = fs_.data[static_cast<std::size_t>(1 * 7 + 3)];
+  std::printf("  10 Hz, coarse band: median R1 %.3f, its p %.4f, cells %g\n", median, medianP, fs_.data[static_cast<std::size_t>(1 * 7 + 5)]);
   CHECK(median > 0.8 && medianP < 0.05);
 
   // ── the sensors' power and the aperiodic fit ──
@@ -191,7 +201,28 @@ int main() {
                                    Json{{"knee", false}, {"fit_range", Json::array({1.0, 30.0})}, {"iterations", 3}, {"threshold", 2.0}});
   CHECK(fit.at("fit").rows == nV && fit.at("fit").cols == 5);
 
+  // ── select.kernels: a proportional width is stored as fwhm_per_centre (no flag); a Meyer band states its half-width; the width rule has no default ──
+  {
+    const Json proportional = Json{{"quantity", "frequency"}, {"profile", "gaussian"}, {"chart", "linear"}, {"width", 0.25}, {"width_rule", "proportional"}, {"gain", 1.0},
+                                   {"centres", Json::array({4.0, 8.0})}};
+    const ng::Arrays made = run_array(ng::registry().at("select.kernels"), ng::Arrays{}, proportional);
+    const Json member = made.at("kernels").meta["describe"]["kernels"][1];
+    CHECK(member["params"].contains("fwhm_per_centre") && member["params"]["fwhm_per_centre"] == 0.25 && !member["params"].contains("width_rule") && member["start"] == 8.0);
+    const Json meyer = Json{{"quantity", "frequency"}, {"profile", "meyer_band"}, {"chart", "log2"}, {"gain", 1.0}, {"bands", Json::array({Json::array({8.0, 12.0})})}};
+    CHECK(refused([&] { run_array(ng::registry().at("select.kernels"), ng::Arrays{}, meyer); }));
+    Json noRule = proportional;
+    noRule.erase("width_rule");
+    CHECK(refused([&] { run_array(ng::registry().at("select.kernels"), ng::Arrays{}, noRule); }));
+  }
+
   // ── refusals ──
+  {  // a kernel set stored before the proportional width was a number (fwhm + a width_rule flag) is refused, never read as an absolute width
+    Json old = atoms;
+    for (auto& member : old) { const double perCentre = member["params"]["fwhm_per_centre"]; member["params"] = Json{{"fwhm", perCentre}, {"width_rule", "proportional"}}; }
+    ng::Arrays withOld = inputs;
+    withOld["frequency"] = kernel_set(old);
+    CHECK(refused([&] { run_array(ng::registry().at("signal.spectral_flow"), withOld, fp); }));
+  }
   CHECK(refused([&] { run_array(ng::registry().at("signal.spectral_flow"), inputs, Json{{"frequency_weighting", "kernels"}}); }));          // no normalisation named
   CHECK(refused([&] { run_array(ng::registry().at("signal.atom_time_cells"), ng::Arrays{{"spectra", spectra}, {"package", H}, {"frequency", kernel_set(bands)}, {"scale", kernel_set(bands)}}, cp); }));   // not Gaussian atoms
   const Json overlapOnly = Json{{"overlap_samples", overlap}};

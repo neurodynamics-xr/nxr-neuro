@@ -64,3 +64,6 @@ bindings/dist/
 # a test fixture the *.obj rule above must not hide: the synthetic sphere of the store byte-identity tests
 !io/test/data/identity_sphere.obj
 /bench-results/
+
+# superpowers designs and plans: working notes, never published
+/docs/superpowers/
