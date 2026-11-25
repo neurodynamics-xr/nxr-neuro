@@ -290,7 +290,9 @@ static void testCompleteSolve() {
         // the 1-form parts: orthonormal in star1 to 1/2, nE of them (relative to the largest entry: an edge whose cotan weight is at its floor carries large 1-form values)
         const Eigen::MatrixXd W = r.eigenvectors.middleRows(h.nV, h.nE);
         const double orth1 = (W.transpose() * h.star1.asDiagonal() * W - 0.5 * Eigen::MatrixXd::Identity(r.k, r.k)).cwiseAbs().maxCoeff();
-        EXPECT(orth1 < 1e-6, std::string(what) + ": the 1-form parts orthonormal to 1/2 " + std::to_string(orth1));
+        // its tolerance follows the case's conditioning as the residual's does: the disc's floored diagonal edges (condition ~1e11) give ~1e-6 on Linux's
+        // LAPACK (milestone 0.4.1 CI), below 1e-6 on macOS; a well-conditioned mesh keeps 1e-6
+        EXPECT(orth1 < std::max(1e-6, residualTolerance), std::string(what) + ": the 1-form parts orthonormal to 1/2 " + std::to_string(orth1));
         // every mode an eigenvector of the Dirac operator: K x = mu M x (relative residual)
         double residual = 0;
         for (int c = 0; c < r.k; ++c) {
