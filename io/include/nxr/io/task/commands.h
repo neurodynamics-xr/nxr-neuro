@@ -288,14 +288,19 @@ struct AddMeasurementsRequest {
 CommandResult add_measurements(const AddMeasurementsRequest& request, const Progress& progress = {});
 
 /** `add operator`: a linear map from one manifold to another, dense (`values` [to x from]) or sparse CSR (`data`, `indices`, `indptr`: scipy.sparse's arrays, rows the
- *  `to` manifold's elements, columns the `from` manifold's) */
+ *  `to` manifold's elements, columns the `from` manifold's).
+ *  A TRANSITION between two coordinate systems of the subject, as the importers store one (kind `transition`): `from_coordinate_system` and `to_coordinate_system`, each `SPACE:NAME`
+ *  (`head:scs`), given together, and `values` ONE affine [3 x 4] (the rotation, scale and shear in its first three columns, the translation in the fourth): the TO system's numbers are
+ *  `values` applied to `[x y z 1]` in the FROM system's numbers. `from_manifold` stays required (the operator row's domain: the manifold whose positions are in the FROM system, e.g. an
+ *  image's volume); `to_manifold` is optional; the matrix is not checked against the manifolds' sizes; `kind` defaults to `transition`. */
 struct AddOperatorRequest {
-  std::string dataset, subject, name, from_manifold, to_manifold;
-  std::string kind = "added";              // what the operator is
+  std::string dataset, subject, name, from_manifold, to_manifold;   // to_manifold: empty only for a transition
+  std::string kind = "added";              // what the operator is (`transition` when the coordinate systems are given and the kind is left at its default)
   std::optional<ArrayInput> values, data, indices, indptr;
   std::optional<std::string> description;
   // `layout analytic`: an operator stored by its method (`method`, its `params` as JSON text) and no matrix; `from_selection`: the selection of the from manifold it reads, by name or id
   std::optional<std::string> layout, method, params, from_selection;
+  std::optional<std::string> from_coordinate_system, to_coordinate_system;   // a transition's two systems, `SPACE:NAME` (both or neither)
   std::optional<std::string> producer;     // JSON text: what the maker says of how it was made, added to the producer record
   bool replace = false;
  

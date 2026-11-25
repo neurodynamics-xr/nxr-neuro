@@ -506,9 +506,44 @@ CommandResult add_measurements(const AddMeasurementsRequest& rq, const Progress&
   });
 }
 
+// A coordinate system named `SPACE:NAME` (`head:scs`): its id, the key matched whole (a name may hold a colon: `head:voxel:T1_volume`, a space too: `spectrum:laplaceBeltrami`); a refusal names what exists
+std::string coordinate_system_id(const Subject& ts, const std::string& key, const char* option) {
+  const auto systems = ts.coordinate_systems();
+  for (const auto& [id, k] : systems) if (k == key) return id;
+  std::string have;
+  for (const auto& [id, k] : systems) have += (have.empty() ? "" : ", ") + k;
+  throw Error(code::no_such_row, std::string(option) + " " + key + ": the subject holds no such coordinate system (SPACE:NAME); it holds " + (have.empty() ? std::string("none") : have));
+}
+
+// The affine of a transition: [3 x 4] (the rotation, scale and shear of [x y z] and its translation), finite, its 3 x 3 part invertible
+void check_affine(const Values& v, const ArrayInput& file) {
+  const std::string name = "--values " + file_name(file);
+  if (v.shape != std::vector<std::int64_t>{3, 4})
+    throw Refused(name + " is " + shape_text(v.shape) + "; a transition between two coordinate systems is one affine [3 x 4] (the rotation, scale and shear of [x y z] in the first three columns, the translation in the fourth)");
+  double m[12];
+  for (int k = 0; k < 12; ++k) {
+    m[k] = !v.f64.empty() ? v.f64[static_cast<std::size_t>(k)] : static_cast<double>(v.f32[static_cast<std::size_t>(k)]);
+    if (!std::isfinite(m[k])) throw Refused(name + ": entry [" + std::to_string(k / 4) + ", " + std::to_string(k % 4) + "] is not finite");
+  }
+  auto a = [&](int r, int c) { return m[r * 4 + c]; };
+  const double det = a(0, 0) * (a(1, 1) * a(2, 2) - a(1, 2) * a(2, 1)) - a(0, 1) * (a(1, 0) * a(2, 2) - a(1, 2) * a(2, 0)) + a(0, 2) * (a(1, 0) * a(2, 1) - a(1, 1) * a(2, 0));
+  double bound = 1;   // Hadamard's bound: |det| <= the product of the columns' lengths, so a determinant that small beside it is a rank-deficient matrix
+  for (int c = 0; c < 3; ++c) bound *= std::sqrt(a(0, c) * a(0, c) + a(1, c) * a(1, c) + a(2, c) * a(2, c));
+  if (!(std::fabs(det) > 1e-12 * bound)) throw Refused(name + ": the 3 x 3 part is singular (determinant " + std::to_string(det) + "): the transition could not be inverted");
+}
+
 CommandResult add_operator(const AddOperatorRequest& rq, const Progress& progress) {
   if (rq.layout && *rq.layout != "dense" && *rq.layout != "csr" && *rq.layout != "analytic") throw Refused("--layout " + *rq.layout + " (dense, csr or analytic)");
   const bool analytic = rq.layout && *rq.layout == "analytic";
+  const bool transition = rq.from_coordinate_system || rq.to_coordinate_system;
+  if (transition) {
+    if (!rq.from_coordinate_system || !rq.to_coordinate_system) throw Refused("--from-coordinate-system and --to-coordinate-system go together: a transition names both systems (SPACE:NAME), or neither");
+    if (rq.data || rq.indices || rq.indptr || analytic || rq.method || rq.params || rq.from_selection || (rq.layout && *rq.layout != "dense"))
+      throw Refused("a transition between coordinate systems is one dense affine: give --values FILE.npy [3 x 4] and leave out --data, --indices, --indptr, --layout, --method, --params and --from-selection");
+    if (!rq.values) throw Refused("a transition between coordinate systems takes --values FILE.npy: one affine [3 x 4]");
+  } else if (rq.to_manifold.empty()) {
+    throw Refused("--to-manifold: the manifold the operator maps to (required unless the operator is a transition between coordinate systems)");
+  }
   if (analytic) {
     if (!rq.method || rq.method->empty()) throw Refused("--layout analytic takes --method NAME: how the operator is evaluated");
     if (rq.values || rq.data || rq.indices || rq.indptr) throw Refused("an analytic operator is stored by its method and holds no matrix: leave out --values, --data, --indices and --indptr");
@@ -527,22 +562,35 @@ CommandResult add_operator(const AddOperatorRequest& rq, const Progress& progres
   if (!analytic) {
     v = values_of(sparse ? *rq.data : *rq.values, sparse ? "--data" : "--values");
     need_real(v, sparse ? "--data" : "--values", sparse ? *rq.data : *rq.values);
+    if (transition) check_affine(v, *rq.values);
   }
   const Json parameters = rq.params ? json_of(*rq.params, "--params") : Json();
   const Json maker = maker_producer(rq.producer);
   return in_unit(rq.dataset, rq.subject, author_of(rq), producer_of("add operator", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
-    const Node from = require_manifold(ts, rq.from_manifold, "--from-manifold"), to = require_manifold(ts, rq.to_manifold, "--to-manifold");
-    const std::int64_t rows = to.n_vertices.value_or(-1), cols = from.n_vertices.value_or(-1);
+    const Node from = require_manifold(ts, rq.from_manifold, "--from-manifold");
+    std::optional<Node> to_node;
+    if (!rq.to_manifold.empty()) to_node = require_manifold(ts, rq.to_manifold, "--to-manifold");
+    const Node& to = to_node ? *to_node : from;   // read only where a manifold map is checked against its manifolds' sizes (not a transition)
+    const std::int64_t rows = transition ? 3 : to.n_vertices.value_or(-1), cols = transition ? 4 : from.n_vertices.value_or(-1);
     OperatorOut o;
     o.name = rq.name;
     o.output = rq.name;
     o.kind = rq.kind;
     o.from_manifold_id = from.id;
-    o.to_manifold_id = to.id;
+    o.to_manifold_id = to_node ? to_node->id : std::string();
     o.description = rq.description;
     o.data = v;
     o.params = parameters;
     o.producer = maker;
+    if (transition) {   // as the Brainstorm MRI importer stores one: kind transition, the two systems, the affine [3 x 4]; the convention is said in the row and its producer record
+      if (rq.kind == "added") o.kind = "transition";
+      o.from_coordinate_system_id = coordinate_system_id(ts, *rq.from_coordinate_system, "--from-coordinate-system");
+      o.to_coordinate_system_id = coordinate_system_id(ts, *rq.to_coordinate_system, "--to-coordinate-system");
+      const std::string convention = *rq.to_coordinate_system + " = A [x y z 1]^T, the 3 x 4 affine A applied to the point's numbers in " + *rq.from_coordinate_system;
+      if (!o.description) o.description = *rq.from_coordinate_system + " \xe2\x86\x92 " + *rq.to_coordinate_system + " (3x4 affine, " + convention + ")";
+      if (!o.producer.is_object()) o.producer = Json::object();
+      o.producer["convention"] = convention;
+    }
     if (rq.from_selection) {
       const auto sel = ts.by_id_or_name(Cls::selection, *rq.from_selection);
       if (!sel) throw Error(code::no_such_row, "the subject holds no selection named '" + *rq.from_selection + "' (--from-selection)");
@@ -568,7 +616,7 @@ CommandResult add_operator(const AddOperatorRequest& rq, const Progress& progres
         throw Refused("--indptr " + file_name(*rq.indptr) + " has " + std::to_string(sp.indptr.size()) + " offsets; an operator to '" + to.name + "' (" + std::to_string(rows) + " rows) has " + std::to_string(rows + 1));
       for (const auto c : sp.indices) if (c < 0 || c >= cols) throw Refused("--indices " + file_name(*rq.indices) + ": column " + std::to_string(c) + " is not one of the " + std::to_string(cols) + " of '" + from.name + "'");
       o.sparse = sp;
-    } else if (v.shape != std::vector<std::int64_t>{rows, cols}) {
+    } else if (!transition && v.shape != std::vector<std::int64_t>{rows, cols}) {
       throw Refused("--values " + file_name(*rq.values) + " is " + shape_text(v.shape) + "; an operator from '" + from.name + "' (" + std::to_string(cols) + ") to '" + to.name + "' (" +
                     std::to_string(rows) + ") is [" + std::to_string(rows) + " x " + std::to_string(cols) + "]");
     }

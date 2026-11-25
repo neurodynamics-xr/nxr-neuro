@@ -14,6 +14,7 @@
 #include "nxr/io/selection_reads.h"
 #include "nxr/io/selection_store.h"
 #include "nxr/io/statistic.h"
+#include "nxr/io/subject_reads.h"
 #include "nxr/io/subject_package.h"
 #include "nxr/io/writer.h"
 #include "nxr/bst/frequency.h"
@@ -594,6 +595,8 @@ std::vector<Chart> Subject::charts(const std::string& manifold_id) const {
 }
 
 
+std::vector<std::pair<std::string, std::string>> Subject::coordinate_systems() const { return subject_coordinate_systems(*impl_->db, id()); }
+
 // ── THE TYPED WRITES (spec docs/specs/2026-11-17-definition-outputs.md, section 4): each result kind written through the subject's writer inside the unit's
 // transaction, with the unit's producer record (and so its cache key), the output's name and the result's own producer facts.
 namespace {
@@ -762,7 +765,12 @@ std::string Unit::operator_(const OperatorOut& o) {
   if (o.to_cell) op.cols.set("to_cell", *o.to_cell);
   if (o.acquisition) op.acquisition = *o.acquisition;
   op.created_utc = now_utc(false);
-  op.cols.set("to_manifold_id", o.to_manifold_id).set("from_value_type", o.from_value_type).set("to_value_type", o.to_value_type);
+  if (o.to_manifold_id.empty()) op.cols.null("to_manifold_id"); else op.cols.set("to_manifold_id", o.to_manifold_id);   // a transition between coordinate systems may have no target manifold
+  op.cols.set("from_value_type", o.from_value_type).set("to_value_type", o.to_value_type);
+  if (o.from_coordinate_system_id || o.to_coordinate_system_id) {
+    if (!o.from_coordinate_system_id || !o.to_coordinate_system_id) throw Error(code::invalid_argument, "operator " + o.name + ": a transition names both coordinate systems");
+    op.cols.set("from_coordinate_system_id", *o.from_coordinate_system_id).set("to_coordinate_system_id", *o.to_coordinate_system_id);
+  }
   if (o.from_selection_id) op.cols.set("from_selection_id", *o.from_selection_id);
   if (o.to_selection_id) op.cols.set("to_selection_id", *o.to_selection_id);
   if (o.derived_from_id) op.cols.set("derived_from_id", *o.derived_from_id);

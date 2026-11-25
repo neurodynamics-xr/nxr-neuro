@@ -939,6 +939,13 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
     } else if (c == task::Cls::operator_) {         // the manifolds it maps between
       out.meta["from_manifold"] = manifold_name(n->from_manifold_id);
       out.meta["to_manifold"] = manifold_name(n->to_manifold_id);
+      const auto systems = ts.coordinate_systems();
+      for (const char* end : {"from", "to"}) {        // a transition: the two coordinate systems, `SPACE:NAME`; null for a map between manifolds
+        const Json id = n->fact(std::string(end) + "_coordinate_system_id");
+        Json key;
+        if (id.is_string()) for (const auto& [sid, k] : systems) if (sid == id.get<std::string>()) key = k;
+        out.meta[std::string(end) + "_coordinate_system"] = key;
+      }
       out.meta["layout"] = n->fact("layout");
     } else {
       out.meta["type"] = n->type ? Json(*n->type) : Json();

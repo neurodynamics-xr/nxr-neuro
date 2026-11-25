@@ -17,6 +17,7 @@
 #include "nxr/io/finder.h"
 #include "nxr/io/layout.h"
 #include "nxr/io/statistic.h"
+#include "nxr/io/subject_reads.h"
 #include "nxr/io/task/dataset.h"
 #include "nxr/io/writer.h"
 
@@ -261,9 +262,14 @@ Json describe_selection(const Ctx& c, const Row& s) {
 
 // ---- operators ----
 Json describe_operator(const Ctx& c, const Row& o) {
-  auto end = [&](const char* manifold, const char* selection) { return Json{{"manifold", c.ref("manifold", o, manifold)}, {"selection", c.ref("selection", o, selection)}}; };
+  // a TRANSITION operator's two ends are coordinate systems (`SPACE:NAME`); a manifold map's `coordinate_system` is null
+  auto end = [&](const char* manifold, const char* selection, const char* system) {
+    return Json{{"manifold", c.ref("manifold", o, manifold)}, {"selection", c.ref("selection", o, selection)},
+                {"coordinate_system", is_null(o, system) ? Json() : Json(coordinate_system_key(c.db, text(o, system)))}};
+  };
   return Json{{"id", Jt(o, "id")}, {"name", Jt(o, "name")}, {"kind", Jt(o, "kind")}, {"type", c.typed("operator", o)}, {"label", Jt(o, "label")}, {"acquisition", acquisition_of(c, o)},
-              {"description", Jt(o, "description")}, {"from", end("from_manifold_id", "from_selection_id")}, {"to", end("to_manifold_id", "to_selection_id")},
+              {"description", Jt(o, "description")}, {"from", end("from_manifold_id", "from_selection_id", "from_coordinate_system_id")},
+              {"to", end("to_manifold_id", "to_selection_id", "to_coordinate_system_id")},
               // how its values are read (D93): dense (one array), csr / csc (data, indices, indptr), or analytic (no values: evaluated from its method and parameters)
               {"layout", Jt(o, "layout")},
               {"method", Jt(o, "method")}, {"parameters", Jj(o, "params_json")}, {"shape", Json{{"rows", Jt(o, "n_rows")}, {"columns", Jt(o, "n_cols")}, {"nonzeros", Jt(o, "nnz")}}},

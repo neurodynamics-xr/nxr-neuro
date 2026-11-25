@@ -731,7 +731,7 @@ condition's channel file, the surface its kernels index, a template's only corte
 | `nxr-neuro add selection` | A partition or set (`--members`), a pick (`--indices`) or spans on a line (`--spans`), `--type` naming which; `--of-field`, `--weights V.npy`, `--producer JSON`. | |
 | `nxr-neuro add statistic` | Values on named axes (`--axes NAME:MANIFOLD ...`), with `--measure` and `--method` from the registries, of a field (`--of-field`) or detached. | |
 | `nxr-neuro add measurements` | One value a member of a selection for each measure (`--measure NAME=V.npy ...`), of a field (`--field`) or the members' own. | |
-| `nxr-neuro add operator` | A map between two manifolds, dense (`--values` [to x from]), sparse CSR (`--data --indices --indptr`) or analytic (`--layout analytic --method NAME --params JSON`, no matrix); `--from-selection`, `--producer JSON`. | |
+| `nxr-neuro add operator` | A map between two manifolds, dense (`--values` [to x from]), sparse CSR (`--data --indices --indptr`) or analytic (`--layout analytic --method NAME --params JSON`, no matrix); `--from-selection`, `--producer JSON`; or a transition between two coordinate systems (`--from-coordinate-system SPACE:NAME --to-coordinate-system SPACE:NAME`, `--values` one affine [3 x 4]). | |
 | `nxr-neuro add points` | A manifold of points: positions [n x 3] or one coordinate each [n]. | |
 | `nxr-neuro add line` | A closed-form line: `--n`, `--spacing`, `--origin`, `--unit`; `--dimension time` (seconds) makes a time line fields can be time-resolved on. With `--coordinates C.npy --dimension eigenvalue [--kinds K.npy]`, a line whose points are not evenly spaced. | |
 | `nxr-neuro add product` | The product manifold of stored factors (`--name N --factors A,B`: a line over time, a surface over time). | |
@@ -811,6 +811,14 @@ refusals store nothing). Each option is stored in a column the schema already ha
   the selection and named in its parameters (`weights`; `read selection` gives the array `weights`, `read subject` the flag `weights`); **`--producer JSON`** as above.
 - **`add operator --layout analytic --method NAME [--params JSON] [--from-selection NAME]`** stores an operator by its method, with no matrix (`stored` false, no array to read); `--from-selection` names the
   selection of the from manifold it reads, for any layout; **`--producer JSON`** as for `add field`.
+- **`add operator --from-coordinate-system SPACE:NAME --to-coordinate-system SPACE:NAME --values AFFINE.npy`** stores a TRANSITION between two coordinate systems of the subject, as the importers store one
+  (kind `transition`, the default kind when the systems are given). Each system is named `SPACE:NAME` (`head:scs`; a name is unique within its space and may hold a colon: `head:voxel:T1_volume`); both are
+  given or neither, and the subject must already hold them (a refusal lists what it holds). `--values` is ONE affine [3 x 4], float32 or float64: the first three columns carry rotation, scale and shear, the
+  fourth the translation, and the TO system's numbers are the matrix applied to `[x y z 1]` in the FROM system's numbers (`to = A [from; 1]`). The row's description and its producer record (`convention`) say so.
+  `--from-manifold` stays required (the row's domain: the manifold whose positions are in the from system, an image's volume for a voxel system); `--to-manifold` is optional; the matrix is not checked against the
+  manifolds' sizes. Refused: one system without the other, an unknown system, a matrix that is not [3 x 4], a non-finite entry, a singular 3 x 3 part, and `--data`, `--layout`, `--method` or `--from-selection`.
+  `read operator` and `list operators` give `from_coordinate_system` and `to_coordinate_system` (`read operator`: top-level keys; `list operators`: `from.coordinate_system` and `to.coordinate_system`),
+  `SPACE:NAME`, null for a map between manifolds; `delete subject --node operator:NAME` removes it as any operator.
 - **`add dictionary --name N --scope dataset|subject [--subject S] --entries E.json`**: the entries are a JSON list (the file, or the text itself; in Python and JavaScript a list of objects) of
   `{code, name, label, colour, description, params}`; codes are unique and a colour is `#rrggbb`, else refused; a dictionary of that name and scope that exists is refused. `--subject` opens the unit
   (required for a subject scope and for a catalogue of packages; a one-database dataset's dataset-scope dictionary needs none). The label and the description are kept with the entry's attributes; `read
