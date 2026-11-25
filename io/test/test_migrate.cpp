@@ -66,14 +66,13 @@ std::string add_field(SubjectWriter& sub, const std::string& name, const std::st
 }
 
 // A one-database dataset: a template (a surface, a subject-scope dictionary of tiles, a large field), two subjects registered to it (each with a field and an
-// operator on the template's surface, a selection coded by the template's dictionary, a large field), and a group subject whose field is on the template.
+// operator on the template's surface, a selection coded by the template's dictionary, a large field) (no group subject: format 56; the template holds the cohort).
 void make_old(const fs::path& datastore, const std::string& name, int store_format) {
   CreateOptions co;
   co.store_format = store_format;
   DatasetWriter ds = create_dataset(datastore, name, co);
   SubjectOptions topt;
   topt.kind = "template";
-  topt.default_template = false;
   SubjectWriter t = SubjectWriter::create(ds, "@default_subject", topt);
   const std::string tm = add_surface(t, "cortex");
   add_field(t, "template_map", tm, 400000);
@@ -103,16 +102,6 @@ void make_old(const fs::path& datastore, const std::string& name, int store_form
     s.operator_(o);
     s.complete();
   }
-  SubjectOptions gopt;
-  gopt.kind = "group";
-  gopt.default_template = false;
-  SubjectWriter g = SubjectWriter::create(ds, "G", gopt);
-  FieldSpec gf;
-  const std::vector<double> mean(4, 1.0);
-  gf.name = "group mean"; gf.path = "group_mean"; gf.kind = "map"; gf.manifold_id = tm; gf.data = view(mean, {4});
-  gf.contributions.push_back({1.0, text(*ds.subject("S1"), "id"), small_of["S1"]});
-  g.field(gf);
-  g.complete();
 }
 
 // every subject's keys with their SHA-256: from the format 52 table or from a package
@@ -170,7 +159,7 @@ int main() {
   const fs::path ds = root / "demo";
   fs::copy_file(ds / kDatasetFile, root / "original.sqlite");
   const auto keys_before = key_snapshot(ds);
-  CHECK_EQ(keys_before.size(), std::size_t(4));
+  CHECK_EQ(keys_before.size(), std::size_t(3));
   const auto shards_before = tree(ds);
 
   // a dry run changes nothing
@@ -179,7 +168,7 @@ int main() {
     dry.dry_run = true;
     const Json plan = split_dataset(ds, dry);
     CHECK(plan["dry_run"] == true);
-    CHECK_EQ(plan["subjects"].size(), std::size_t(4));
+    CHECK_EQ(plan["subjects"].size(), std::size_t(3));
     CHECK(tree(ds) == shards_before);
   }
   CHECK(what_of([&] { split_dataset(ds, SplitOptions{}); }).find("registered_by") != std::string::npos);
@@ -193,16 +182,11 @@ int main() {
   CHECK(!fs::exists(ds / kDatasetFile));
   CHECK(fs::exists(ds / "dataset.sqlite.format52"));
   CHECK(fs::exists(ds / kCatalogueFile) && fs::exists(ds / kIndexFile));
-  CHECK_EQ(rep["subjects"].size(), std::size_t(4));
+  CHECK_EQ(rep["subjects"].size(), std::size_t(3));
   for (const auto& s : rep["subjects"]) { CHECK(s["outcome"] == "migrated"); CHECK(s["keys"].get<int>() > 1); }
   const Catalogue cat = Catalogue::open(ds);
-  CHECK_EQ(cat.entries().size(), std::size_t(4));
+  CHECK_EQ(cat.entries().size(), std::size_t(3));
   CHECK_EQ(cat.find("@default_subject")->kind, std::string("template"));
-  CHECK_EQ(cat.find("G")->kind, std::string("group"));
-  const auto refs = cat.template_references();
-  CHECK_EQ(refs.size(), std::size_t(1));
-  CHECK(refs[0]["name"] == "demo-default" && refs[0]["version"] == "local" && refs[0]["edition"] == "full");
-  CHECK(refs[0]["content_hash"] == cat.find("@default_subject")->content_hash);
   // each package: whole, its own bundle the original's, its template named, its anchors listed
   Database original = Database::open(ds / "dataset.sqlite.format52", false, "", true);
   for (const auto& e : cat.entries()) {
@@ -210,20 +194,21 @@ int main() {
     const VerifyReport v = p.verify();
     CHECK(v.ok);
     for (const auto& s : v.problems) std::printf("  %s: %s\n", e.name.c_str(), s.c_str());
-    CHECK(*p.bundle() == *subject_bundle(original, e.subject_id));
+    {   // the bundle is the original's but for the subject's template link (format 56: a subject names no template)
+      Json a = *p.bundle(), b = *subject_bundle(original, e.subject_id);
+      for (Json* x : {&a, &b}) if (x->contains("subject") && (*x)["subject"].is_object()) (*x)["subject"].erase("template_id");
+      CHECK(a == b);
+    }
     CHECK(!fs::exists(cat.package_path(e) / kSmallFilesFile));
     CHECK(fs::exists(cat.package_path(e) / "small_files.sqlite.format52"));
     CHECK(p.db().all("PRAGMA foreign_key_check").empty());
     const std::int64_t anchors = integer(*p.db().one("SELECT count(*) AS n FROM anchor_row"), "n");
     if (e.name == "S1" || e.name == "S2") {
-      CHECK(p.record().template_reference["name"] == "demo-default");
+      CHECK(p.record().template_reference.is_null() && is_null(p.subject_row(), "template_id"));   // format 56: a subject names no template
       CHECK(anchors > 0);
       CHECK(p.db().one("SELECT 1 FROM anchor_row WHERE table_name = 'manifold'").has_value());
       CHECK(p.db().one("SELECT 1 FROM anchor_row WHERE table_name = 'dictionary'").has_value());                 // the template's tiles
       CHECK(integer(*p.db().one("SELECT count(*) AS n FROM dictionary_entry e JOIN dictionary d ON d.id = e.dictionary_id WHERE d.name = 'tiles'"), "n") == 2);
-    } else if (e.name == "G") {
-      CHECK(p.db().one("SELECT 1 FROM anchor_row WHERE table_name = 'field'").has_value());                         // S1's source field
-      CHECK(p.db().one("SELECT 1 FROM anchor_row WHERE table_name = 'subject'").has_value());
     } else {
       CHECK_EQ(anchors, std::int64_t(0));
     }
@@ -245,7 +230,7 @@ int main() {
   // CRASH at each stage of one subject, then the same command again: the same packages as the clean run
   const Json clean = split_dataset(root / "clean", so);
   const auto want = package_hashes(root / "clean");
-  CHECK_EQ(want.size(), std::size_t(4));
+  CHECK_EQ(want.size(), std::size_t(3));
   for (const char* stage : {"built", "verified", "committed", "registered"}) {
     const fs::path d = root / (std::string("crash-") + stage);
     SplitOptions stop = so;
@@ -254,7 +239,7 @@ int main() {
     CHECK(fs::exists(d / kDatasetFile));                                       // the old database is untouched until the end
     CHECK(!fs::exists(d / kWriterLockFile));                                   // and the lock is let go
     const Json done = split_dataset(d, so);
-    CHECK(done["subjects"].size() == 4);
+    CHECK(done["subjects"].size() == 3);
     CHECK(package_hashes(d) == want);
     CHECK(key_snapshot(d) == keys_before);
     for (const auto& e : Catalogue::open(d).entries()) CHECK(SubjectPackage::open(Catalogue::open(d).package_path(e)).verify().ok);
@@ -281,7 +266,7 @@ int main() {
     }
     CHECK(key_snapshot(ds) == keys_before);
     CHECK(shards(ds) == before_join);
-    CHECK(j["subjects"].size() == 4);
+    CHECK(j["subjects"].size() == 3);
     for (const auto& e : fs::directory_iterator(ds)) if (e.is_directory() && e.path().filename().string().find(".nxr.zarr") != std::string::npos) {
       CHECK(fs::exists(e.path() / kSmallFilesFile));
       CHECK(!fs::exists(e.path() / kPackageDatabaseFile));
@@ -294,7 +279,7 @@ int main() {
     CHECK(join_dataset(ds)["already_joined"] == true);
     // and splits again
     const Json second = split_dataset(ds, so);
-    CHECK(second["subjects"].size() == 4);
+    CHECK(second["subjects"].size() == 3);
     CHECK(key_snapshot(ds) == keys_before);
     CHECK(fs::exists(ds / "dataset.sqlite.format52-2"));                          // the earlier copy is kept, not overwritten
   }
@@ -305,7 +290,7 @@ int main() {
     const fs::path od = root / "older" / "old";
     CHECK_EQ(store_format_number(Database::open(od / kDatasetFile, false, "", true)), 51);
     const Json r = split_dataset(od, so);
-    CHECK_EQ(r["subjects"].size(), std::size_t(4));
+    CHECK_EQ(r["subjects"].size(), std::size_t(3));
     const Catalogue c = Catalogue::open(od);
     for (const auto& e : c.entries()) CHECK(SubjectPackage::open(c.package_path(e)).verify().ok);
     CHECK_EQ(store_format_number(Database::open(od / "dataset.sqlite.format52", false, "", true)), 52);

@@ -268,6 +268,8 @@ test_schema51	unit
 test_schema53	unit
 test_schema54	unit
 test_schema55	unit
+test_schema56	unit
+test_template_links	unit
 test_select_makers	integration
 test_signal_design	golden
 test_signal_grid	golden

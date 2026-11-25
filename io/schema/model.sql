@@ -173,11 +173,12 @@ CREATE INDEX dataset_datastore ON dataset (datastore_id);
 -- A DATASET IS A COLLECTION OF SUBJECTS, and what accumulates OVER subjects lives in
 -- PSEUDO-SUBJECTS of the same dataset (register D55) — exactly Brainstorm's shape:
 --   kind  subject    a person's data
---         template   the default anatomy (`anat/@default_subject`: the template T1, cortex,
---                    atlases) — the manifolds group results are on, and the anatomy a
---                    subject INHERITS (`template_id`) instead of copying
---         group      group averages and statistics (`Group_analysis`, `data/@inter`):
---                    Fields whose contributions (`field_contribution`) are the subjects'
+--         template   the dataset's template (`anat/@default_subject`: the template T1, cortex,
+--                    atlases). Since schema 56 it HOLDS THE COHORT: each subject's registration
+--                    onto it, each subject's results carried onto it, and the averages and
+--                    statistics over them (Fields whose contributions (`field_contribution`) are
+--                    the subjects'). A subject names no template (`template_id` always NULL); the
+--                    template refers to its subjects. The kind `group` is retired (56).
 -- No node table changes for this: a group average is an ordinary Field, on a manifold the
 -- group or the template owns (a manifold_id may point into another subject — rows are
 -- global; a registration Operator maps a subject's cortex to the template's).
@@ -187,8 +188,8 @@ CREATE TABLE subject (
   dataset_id      TEXT NOT NULL REFERENCES dataset (id) ON DELETE CASCADE,
   name            TEXT NOT NULL,         -- the user-facing label: the `subject` attribute ('sub-0002')
   path            TEXT NOT NULL,         -- dataset-relative: the store folder ('sub-0002.nxr.zarr')
-  kind            TEXT NOT NULL DEFAULT 'subject' CHECK (kind IN ('subject', 'template', 'group', 'registration')),
-  template_id     TEXT REFERENCES subject (id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED,  -- the template whose anatomy this subject uses
+  kind            TEXT NOT NULL DEFAULT 'subject' CHECK (kind IN ('subject', 'template', 'registration')),
+  template_id     TEXT REFERENCES subject (id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED,  -- RETIRED (schema 56): always NULL; a subject names no template
   source_format   TEXT,                  -- sourceFormat   'brainstorm'
   source_path     TEXT,                  -- sourcePath     the subject's folder in that tool — a HINT
   created_utc     TEXT,                  -- when the store was written (the converter writes these two)
@@ -196,7 +197,7 @@ CREATE TABLE subject (
   modified_utc    TEXT,                  -- last write to the store by any writer (extend, Prepare, the app)
   modified_by     TEXT,
   UNIQUE (dataset_id, path),
-  CHECK (template_id IS NULL OR kind = 'subject')
+  CHECK (template_id IS NULL)
 ) STRICT;
 CREATE INDEX subject_dataset ON subject (dataset_id, kind);
 
@@ -1218,8 +1219,8 @@ SELECT t.id, json_object('class', 'statistic', 'id', t.id, 'status', t.status, '
 -- The subject kind `registration` (the package of a registration between two templates) is in the `subject` table's kind list above.
 -- What the subject-centred format (docs/specs/2026-11-16-subject-centred-datasets.md, sections 2, 3 and 8) adds to the model. `key_digest` is a subject package's: the
 -- size and SHA-256 of every key's value, from which its content hash and the migration's verification are computed without re-reading the shards. `subject_entry` and
--- `template_reference` are a dataset catalogue's: one entry per member subject (its package's versions, content hash and counts, so a subject list opens no package)
--- and the templates its subjects are registered to. A one-database dataset holds all three empty.
+-- `template_reference` (dropped in schema 56: a subject names no template) were a dataset catalogue's: one entry per member subject (its package's versions,
+-- content hash and counts, so a subject list opens no package). A one-database dataset holds all three empty.
 CREATE TABLE key_digest (
   key        TEXT PRIMARY KEY,
   size_bytes INTEGER NOT NULL,
@@ -1238,11 +1239,6 @@ CREATE TABLE subject_entry (
   n_fields INTEGER NOT NULL DEFAULT 0, n_operators INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
-CREATE TABLE template_reference (
-  name TEXT NOT NULL, edition TEXT NOT NULL DEFAULT 'full', version TEXT NOT NULL,
-  subject_id TEXT NOT NULL, content_hash TEXT NOT NULL, location_hint TEXT,
-  PRIMARY KEY (name, edition, version)
-) STRICT;
 -- ── schema 51 (end) ──
 
 -- ── schema 52 (begin: Database::open runs this block on a database at 51, in place) ───────────────────────────────────────────────────────────
@@ -1297,6 +1293,13 @@ FROM selection_factor f JOIN selection s ON s.id = f.factor_selection_id;
 -- The only change is the two CHECKs on `operator` (no column, no row changes): the migration replaces their text in place (SQLite's writable_schema procedure); every row stays valid.
 -- ── schema 55 (end) ──
 
+-- ── schema 56 (begin: Database::open runs this on a database at 55, in place; `migrate_55_to_56` in database.cpp) ───────────────────────────
+-- THE TEMPLATE HOLDS THE COHORT: a subject names no template. `subject.template_id` is retired (always NULL; the column stays, SQLite cannot drop a column a
+-- foreign key and views name) and the kind `group` is retired: cohort results are written into the dataset's template subject, which refers to its subjects.
+-- The catalogue's `template_reference` table is dropped. The open-time migration only rewrites the two CHECKs and drops the table; a database whose rows still
+-- name a template or hold a `group` subject is refused there, and is brought to 56 by `nxr-neuro migrate` (which moves those rows).
+-- ── schema 56 (end) ──
+
 -- ── BEGIN GENERATED: the attribute views (backend/scripts/gen-attribute-views.mjs) — do not edit ──
 -- One view per node table: its zarr.json attributes as TEXT (D145). Every writer writes zarr.json from these, in any language.
 CREATE VIEW manifold_attributes AS
@@ -1332,12 +1335,12 @@ SELECT o.id, json_object('class', 'operator', 'id', o.id, 'status', o.status, 's
 ) AS attributes FROM operator o;
 
 CREATE VIEW subject_attributes AS
-SELECT s.id, json_object('class', 'subject', 'schema_version', 55, 'id', s.id, 'status', s.status, 'dataset_id', s.dataset_id, 'name', s.name, 'path', s.path, 'kind', s.kind, 'template_id', s.template_id, 'source_format', s.source_format, 'source_path', s.source_path, 'created_utc', s.created_utc, 'created_by', s.created_by, 'modified_utc', s.modified_utc, 'modified_by', s.modified_by,
+SELECT s.id, json_object('class', 'subject', 'schema_version', 56, 'id', s.id, 'status', s.status, 'dataset_id', s.dataset_id, 'name', s.name, 'path', s.path, 'kind', s.kind, 'template_id', s.template_id, 'source_format', s.source_format, 'source_path', s.source_path, 'created_utc', s.created_utc, 'created_by', s.created_by, 'modified_utc', s.modified_utc, 'modified_by', s.modified_by,
   'rows_without_path', json_object('manifold', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM manifold r JOIN manifold_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'selection', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM selection r JOIN selection_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'field', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM field r JOIN field_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'operator', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM operator r JOIN operator_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL)),
   'acquisitions', (SELECT json_group_array(json_object('id', a.id, 'label', a.label, 'ses', a.ses, 'task', a.task, 'run', a.run, 'acq', a.acq, 'proc', a.proc, 'split', a.split) ORDER BY a.label) FROM acquisition a WHERE a.subject_id = s.id)
 ) AS attributes FROM subject s;
 
 CREATE VIEW dataset_attributes AS
-SELECT d.id, json_object('class', 'dataset', 'schema_version', 55, 'id', d.id, 'datastore_id', d.datastore_id, 'name', d.name, 'path', d.path, 'source_tool', d.source_tool, 'source_protocol', d.source_protocol, 'source_path', d.source_path, 'created_utc', d.created_utc, 'created_by', d.created_by, 'modified_utc', d.modified_utc, 'modified_by', d.modified_by) AS attributes FROM dataset d;
+SELECT d.id, json_object('class', 'dataset', 'schema_version', 56, 'id', d.id, 'datastore_id', d.datastore_id, 'name', d.name, 'path', d.path, 'source_tool', d.source_tool, 'source_protocol', d.source_protocol, 'source_path', d.source_path, 'created_utc', d.created_utc, 'created_by', d.created_by, 'modified_utc', d.modified_utc, 'modified_by', d.modified_by) AS attributes FROM dataset d;
 -- ── END GENERATED: the attribute views ──
-PRAGMA user_version = 55;
+PRAGMA user_version = 56;

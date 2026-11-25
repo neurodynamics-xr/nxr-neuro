@@ -36,7 +36,7 @@ inline DatasetWriter open_dataset(const std::string& folder, const std::optional
   if (o.lock) pieces::discard_orphans(folder);   // a writable open recovers: the unfinished writes in pieces of a handle whose process is gone are rolled back with the rows pending
   if (is_catalogue_dataset(folder)) {
     if (!subject) throw Refused(folder + " is a catalogue of subject packages: name the subject to work on with --subject", true);
-    return open_subject_package(folder, *subject, o, search_of(templates));
+    return open_subject_package(folder, *subject, o);
   }
   if (fs::is_regular_file(fs::path(folder) / "dataset.sqlite"))
     note(progress, folder + " is a one-database dataset; `nxr-neuro split dataset` makes it a catalogue of subject packages (the default form).");

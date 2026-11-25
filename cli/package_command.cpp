@@ -2,7 +2,7 @@
 // command to one action here). The subject packages and the dataset module (store format 53), a thin front on io/include/nxr/io/{subject_package,catalogue,participants,
 // dataset_index,migrate,templates}.h: it parses and prints; every choice of data is named on the command line.
 //
-//   package create  --package P --name S --home-dataset N [--kind subject|template|group]
+//   package create  --package P --name S --home-dataset N [--kind subject|template]
 //   package verify  --package P
 //   package show    --package P
 //   package register --dataset D (--package P ... | --scan) --registered-by WHO [--replace] [--templates DIR ...]

@@ -256,14 +256,10 @@ SubjectWriter SubjectWriter::create(DatasetWriter& ds, const std::string& name, 
   if (ds.db().one("SELECT 1 FROM subject WHERE dataset_id = ? AND (path = ? OR name = ?)", {ds.id(), folder, name}))
     throw file_exists(name + ": already a subject of " + text(ds.row(), "name") + " — delete it first (a subject is converted whole)");
   ds.node_store().erase_prefix(join_key(text(ds.row(), "path"), folder));  // debris of a crash
-  std::optional<std::string> template_id = opt.template_id;
-  if (!template_id && opt.default_template) {
-    const auto t = opt.kind == "subject" ? ds.template_() : std::nullopt;
-    if (t) template_id = text(*t, "id");
-  }
   const std::string now = now_utc(false);
   const std::string sid = uuid7();
-  Row row = {{"id", sid}, {"dataset_id", ds.id()}, {"name", name}, {"path", folder}, {"kind", opt.kind}, {"template_id", V(template_id)},
+  Row row = {{"id", sid}, {"dataset_id", ds.id()}, {"name", name}, {"path", folder}, {"kind", opt.kind}, {"template_id", Value()},   // format 56: a subject names no template
+            
              {"source_format", V(opt.source_format)}, {"source_path", V(opt.source_path)}, {"created_utc", now}, {"created_by", V(opt.created_by)},
              {"modified_utc", now}, {"modified_by", V(opt.created_by)}};
   if (opt.immediate) {

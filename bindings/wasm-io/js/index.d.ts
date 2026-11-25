@@ -26,9 +26,8 @@ export interface RunOptions {
   replace?: boolean;
   dry_run?: boolean;
   preset?: string;
-  /** a group definition: the members (names, in order) and the group package `into` */
+  /** a group definition: the members (names, in order); its results go into the dataset's template */
   subjects?: string[];
-  into?: string;
   progress?: (line: Record<string, unknown>) => void;
   /** every other key is a parameter of the pipeline (`nxr.list.pipelines()`) */
   [parameter: string]: unknown;

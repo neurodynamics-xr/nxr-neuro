@@ -378,14 +378,14 @@ def verbs() -> dict[str, _Verb]:
 # ---- run ----
 
 def run(pipeline: str, dataset=None, subject: str | None = None, *, from_: float | None = None, to: float | None = None, all: bool = False, replace: bool = False,
-        dry_run: bool = False, preset: str | None = None, subjects: list[str] | None = None, into: str | None = None, progress: Callable[[dict], None] | None = None,
+        dry_run: bool = False, preset: str | None = None, subjects: list[str] | None = None, progress: Callable[[dict], None] | None = None,
         _handle=None, **parameters) -> Result:
     """`nxr-neuro run PIPELINE --dataset D --subject S (--from S --to S | --all) [--<parameter> VALUE ...]`: a pipeline on a subject.
 
     The time range is REQUIRED and the caller's: `from_` and `to` in seconds on the recording's clock (both), or `all=True` (the whole recording, still read one chunk at a
     time); none is refused. The pipeline's parameters are keyword arguments (`nxr_neuro.list.pipelines()` lists each one's meaning, default and unit); `preset` names one of
     its parameter sets (the command line's `--set NAME`). `replace=True` moves another job's outputs of the same names aside (never deleted); `dry_run=True` plans only. A group
-    definition runs over `subjects` (names, in order) into the group package `into`. `progress` receives each progress line as a dict. `projectors` (the command line's
+    definition runs over `subjects` (names, in order); its results go into the dataset's template (format 56: the template holds the cohort). `progress` receives each progress line as a dict. `projectors` (the command line's
     --projectors) is "active" (the default), "none", or the projectors' names (a list or comma-separated text: exactly those applied, whatever their stored status).
 
     Returns the result: {pipeline, subject, cache ("hit" | "computed"), stored: [{output, name, id, path}], runs, seconds}. Read what was stored with `nxr_neuro.read.<class>`.
@@ -396,11 +396,11 @@ def run(pipeline: str, dataset=None, subject: str | None = None, *, from_: float
                                        f"give {new}= instead of {old}=")
     if dataset is None:
         raise TypeError("nxr_neuro.run needs the dataset: run(pipeline, dataset=..., subject=..., from_=..., to=... | all=True)")
-    group = subjects is not None or into is not None
+    group = subjects is not None
     if not group and subject is None:
         raise TypeError("nxr_neuro.run needs the subject: run(pipeline, dataset=..., subject=..., from_=..., to=... | all=True)")
     text = _core._run(os.fspath(dataset), subject or "", os.fspath(pipeline), json.dumps(parameters, default=_plain), None if from_ is None else float(from_),
-                      None if to is None else float(to), bool(all), bool(replace), bool(dry_run), preset or "", [str(s) for s in (subjects or [])], into or "",
+                      None if to is None else float(to), bool(all), bool(replace), bool(dry_run), preset or "", [str(s) for s in (subjects or [])],
                       None if progress is None else (lambda line: progress(json.loads(line))), _handle)
     return Result(json.loads(text))
 

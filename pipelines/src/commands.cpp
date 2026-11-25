@@ -24,15 +24,10 @@ namespace nxr::pipelines::face {
 
 namespace {
 
-TemplateSearch search_of(const std::vector<std::string>& templates) {
-  TemplateSearch s;
-  for (const auto& p : templates) s.command_paths.push_back(p);
-  return s;
-}
 
 // the subject's dataset as every command opens it (a catalogue's subject package, or a one-database dataset; nxr/io/task/commands.h)
 DatasetWriter open_subject_dataset(const std::string& folder, const std::string& subject, const OpenOptions& o, const std::vector<std::string>& templates, const Progress& progress) {
-  if (is_catalogue_dataset(folder)) return open_subject_package(folder, subject, o, search_of(templates));
+  if (is_catalogue_dataset(folder)) return open_subject_package(folder, subject, o);
   if (progress && fs::is_regular_file(fs::path(folder) / "dataset.sqlite"))
     progress(Json{{"stage", "note"}, {"note", folder + " is a one-database dataset; `nxr-neuro split dataset` makes it a catalogue of subject packages (the default form)."}});
   return open_writer(folder, o);

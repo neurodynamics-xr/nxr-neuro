@@ -39,13 +39,12 @@ struct RunRequest {
   std::string preset;                      // a named parameter set of the definition to start from (`run measure --set cortical_band_pyramid`); provenance only, the cache key is the resolved parameters
   bool dry_run = false;                    // plan only: every run's plan as text, nothing read or stored
 };
-/** What a face asks of a GROUP run (a definition of scope group: `roll_up` across subjects): the member subjects are the caller's (no default), the result is stored in the group's default subject of the
- *  dataset (`into`, the group package named by the caller in a catalogue; the dataset's default subject otherwise). */
+/** What a face asks of a GROUP run (a definition of scope group: `roll_up` across subjects): the member subjects are the caller's (no default), the result is stored in the dataset's
+ *  template (format 56: the template holds the cohort; a catalogue's one member of kind template, a one-database dataset's default subject). */
 struct GroupRunRequest {
   std::string pipeline;
   Json parameters = Json::object();
   std::vector<std::string> subjects;       // the members, by name, in the order of the stack
-  std::string into;                        // the group package (a catalogue dataset) or the default subject's name (a one-database dataset)
   bool replace = false;
   std::string preset;
   bool dry_run = false;

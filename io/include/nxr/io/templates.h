@@ -11,7 +11,8 @@
 //   FOUND BY NAME, VERSION AND HASH through the TEMPLATE SEARCH PATH, in order: the locations the command names, the environment variable NXR_TEMPLATE_PATH (a list
 //   separated as PATH is), the user setting `template_path` of nxr's settings file, and the hint recorded with the reference. The path says only WHERE to look; WHICH
 //   template is used is fixed by the reference, so no setting chooses data. A package with the right name and version but another hash is skipped and reported.
-//   A SUBJECT records the template (name, edition, version, hash) and the registration it uses; its package carries the anchor rows of the template its rows point at.
+//   A SUBJECT names no template (format 56): the dataset's own template subject holds the cohort (each subject's registration onto it, the carried results, the
+//   averages and statistics) and refers to its subjects. Released templates and registrations serve building and comparing templates only.
 //   A REGISTRATION between two templates is a package of kind `registration`, released and versioned the same way.
 //   The datastore and its `catalog.json` are RETIRED: nothing here reads or writes them (the old calls stay for reading a dataset before it is split).
 #pragma once
@@ -81,13 +82,6 @@ ReleaseReport release_package(const std::filesystem::path& package, const Releas
 // The redistributable edition of a released full edition, in `into` (the same name and version).
 ReleaseReport release_redistributable(const std::filesystem::path& full_edition, const std::filesystem::path& into, const std::string& released_by);
 
-// ── a subject and its template ─────────────────────────────────────────────────────────────────────────────────
-// Register the subject package open in `writer` to a template: the anchor rows of the template its rows reach (and `roots`, rows of the template to anchor first:
-// (table, id) of its manifolds), `subject.template_id` the template's subject, and the record's template reference. A cohort is never pooled across versions, so a
-// subject is moved to another version only by calling this again with that version's template (the caller's request).
-void register_to_template(DatasetWriter& writer, const ResolvedTemplate& tmpl, const std::vector<std::pair<std::string, std::string>>& roots = {});
-// Record the registration between templates the subject's carried nodes use.
-void record_registration(DatasetWriter& writer, const TemplateRef& registration);
 // The id of a manifold of a released template, by name.
 std::string template_manifold_id(const ResolvedTemplate& tmpl, const std::string& manifold_name);
 

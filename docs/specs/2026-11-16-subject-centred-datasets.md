@@ -579,3 +579,12 @@ reading it, only after phase G and its three-way parity tests; until then it is 
 - Ported, not redesigned: the row set of a subject and the vocabulary remap (nxr's `shared_dataset` fragment and merge), the bundle's queries and its
   "following the template" (the Studio's `bundleOf`), the participants tables (the model's `variable_dictionary` and `subject_variable`), the writer
   lock, `dataset compact`'s verify-then-commit.
+
+## Amendment (2026-11-24): the template holds the cohort (format 56)
+
+This amendment replaces what this document says about group packages and about a subject naming its template. A dataset has one template
+subject, its own copy. A subject package is self-contained: it names no template (no `template_id`, no record reference, no anchor rows from a
+template). The template holds each subject's registration onto it, each subject's results carried onto it, and the averages and statistics over
+them; it refers to its subjects. Cohort results (group fields, roll-ups, fingerprint statistics, their nulls) are written into the template, with
+their members and the members' content hashes in their provenance; there is no group package and no `--into`. Datasets made before are brought to
+format 56 by `migrate template-links`. Released templates and registrations between templates remain, for building and comparing templates.

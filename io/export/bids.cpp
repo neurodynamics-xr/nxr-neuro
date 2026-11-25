@@ -70,8 +70,7 @@ Json export_bids_derivatives(const fs::path& package, const BidsDerivativesExpor
 
   std::string space;
   if (o.space) space = label_of(*o.space);
-  else if (rec.template_reference.is_object() && rec.template_reference.contains("name") && rec.template_reference["name"].is_string()) space = label_of(rec.template_reference["name"].get<std::string>());
-  if (space.empty()) refuse("the subject is not registered to a template and no space was named: name the `space-` entity (--space)");
+  if (space.empty()) refuse("no space was named: name the `space-` entity (--space); a subject names no template (format 56)");
   const std::string sub = label_of(rec.name);
   if (sub.empty()) refuse("the subject's name '" + rec.name + "' holds no letter or digit for the `sub-` entity");
 

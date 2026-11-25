@@ -1,4 +1,4 @@
-// Templates as packages: origin records, release and freezing, the two editions, the search path, a subject registered to a template, a registration between two
+// Templates as packages: origin records, release and freezing, the two editions, the search path, a subject that names no template (format 56), a registration between two
 // templates, and the datastore's catalog.json no longer written. Synthetic data only.
 #include <unistd.h>
 
@@ -204,71 +204,26 @@ int main() {
     CHECK(has(what_of([&] { release_redistributable(rel.folder, shelf, "test"); }), "already released"));
   }
 
-  // A SUBJECT registered to a template: its anchor rows, its record, its bundle complete without the template
+  // A SUBJECT names no template (format 56): its package carries no reference, no template_id and no anchor row; the dataset's template holds the cohort
   TemplateRef aref = parse_template_ref("A@1.0");
   aref.content_hash = work_hash;
   const ResolvedTemplate A = resolve_template(aref, here);
   const fs::path ds = root / "cohort";
   Catalogue cat = create_catalogue(ds, CreateCatalogueOptions{.name = "cohort"});
-  auto make_subject = [&](const std::string& name, const ResolvedTemplate& t) {
-    CreatePackageOptions po = cat.package_options();
-    DatasetWriter w = create_package(ds / (name + ".nxr.zarr"), name, po);
-    const std::string sphere = template_manifold_id(t, "sphere");
-    register_to_template(w, t, {{"manifold", sphere}});
-    SubjectWriter sub = SubjectWriter::open(w, name);
-    const std::vector<float> a(4, 3.0f);
-    FieldSpec f; f.name = "on_template"; f.path = "source/on_template"; f.kind = "map"; f.manifold_id = sphere; f.data = view(a, {4});
-    sub.field(f);
+  {
+    DatasetWriter w = create_package(ds / "S1.nxr.zarr", "S1", cat.package_options());
+    SubjectWriter sub = SubjectWriter::open(w, "S1");
     sub.complete();
-  };
-  make_subject("S1", A);
+  }
   {
     SubjectPackage p = SubjectPackage::open(ds / "S1.nxr.zarr");
-    const PackageRecord rec = p.record();
-    CHECK(rec.template_reference["name"] == "A" && rec.template_reference["version"] == "1.0" && rec.template_reference["content_hash"] == work_hash);
-    CHECK(text(p.subject_row(), "template_id") == A.record.subject_id);
-    CHECK(p.db().all("PRAGMA foreign_key_check").empty());
-    CHECK(anchor_differences(p.db(), A.folder).empty());
-    const Json b = *p.bundle();
-    bool template_surface = false;
-    for (const auto& m : b["manifolds"]) if (m["name"] == "sphere" && m["subject_id"] == A.record.subject_id) template_surface = true;
-    CHECK(template_surface);                                                       // the bundle follows the template from the package alone
-    CHECK(p.verify().ok);
-  }
-  // registering checks the anchors against the template it names
-  {
+    CHECK(p.record().template_reference.is_null());
+    CHECK(is_null(p.subject_row(), "template_id"));
+    CHECK(!p.db().one("SELECT 1 FROM anchor_row").has_value());
+    CHECK(!p.record().to_json().contains("members") && !p.record().to_json().contains("registration"));
     RegisterOptions ro;
     ro.registered_by = "test";
-    ro.templates = here;
     CHECK_EQ(register_packages(ds, {ds / "S1.nxr.zarr"}, ro)[0].outcome, std::string("registered"));
-    CHECK_EQ(Catalogue::open(ds).template_references().size(), std::size_t(1));
-    CHECK(Catalogue::open(ds).template_references()[0]["version"] == "1.0");
-    make_subject("S2", A);
-    {
-      DatasetWriter w = open_package_writer(ds / "S2.nxr.zarr");
-      w.db().execute("UPDATE manifold SET label = 'tampered' WHERE name = 'sphere' AND subject_id = ?", {A.record.subject_id});
-    }
-    const auto r = register_packages(ds, {ds / "S2.nxr.zarr"}, ro);
-    CHECK_EQ(r[0].outcome, std::string("refused"));
-    CHECK(has(r[0].reason, "anchor rows differ") && has(r[0].reason, "manifold"));
-  }
-  // a cohort is never pooled across template versions
-  {
-    const fs::path w2 = make_template(root / "work" / "A-v2.nxr.zarr", "A");
-    { DatasetWriter w = open_package_writer(w2); w.db().execute("UPDATE field SET comment = 'second version' WHERE name = 'reference_map'"); }
-    const ReleaseReport r2 = release_package(w2, ReleaseOptions{"A", "2.0", "test", shelf});
-    TemplateRef a2 = parse_template_ref("A@2.0");
-    a2.content_hash = r2.content_hash;
-    const ResolvedTemplate A2 = resolve_template(a2, here);
-    make_subject("S3", A2);
-    RegisterOptions ro;
-    ro.registered_by = "test";
-    ro.templates = here;
-    CHECK_EQ(register_packages(ds, {ds / "S3.nxr.zarr"}, ro)[0].outcome, std::string("registered"));
-    CHECK_EQ(Catalogue::open(ds).template_references().size(), std::size_t(2));
-    CHECK_EQ(select_subjects(ds, SubjectSelection{{"S1"}, std::nullopt}).members.size(), std::size_t(1));
-    const std::string why = what_of([&] { select_subjects(ds, SubjectSelection{{"S1", "S3"}, std::nullopt}); });
-    CHECK(has(why, "different template versions") && has(why, "A@1.0") && has(why, "A@2.0"));
   }
 
   // A REGISTRATION between two templates: its own versioned package
@@ -340,12 +295,6 @@ int main() {
       CHECK(z == x);
       CHECK(y == (std::vector<double>{20, 40, 10, 30}));
     }
-    // a subject records the registration it uses
-    {
-      DatasetWriter w = open_package_writer(ds / "S1.nxr.zarr");
-      record_registration(w, rref);
-    }
-    CHECK(SubjectPackage::open(ds / "S1.nxr.zarr").record().registration["name"] == "A-to-B");
   }
 
   // the datastore is retired: nothing of a package, a catalogue or a release writes a catalog.json

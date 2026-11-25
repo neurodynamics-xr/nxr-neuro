@@ -56,9 +56,7 @@ namespace {
 DatasetWriter open_for(const fs::path& folder, const std::string& subject, bool lock, const std::vector<std::string>& templates = {}) {
   OpenOptions o;
   o.lock = lock;
-  TemplateSearch search;
-  for (const auto& t : templates) search.command_paths.push_back(t);
-  if (is_catalogue_dataset(folder)) return open_subject_package(folder, subject, o, search);
+  if (is_catalogue_dataset(folder)) return open_subject_package(folder, subject, o);
   return open_writer(folder, o);
 }
 
@@ -205,21 +203,26 @@ Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progres
   if (d.scope != "group") refuse(d.name + " is not a group definition (scope " + d.scope + "): `run` takes it on one subject");
   OpenSubjectOptions oo;
   oo.created_by = stamp();
-  // the members are opened to be read, the group's default subject to be written; a catalogue dataset: each member's package, and the group package the caller names (`into`); a one-database dataset: its one writer
+  // the members are opened to be read, the dataset's template to be written (format 56: the template holds the cohort); a catalogue dataset: each member's package and
+  // the template's; a one-database dataset: its one writer
   std::vector<std::unique_ptr<DatasetWriter>> writers;
   std::vector<std::unique_ptr<SubjectWriter>> subjects;
   std::vector<g::GroupMember> members;
   DatasetWriter* group_ds = nullptr;
   std::string group_name;
   if (is_catalogue_dataset(dataset)) {
-    if (rq.into.empty()) refuse("a group run in a catalogue dataset names the group package its results go to (into)");
-    writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, rq.into, true)));
+    group_name = nxr::io::dataset_template(dataset).name;   // none or two: refused
+    writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, group_name, true)));
     group_ds = writers.back().get();
-    group_name = rq.into;
+    const nxr::io::Catalogue cat = nxr::io::Catalogue::open(dataset);
     for (const auto& name : rq.subjects) {
+      const auto e = cat.find(name);
+      if (!e) refuse(name + ": no such subject in the dataset");
+      if (e->kind != "subject") refuse(name + " is a " + e->kind + ", not a subject: a cohort holds subjects only");
       writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, name, false)));
       subjects.push_back(std::make_unique<SubjectWriter>(SubjectWriter::open(*writers.back(), name)));
-      members.push_back(g::GroupMember{name, writers.back().get(), subjects.back().get()});
+      // the member as the run reads it: its package's own content hash (a compute does not register a package again, so the catalogue's may lag)
+      members.push_back(g::GroupMember{name, writers.back().get(), subjects.back().get(), e->subject_id, nxr::io::SubjectPackage::open(cat.package_path(*e)).record().content_hash});
     }
   } else {
     writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, rq.subjects.front(), true)));
@@ -229,7 +232,7 @@ Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progres
     group_name = text(*tpl, "name");
     for (const auto& name : rq.subjects) {
       subjects.push_back(std::make_unique<SubjectWriter>(SubjectWriter::open(*group_ds, name)));
-      members.push_back(g::GroupMember{name, group_ds, subjects.back().get()});
+      members.push_back(g::GroupMember{name, group_ds, subjects.back().get(), subjects.back()->id(), std::string()});
     }
   }
   SubjectWriter group_sub = SubjectWriter::open(*group_ds, group_name, oo);
@@ -250,7 +253,7 @@ Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progres
           stored.push_back(Json{{"output", s.value("output", "")}, {"name", name}, {"id", s.value("id", "")}, {"path", s.value("path", "")}});
         }
   }
-  return Json{{"pipeline", rq.pipeline}, {"subjects", rq.subjects}, {"into", group_name}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
+  return Json{{"pipeline", rq.pipeline}, {"subjects", rq.subjects}, {"template", group_name}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
 }
 
 namespace {
