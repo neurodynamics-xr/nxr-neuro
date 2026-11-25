@@ -31,7 +31,7 @@ inline TemplateSearch search_of(const std::vector<std::string>& templates) {
 }
 
 // THE DATASET A COMMAND WORKS ON: a catalogue's subject package (found through the catalogue), or a one-database dataset (store formats 50-52), as every command opens it.
-inline DatasetWriter open_dataset(const std::string& folder, const std::optional<std::string>& subject, const OpenOptions& o, const std::vector<std::string>& templates,
+inline DatasetWriter open_dataset(const std::string& folder, const std::optional<std::string>& subject, const OpenOptions& o,
                            const Progress& progress) {
   if (o.lock) pieces::discard_orphans(folder);   // a writable open recovers: the unfinished writes in pieces of a handle whose process is gone are rolled back with the rows pending
   if (is_catalogue_dataset(folder)) {

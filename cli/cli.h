@@ -52,11 +52,7 @@ inline Probe& probe() { static Probe p; return p; }
 
 inline Args parse(const std::string& prog, const std::vector<std::string>& argv, const std::set<std::string>& valued, const std::set<std::string>& flags,
                   const std::set<std::string>& required, std::size_t npos = 0, const std::set<std::string>& multi_in = {}, const std::string& pos_name = "FILE") {
-  // Every command that names a subject of a dataset (`--dataset` and `--subject`, both required) also takes `--templates DIR ...`: where to look for the released templates a
-  // subject package is registered to (the template search path; the environment variable NXR_TEMPLATE_PATH and the user setting follow it). A command that declares
-  // `--templates` itself keeps its own meaning of it.
   std::set<std::string> multi = multi_in;
-  if (required.count("--dataset") && required.count("--subject") && !valued.count("--templates") && !multi.count("--templates")) multi.insert("--templates");
   if (probe().on) {
     Probe& p = probe();
     p.valued = valued; p.flags = flags; p.multi = multi; p.required = required; p.npos = npos;

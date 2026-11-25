@@ -118,12 +118,15 @@ CommandResult join_dataset(const JoinDatasetRequest& request);
 
 struct MigrateMeasurementsRequest { std::string dataset; bool dry_run = false, remove_statistics = false; };
 CommandResult migrate_measurements(const MigrateMeasurementsRequest& request, const Progress& progress = {});
+// Format 56 for a catalogue made before it (io/migrate.h `migrate_template_links`): every subject's link to the template undone, every database brought to 56.
+struct MigrateTemplateLinksRequest { std::string dataset, registered_by; bool dry_run = false; };
+CommandResult migrate_template_links(const MigrateTemplateLinksRequest& request, const Progress& progress = {});
 
 // ---- subjects ----
 
 struct CreateSubjectRequest {
   std::string dataset, name;
-  std::string kind = "subject";            // subject | template | group
+  std::string kind = "subject";            // subject | template (format 56: no group subject)
   std::string created_by;
 };
 CommandResult create_subject(const CreateSubjectRequest& request, const Progress& progress = {});
@@ -135,7 +138,7 @@ struct ListSubjectsRequest {
 };
 CommandResult list_subjects(const ListSubjectsRequest& request, const Progress& progress = {});
 
-struct ShowSubjectRequest { std::string dataset, subject; std::vector<std::string> templates; };
+struct ShowSubjectRequest { std::string dataset, subject; };
 CommandResult show_subject(const ShowSubjectRequest& request, const Progress& progress = {});
 
 struct DeleteSubjectRequest {
@@ -147,7 +150,7 @@ struct DeleteSubjectRequest {
   /** with `node` only: the author the node must have been saved by (its `created_by`, as `add <class> --by` records it); a node another author saved is refused, naming its author, so a
    *  client deletes only what it saved. Absent: any node is deleted. */
   std::optional<std::string> by;
-  std::vector<std::string> templates;
+ 
   std::string created_by;
 };
 CommandResult delete_subject(const DeleteSubjectRequest& request);
@@ -165,7 +168,7 @@ struct ReadSubjectRequest {
   std::string dataset, subject;
   std::optional<std::vector<std::string>> classes;   // manifolds | fields | selections | operators | statistics | dictionaries | spaces | acquisitions; default: all
   bool related = false;
-  std::vector<std::string> templates;
+ 
   NodeTyper typer;
 };
 CommandResult read_subject(const ReadSubjectRequest& request, const Progress& progress = {});
@@ -180,7 +183,7 @@ struct ListClassRequest {
   std::optional<std::string> subject, name, kind, on, after;
   std::optional<std::int64_t> limit;
   std::optional<std::vector<std::string>> columns;
-  std::vector<std::string> templates;
+ 
   NodeTyper typer;
 };
 CommandResult list_class(const ListClassRequest& request, const Progress& progress = {});
@@ -192,7 +195,7 @@ struct AddSurfaceRequest {
   std::optional<std::string> name;
   double scale = 1.0;
   bool primary = false, no_primary = false;
-  std::vector<std::string> templates;
+ 
   std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
@@ -233,7 +236,7 @@ struct AddFieldRequest {
   std::optional<std::string> producer;     // JSON text: what the maker says of how it was made, added to the producer record
   bool replace = false;
   PieceOptions piece;                      // a write in pieces (`values` then is the region's, and absent at begin and commit)
-  std::vector<std::string> templates;
+ 
   std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
@@ -250,7 +253,7 @@ struct AddSelectionRequest {
   std::optional<ArrayInput> weights;       // one weight a member [members], float32 or float64
   std::optional<std::string> producer;     // JSON text, added to the producer record
   bool replace = false;
-  std::vector<std::string> templates;
+ 
   std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
@@ -265,7 +268,7 @@ struct AddStatisticRequest {
   std::optional<std::string> of_field, partition, unit, description;
   bool replace = false;
   PieceOptions piece;                      // a write in pieces, as add field's
-  std::vector<std::string> templates;
+ 
   std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
@@ -278,7 +281,7 @@ struct AddMeasurementsRequest {
   std::vector<std::string> measure;        // MEASURE=FILE.npy
   std::vector<std::pair<std::string, ArrayInput>> measure_arrays;   // MEASURE and its values given as arrays (in memory, or a file): after `measure`
   bool replace = false;
-  std::vector<std::string> templates;
+ 
   std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
@@ -295,7 +298,7 @@ struct AddOperatorRequest {
   std::optional<std::string> layout, method, params, from_selection;
   std::optional<std::string> producer;     // JSON text: what the maker says of how it was made, added to the producer record
   bool replace = false;
-  std::vector<std::string> templates;
+ 
   std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
@@ -307,7 +310,7 @@ struct AddPointsRequest {
   ArrayInput positions;
   std::optional<std::string> coordinate_system, description;
   bool replace = false;
-  std::vector<std::string> templates;
+ 
   std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
@@ -322,7 +325,7 @@ struct AddLineRequest {
   std::optional<ArrayInput> coordinates;   // a line whose points are NOT evenly spaced: [n] float32 or float64, strictly increasing, in `unit`
   std::optional<ArrayInput> kinds;         // with `coordinates`: one integer code a point [n]
   bool replace = false;
-  std::vector<std::string> templates;
+ 
   std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
@@ -332,7 +335,7 @@ CommandResult add_line(const AddLineRequest& request, const Progress& progress =
 struct AddProductRequest {
   std::string dataset, subject, name;
   std::vector<std::string> factors;        // the manifolds, by name or id, two or more (A,B on the command line)
-  std::vector<std::string> templates;
+ 
   std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
@@ -343,7 +346,7 @@ CommandResult add_product(const AddProductRequest& request, const Progress& prog
 struct AddDictionaryRequest {
   std::string dataset, name, scope, entries;
   std::optional<std::string> subject, description;
-  std::vector<std::string> templates;
+ 
   std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
 };
@@ -357,7 +360,7 @@ struct EditDictionaryRequest {
   std::optional<std::int64_t> entry;
   std::optional<std::string> name_of, label, colour, description, params, entries;
   bool replace = false;
-  std::vector<std::string> templates;
+ 
   std::string created_by;
 };
 CommandResult edit_dictionary(const EditDictionaryRequest& request, const Progress& progress = {});
@@ -366,7 +369,7 @@ CommandResult edit_dictionary(const EditDictionaryRequest& request, const Progre
 struct EditManifoldRequest {
   std::string dataset, subject, name;
   std::optional<std::string> primary, label, description;
-  std::vector<std::string> templates;
+ 
   std::string created_by;
 };
 CommandResult edit_manifold(const EditManifoldRequest& request, const Progress& progress = {});
@@ -376,7 +379,7 @@ CommandResult edit_manifold(const EditManifoldRequest& request, const Progress& 
 struct EditOperatorRequest {
   std::string dataset, subject, name;
   std::optional<std::string> status, note, by;
-  std::vector<std::string> templates;
+ 
   std::string created_by;
 };
 CommandResult edit_operator(const EditOperatorRequest& request, const Progress& progress = {});
@@ -398,7 +401,6 @@ struct RegisterPackageRequest {
   std::string dataset, registered_by;
   std::vector<std::string> package;        // the packages, or `scan`
   bool scan = false, replace = false;
-  std::optional<std::vector<std::string>> templates;
 };
 /** {results: [{package, name, outcome, reason}]}; the command line exits 1 when one is refused */
 CommandResult register_package(const RegisterPackageRequest& request);
@@ -469,21 +471,21 @@ struct ImportConditionRequest {
   std::optional<double> resample;
   bool no_gain = false, all_surfaces = false, include_imported = false, no_raw = false;
   std::optional<std::vector<std::string>> extra_surface;
-  std::vector<std::string> templates;
+ 
   std::string created_by;
 };
 CommandResult import_condition(const ImportConditionRequest& request, const Progress& progress = {});
 
 /** `import surface` (tess_*.mat files; progress: a `surface` line each) · `import mri` · `import inverse` · `import map` (a `map` line each) · `import resample` ·
  *  `import badsegments` · `import events`: into a subject of a dataset */
-struct ImportSurfaceRequest { std::string dataset, subject; std::vector<std::string> file; std::optional<std::string> bst_root; std::vector<std::string> templates; std::string created_by; };
+struct ImportSurfaceRequest { std::string dataset, subject; std::vector<std::string> file; std::optional<std::string> bst_root; std::string created_by; };
 CommandResult import_surface(const ImportSurfaceRequest& request, const Progress& progress = {});
-struct ImportMriRequest { std::string dataset, subject, anat; std::optional<std::vector<std::string>> only; std::vector<std::string> templates; std::string created_by; };
+struct ImportMriRequest { std::string dataset, subject, anat; std::optional<std::vector<std::string>> only; std::string created_by; };
 CommandResult import_mri(const ImportMriRequest& request, const Progress& progress = {});
 struct ImportInverseRequest {
   std::string dataset, subject, file, acquisition, bst_root;
   std::optional<std::string> channels_id, surface_id, forward_id, name, channel_file;
-  std::vector<std::string> templates;
+ 
   std::string created_by;
 };
 CommandResult import_inverse(const ImportInverseRequest& request, const Progress& progress = {});
@@ -493,7 +495,7 @@ struct ImportCovarianceRequest {
   std::string kind = "noise";                // noise | data
   std::optional<std::string> name;           // default <condition>_noise_covariance | <condition>_data_covariance
   bool replace = false;
-  std::vector<std::string> templates;
+ 
   std::string created_by;
 };
 CommandResult import_covariance(const ImportCovarianceRequest& request, const Progress& progress = {});
@@ -502,13 +504,13 @@ struct ImportMapRequest {
   std::vector<std::string> file;
   std::optional<std::string> acquisition, provenance;   // provenance: a JSON file recorded with each map
   bool replace = false;
-  std::vector<std::string> templates;
+ 
   std::string created_by;
 };
 CommandResult import_map(const ImportMapRequest& request, const Progress& progress = {});
-struct ImportResampleRequest { std::string dataset, subject, recording; double to = 0; std::optional<std::string> name; std::vector<std::string> templates; std::string created_by; };
+struct ImportResampleRequest { std::string dataset, subject, recording; double to = 0; std::optional<std::string> name; std::string created_by; };
 CommandResult import_resample(const ImportResampleRequest& request, const Progress& progress = {});
-struct ImportBadsegmentsRequest { std::string dataset, subject, from; bool replace = false; std::vector<std::string> templates; std::string created_by; };
+struct ImportBadsegmentsRequest { std::string dataset, subject, from; bool replace = false; std::string created_by; };
 CommandResult import_badsegments(const ImportBadsegmentsRequest& request, const Progress& progress = {});
 using ImportEventsRequest = ImportBadsegmentsRequest;   // `from`: the protocol's data folder of the recording
 CommandResult import_events(const ImportEventsRequest& request, const Progress& progress = {});

@@ -105,22 +105,21 @@ std::optional<std::string> current_handle_token(const std::string& dataset) {
   return current && !current->impl_->closed && canonical(dataset) == current->impl_->where ? std::optional<std::string>(current->impl_->token) : std::nullopt;
 }
 
-Lease open_reader(const std::string& folder, const std::optional<std::string>& subject, const std::vector<std::string>& templates, const Progress& progress) {
+Lease open_reader(const std::string& folder, const std::optional<std::string>& subject, const Progress& progress) {
   using namespace commands_detail;
   Handle* h = current;
   if (h && !h->impl_->closed && canonical(folder) == h->impl_->where) {
     Handle::Impl& i = *h->impl_;
     if (!i.catalogue) i.catalogue = is_catalogue_dataset(folder);
     std::string key = *i.catalogue ? subject.value_or("") : std::string();
-    for (const auto& t : templates) key += "\n" + t;
     const auto it = i.readers.find(key);
     if (it != i.readers.end()) return Lease(it->second.get());
-    auto w = std::make_unique<DatasetWriter>(open_dataset(folder, subject, reader(), templates, progress));
+    auto w = std::make_unique<DatasetWriter>(open_dataset(folder, subject, reader(), progress));
     DatasetWriter* p = w.get();
     i.readers.emplace(key, std::move(w));
     return Lease(p);
   }
-  return Lease(open_dataset(folder, subject, reader(), templates, progress));
+  return Lease(open_dataset(folder, subject, reader(), progress));
 }
 
 }  // namespace nxr::io::task

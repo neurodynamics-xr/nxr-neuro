@@ -58,7 +58,7 @@ CommandResult recorded(const std::string& kind, const JobTarget& target, const J
       record_job(w, std::nullopt, j);
       w.close();
     } else {
-      DatasetWriter w = is_catalogue_dataset(target.dataset) ? open_dataset(target.dataset, target.subject, OpenOptions{}, {}, {}) : open_writer(target.dataset);
+      DatasetWriter w = is_catalogue_dataset(target.dataset) ? open_dataset(target.dataset, target.subject, OpenOptions{}, {}) : open_writer(target.dataset);
       record_job(w, target.subject, j);
       w.close();
     }

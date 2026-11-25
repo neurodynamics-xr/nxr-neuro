@@ -143,7 +143,7 @@ int subject_main(const std::vector<std::string>& argv) {
   }
   if (action == "show") {
     const Args a = parse(prog, rest, {"--dataset", "--subject"}, {}, {"--dataset", "--subject"});
-    emit_result(call(prog, [&] { return task::show_subject({a.get("--dataset"), a.get("--subject"), values_of(a, "--templates")}, progress()); }).result);
+    emit_result(call(prog, [&] { return task::show_subject({a.get("--dataset"), a.get("--subject")}, progress()); }).result);
     return 0;
   }
   if (action != "create" && action != "delete") throw Usage("nxr-neuro subject: error: argument action: invalid choice: '" + action + "' (choose from 'create', 'list', 'show', 'delete')");
@@ -163,7 +163,6 @@ int subject_main(const std::vector<std::string>& argv) {
   rq.subject = a.get("--subject");
   rq.node = a.maybe("--node");
   rq.by = a.maybe("--by");
-  rq.templates = values_of(a, "--templates");
   rq.created_by = stamp();
   emit_result(call(prog, [&] { return task::delete_subject(rq); }).result);
   return 0;
@@ -187,7 +186,6 @@ int surface_main(const std::vector<std::string>& argv) {
   rq.name = a.maybe("--name");
   rq.primary = a.flag.count("--primary") > 0;
   rq.no_primary = a.flag.count("--no-primary") > 0;
-  rq.templates = values_of(a, "--templates");
   rq.created_by = stamp();
   rq.by = a.maybe("--by");
   emit_result(call(prog, [&] { return task::add_surface(rq, progress()); }).result);
@@ -234,7 +232,7 @@ int list_nodes_main(const std::vector<std::string>& argv) {
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const std::string prog = "nxr-neuro list " + what;
   const Args a = parse(prog, rest, {"--dataset", "--subject"}, {}, {"--dataset", "--subject"});
-  const nxr::pipelines::face::ListNodesRequest rq{a.get("--dataset"), a.get("--subject"), values_of(a, "--templates")};
+  const nxr::pipelines::face::ListNodesRequest rq{a.get("--dataset"), a.get("--subject")};
   namespace face = nxr::pipelines::face;
   if (what == "recordings") emit_result(call(prog, [&] { return face::list_recordings(rq, progress()); }).result);
   else if (what == "kernels") emit_result(call(prog, [&] { return face::list_kernels(rq, progress()); }).result);

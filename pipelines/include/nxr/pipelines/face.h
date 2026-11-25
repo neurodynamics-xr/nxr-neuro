@@ -120,7 +120,6 @@ struct ReadRequest {
   // A MANIFOLD (by name or id: its positions, its cells, its axes, its element names) or, with `family`, one LABELLING of it:
   std::optional<std::string> family;       // the labelling of the manifold of that name (type, unit, quality, hemisphere, lobe, ...): its code per element and its dictionary
   std::string cls;                         // only a node of this class: field | statistic | operator | selection | manifold (empty: the first of statistic, field, operator, selection, manifold)
-  std::vector<std::string> templates;      // where to look for the released templates a subject package is registered to
   // A PART of a node with no time line: [start, stop) per leading axis of EACH array the read gives (empty: whole); a stop past an array's extent is cut to it, and the result's `regions`
   // say what each array read. A time-resolved field is read by rows and a time range instead, a sparse operator or field whole.
   std::vector<std::array<std::int64_t, 2>> region;
@@ -164,7 +163,7 @@ struct ReadNodeRequest {
   std::optional<std::string> measure, field;   // selection: its measurement table of this measure (of this field)
   std::optional<std::string> family;       // manifold: one labelling of it
   std::optional<std::string> out;          // the .npy file (or stem) the arrays are written to
-  std::vector<std::string> templates;
+ 
   std::vector<std::array<std::int64_t, 2>> region;   // [start, stop) per leading axis of each array (`--region`; not with a time-resolved field: its rows and time range)
   double budget = 1e9;                     // bytes (`--budget`): a larger read is refused before anything is read, naming its size and suggesting `--region`
   std::optional<std::string> onto;         // operator, field: its rows carried onto this glued cortex (ReadRequest::onto)
@@ -202,7 +201,7 @@ struct CreateRegistrationRequest {
 CommandResult create_registration(const CreateRegistrationRequest& request, const Progress& progress = {});
 
 /** `list recordings` · `list kernels` · `list results`: {subject, <what>: [{name, kind, table}]} */
-struct ListNodesRequest { std::string dataset, subject; std::vector<std::string> templates; };
+struct ListNodesRequest { std::string dataset, subject; };
 CommandResult list_recordings(const ListNodesRequest& request, const Progress& progress = {});
 CommandResult list_kernels(const ListNodesRequest& request, const Progress& progress = {});
 CommandResult list_results(const ListNodesRequest& request, const Progress& progress = {});
@@ -215,7 +214,7 @@ struct ReadCrossspectrumRequest {
   std::optional<std::int32_t> seed;
   std::string reading = "coherency";
   std::string weights = "coherence";
-  std::vector<std::string> templates;
+ 
   std::string created_by;
 };
 CommandResult read_crossspectrum(const ReadCrossspectrumRequest& request, const Progress& progress = {});

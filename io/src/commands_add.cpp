@@ -83,9 +83,9 @@ std::vector<std::int64_t> element_shape(const std::string& value_type) {
 // the subject opened for writing, one unit committed when `body` returns
 template <class F>
 // `created_by`: the author the rows name (`--by`, else the program); the unit's tool is the program the producer record names
-CommandResult in_unit(const std::string& dataset, const std::string& subject, const std::vector<std::string>& templates, const std::string& created_by, const Json& producer,
+CommandResult in_unit(const std::string& dataset, const std::string& subject, const std::string& created_by, const Json& producer,
                       const Progress& progress, F&& body) {
-  DatasetWriter ds = open_dataset(dataset, subject, OpenOptions{}, templates, progress);
+  DatasetWriter ds = open_dataset(dataset, subject, OpenOptions{}, progress);
   OpenSubjectOptions oo;
   oo.created_by = created_by;
   SubjectWriter sub = SubjectWriter::open(ds, subject, oo);
@@ -217,7 +217,7 @@ CommandResult add_field(const AddFieldRequest& rq, const Progress& progress) {
   if (rq.time && cell != "0") throw Refused("a time-resolved field (--time) lies on the manifold's vertices (--cell 0)");
   Json inputs = Json{{"values", file_name(rq.values)}};
   const Json maker = maker_producer(rq.producer);
-  return in_unit(rq.dataset, rq.subject, rq.templates, author_of(rq), producer_of("add field", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u, DatasetWriter& ds) {
+  return in_unit(rq.dataset, rq.subject, author_of(rq), producer_of("add field", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u, DatasetWriter& ds) {
     const FieldShape plan = plan_field_shape(ts, rq, elem, cell);
     const Node& m = plan.m;
     const std::optional<Node>& line = plan.line;
@@ -305,7 +305,7 @@ CommandResult add_selection(const AddSelectionRequest& rq, const Progress& progr
     inputs["weights"] = file_name(*rq.weights);
   }
   const Json maker = maker_producer(rq.producer);
-  return in_unit(rq.dataset, rq.subject, rq.templates, author_of(rq), producer_of("add selection", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
+  return in_unit(rq.dataset, rq.subject, author_of(rq), producer_of("add selection", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
     const Node m = require_manifold(ts, rq.manifold, "--manifold");
     const std::int64_t n = m.n_vertices.value_or(-1);
     SelectionOut s;
@@ -386,7 +386,7 @@ CommandResult add_statistic(const AddStatisticRequest& rq, const Progress& progr
   if (rq.axes.empty()) throw Refused("name each axis of the values and the manifold it runs along: --axes NAME:MANIFOLD ...");
   check_statistic_rank(rq, v.shape, "--values " + file_name(rq.values));
   Json inputs = Json{{"values", file_name(rq.values)}};
-  return in_unit(rq.dataset, rq.subject, rq.templates, author_of(rq), producer_of("add statistic", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
+  return in_unit(rq.dataset, rq.subject, author_of(rq), producer_of("add statistic", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
     StatisticOut st;
     st.name = rq.name;
     st.output = rq.name;
@@ -442,7 +442,7 @@ CommandResult add_measurements(const AddMeasurementsRequest& rq, const Progress&
     given.emplace_back(name, array);
     inputs[name] = file_name(array);
   }
-  return in_unit(rq.dataset, rq.subject, rq.templates, author_of(rq), producer_of("add measurements", rq.created_by, inputs, std::nullopt), progress, [&](const Subject& ts, Unit& u) {
+  return in_unit(rq.dataset, rq.subject, author_of(rq), producer_of("add measurements", rq.created_by, inputs, std::nullopt), progress, [&](const Subject& ts, Unit& u) {
     const auto sel = ts.by_id_or_name(Cls::selection, rq.selection);
     if (!sel) throw Error(code::no_such_row, "the subject holds no selection named '" + rq.selection + "' (--selection)");
     std::optional<Node> field;
@@ -508,7 +508,7 @@ CommandResult add_operator(const AddOperatorRequest& rq, const Progress& progres
   }
   const Json parameters = rq.params ? json_of(*rq.params, "--params") : Json();
   const Json maker = maker_producer(rq.producer);
-  return in_unit(rq.dataset, rq.subject, rq.templates, author_of(rq), producer_of("add operator", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
+  return in_unit(rq.dataset, rq.subject, author_of(rq), producer_of("add operator", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
     const Node from = require_manifold(ts, rq.from_manifold, "--from-manifold"), to = require_manifold(ts, rq.to_manifold, "--to-manifold");
     const std::int64_t rows = to.n_vertices.value_or(-1), cols = from.n_vertices.value_or(-1);
     OperatorOut o;
@@ -567,7 +567,7 @@ CommandResult add_points(const AddPointsRequest& rq, const Progress& progress) {
   const bool xyz = v.shape.size() == 2 && v.shape[1] == 3;
   if (v.shape.size() != 1 && !xyz) throw Refused("--positions " + file_name(rq.positions) + " is " + shape_text(v.shape) + ": positions [n x 3] or one coordinate each [n]");
   Json inputs = Json{{"positions", file_name(rq.positions)}};
-  return in_unit(rq.dataset, rq.subject, rq.templates, author_of(rq), producer_of("add points", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
+  return in_unit(rq.dataset, rq.subject, author_of(rq), producer_of("add points", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
     PointsOut p;
     p.name = rq.name;
     p.output = rq.name;
@@ -613,7 +613,7 @@ CommandResult add_line(const AddLineRequest& rq, const Progress& progress) {
     if (!(*rq.spacing > 0) || !std::isfinite(*rq.spacing)) throw Refused("--spacing: a positive number (the line's step, in --unit)");
     if (rq.dimension == "time" && rq.unit != "s") throw Refused("a time line is in seconds (--unit s), the clock every recording is read on");
   }
-  return in_unit(rq.dataset, rq.subject, rq.templates, author_of(rq), producer_of("add line", rq.created_by, inputs, std::nullopt), progress, [&](const Subject& ts, Unit& u) {
+  return in_unit(rq.dataset, rq.subject, author_of(rq), producer_of("add line", rq.created_by, inputs, std::nullopt), progress, [&](const Subject& ts, Unit& u) {
     LineOut l;
     l.name = rq.name;
     l.n = rq.n.value_or(0);
@@ -642,7 +642,7 @@ CommandResult add_line(const AddLineRequest& rq, const Progress& progress) {
 CommandResult add_product(const AddProductRequest& rq, const Progress& progress) {
   if (rq.name.empty()) throw Refused("--name: the name the product is stored under");
   if (rq.factors.size() < 2) throw Refused("--factors A,B: the manifolds the product is of, two or more, in axis order");
-  return in_unit(rq.dataset, rq.subject, rq.templates, author_of(rq), producer_of("add product", rq.created_by, Json{{"factors", rq.factors}}, std::nullopt), progress, [&](const Subject& ts, Unit& u) {
+  return in_unit(rq.dataset, rq.subject, author_of(rq), producer_of("add product", rq.created_by, Json{{"factors", rq.factors}}, std::nullopt), progress, [&](const Subject& ts, Unit& u) {
     if (ts.by_id_or_name(Cls::manifold, rq.name)) throw Error(code::already_exists, "the subject already holds a manifold named '" + rq.name + "'");
     ProductOut p;
     Json names = Json::array();
@@ -673,7 +673,7 @@ void plan_field(const AddFieldRequest& rq, const std::vector<std::int64_t>& shap
   const std::vector<std::int64_t> elem = element_shape(rq.value_type);
   const std::string cell = rq.cell.value_or("0");
   if (rq.time && cell != "0") throw Refused("a time-resolved field (--time) lies on the manifold's vertices (--cell 0)");
-  Lease lease = open_reader(rq.dataset, rq.subject, rq.templates, progress);
+  Lease lease = open_reader(rq.dataset, rq.subject, progress);
   SubjectWriter sub = SubjectWriter::open(*lease, rq.subject);
   const Subject ts = Subject::of(sub);
   const FieldShape plan = plan_field_shape(ts, rq, elem, cell);
@@ -687,7 +687,7 @@ void plan_field(const AddFieldRequest& rq, const std::vector<std::int64_t>& shap
 void plan_statistic(const AddStatisticRequest& rq, const std::vector<std::int64_t>& shape, const Progress& progress) {
   need_options({{"--subject", rq.subject}, {"--name", rq.name}, {"--measure", rq.measure}, {"--method", rq.method}}, ArrayInput("-"), "");
   check_statistic_rank(rq, shape, "--shape");
-  Lease lease = open_reader(rq.dataset, rq.subject, rq.templates, progress);
+  Lease lease = open_reader(rq.dataset, rq.subject, progress);
   SubjectWriter sub = SubjectWriter::open(*lease, rq.subject);
   const Subject ts = Subject::of(sub);
   for (std::size_t i = 0; i < rq.axes.size(); ++i) {
