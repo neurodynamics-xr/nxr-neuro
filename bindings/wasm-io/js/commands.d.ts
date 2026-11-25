@@ -306,6 +306,7 @@ export interface ImportSubjectOptions {
   /** the positional argument (`nxr-neuro import subject PROTOCOL`) */
   protocol: string;
   dataset: string | number;
+  no_sensor_mesh?: boolean;
   resample?: string | number;
   subject: string | number;
   templates?: string[] | string;

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
@@ -45,6 +46,7 @@ std::vector<T> read_as(SubjectWriter& sub, const std::string& path) {
 }  // namespace
 
 int main() {
+  std::setvbuf(stdout, nullptr, _IONBF, 0);                                            // unbuffered: a crash keeps every line printed before it
   const char* tmp = std::getenv("TMPDIR");
   const fs::path root = fs::path(tmp ? tmp : fs::temp_directory_path().string()) / ("nxr_test_sensor_surface_" + std::to_string(::getpid()));
   fs::remove_all(root);
@@ -241,21 +243,28 @@ int main() {
   {
     const Json serve = Json{{"recording", "rest"}, {"package", "hodgeDirac__helmet"}, {"channel_map", "helmet_map"}, {"overlap_samples", 128}, {"transform_samples", 512},
                             {"frequency_span", Json::array({0.0, 60.0})}};
+    std::printf("  [flow] run sensor_flow_bins\n");
     CHECK(!nxrtest::run_definition(ds, sub, "sensor_flow_bins", serve).empty());
     const nxr::pipelines::StoredEigensolve e = nxr::pipelines::stored_eigensolve(sub, "hodgeDirac__helmet");
     std::vector<double> mu;
     for (std::size_t k = 0; k < e.mu.size(); ++k) if (e.kind[k] == 0 && e.mu[k] > 0) mu.push_back(e.mu[k]);
     std::sort(mu.begin(), mu.end());
     const Json bandCentres = Json::array({mu[mu.size() / 4], mu[mu.size() / 2], mu[3 * mu.size() / 4]});
+    std::printf("  [flow] run select_kernels\n");
     CHECK(!nxrtest::run_definition(ds, sub, "select_kernels", Json{{"line", "rest_time_freq_L9"}, {"quantity", "frequency"}, {"profile", "gaussian"}, {"chart", "linear"},
                                                                    {"width_rule", "proportional"}, {"width", 0.4}, {"gain", 1.0}, {"centres", Json::array({8.0, 10.0, 12.0})}, {"name", "atoms"}}).empty());
+    std::printf("  [flow] run select_kernels\n");
     CHECK(!nxrtest::run_definition(ds, sub, "select_kernels", Json{{"line", text(e.line, "name")}, {"quantity", "wavenumber"}, {"profile", "cos2_partition"}, {"chart", "log2"}, {"centres", bandCentres},
                                                                    {"name", "bands"}}).empty());
+    std::printf("  [flow] run select_kernel_product\n");
     CHECK(!nxrtest::run_definition(ds, sub, "select_kernel_product", Json{{"factors", 3}, {"first", "atoms"}, {"second", "bands"}, {"third", "bands"}, {"name", "atom_band_pairs"}}).empty());
+    std::printf("  [flow] run select_kernel_product\n");
     CHECK(!nxrtest::run_definition(ds, sub, "select_kernel_product", Json{{"factors", 2}, {"first", "atoms"}, {"second", "bands"}, {"name", "atom_bands"}}).empty());
     Json flow = serve;
     flow["atoms"] = "atoms"; flow["bands"] = "bands"; flow["pairs"] = "atom_band_pairs"; flow["atom_bands"] = "atom_bands"; flow["patterns"] = 50; flow["name"] = "flow";
+    std::printf("  [flow] run sensor_flow\n");
     CHECK(!nxrtest::run_definition(ds, sub, "sensor_flow", flow).empty());
+    std::printf("  [flow] reading the stored measurements\n");
     const nxr::io::testing::Probe probe(sub);
     auto selection_id = [&](const std::string& name) { const auto r = probe.rows("selection", {{"name", V(name)}}); return r.empty() ? std::string() : text(r.front(), "id"); };
     auto measured = [&](const std::string& over, const std::string& measure) { return probe.rows("selection_measurement", {{"selection_id", V(selection_id(over))}, {"measure", V(measure)}}).size(); };
@@ -273,6 +282,7 @@ int main() {
     CHECK(members_of("atoms", "phase_current") == n_members("atoms") && members_of("atom_band_pairs", "phase_current") == n_members("atom_band_pairs") &&
           members_of("atom_bands", "consistency") == n_members("atom_bands"));
     // a later run reads the stored flow measurements: the speed and direction across frequencies
+    std::printf("  [flow] run sensor_flow_across_frequencies\n");
     CHECK(!nxrtest::run_definition(ds, sub, "sensor_flow_across_frequencies", Json{{"recording", "rest"}, {"package", "hodgeDirac__helmet"}, {"atoms", "atoms"}}).empty());
     CHECK(!probe.rows("statistic", {{"name", V("rest_hodgeDirac__helmet_eigenvectors_across_frequencies_atom_pairs")}}).empty());
     CHECK(probe.rows("statistic", {{"name", V("flow_time_cells")}}).empty() && probe.rows("statistic", {{"name", V("flow_flow_edges")}}).empty());   // no stored cells; no flow statistics
