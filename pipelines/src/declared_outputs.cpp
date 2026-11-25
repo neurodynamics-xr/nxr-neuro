@@ -1037,7 +1037,8 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
         task::KernelOut x;
         x.start = k.at("start").get<double>(); x.stop = k.at("stop").get<double>(); x.code = k.at("code").get<std::int64_t>();
         x.family = k.at("family").get<std::string>(); x.chart = k.at("chart").get<std::string>(); x.gain = k.value("gain", 1.0);
-        for (const auto& [pk, pv] : k.value("params", Json::object()).items()) x.params[pk] = pv.get<double>();
+        const Json params = k.value("params", Json::object());   // a local: iterating items() of the temporary k.value(...) read it after it was destroyed (a crash on Linux)
+        for (const auto& [pk, pv] : params.items()) x.params[pk] = pv.get<double>();
         s.kernels.push_back(std::move(x));
       }
       if (s.kernels.empty()) bad(o, "a kernel set needs its node's kernels (describe.kernels)");

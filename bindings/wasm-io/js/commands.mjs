@@ -39,7 +39,7 @@ export const COMMANDS = [
   ["list", "pipelines", "", ""],
   ["import", "list", "protocol", ""],
   ["import", "scan", "protocol", "out prefer summary!"],
-  ["import", "subject", "protocol", "dataset* resample subject* templates+"],
+  ["import", "subject", "protocol", "dataset* no_sensor_mesh! resample subject* templates+"],
   ["import", "template", "protocol", "dataset* surface+"],
   ["import", "group", "protocol", "dataset*"],
   ["import", "templates", "templates_dir", "dataset* subject surface trk"],
