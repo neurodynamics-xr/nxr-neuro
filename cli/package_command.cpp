@@ -92,7 +92,7 @@ int package_main(const std::vector<std::string>& argv) {
     // FORMAT 56 (io/migrate.h): the template holds the cohort; every subject's link to the template undone, every database brought to 56, the packages registered again.
     const Args a = parse(prog, rest, {"--dataset", "--registered-by"}, {"--dry-run"}, {"--dataset"});
     const bool dry = a.flag.count("--dry-run") > 0;
-    if (!dry && !a.maybe("--registered-by")) usage(prog, "migrate template-links: --registered-by WHO is required (recorded with each catalogue entry)");
+    if (!dry && !a.maybe("--registered-by")) throw Usage(prog + ": error: --registered-by WHO is required (recorded with each catalogue entry)");
     emit_result(task::migrate_template_links({a.get("--dataset"), a.maybe("--registered-by").value_or(""), dry}, progress()).result);
   } else if (action == "migrate-measurements") {
     // THE MEASUREMENTS' STORAGE (schema 53, io/migrate.h): one table for a value over a selection's members. Subject by subject, resumable, verified; the old statistics are KEPT unless the explicit second step is asked.

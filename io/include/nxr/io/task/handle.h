@@ -47,7 +47,7 @@ class Handle {
   friend class HandleScope;
   friend class Lease;
   friend std::optional<std::string> current_handle_token(const std::string&);
-  friend Lease open_reader(const std::string&, const std::optional<std::string>&, const std::vector<std::string>&, const Progress&);
+  friend Lease open_reader(const std::string&, const std::optional<std::string>&, const Progress&);
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

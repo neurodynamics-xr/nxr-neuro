@@ -658,7 +658,7 @@ Json class_counts(const std::string& dataset, const Progress& progress, Json* un
       }
     }
   } else {
-    Lease lease = open_reader(dataset, std::nullopt, {}, progress);
+    Lease lease = open_reader(dataset, std::nullopt, progress);
     const Database& db = (*lease).db();
     for (const SubjectRef& s : all_subject_refs(db)) add(db, s);
     if (has_table(db, "job")) total["jobs"] += static_cast<std::int64_t>(db.all("SELECT 1 FROM job WHERE subject_id IS NULL").size());

@@ -108,7 +108,7 @@ CommandResult show_dataset(const ShowDatasetRequest& rq, const Progress& progres
     if (!unavailable.empty()) r.result["nodes_unavailable"] = unavailable;
     return r;
   }
-  Lease lease = open_reader(rq.dataset, std::nullopt, {}, progress);
+  Lease lease = open_reader(rq.dataset, std::nullopt, progress);
   DatasetWriter& ds = *lease;
   Json kinds = Json::object();
   std::int64_t total = 0;
@@ -220,7 +220,7 @@ CommandResult create_subject(const CreateSubjectRequest& rq, const Progress& pro
     r.result = Json{{"subject", rq.name}, {"kind", rq.kind}, {"id", sid}, {"path", pkg.filename().string()}};
     return r;
   }
-  DatasetWriter ds = open_dataset(rq.dataset, std::nullopt, OpenOptions{}, {}, progress);
+  DatasetWriter ds = open_dataset(rq.dataset, std::nullopt, OpenOptions{}, progress);
   SubjectOptions o;
   o.kind = rq.kind;
   o.created_by = rq.created_by;
@@ -279,7 +279,7 @@ CommandResult list_subjects(const ListSubjectsRequest& rq, const Progress& progr
   }
   if (rq.subjects || rq.where)
     throw Refused("--subjects and --where need a catalogue dataset (made by `create dataset --dataset PATH`); " + rq.dataset + " is a one-database dataset");
-  Lease lease = open_reader(rq.dataset, std::nullopt, {}, progress);
+  Lease lease = open_reader(rq.dataset, std::nullopt, progress);
   DatasetWriter& ds = *lease;
   Json rows = Json::array();
   for (const auto& s : Dataset::of(ds).subjects()) rows.push_back(Json{{"name", s.name}, {"kind", s.kind}, {"status", s.status}, {"path", s.path}, {"counts", subject_counts(ds.db(), s.id)}});
