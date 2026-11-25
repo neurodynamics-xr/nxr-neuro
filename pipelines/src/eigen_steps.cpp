@@ -91,7 +91,7 @@ Json method_json(const SolveMethod& sm) {
   return Json{{"shift", so.shift == hs::HodgeShift::Absolute ? "absolute" : "relative"},
               {"sigma", so.shift == hs::HodgeShift::Absolute && so.slice == 0 ? Json(so.sigma) : Json()},
               {"slice", so.slice}, {"normalize", so.normalize},
-              {"star1_floor", sm.star1_floor ? Json(*sm.star1_floor) : Json()},
+              {"star1_floor", sm.star1_floor ? Json(*sm.star1_floor) : Json()}, {"dense_limit", so.denseLimit},
               {"mollify", sm.mollify}, {"flip_eps", sm.flip_eps}};
 }
 
@@ -104,6 +104,10 @@ SolveMethod method_of(const Json& p) {
   if (p.contains("slice") && p["slice"].is_number_integer()) sm.solve.slice = p["slice"].get<int>();
   sm.solve.normalize = p.value("normalize", false);
   if (p.contains("star1_floor") && p["star1_floor"].is_number() && p["star1_floor"].get<double>() > 0) sm.star1_floor = p["star1_floor"].get<double>();
+  if (p.contains("dense_limit") && !p["dense_limit"].is_null()) {
+    need(p["dense_limit"].is_number_integer() && p["dense_limit"].get<int>() >= 0, "hodge_dirac: dense_limit is a whole number of vertices and faces (0: never the dense solve)");
+    sm.solve.denseLimit = p["dense_limit"].get<int>();
+  }
   return sm;
 }
 
@@ -235,7 +239,7 @@ StepSpec hodge_dirac_step() {
   s.kind = "setup";
   s.inputs = {"surface", "intrinsic"};
   for (const char* o : kOutputs) s.outputs.push_back(o);
-  s.parameters = Json{{"modes", 3000}, {"shift", "absolute"}, {"sigma", nullptr}, {"slice", 0}, {"normalize", false}, {"star1_floor", nullptr}};
+  s.parameters = Json{{"modes", 3000}, {"shift", "absolute"}, {"sigma", nullptr}, {"slice", 0}, {"normalize", false}, {"star1_floor", nullptr}, {"dense_limit", 0}};
   s.matches = "nxr.eigen.hodge_dirac.solve_hodge and nxr.pipelines.hodge.solved_package; Rheome rheome.eigen.hodge_dirac; the Studio's hodgeDirac.ts (the mixed forms, rows 0-forms · 1-forms · 2-forms)";
   s.description =
       "The Hodge-Dirac eigenmodes of a surface on its intrinsic triangulation (made first by `geometry.intrinsic`): the Laplace-Beltrami ladder (exact modes) and the 2-form ladder (coexact modes), cut at one lambda, "
@@ -307,8 +311,11 @@ StepSpec hodge_dirac_step() {
     const hs::HodgeSolveOptions& so = st.method.solve;
     const Json method = method_json(st.method);
     const bool ref = so.shift == hs::HodgeShift::Absolute && so.slice == 0 && !so.normalize;
-    Json solve = Json{{"route", "split: Laplace-Beltrami (d0^T *1 d0, *0) and 2-form (*2 d1 *1^-1 d1^T *2, *2) ladders, shift-invert eigensolve, one lambda cut"},
-                      {"reference", ref ? "nxr solve_hodge / Rheome hodge_dirac: one solve per ladder, absolute sigma, no re-orthonormalisation" : "not the reference method (an option differs)"},
+    Json solve = Json{{"route", h.dense ? "split: Laplace-Beltrami (d0^T *1 d0, *0) and 2-form (*2 d1 *1^-1 d1^T *2, *2) ladders, each solved DENSE and whole (the complete solve of a small mesh): every exact and coexact mode, no lambda cut"
+                                         : "split: Laplace-Beltrami (d0^T *1 d0, *0) and 2-form (*2 d1 *1^-1 d1^T *2, *2) ladders, shift-invert eigensolve, one lambda cut"},
+                      {"complete", h.dense},
+                      {"reference", h.dense ? "the complete solve: every eigenpair of each ladder (the reference's iterative solve with its cut is incomplete on a small mesh)"
+                                    : ref ? "nxr solve_hodge / Rheome hodge_dirac: one solve per ladder, absolute sigma, no re-orthonormalisation" : "not the reference method (an option differs)"},
                       {"requested", st.modes}, {"exact", h.n_exact}, {"coexact", h.n_coexact}, {"seconds", std::round(h.seconds * 10) / 10},
                       {"options", method}, {"lambda_top", h.top}, {"star1_clamped", h.star1_clamped}, {"intrinsic", st.intrinsic},
                       {"tolerance", so.slice == 0 && so.shift == hs::HodgeShift::Absolute ? Json(so.tol) : Json()}};
