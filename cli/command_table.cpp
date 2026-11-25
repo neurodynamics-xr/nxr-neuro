@@ -1150,6 +1150,7 @@ R"TBL(--name@read field	NAME	The stored field to read, by name or id.	required	-
 --rows@read field	I,J,...	The rows (channels) of a time-resolved field to read, by index, in the order given.	every row	-
 --projectors@read field	active|none|NAME,...	A recording's projectors when it is read: active applies its active projectors to every block loaded (as a run reads it), none reads the samples as stored, NAME,... applies exactly the projectors named, whatever their stored status (an unknown name is refused, listing the valid ones).	active	-
 --shape-only@read field		Print the description of a time-resolved field (rate, origin, samples, channels, unit, projection) and read no sample.	off	-
+--projection-only@read field		The projection the chosen --projectors make, [channels x channels] over every channel of the recording (what a read applies to each block), and its record; no sample is read. Nothing is returned when no projector applies. For composing the projection with a caller's own operators (read the samples with --projectors none, apply the matrix once to whatever is smaller).	off	-
 --onto@read field	GLUED	Carry the field onto a glued cortex: its rows (the vertices of the two-hemisphere surface it lies on, k rows a vertex) selected onto the glued cortex GLUED by the glue's rule, each glued vertex the rows of its original vertex, a bridge vertex's rows zero. Not with --rows or --region.	none (the rows as stored)	-
 )TBL",
 R"TBL(--name@read statistic	NAME	The stored statistic to read, by name or id.	required	-
@@ -1240,7 +1241,7 @@ R"TBL(@ read field
 old: __read field
 summary: Read a stored field by name: its values (a time-resolved field over a stated time range, read one chunk at a time), its manifold and cells, as JSON or .npy.
 example: nxr-neuro read field --dataset /data/study --subject sub-01 --name rest --from 0 --to 10 --out rest.npy
-opts: --all --budget --dataset* --from --name* --onto --out --projectors --region --rows --shape-only --subject* --to
+opts: --all --budget --dataset* --from --name* --onto --out --projection-only --projectors --region --rows --shape-only --subject* --to
 )TBL",
 R"TBL(@ read statistic
 old: __read statistic

@@ -171,6 +171,25 @@ int main() {
   CHECK(r_ab.result["projection"]["applied"] == Json::array({A, B}));
   CHECK(r_ab.result["projection"]["chosen"] == Json::array({A, B}));
   CHECK(r_all.result["projection"]["applied"] == Json::array({A, B, C}));
+  {   // --projection-only: the matrix itself, over every channel, no sample read; it is what a read applies
+    auto projection = [&](const std::string& projectors) {
+      face::ReadNodeRequest r;
+      r.dataset = D; r.subject = "S1"; r.name = "rest"; r.projectors = projectors; r.projection_only = true;
+      return face::read_field(r);
+    };
+    const task::CommandResult p_all = projection("active"), p_ab = projection(A + "," + B), p_none = projection("none");
+    auto doubles = [](const task::CommandArray& a) {
+      MatrixXd m(a.shape.at(0), a.shape.at(1));
+      for (Eigen::Index i = 0; i < m.rows(); ++i) for (Eigen::Index j = 0; j < m.cols(); ++j) std::memcpy(&m(i, j), a.bytes.data() + 8 * (i * m.cols() + j), 8);
+      return m;
+    };
+    CHECK(p_all.arrays.size() == 1 && p_all.arrays.at(0).name == "projection");
+    CHECK(rel(doubles(p_all.arrays.at(0)), Pabc) < 1e-12);
+    CHECK(rel(doubles(p_ab.arrays.at(0)), Pab) < 1e-12);
+    CHECK(rel(doubles(p_all.arrays.at(0)) * X, floats(r_all.arrays.at(0))) < 1e-6);   // composing it with the raw samples gives the active read
+    CHECK(p_none.arrays.empty());
+    CHECK(p_all.result["projection"]["applied"] == Json::array({A, B, C}));
+  }
   {
     const std::string why = thrown([&] { read(A + ",nothing"); });
     CHECK(has(why, "'nothing' is not one of the channels' projectors") && has(why, C));   // refused, naming the valid ones
