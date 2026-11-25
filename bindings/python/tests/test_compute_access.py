@@ -158,3 +158,15 @@ def test_names_the_library_refuses_are_value_errors():
         sg.bandEnvelope(x, 256.0, [(8, 12)], shape="triangle")
     with pytest.raises(ValueError, match="no setting"):
         sg.wt(x, 256.0, {"family": "meyer", "colour": 3})
+
+
+def test_kernel_gains_gaussian_and_partition():
+    """kernelGains: the one evaluator of a kernel set's members, nothing stored (a gaussian of stated FWHM; a cos2 partition sums to one)"""
+    f = np.linspace(0.0, 40.0, 401)
+    g = nn.compute.signal.kernelGains("gaussian", "linear", [[14.0, 14.0], [16.0, 16.0]], {"fwhm": 2.0 * np.sqrt(2 * np.log(2))}, 1.0, f)
+    assert g.shape == (2, 401)
+    np.testing.assert_allclose(g[0], np.exp(-0.5 * (f - 14.0) ** 2), atol=1e-12)        # FWHM 2 sqrt(2 ln 2) is sd 1 Hz
+    q = nn.compute.signal.kernelGains("gaussian", "linear", [[8.0, 8.0]], {"fwhm_per_centre": 0.25}, 2.0, f)
+    assert abs(q.max() - 2.0) < 1e-12
+    p = nn.compute.signal.kernelGains("cos2_partition", "log2", [[4.0, 4.0], [8.0, 8.0], [16.0, 16.0]], {}, 1.0, f[f > 0])
+    np.testing.assert_allclose(p.sum(0), 1.0, atol=1e-12)
