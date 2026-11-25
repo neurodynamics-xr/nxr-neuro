@@ -9,6 +9,7 @@ on:
     branches: [main]       # milestone pull requests only (develop -> main), when this binding changed
     paths:
       - "bindings/wasm-io/**"
+      - "!bindings/wasm-io/package.json"   # a version bump alone (every release) is not a binding change: the tag's run builds and tests it
       - "bindings/wasm/**"
       - "bindings/common/**"
       - ".github/workflows/wasm.yml"
