@@ -305,7 +305,7 @@ std::string package_prefix(const Database& db) {
 
 Json PackageRecord::to_json() const {
   return Json{{"subject_id", subject_id}, {"name", name}, {"kind", kind}, {"schema_version", schema_version}, {"store_format", store_format},
-              {"release", release}, {"description", description}, {"content_hash", content_hash}, {"hashed_utc", hashed_utc}};
+              {"template_reference", template_reference}, {"release", release}, {"description", description}, {"content_hash", content_hash}, {"hashed_utc", hashed_utc}};
 }
 PackageRecord PackageRecord::from_json(const Json& j) {
   PackageRecord r;
@@ -313,6 +313,7 @@ PackageRecord PackageRecord::from_json(const Json& j) {
   r.subject_id = str("subject_id"); r.name = str("name"); r.kind = str("kind");
   r.schema_version = j.value("schema_version", 0);
   r.store_format = j.value("store_format", 0);
+  r.template_reference = j.contains("template_reference") && j.value("kind", "") == "registration" ? j["template_reference"] : Json(nullptr);   // a subject's (format 55) is dropped
   r.release = j.contains("release") ? j["release"] : Json(nullptr);
   r.description = j.contains("description") ? j["description"] : Json(nullptr);
   r.content_hash = str("content_hash"); r.hashed_utc = str("hashed_utc");

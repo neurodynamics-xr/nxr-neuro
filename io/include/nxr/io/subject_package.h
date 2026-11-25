@@ -48,7 +48,7 @@ struct PackageRecord {
   int store_format = 0;
   Json release;                // a released template or registration: {name, edition, version, released_by, released_utc, program, ...}; null while it is being made. A released package is FROZEN: no writer opens it
   Json description;            // a registration package: {method, warnings} (what it is and what it cannot resolve); null otherwise
-  // (format 56: no template reference, registration or member list: a subject names no template; the template holds the cohort and its results name their members)
+  Json template_reference;     // a REGISTRATION package only: {from, to}, the two templates it links; null for a subject and a template (format 56: a subject names no template)
   std::string content_hash;    // empty until a writer has closed the package
   std::string hashed_utc;      // when it was computed
   Json to_json() const;
