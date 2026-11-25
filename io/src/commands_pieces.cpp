@@ -223,24 +223,27 @@ std::vector<std::uint8_t> region_bytes(const ArrayInput& in, const std::string& 
   return bytes_as<std::uint8_t>(in);
 }
 
-// the region's rows written into the staged file: runs along the last axis, in C order
+// the region's values written into the staged file, in C order, in as few runs as the region allows: the trailing axes the region covers in full are
+// merged into one run with the first axis it cuts (a block of whole rows of a [N x 2] complex field is ONE run, not N runs of two numbers)
 void write_region(const fs::path& file, std::uint64_t offset, std::size_t item, const std::vector<std::int64_t>& shape, const Box& box, const std::vector<std::uint8_t>& bytes) {
   const std::size_t rank = shape.size();
   std::vector<std::uint64_t> stride(rank, 1);
   for (std::size_t i = rank - 1; i > 0; --i) stride[i - 1] = stride[i] * static_cast<std::uint64_t>(shape[i]);
-  const std::uint64_t run = static_cast<std::uint64_t>(box[rank - 1][1] - box[rank - 1][0]) * item;
+  std::size_t inner = rank - 1;   // the innermost axis the region cuts; every axis after it is covered in full
+  while (inner > 0 && box[inner][0] == 0 && box[inner][1] == shape[inner]) --inner;
+  const std::uint64_t run = static_cast<std::uint64_t>(box[inner][1] - box[inner][0]) * stride[inner] * item;
   std::FILE* f = std::fopen(file.c_str(), "r+b");
   if (!f) throw Error(code::not_writable, file.string() + ": cannot be opened");
-  std::vector<std::int64_t> at(rank);
-  for (std::size_t i = 0; i < rank; ++i) at[i] = box[i][0];
+  std::vector<std::int64_t> at(rank, 0);
+  for (std::size_t i = 0; i <= inner; ++i) at[i] = box[i][0];
   std::uint64_t from = 0;
   bool ok = true;
   while (ok) {
     std::uint64_t cell = 0;
-    for (std::size_t i = 0; i < rank; ++i) cell += static_cast<std::uint64_t>(at[i]) * stride[i];
+    for (std::size_t i = 0; i <= inner; ++i) cell += static_cast<std::uint64_t>(at[i]) * stride[i];
     if (::fseeko(f, static_cast<off_t>(offset + cell * item), SEEK_SET) != 0 || std::fwrite(bytes.data() + from, 1, run, f) != run) ok = false;
     from += run;
-    std::size_t k = rank - 1;   // the next run: the axes but the last advance
+    std::size_t k = inner;   // the next run: the axes before `inner` advance
     bool done = true;
     while (k > 0) {
       --k;
