@@ -118,12 +118,15 @@ CommandResult join_dataset(const JoinDatasetRequest& request);
 
 struct MigrateMeasurementsRequest { std::string dataset; bool dry_run = false, remove_statistics = false; };
 CommandResult migrate_measurements(const MigrateMeasurementsRequest& request, const Progress& progress = {});
+// Format 56 for a catalogue made before it (io/migrate.h `migrate_template_links`): every subject's link to the template undone, every database brought to 56.
+struct MigrateTemplateLinksRequest { std::string dataset, registered_by; bool dry_run = false; };
+CommandResult migrate_template_links(const MigrateTemplateLinksRequest& request, const Progress& progress = {});
 
 // ---- subjects ----
 
 struct CreateSubjectRequest {
   std::string dataset, name;
-  std::string kind = "subject";            // subject | template | group
+  std::string kind = "subject";            // subject | template (format 56: no group subject)
   std::string created_by;
 };
 CommandResult create_subject(const CreateSubjectRequest& request, const Progress& progress = {});

@@ -195,6 +195,13 @@ CommandResult migrate_measurements(const MigrateMeasurementsRequest& rq, const P
   return r;
 }
 
+CommandResult migrate_template_links(const MigrateTemplateLinksRequest& rq, const Progress& progress) {
+  if (progress) progress(Json{{"stage", rq.dry_run ? "plan" : "migrate"}, {"dataset", rq.dataset}});
+  CommandResult r;
+  r.result = Json{{"report", nxr::io::migrate_template_links(rq.dataset, nxr::io::TemplateLinksOptions{rq.registered_by, rq.dry_run})}};
+  return r;
+}
+
 // ---- subjects ----
 
 CommandResult create_subject(const CreateSubjectRequest& rq, const Progress& progress) {

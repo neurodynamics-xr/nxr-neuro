@@ -17,6 +17,7 @@ export const COMMANDS = [
   ["export", "participants", "", "dataset* sidecar tsv*"],
   ["split", "dataset", "", "dataset* dry_run! registered_by*"],
   ["migrate", "selections", "", "dataset* dry_run!"],
+  ["migrate", "template-links", "", "dataset* dry_run! registered_by"],
   ["migrate", "measurements", "", "dataset* dry_run! remove_statistics!"],
   ["migrate", "eigensolve", "", "dataset* name subject* templates+"],
   ["migrate", "glue", "", "dataset* hemispheres left name right subject* templates+"],

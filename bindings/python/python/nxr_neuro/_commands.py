@@ -44,6 +44,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("migrate", "glue", "", "dataset* hemispheres left name right subject* templates+"),
     ("migrate", "measurements", "", "dataset* dry_run! remove_statistics!"),
     ("migrate", "selections", "", "dataset* dry_run!"),
+    ("migrate", "template-links", "", "dataset* dry_run! registered_by"),
     # subject packages and the catalogue
     ("create", "recording", "", "acquisition amplitude channels duration frequency+ name noise package* seed sfreq synthetic!"),
     ("create", "package", "", "home_dataset* kind name* package*"),

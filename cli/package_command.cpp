@@ -89,6 +89,12 @@ int package_main(const std::vector<std::string>& argv) {
     o.dry_run = a.flag.count("--dry-run") > 0;
     o.on_stage = [](const std::string& stage, const std::string& subject) { emit(Json{{"stage", stage}, {"subject", subject}}); };
     emit(Json{{"stage", "result"}, {"report", migrate_selection_storage(a.get("--dataset"), o)}});
+  } else if (action == "migrate-template-links") {
+    // FORMAT 56 (io/migrate.h): the template holds the cohort; every subject's link to the template undone, every database brought to 56, the packages registered again.
+    const Args a = parse(prog, rest, {"--dataset", "--registered-by"}, {"--dry-run"}, {"--dataset"});
+    const bool dry = a.flag.count("--dry-run") > 0;
+    if (!dry && !a.maybe("--registered-by")) usage(prog, "migrate template-links: --registered-by WHO is required (recorded with each catalogue entry)");
+    emit_result(task::migrate_template_links({a.get("--dataset"), a.maybe("--registered-by").value_or(""), dry}, progress()).result);
   } else if (action == "migrate-measurements") {
     // THE MEASUREMENTS' STORAGE (schema 53, io/migrate.h): one table for a value over a selection's members. Subject by subject, resumable, verified; the old statistics are KEPT unless the explicit second step is asked.
     const Args a = parse(prog, rest, {"--dataset"}, {"--dry-run", "--remove-statistics"}, {"--dataset"});
@@ -185,7 +191,7 @@ int package_main(const std::vector<std::string>& argv) {
 #endif
   } else {
     throw Usage("nxr-neuro package: error: argument action: invalid choice: '" + action +
-                "' (choose from 'create', 'verify', 'show', 'register', 'status', 'select', 'index', 'participants-import', 'participants-export', 'split', 'join', 'migrate-selections', 'migrate-measurements', 'migrate-eigensolve', 'migrate-glue', 'release', 'release-redistributable', 'templates', 'registration-create', 'template-create')");
+                "' (choose from 'create', 'verify', 'show', 'register', 'status', 'select', 'index', 'participants-import', 'participants-export', 'split', 'join', 'migrate-selections', 'migrate-template-links', 'migrate-measurements', 'migrate-eigensolve', 'migrate-glue', 'release', 'release-redistributable', 'templates', 'registration-create', 'template-create')");
   }
   return 0;
 }

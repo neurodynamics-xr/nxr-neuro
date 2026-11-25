@@ -301,6 +301,9 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
   } else if (c == "join dataset") {
     task::JoinDatasetRequest q{o.str("dataset")};
     call([&] { return task::join_dataset(q); });
+  } else if (c == "migrate template-links") {
+    task::MigrateTemplateLinksRequest q{o.str("dataset"), o.maybe("registered_by").value_or(""), o.flag("dry_run")};
+    call([&] { return task::migrate_template_links(q, progress); });
   } else if (c == "migrate measurements") {
     task::MigrateMeasurementsRequest q{o.str("dataset"), o.flag("dry_run"), o.flag("remove_statistics")};
     call([&] { return task::migrate_measurements(q, progress); });

@@ -496,6 +496,8 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --dry-run@migrate selections		Report, per subject, the selections that would be converted to the member form, without changing anything.	off	-
 --dry-run@migrate measurements		Report, per subject, the statistics that would become measurements, the products and tilings that would be rewritten, and the conflicts, without changing anything.	off	-
 --remove-statistics@migrate measurements		The explicit second step, taken only when asked for explicitly: remove each migrated statistic whose measurement is verified (and its array). Never the default: the old statistics are kept.	off	-
+--dry-run@migrate template-links		Report, per member, the template links that would be undone, without changing anything.	off	-
+--registered-by@migrate template-links	WHO	Who runs the migration: recorded with each catalogue entry when the packages are registered again.	required unless --dry-run	-
 --dry-run@split dataset		Report the subjects and the format without changing anything (not even bringing the dataset to format 52).	off	-
 --package@verify package	PATH	The folder of the subject package to verify.	required	-
 --package@show package	PATH	The folder of the subject package to show.	required	-
@@ -822,6 +824,12 @@ old: package migrate-selections
 alias: no
 summary: Bring a dataset's selections to the member form (schema 52): each selection's elements are stored by member number. In place, subject by subject, under the dataset's writer lock; --dry-run reports what would change and changes nothing.
 opts: --dataset* --dry-run
+)TBL",
+R"TBL(@ migrate template-links
+old: package migrate-template-links
+alias: no
+summary: Bring a catalogue dataset made before format 56 to it (the template holds the cohort; a subject names no template): each subject's link to the template undone (its template_id cleared, the rows it carried from a template removed, refused for a package whose rows still point at one), every database brought to 56, the packages registered again, the index rebuilt. A dataset holding a group package is refused. --dry-run reports, per member, what would change.
+opts: --dataset* --dry-run --registered-by
 )TBL",
 R"TBL(@ migrate measurements
 old: package migrate-measurements
