@@ -188,14 +188,25 @@ static CommandResult import_template_work(const ImportTemplateRequest& rq, const
 
 static CommandResult import_group_work(const ImportGroupRequest& rq, const Progress& progress);
 CommandResult import_group(const ImportGroupRequest& rq, const Progress& progress) {
-  return recorded("import:group", JobTarget{rq.dataset, "", member_of(rq.dataset, nxr::bst::kGroupSubject)}, Json{{"protocol", rq.protocol}}, rq.created_by, [&] { return import_group_work(rq, progress); });
+  const std::string tname = is_catalogue_dataset(rq.dataset) ? dataset_template(rq.dataset).name : std::string();
+  return recorded("import:group", JobTarget{rq.dataset, "", member_of(rq.dataset, tname.c_str())}, Json{{"protocol", rq.protocol}}, rq.created_by, [&] { return import_group_work(rq, progress); });
 }
 
 static CommandResult import_group_work(const ImportGroupRequest& rq, const Progress& progress) {
   const nxr::bst::SkippedFiles skipped;
   const auto convert = [&](DatasetWriter& ds) { return nxr::bst::convert_group(ds, rq.protocol, said(progress), rq.created_by); };
-  if (is_catalogue_dataset(rq.dataset))   // the protocol's group results into the dataset's group package (kind `group`)
-    return result_of(with_skipped(into_new_member(rq.dataset, nxr::bst::kGroupSubject, nxr::bst::group_options(rq.protocol, rq.created_by), rq.created_by, convert), skipped));
+  if (is_catalogue_dataset(rq.dataset)) {   // the protocol's group results into the dataset's template (format 56: the template holds the cohort), registered again
+    const CatalogueEntry t = dataset_template(rq.dataset);
+    Json out;
+    fs::path package;
+    {
+      DatasetWriter ds = open_subject_package(rq.dataset, t.name);
+      out = convert(ds);
+      package = ds.root();
+    }
+    register_member(rq.dataset, package, t.name, rq.created_by);
+    return result_of(with_skipped(out, skipped));
+  }
   DatasetWriter ds = open_one_database(rq.dataset, "import group");
   return result_of(with_skipped(convert(ds), skipped));
 }

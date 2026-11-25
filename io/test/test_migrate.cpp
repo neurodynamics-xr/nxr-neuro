@@ -239,7 +239,7 @@ int main() {
     CHECK(fs::exists(d / kDatasetFile));                                       // the old database is untouched until the end
     CHECK(!fs::exists(d / kWriterLockFile));                                   // and the lock is let go
     const Json done = split_dataset(d, so);
-    CHECK(done["subjects"].size() == 4);
+    CHECK(done["subjects"].size() == 3);
     CHECK(package_hashes(d) == want);
     CHECK(key_snapshot(d) == keys_before);
     for (const auto& e : Catalogue::open(d).entries()) CHECK(SubjectPackage::open(Catalogue::open(d).package_path(e)).verify().ok);
@@ -266,7 +266,7 @@ int main() {
     }
     CHECK(key_snapshot(ds) == keys_before);
     CHECK(shards(ds) == before_join);
-    CHECK(j["subjects"].size() == 4);
+    CHECK(j["subjects"].size() == 3);
     for (const auto& e : fs::directory_iterator(ds)) if (e.is_directory() && e.path().filename().string().find(".nxr.zarr") != std::string::npos) {
       CHECK(fs::exists(e.path() / kSmallFilesFile));
       CHECK(!fs::exists(e.path() / kPackageDatabaseFile));
@@ -279,7 +279,7 @@ int main() {
     CHECK(join_dataset(ds)["already_joined"] == true);
     // and splits again
     const Json second = split_dataset(ds, so);
-    CHECK(second["subjects"].size() == 4);
+    CHECK(second["subjects"].size() == 3);
     CHECK(key_snapshot(ds) == keys_before);
     CHECK(fs::exists(ds / "dataset.sqlite.format52-2"));                          // the earlier copy is kept, not overwritten
   }

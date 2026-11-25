@@ -447,7 +447,8 @@ std::vector<GroupMemberStatus> cohort_member_status(const fs::path& folder, cons
   for (const auto& m : producer_group["members"]) {
     GroupMemberStatus st;
     st.subject_id = m.value("subject_id", ""); st.name = m.value("name", ""); st.recorded_hash = m.value("content_hash", "");
-    if (const auto now = cat.find(st.subject_id); now && now->status != "replaced") st.current_hash = now->content_hash;
+    if (const auto now = cat.find(st.subject_id); now && now->status != "replaced" && fs::is_regular_file(cat.package_path(*now) / kPackageDatabaseFile))
+      st.current_hash = SubjectPackage::open(cat.package_path(*now)).record().content_hash;   // the package as it is now (a compute does not register it again)
     st.current = !st.current_hash.empty() && st.current_hash == st.recorded_hash;
     out.push_back(st);
   }
@@ -468,12 +469,21 @@ CatalogueEntry dataset_template(const fs::path& folder) {
   return found[0];
 }
 
+DatasetWriter open_template_of(const DatasetWriter& member, const OpenOptions& opt) {
+  if (!member.is_package()) throw Error(code::invalid_argument, "open_template_of: the writer is not over a subject package");
+  const fs::path dataset = member.root().parent_path();
+  if (!is_catalogue_dataset(dataset)) throw Error(code::not_found, member.root().string() + ": the package is not inside a catalogue dataset, so there is no dataset template to read");
+  return open_subject_package(dataset, dataset_template(dataset).name, opt);
+}
+
 SubjectPackage open_dataset_template(const fs::path& folder) {
   const Catalogue cat = Catalogue::open(folder);
   const fs::path p = cat.package_path(dataset_template(folder));
   if (!fs::is_regular_file(p / kPackageDatabaseFile)) throw Error(code::not_found, p.string() + ": the dataset's template package is missing");
   return SubjectPackage::open(p);
 }
+
+bool is_catalogue_dataset(const std::filesystem::path& dataset_folder) { return std::filesystem::is_regular_file(dataset_folder / kCatalogueFile); }
 
 DatasetWriter open_subject_package(const std::filesystem::path& dataset_folder, const std::string& subject, const OpenOptions& opt) {
   namespace fs = std::filesystem;

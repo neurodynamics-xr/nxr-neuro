@@ -120,6 +120,9 @@ CatalogueEntry dataset_template(const std::filesystem::path& dataset_folder);
 // The dataset's template, read only (no lock): for a subject step that needs the template's definitions (its tiling, its sphere). What the step stores is the
 // subject's own; its provenance names the template (`producer.template = {name, subject_id}`).
 SubjectPackage open_dataset_template(const std::filesystem::path& dataset_folder);
+// The template of the dataset a member's package lies in (the package's folder is inside its dataset's), opened as `open_subject_package` does (`opt.lock` false
+// for a read). Refused when `member` is not a package or its folder is not inside a catalogue dataset.
+DatasetWriter open_template_of(const DatasetWriter& member, const OpenOptions& opt = {});
 // Whether the folder is a catalogue dataset (holds `catalogue.sqlite`); a one-database dataset holds `dataset.sqlite`.
 bool is_catalogue_dataset(const std::filesystem::path& dataset_folder);
 

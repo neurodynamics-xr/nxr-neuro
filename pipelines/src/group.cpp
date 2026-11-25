@@ -43,11 +43,9 @@ GroupTemplate read_group_template(DatasetWriter& ds, SubjectWriter& sub, const s
   std::unique_ptr<DatasetWriter> template_package;
   DatasetWriter* tds = &ds;
   if (ds.is_package()) {
-    const std::filesystem::path dataset = sub.folder().parent_path();
-    if (!nxr::io::is_catalogue_dataset(dataset)) missing(sub.name() + ": its package is not inside a catalogue dataset, so there is no dataset template to read the group tree from");
     OpenOptions read_only;
     read_only.lock = false;
-    template_package = std::make_unique<DatasetWriter>(nxr::io::open_subject_package(dataset, nxr::io::dataset_template(dataset).name, read_only));
+    template_package = std::make_unique<DatasetWriter>(nxr::io::open_template_of(ds, read_only));
     tds = template_package.get();
   }
   const auto tpl = tds->template_();

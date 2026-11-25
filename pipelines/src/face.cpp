@@ -211,14 +211,18 @@ Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progres
   DatasetWriter* group_ds = nullptr;
   std::string group_name;
   if (is_catalogue_dataset(dataset)) {
-    const nxr::io::SelectedSubjects selected = nxr::io::select_subjects(dataset, nxr::io::SubjectSelection{rq.subjects, std::nullopt});   // the cohort's refusals
-    group_name = nxr::io::dataset_template(dataset).name;                                                                                   // none or two: refused
+    group_name = nxr::io::dataset_template(dataset).name;   // none or two: refused
     writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, group_name, true)));
     group_ds = writers.back().get();
-    for (const auto& e : selected.members) {
-      writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, e.name, false)));
-      subjects.push_back(std::make_unique<SubjectWriter>(SubjectWriter::open(*writers.back(), e.name)));
-      members.push_back(g::GroupMember{e.name, writers.back().get(), subjects.back().get(), e.subject_id, e.content_hash});
+    const nxr::io::Catalogue cat = nxr::io::Catalogue::open(dataset);
+    for (const auto& name : rq.subjects) {
+      const auto e = cat.find(name);
+      if (!e) refuse(name + ": no such subject in the dataset");
+      if (e->kind != "subject") refuse(name + " is a " + e->kind + ", not a subject: a cohort holds subjects only");
+      writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, name, false)));
+      subjects.push_back(std::make_unique<SubjectWriter>(SubjectWriter::open(*writers.back(), name)));
+      // the member as the run reads it: its package's own content hash (a compute does not register a package again, so the catalogue's may lag)
+      members.push_back(g::GroupMember{name, writers.back().get(), subjects.back().get(), e->subject_id, nxr::io::SubjectPackage::open(cat.package_path(*e)).record().content_hash});
     }
   } else {
     writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, rq.subjects.front(), true)));
