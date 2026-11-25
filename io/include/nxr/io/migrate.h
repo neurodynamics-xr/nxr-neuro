@@ -50,6 +50,17 @@ struct JoinOptions {
 Json split_dataset(const std::filesystem::path& dataset_folder, const SplitOptions& opt);
 Json join_dataset(const std::filesystem::path& dataset_folder, const JoinOptions& opt = {});
 
+// FORMAT 56 FOR A CATALOGUE MADE BEFORE IT (`nxr-neuro migrate template-links`): THE TEMPLATE HOLDS THE COHORT, a subject names no template. In the catalogue and in
+// every member package: `subject.template_id` set NULL; in each subject package the rows it carried as anchors from a template (its `subject` row, whatever else)
+// removed with their `anchor_row` entries, refused (that package left as it was) when a row of the subject still points at one of them; the record's template
+// reference dropped. Then every database is opened to write (55 -> 56 in place), each package's content hash recomputed, the packages registered again and the
+// index (a cache) rebuilt. A dataset holding a group package (kind `group`) is refused, naming it: its results belong in the template. No array is touched.
+struct TemplateLinksOptions {
+  std::string registered_by;                     // recorded with each catalogue entry: required
+  bool dry_run = false;                          // report what would change; change nothing
+};
+Json migrate_template_links(const std::filesystem::path& dataset_folder, const TemplateLinksOptions& opt);
+
 // ── THE SELECTIONS' STORAGE (schema 52): label arrays and the JSON form of 2026-11-17 to member numbers + labels beside them, a constant-Q ladder's level code to the power of two
 // of its window (a ladder lacking the window is refused), a spatial dyadic ladder's rule noted; see migrate_selection.cpp. In place, resumable, `dry_run` changes nothing. Run it BEFORE
 // `split_dataset` (a split refuses a dataset not converted). Sets `meta.selection_storage`. Report: counts per subject.

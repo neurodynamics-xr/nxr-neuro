@@ -337,7 +337,7 @@ void migrate_55_to_56(Database& d) {
     return model.substr(a, b - a);
   };
   if (const auto n = d.one("SELECT count(*) AS n FROM subject WHERE template_id IS NOT NULL OR kind = 'group'"); n && integer(*n, "n") > 0)
-    throw Error(code::schema_version, "this database names a template from a subject or holds a group package (schema 55): bring its dataset to 56 with `nxr-neuro migrate --dataset <folder>`, "
+    throw Error(code::schema_version, "this database names a template from a subject or holds a group package (schema 55): bring its dataset to 56 with `nxr-neuro migrate template-links --dataset <folder>`, "
                                       "which moves cohort results into the dataset's template and drops each subject's link to it");
   static const std::string kKindBefore = "kind IN ('subject', 'template', 'group', 'registration')", kKindAfter = "kind IN ('subject', 'template', 'registration')";
   static const std::string kTemplateBefore = "CHECK (template_id IS NULL OR kind = 'subject')", kTemplateAfter = "CHECK (template_id IS NULL)";
