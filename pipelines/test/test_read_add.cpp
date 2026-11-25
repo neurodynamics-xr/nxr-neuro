@@ -251,6 +251,14 @@ int main() {
       const auto row = sub.db().one("SELECT array_path, value FROM selection_measurement WHERE measure = 'map'");
       CHECK(row.has_value() && text(*row, "array_path").find("_parts/map") != std::string::npos && is_null(*row, "value"));
     }
+    {   // read back, member first [members x rows], as it was given
+      face::ReadNodeRequest mr2 = rq("parts");
+      mr2.measure = "map";
+      mr2.field = "w";
+      const task::CommandResult got = face::read_selection(mr2);
+      CHECK(array_named(got, "values").bytes == raw(std::vector<double>{1, 2, 3, 10, 20, 30}));
+      CHECK(got.result["array_backed"] == true && got.result["values_a_member"] == 3);
+    }
     CHECK(has(thrown([&] { task::add_measurements(am); }), "already_exists"));
     am.measure = {"bad=" + npy(root / "in" / "bad.npy", "float64", {3, 2}, std::vector<double>{1, 2, 3, 4, 5, 6}).string()};
     CHECK(has(thrown([&] { task::add_measurements(am); }), "the values of 'parts' are [2]"));

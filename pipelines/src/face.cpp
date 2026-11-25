@@ -817,6 +817,25 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
       if (!f) throw Error(code::no_such_row, "no field named '" + *of_field + "' in subject " + subject);
       q["ofFieldId"] = f->id;
     }
+    {   // AN ARRAY A MEMBER (an array-backed measurement: a value a vertex, an edge, a mode for each member): the array, member first [members x rows], as it was given
+      std::optional<std::string> fid;
+      if (q.contains("ofFieldId")) fid = q["ofFieldId"].get<std::string>();
+      std::optional<MeasurementValues> mv;
+      try { mv = measurement_values(sub, sel->id, fid, std::nullopt, std::nullopt, *measure); } catch (const Error& e) { if (e.code() != code::no_such_row) throw; }
+      if (mv && mv->array_backed) {
+        std::vector<double> by_member(static_cast<std::size_t>(mv->rows * mv->members));
+        for (std::int64_t r = 0; r < mv->rows; ++r)
+          for (std::int64_t m = 0; m < mv->members; ++m) by_member[static_cast<std::size_t>(m * mv->rows + r)] = mv->values[static_cast<std::size_t>(r * mv->members + m)];
+        StoredArray values = doubles("values", by_member);
+        values.shape = {mv->members, mv->rows};
+        std::vector<double> code_v;
+        for (std::int64_t m = 0; m < mv->members; ++m) code_v.push_back(static_cast<double>(m));
+        out.arrays = {doubles("code", code_v), std::move(values)};
+        out.meta = Json{{"class", "measurements"}, {"name", name}, {"selection", sel->id}, {"measure", *measure}, {"array_backed", true}, {"members", mv->members},
+                        {"values_a_member", mv->rows}, {"unit", mv->unit ? Json(*mv->unit) : Json()}};
+        return out;
+      }
+    }
     const Json rows = ts.read_measurements(q);
     std::vector<double> code_v, value, weight, members;
     for (const Json& r : rows) {
