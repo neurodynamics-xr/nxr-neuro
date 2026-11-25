@@ -120,6 +120,7 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
   out.kind.resize(K);
   out.eigenvectors.assign(V * K, 0.0f);
   out.top = lad.top;
+  out.dense = lad.dense;
   out.star1_clamped = clamped;
   out.mollify_epsilon = hd.record.epsilon;
   out.flips = hd.record.flips;
