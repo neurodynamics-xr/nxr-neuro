@@ -70,7 +70,7 @@ export const COMMANDS = [
   ["query", "measurements", "", "band dataset* factor field limit max_value measure* min_value order selection* spatial_scale subject* subjects tile where"],
   ["export", "measurements", "", "dataset* exclude fields* keep_all! labelling* layout out* recipe scaling statistics subjects table*"],
   ["compile", "", "definition", "dataset inputs set+ signatures subject"],
-  ["read", "field", "", "all! budget dataset* from name* onto out projectors region rows shape_only! subject* to"],
+  ["read", "field", "", "all! budget dataset* from name* onto out projection_only! projectors region rows shape_only! subject* to"],
   ["read", "statistic", "", "budget dataset* name* out region subject*"],
   ["read", "operator", "", "budget dataset* name* onto out region subject*"],
   ["read", "selection", "", "budget dataset* field measure name* out region subject*"],

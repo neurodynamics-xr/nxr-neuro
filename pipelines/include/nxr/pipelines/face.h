@@ -160,6 +160,7 @@ struct ReadNodeRequest {
   std::vector<std::int32_t> rows;          // field: its rows, in order (empty: all)
   std::string projectors = "active";       // field: active | none | NAME[,NAME...]
   bool shape_only = false;                 // field: its description only, no sample read
+  bool projection_only = false;            // field: the projection the chosen projectors make [channels x channels] (every channel of the recording) and its record, no sample read
   std::optional<std::string> measure, field;   // selection: its measurement table of this measure (of this field)
   std::optional<std::string> family;       // manifold: one labelling of it
   std::optional<std::string> out;          // the .npy file (or stem) the arrays are written to

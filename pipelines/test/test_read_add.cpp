@@ -17,7 +17,9 @@
 #include "nxr/io.h"
 #include "nxr/io/npy.h"
 #include "nxr/io/task/commands.h"
+#include "nxr/io/measures.h"
 #include "nxr/io/task/handle.h"
+#include "nxr/io/task/task.h"
 #include "nxr/pipelines/face.h"
 
 using namespace nxr::io;
@@ -243,13 +245,12 @@ int main() {
     {
       task::Lease lease = task::open_reader(D, std::string("S1"));
       SubjectWriter sub = SubjectWriter::open(*lease, "S1");
-      const auto row0 = sub.db().one("SELECT array_path FROM selection_measurement WHERE measure = 'map'");
-      const auto raw = ArrayReader::open(sub.store(), text(*row0, "array_path")).read();
-      std::vector<double> stored(raw.size() / sizeof(double));
-      std::memcpy(stored.data(), raw.data(), raw.size());
-      CHECK(stored == (std::vector<double>{1, 10, 2, 20, 3, 30}));                 // [rows x members x 1]: row r, member m at (r * 2 + m)
-      const auto row = sub.db().one("SELECT array_path, value FROM selection_measurement WHERE measure = 'map'");
-      CHECK(row.has_value() && text(*row, "array_path").find("_parts/map") != std::string::npos && is_null(*row, "value"));
+      const auto sel = task::Subject::of(sub).by_id_or_name(task::Cls::selection, "parts");
+      const auto w = task::Subject::of(sub).by_id_or_name(task::Cls::field, "w");
+      const MeasurementValues mv = measurement_values(sub, sel->id, w->id, std::nullopt, std::nullopt, "map");   // io's reader: the stored layout, as the pipelines' measurements are read
+      CHECK(mv.array_backed && mv.rows == 3 && mv.members == 2);
+      const std::vector<double>& stored = mv.values;
+      CHECK(stored == (std::vector<double>{1, 10, 2, 20, 3, 30}));                 // [rows x members]: row r, member m at (r * 2 + m)
     }
     {   // read back, member first [members x rows], as it was given
       face::ReadNodeRequest mr2 = rq("parts");

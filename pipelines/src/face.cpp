@@ -630,12 +630,12 @@ Window window_of(const ReadRequest& rq, const std::string& node) {
 
 // A TIME-RESOLVED FIELD read through the chunk service (the one door, reading.h): the rows and samples asked, chunk by chunk, into one array in the field's stored precision
 Stored read_series(SubjectWriter& sub, const task::Subject& ts, const task::Node& n, const finder::Value& v, const ReadRequest& rq) {
-  if (rq.reading != "samples" && rq.reading != "shape") refuse("read: reading is samples or shape (got '" + rq.reading + "')");
+  if (rq.reading != "samples" && rq.reading != "shape" && rq.reading != "projection") refuse("read: reading is samples, shape or projection (got '" + rq.reading + "')");
   if (rq.start.has_value() != rq.stop.has_value()) refuse("read: a span of samples gives both start and stop, or neither (the whole field, read chunk by chunk)");
   if (rq.from.has_value() != rq.to.has_value()) throw task::Refused("--from and --to go together: give both");
   const int ranges = (rq.start ? 1 : 0) + (rq.from ? 1 : 0) + (rq.all ? 1 : 0);
   if (ranges > 1) throw task::Refused("give one time range: --from and --to (seconds), or --all");
-  if (ranges == 0 && rq.range_required && rq.reading != "shape")
+  if (ranges == 0 && rq.range_required && rq.reading == "samples")
     throw task::Refused("'" + n.name + "' is a time-resolved field: a time range is required: give --from SECONDS --to SECONDS, or --all for the whole field (read one chunk at a time)");
   if (!rq.region.empty()) throw task::Refused("'" + n.name + "' is a time-resolved field: its part is named by --rows and --from/--to, not --region");
   const Projectors projectors = projectors_from(rq.projectors);
@@ -663,6 +663,14 @@ Stored read_series(SubjectWriter& sub, const task::Subject& ts, const task::Node
   if (n.manifold_id) if (const auto m = ts.by_id(task::Cls::manifold, *n.manifold_id)) out.meta["manifold"] = m->name;
   if (const auto line = ts.by_id(task::Cls::manifold, *v.time)) out.meta["time"] = line->name;
   if (rq.reading == "shape") return out;
+  if (rq.reading == "projection") {   // the matrix every read under these projectors applies, over ALL the recording's channels (a caller composes it with its own operators)
+    if (const auto p = src.projection()) {
+      StoredArray m = doubles("projection", p->matrix);
+      m.shape = {p->n, p->n};
+      out.arrays.push_back(std::move(m));
+    }
+    return out;
+  }
   const bool single = dtype == "float32";
   {   // the budget, before the array is made: the samples asked of the rows asked
     const double bytes = static_cast<double>(rows) * static_cast<double>(width) * (single ? 4.0 : 8.0);
@@ -960,14 +968,15 @@ CommandResult read_class(const std::string& cls, const ReadNodeRequest& r) {
   rq.cls = cls;
   rq.region = r.region;
   rq.budget = r.budget;
-  const bool series = r.from || r.to || r.all || !r.rows.empty() || r.projectors != "active" || r.shape_only;
+  const bool series = r.from || r.to || r.all || !r.rows.empty() || r.projectors != "active" || r.shape_only || r.projection_only;
   if (cls == "field") {
     rq.from = r.from;
     rq.to = r.to;
     rq.all = r.all;
     rq.rows = r.rows;
     rq.projectors = r.projectors;
-    rq.reading = r.shape_only ? "shape" : "samples";
+    if (r.shape_only && r.projection_only) throw task::Refused("--shape-only and --projection-only are alternatives");
+    rq.reading = r.shape_only ? "shape" : r.projection_only ? "projection" : "samples";
     rq.range_required = true;
   } else if (series) {
     throw task::Refused("a time range, rows, projectors and shape-only are options of `read field`");

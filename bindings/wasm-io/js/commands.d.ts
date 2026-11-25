@@ -673,6 +673,7 @@ export interface ReadFieldOptions {
   name: string | number;
   onto?: string | number;
   out?: string | number;
+  projection_only?: boolean;
   projectors?: string | number;
   region?: string | number;
   rows?: string | number;

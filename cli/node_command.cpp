@@ -1,6 +1,6 @@
 // nxr-neuro read <class> · add <class> (docs/specs/2026-11-19-io-service.md, section 4): one stored node by name, read as arrays; what a user computed, stored as one unit.
 //
-//   nxr-neuro read field --dataset D --subject S --name N [--from S --to S | --all] [--rows 0,2] [--projectors active|none|NAME[,NAME...]] [--shape-only] [--out FILE.npy]
+//   nxr-neuro read field --dataset D --subject S --name N [--from S --to S | --all] [--rows 0,2] [--projectors active|none|NAME[,NAME...]] [--shape-only | --projection-only] [--out FILE.npy]
 //   nxr-neuro read statistic | operator --dataset D --subject S --name N [--out FILE.npy]
 //   nxr-neuro read selection --dataset D --subject S --name N [--measure M [--field F]] [--out FILE.npy]
 //   nxr-neuro read manifold --dataset D --subject S --name N [--family NAME] [--out FILE.npy]
@@ -153,7 +153,7 @@ int read_node_main(const std::vector<std::string>& argv) {
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const std::string prog = "nxr-neuro read " + what;
   std::set<std::string> valued = {"--dataset", "--subject", "--name", "--out", "--region", "--budget"}, flags;
-  if (what == "field") { valued.insert({"--from", "--to", "--rows", "--projectors", "--onto"}); flags = {"--all", "--shape-only"}; }
+  if (what == "field") { valued.insert({"--from", "--to", "--rows", "--projectors", "--onto"}); flags = {"--all", "--shape-only", "--projection-only"}; }
   else if (what == "operator") valued.insert("--onto");
   else if (what == "selection") valued.insert({"--measure", "--field"});
   else if (what == "manifold") valued.insert("--family");
@@ -168,6 +168,7 @@ int read_node_main(const std::vector<std::string>& argv) {
   if (const auto v = a.maybe("--to")) rq.to = parse_time("--to", *v);
   rq.all = a.flag.count("--all") > 0;
   rq.shape_only = a.flag.count("--shape-only") > 0;
+  rq.projection_only = a.flag.count("--projection-only") > 0;
   if (const auto v = a.maybe("--rows")) for (const auto& r : split_commas(*v)) rq.rows.push_back(static_cast<std::int32_t>(integer_of(prog, "--rows", r)));
   if (const auto v = a.maybe("--projectors")) {
     try { nxr::io::projectors_from(*v); } catch (const nxr::io::Error& e) { throw Usage(prog + ": error: argument --projectors: " + e.what()); }

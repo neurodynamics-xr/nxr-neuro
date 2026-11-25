@@ -81,7 +81,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     # reading and querying
     ("read", "dataset", "folder", "array+ out region"),
     ("read", "crossspectrum", "", "dataset* name* pair reading seed subject* weights"),
-    ("read", "field", "", "all! budget dataset* from name* onto out projectors region rows shape_only! subject* to"),
+    ("read", "field", "", "all! budget dataset* from name* onto out projection_only! projectors region rows shape_only! subject* to"),
     ("read", "statistic", "", "budget dataset* name* out region subject*"),
     ("read", "operator", "", "budget dataset* name* onto out region subject*"),
     ("read", "selection", "", "budget dataset* field measure name* out region subject*"),

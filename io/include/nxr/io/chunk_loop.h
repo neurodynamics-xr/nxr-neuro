@@ -143,6 +143,8 @@ class ChunkSource {
   /** apply `p` (over all the recording's channels) to every chunk read; `record` is what the run's provenance says of it (see load_projection) */
   void project(std::shared_ptr<const LoadProjection> p, Json record);
   const Json& projection_record() const { return projection_record_; }
+  /** the matrix applied to every chunk read [n x n] over all the recording's channels; null: nothing is applied */
+  std::shared_ptr<const LoadProjection> projection() const { return projection_; }
   /** the chunks read so far (each read once per job: what a test counts); a shape-only source reads none (0) */
   std::int64_t reads() const;
 

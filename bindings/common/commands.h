@@ -693,6 +693,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
       for (const auto& n : *p) q.projectors += (q.projectors.empty() ? "" : ",") + n;
     }
     q.shape_only = o.flag("shape_only");
+    q.projection_only = o.flag("projection_only");
     q.onto = o.maybe("onto");
     call([&] { return face::read_field(q); });
   } else if (c == "read statistic") {
