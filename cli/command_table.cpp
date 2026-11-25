@@ -187,8 +187,8 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --keep-bad-segments		Keep the recording's bad segments in the computation instead of leaving them out	off	-
 --kernel	NAME	Name of the stored inverse kernel (the map from channels to sources) to apply.	the subject's only kernel	-
 --kernels	SPEC,...	Which kernels' pyramids are summed: all, constrained, free, latest, a method, stamp, name or glob (kinds combine with AND, tokens of one kind with OR).	all	-
---kind	subject|template|group	Kind of subject to create	subject	-
---kind@create subject	subject|template|group	Kind of the new subject: an ordinary subject, a template subject or a group subject.	subject	-
+--kind	subject|template	Kind of subject to create	subject	-
+--kind@create subject	subject|template	Kind of the new subject: an ordinary subject or the dataset's template subject (which holds the cohort).	subject	-
 --labelling	NAME	The partition (a stored Selection with one code per vertex, e.g. a parcellation or a tile level) whose members are measured.	none (required)	-
 --labelling@export measurements	NAME	The partition (labelling) whose members are the table's columns, named the same in every subject	required	-
 --layout	split|wide	Table layout: split gives a table per condition and statistic with a column per member; wide gives one table with a column per condition, member and statistic.	split	-
@@ -471,7 +471,7 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --package@create package	PATH	The folder of the subject package to make (<subject>.nxr.zarr); it must not exist yet.	required	-
 --name@create package	NAME	Name of the subject the package holds.	required	-
 --home-dataset@create package	NAME	The dataset the package is made for, by its name: provenance, not membership.	required	-
---kind@create package	subject|template|group	Kind of the subject the package holds: an ordinary subject, a template or a group.	subject	-
+--kind@create package	subject|template	Kind of the subject the package holds: an ordinary subject or a template.	subject	-
 --package@register package	PATH	A subject package's folder (repeatable); an alternative to --scan.	none	-
 --scan@register package		Register every *.nxr.zarr package directly inside the dataset folder; an alternative to --package.	off	-
 --registered-by@register package	WHO	Who registers: recorded with each catalogue entry.	required	-

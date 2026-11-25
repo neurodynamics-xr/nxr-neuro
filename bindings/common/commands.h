@@ -1032,7 +1032,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
   return r;
 }
 
-/** `run PIPELINE` on a subject, or a group: `args` is {pipeline, dataset, subject, parameters, from, to, all, replace, dry_run, preset, subjects, into}; the result as JSON.
+/** `run PIPELINE` on a subject, or a group: `args` is {pipeline, dataset, subject, parameters, from, to, all, replace, dry_run, preset, subjects}; the result as JSON.
  *  A handle: the same as `command`. */
 inline Json run(const Json& args, const task::Progress& progress, task::Handle* handle = nullptr) {
   const task::HandleScope through(handle);
@@ -1042,13 +1042,12 @@ inline Json run(const Json& args, const task::Progress& progress, task::Handle* 
   const Json parameters = args.contains("parameters") && args["parameters"].is_object() ? args["parameters"] : Json::object();
   std::vector<std::string> subjects;
   if (args.contains("subjects") && args["subjects"].is_array()) for (const auto& x : args["subjects"]) subjects.push_back(x.get<std::string>());
-  const std::string dataset = text("dataset"), subject = text("subject"), into = text("into");
-  if (!subjects.empty() || !into.empty()) {   // a group run: the members and the group package are the caller's
+  const std::string dataset = text("dataset"), subject = text("subject");
+  if (!subjects.empty()) {   // a group run: the members are the caller's; the results go into the dataset's template
     face::GroupRunRequest rq;
     rq.pipeline = text("pipeline");
     rq.parameters = parameters;
     rq.subjects = subjects;
-    rq.into = into;
     rq.replace = flag("replace");
     rq.preset = text("preset");
     rq.dry_run = flag("dry_run");

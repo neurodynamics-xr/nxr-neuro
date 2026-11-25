@@ -7,7 +7,7 @@
 //   nxr-neuro dataset show   --dataset D/N
 //   nxr-neuro dataset delete --datastore D --name N
 //   nxr-neuro dataset recover --dataset D/N
-//   nxr-neuro subject create --dataset D/N --name S [--kind subject|template|group]
+//   nxr-neuro subject create --dataset D/N --name S [--kind subject|template]
 //   nxr-neuro subject list   --dataset D/N
 //   nxr-neuro subject show   --dataset D/N --subject S
 //   nxr-neuro subject delete --dataset D/N --subject S [--node PATH]

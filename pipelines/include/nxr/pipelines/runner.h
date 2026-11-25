@@ -92,6 +92,7 @@ struct RunOptions {
  *  parameter names, of the field the member's `per_subject` field input found, when there is one) as ONE array [subjects x measures x rows x members]; the ids of what each member's input found, in the caller's order. */
 struct GroupInputs {
   std::vector<std::string> subjects;                              // the members' names, in the caller's order (the stack's first axis)
+  std::vector<std::string> subject_ids, content_hashes;           // each member's id and content hash, in the same order (cohort_member_status reads them back)
   std::map<std::string, nxr::graph::Array> stacked;               // per_subject input → its values stacked over the subjects (meta: subjects, measures, rows, members, shape)
   std::map<std::string, std::vector<std::string>> ids;            // per_subject input → each member's found id
   std::map<std::string, std::vector<std::string>> names;          // per_subject input → each member's found name (the provenance: a group result links no member's row)
@@ -105,6 +106,7 @@ struct GroupMember {
   std::string name;
   nxr::io::DatasetWriter* ds = nullptr;
   nxr::io::SubjectWriter* sub = nullptr;
+  std::string subject_id, content_hash;                           // a catalogue member's id and content hash as the run read it (the provenance; empty hash: a one-database dataset)
 };
 /** A GROUP RUN (consolidation spec 5; replaces `pyramid reduce` and group.cpp's subject merge): `d` (scope group) with its `per_subject` inputs found in EACH member (exactly one match each, else refused naming
  *  the subject), its other inputs and every output in the group's default subject (`group_ds`, `group_sub`). The members are stated by the caller (no default: none is refused). The members' inputs must lie on the

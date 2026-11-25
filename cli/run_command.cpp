@@ -66,8 +66,8 @@ int run_main(const std::vector<std::string>& rest) {
     }
   const g::Definition d = g::load(a.pos[0]);
   if (d.scope == "group") {
-    // A GROUP definition: its members are the parameter `subjects` (a list, or names joined by commas; no default), its results go to the dataset's default subject or, in a catalogue, to the
-    // group package named by the parameter `into`: one call to the library's group run (face.h), as the bindings make it.
+    // A GROUP definition: its members are the parameter `subjects` (a list, or names joined by commas; no default), its results go into the dataset's template (format 56:
+    // the template holds the cohort): one call to the library's group run (face.h), as the bindings make it.
     if (a.maybe("--subject")) usage(prog, d.name + " is a group definition: name its members with --subjects A,B,C, not --subject");
     nxr::pipelines::face::GroupRunRequest rq;
     rq.pipeline = a.pos[0];
@@ -76,7 +76,6 @@ int run_main(const std::vector<std::string>& rest) {
     else if (subjects.is_array()) for (const auto& n : subjects) rq.subjects.push_back(n.is_string() ? n.get<std::string>() : n.dump());
     if (rq.subjects.empty()) usage(prog, d.name + " is a group definition: name its members with --subjects A,B,C (there is no default group)");
     set["subjects"] = rq.subjects;
-    if (set.contains("into") && set["into"].is_string()) rq.into = set["into"].get<std::string>();
     rq.parameters = set;
     rq.replace = a.flag.count("--replace") > 0;
     rq.preset = preset;

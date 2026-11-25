@@ -203,21 +203,22 @@ Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progres
   if (d.scope != "group") refuse(d.name + " is not a group definition (scope " + d.scope + "): `run` takes it on one subject");
   OpenSubjectOptions oo;
   oo.created_by = stamp();
-  // the members are opened to be read, the group's default subject to be written; a catalogue dataset: each member's package, and the group package the caller names (`into`); a one-database dataset: its one writer
+  // the members are opened to be read, the dataset's template to be written (format 56: the template holds the cohort); a catalogue dataset: each member's package and
+  // the template's; a one-database dataset: its one writer
   std::vector<std::unique_ptr<DatasetWriter>> writers;
   std::vector<std::unique_ptr<SubjectWriter>> subjects;
   std::vector<g::GroupMember> members;
   DatasetWriter* group_ds = nullptr;
   std::string group_name;
   if (is_catalogue_dataset(dataset)) {
-    if (rq.into.empty()) refuse("a group run in a catalogue dataset names the group package its results go to (into)");
-    writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, rq.into, true)));
+    const nxr::io::SelectedSubjects selected = nxr::io::select_subjects(dataset, nxr::io::SubjectSelection{rq.subjects, std::nullopt});   // the cohort's refusals
+    group_name = nxr::io::dataset_template(dataset).name;                                                                                   // none or two: refused
+    writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, group_name, true)));
     group_ds = writers.back().get();
-    group_name = rq.into;
-    for (const auto& name : rq.subjects) {
-      writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, name, false)));
-      subjects.push_back(std::make_unique<SubjectWriter>(SubjectWriter::open(*writers.back(), name)));
-      members.push_back(g::GroupMember{name, writers.back().get(), subjects.back().get()});
+    for (const auto& e : selected.members) {
+      writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, e.name, false)));
+      subjects.push_back(std::make_unique<SubjectWriter>(SubjectWriter::open(*writers.back(), e.name)));
+      members.push_back(g::GroupMember{e.name, writers.back().get(), subjects.back().get(), e.subject_id, e.content_hash});
     }
   } else {
     writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, rq.subjects.front(), true)));
@@ -227,7 +228,7 @@ Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progres
     group_name = text(*tpl, "name");
     for (const auto& name : rq.subjects) {
       subjects.push_back(std::make_unique<SubjectWriter>(SubjectWriter::open(*group_ds, name)));
-      members.push_back(g::GroupMember{name, group_ds, subjects.back().get()});
+      members.push_back(g::GroupMember{name, group_ds, subjects.back().get(), subjects.back()->id(), std::string()});
     }
   }
   SubjectWriter group_sub = SubjectWriter::open(*group_ds, group_name, oo);
@@ -248,7 +249,7 @@ Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progres
           stored.push_back(Json{{"output", s.value("output", "")}, {"name", name}, {"id", s.value("id", "")}, {"path", s.value("path", "")}});
         }
   }
-  return Json{{"pipeline", rq.pipeline}, {"subjects", rq.subjects}, {"into", group_name}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
+  return Json{{"pipeline", rq.pipeline}, {"subjects", rq.subjects}, {"template", group_name}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
 }
 
 namespace {

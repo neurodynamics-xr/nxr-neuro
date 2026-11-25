@@ -198,7 +198,7 @@ CommandResult migrate_measurements(const MigrateMeasurementsRequest& rq, const P
 // ---- subjects ----
 
 CommandResult create_subject(const CreateSubjectRequest& rq, const Progress& progress) {
-  if (rq.kind != "subject" && rq.kind != "template" && rq.kind != "group") throw Refused("argument --kind: invalid choice: '" + rq.kind + "' (choose from 'subject', 'template', 'group')");
+  if (rq.kind != "subject" && rq.kind != "template") throw Refused("argument --kind: invalid choice: '" + rq.kind + "' (choose from 'subject', 'template'; a cohort's results go into the dataset's template)");
   CommandResult r;
   if (is_catalogue_dataset(rq.dataset)) {   // a catalogue: a new package in the dataset's folder, registered
     const Catalogue cat = Catalogue::open(rq.dataset);
