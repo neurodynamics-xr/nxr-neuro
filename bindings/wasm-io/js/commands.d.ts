@@ -110,16 +110,16 @@ export interface SplitDatasetOptions {
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
+export interface MigrateSelectionsOptions {
+  dataset: string | number;
+  dry_run?: boolean;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
 export interface MigrateTemplateLinksOptions {
   dataset: string | number;
   dry_run?: boolean;
   registered_by?: string | number;
-  /** receives each progress line the command prints, as an object */
-  progress?: (line: Record<string, unknown>) => void;
-}
-export interface MigrateSelectionsOptions {
-  dataset: string | number;
-  dry_run?: boolean;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
