@@ -456,9 +456,106 @@ Json join_dataset(const fs::path& folder_in, const JoinOptions& opt) {
 
 // ══ format 56: the template holds the cohort ══════════════════════════════════════════════════════════════════════
 
+namespace {
+// FORMAT 56 FOR A ONE-DATABASE DATASET (`dataset.sqlite`): every subject's `template_id` cleared, and each subject of kind `group` FOLDED INTO THE TEMPLATE: its fields
+// re-owned by the template, their arrays moved from the group's folder to the template's (same paths; refused when one is there already), the group's row removed and
+// its emptied folder kept aside (`<folder>.format55-group`), never deleted. A group that owns anything but fields is refused, naming the table. Then the database is
+// opened to write (55 -> 56 in place).
+Json template_links_one_database(const fs::path& folder, const TemplateLinksOptions& opt) {
+  const fs::path file = folder / kDatasetFile;
+  if (!fs::is_regular_file(file)) throw refuse(folder.string() + ": neither a catalogue nor a one-database dataset");
+  Json report = Json{{"dataset", folder.string()}, {"form", "one database"}, {"dry_run", opt.dry_run}};
+  struct Fold { std::string id, name, path; std::vector<std::pair<std::string, std::string>> fields; };   // field id, its array path
+  std::vector<Fold> folds;
+  std::string template_id, template_path;
+  {
+    Database d = Database::open_plain(file, false, true);
+    const auto templates = d.all("SELECT id, path FROM subject WHERE kind = 'template'");
+    const auto groups = d.all("SELECT id, name, path FROM subject WHERE kind = 'group'");
+    report["template_id_set"] = integer(*d.one("SELECT count(*) AS n FROM subject WHERE template_id IS NOT NULL"), "n");
+    if (!groups.empty()) {
+      if (templates.size() != 1) throw refuse(folder.string() + ": " + std::to_string(templates.size()) + " template subjects; a group subject is folded into the dataset's ONE template");
+      template_id = text(templates.front(), "id"); template_path = text(templates.front(), "path");
+    }
+    const auto tables = tables_of(d);
+    for (const auto& g : groups) {
+      Fold f{text(g, "id"), text(g, "name"), text(g, "path"), {}};
+      for (const auto& t : tables) {
+        if (t == "subject" || t == "field" || t == "field_contribution" || bookkeeping(t)) continue;   // a contribution's subject_id is its contributor
+        if (!has(columns_of(d, t), "subject_id")) continue;
+        if (integer(*d.one("SELECT count(*) AS n FROM \"" + t + "\" WHERE subject_id = ?", {f.id}), "n") > 0)
+          throw refuse(folder.string() + ": the group subject " + f.name + " owns rows of " + t + "; only fields are folded into the template");
+      }
+      for (const auto& r : d.all("SELECT id, path FROM field WHERE subject_id = ?", {f.id})) {
+        const std::string P = opt_text(r, "path").value_or("");
+        if (!P.empty() && fs::exists(folder / template_path / P)) throw refuse(folder.string() + ": " + (folder / template_path / P).string() + " exists: the group's array " + P + " would overwrite it");
+        f.fields.emplace_back(text(r, "id"), P);
+      }
+      folds.push_back(f);
+    }
+  }
+  Json groups_json = Json::array();
+  for (const auto& f : folds) groups_json.push_back(Json{{"group", f.name}, {"fields", static_cast<std::int64_t>(f.fields.size())}, {"into", template_path}});
+  report["groups_folded"] = groups_json;
+  if (opt.dry_run) return report;
+  // the arrays first, COPIED key by key through each subject's store (plain files, or its small_files.sqlite) and compared byte for byte; on a failure of the rows the
+  // copies are erased. The group's originals stay where they are, in its folder, which is then kept aside whole.
+  struct SubjectStore {
+    FolderStore files;
+    std::unique_ptr<SmallFileStore> small;
+    explicit SubjectStore(const fs::path& dir) : files(dir) {
+      if (fs::is_regular_file(dir / kSmallFilesFile)) small = std::make_unique<SmallFileStore>(files, dir / kSmallFilesFile);
+    }
+    Store& store() { return small ? static_cast<Store&>(*small) : static_cast<Store&>(files); }
+  };
+  std::vector<std::string> copied;
+  std::int64_t moved = 0;
+  SubjectStore to(folder / template_path);
+  try {
+    for (const auto& f : folds) {
+      SubjectStore from(folder / f.path);
+      for (const auto& [id, P] : f.fields) {
+        if (P.empty()) continue;
+        const auto keys = list_all_keys(from.store(), P);
+        for (const auto& k : keys) {
+          const auto bytes = from.store().get(k);
+          if (!bytes) throw refuse(folder.string() + ": the group's key " + k + " cannot be read");
+          to.store().set(k, bytes->data(), bytes->size());
+          copied.push_back(k);
+          const auto back = to.store().get(k);
+          if (!back || *back != *bytes) throw refuse(folder.string() + ": the copy of " + k + " in the template differs from the group's");
+        }
+        if (!keys.empty()) ++moved;
+      }
+      if (from.small) from.small->close();
+    }
+    Database d = Database::open_plain(file);
+    d.execute("PRAGMA foreign_keys = OFF");
+    d.execute("BEGIN");
+    try {
+      for (const auto& f : folds) {
+        d.execute("UPDATE field SET subject_id = ? WHERE subject_id = ?", {template_id, f.id});
+        d.execute("DELETE FROM subject WHERE id = ?", {f.id});
+      }
+      d.execute("UPDATE subject SET template_id = NULL");
+      if (const auto bad = d.all("PRAGMA foreign_key_check"); !bad.empty()) throw refuse(folder.string() + ": a row of " + text(bad.front(), "table") + " no longer finds the row it names");
+      d.execute("COMMIT");
+    } catch (...) { try { d.execute("ROLLBACK"); } catch (...) {} throw; }
+  } catch (...) {
+    for (const auto& k : copied) { try { to.store().erase(k); } catch (...) {} }
+    throw;
+  }
+  if (to.small) to.small->close();
+  for (const auto& f : folds) if (fs::exists(folder / f.path)) fs::rename(folder / f.path, aside_name(folder / f.path, ".format55-group"));
+  { Database d = Database::open(file); }   // 55 -> 56 in place (the schema's CHECKs, the views)
+  report["moved_arrays"] = moved;
+  return report;
+}
+}  // namespace
+
 Json migrate_template_links(const fs::path& folder, const TemplateLinksOptions& opt) {
   if (opt.registered_by.empty() && !opt.dry_run) throw refuse("migrate template-links: say who registers the packages again (registered_by)");
-  if (!is_catalogue_dataset(folder)) throw refuse(folder.string() + ": not a catalogue dataset (`nxr-neuro split dataset` makes one)");
+  if (!is_catalogue_dataset(folder)) return template_links_one_database(folder, opt);
   const fs::path cfile = folder / kCatalogueFile;
   struct Member { std::string id, name, kind; fs::path package; };
   std::vector<Member> members;

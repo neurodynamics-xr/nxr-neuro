@@ -54,7 +54,10 @@ Json join_dataset(const std::filesystem::path& dataset_folder, const JoinOptions
 // every member package: `subject.template_id` set NULL; in each subject package the rows it carried as anchors from a template (its `subject` row, whatever else)
 // removed with their `anchor_row` entries, refused (that package left as it was) when a row of the subject still points at one of them; the record's template
 // reference dropped. Then every database is opened to write (55 -> 56 in place), each package's content hash recomputed, the packages registered again and the
-// index (a cache) rebuilt. A dataset holding a group package (kind `group`) is refused, naming it: its results belong in the template. No array is touched.
+// index (a cache) rebuilt. A catalogue holding a group package (kind `group`) is refused, naming it. No array is touched.
+// A ONE-DATABASE dataset: every `template_id` cleared and each subject of kind `group` FOLDED INTO the dataset's one template (its fields re-owned by the template,
+// their arrays moved from the group's folder to the template's, the group's row removed, its emptied folder kept aside as `<folder>.format55-group`); a group owning
+// anything but fields, or an array path the template already holds, is refused. Then the database is brought to 56.
 struct TemplateLinksOptions {
   std::string registered_by;                     // recorded with each catalogue entry: required
   bool dry_run = false;                          // report what would change; change nothing
