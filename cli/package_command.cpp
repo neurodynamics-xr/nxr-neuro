@@ -5,7 +5,7 @@
 //   package create  --package P --name S --home-dataset N [--kind subject|template]
 //   package verify  --package P
 //   package show    --package P
-//   package register --dataset D (--package P ... | --scan) --registered-by WHO [--replace] [--templates DIR ...]
+//   package register --dataset D (--package P ... | --scan) --registered-by WHO [--replace]
 //   package status  --dataset D
 //   package select  --dataset D (--subjects A,B,... | --where FILTER)
 //   package index   --dataset D [--force]
@@ -50,14 +50,13 @@ int package_main(const std::vector<std::string>& argv) {
     const Args a = parse(prog, rest, {"--package"}, {}, {"--package"});
     emit_result(task::show_package({a.get("--package")}).result);
   } else if (action == "register") {
-    const Args a = parse(prog, rest, {"--dataset", "--registered-by"}, {"--scan", "--replace"}, {"--dataset", "--registered-by"}, 0, {"--package", "--templates"});
+    const Args a = parse(prog, rest, {"--dataset", "--registered-by"}, {"--scan", "--replace"}, {"--dataset", "--registered-by"}, 0, {"--package"});
     task::RegisterPackageRequest rq;
     rq.dataset = a.get("--dataset");
     rq.registered_by = a.get("--registered-by");
     rq.package = values_of(a, "--package");
     rq.scan = a.flag.count("--scan") > 0;
     rq.replace = a.flag.count("--replace") > 0;
-    rq.templates = maybe_values(a, "--templates");
     const task::CommandResult r = call(prog, [&] { return task::register_package(rq); });
     emit_result(r.result);
     for (const auto& x : r.result["results"]) if (x["outcome"] == "refused") return 1;

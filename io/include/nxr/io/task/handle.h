@@ -85,6 +85,6 @@ class Lease {
 
 /** The dataset a READ-ONLY command works on: a catalogue's subject package (found through the catalogue; `subject` required), or a one-database dataset (store formats 50 to 52),
  *  opened read-only, no lock, no recovery. Through a handle on `folder`, the handle's open reader (opened on first use); otherwise a reader of its own. */
-Lease open_reader(const std::string& folder, const std::optional<std::string>& subject, const std::vector<std::string>& templates = {}, const Progress& progress = {});
+Lease open_reader(const std::string& folder, const std::optional<std::string>& subject, const Progress& progress = {});
 
 }  // namespace nxr::io::task

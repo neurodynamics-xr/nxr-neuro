@@ -46,8 +46,8 @@ CommandResult result_of(Json body) {
 
 // the subject of a dataset an import writes into, opened as every command opens it (built in place: the subject keeps a reference to its dataset)
 struct Opened {
-  Opened(const std::string& dataset, const std::string& subject, const std::vector<std::string>& templates, const std::string& created_by, const Progress& progress)
-      : ds(open_dataset(dataset, subject, OpenOptions{}, templates, progress)), sub(SubjectWriter::open(ds, subject, options(created_by))) {}
+  Opened(const std::string& dataset, const std::string& subject, const std::string& created_by, const Progress& progress)
+      : ds(open_dataset(dataset, subject, OpenOptions{}, progress)), sub(SubjectWriter::open(ds, subject, options(created_by))) {}
   static OpenSubjectOptions options(const std::string& created_by) {
     OpenSubjectOptions oo;
     oo.created_by = created_by;
@@ -226,7 +226,7 @@ CommandResult import_surface(const ImportSurfaceRequest& rq, const Progress& pro
 
 static CommandResult import_surface_work(const ImportSurfaceRequest& rq, const Progress& progress) {
   if (rq.file.empty()) throw Refused("give --file tess_*.mat ... (--fs-dir is not ported yet)");
-  Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
+  Opened o(rq.dataset, rq.subject, rq.created_by, progress);
   const std::string bst_root = rq.bst_root.value_or("");
   Json wrote = Json::array();
   o.sub.compose([&] {
@@ -250,7 +250,7 @@ CommandResult import_mri(const ImportMriRequest& rq, const Progress& progress) {
 }
 
 static CommandResult import_mri_work(const ImportMriRequest& rq, const Progress& progress) {
-  Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
+  Opened o(rq.dataset, rq.subject, rq.created_by, progress);
   Json names = Json::array();
   o.sub.compose([&] {
     for (const Json& r : nxr::bst::import_subjectimages(o.sub, rq.anat, rq.only, said(progress))) names.push_back(r["name"]);
@@ -295,7 +295,7 @@ static CommandResult import_condition_work(const ImportConditionRequest& rq, con
   };
   if (is_catalogue_dataset(rq.dataset) && !listed_in_catalogue(rq.dataset, rq.subject))   // a catalogue without the subject: its package is made, filled, then registered
     return result_of(with_skipped(into_new_member(rq.dataset, rq.subject, nxr::bst::subject_options(root, rq.subject, rq.created_by), rq.created_by, convert), skipped));
-  DatasetWriter ds = open_dataset(rq.dataset, rq.subject, OpenOptions{}, rq.templates, progress);
+  DatasetWriter ds = open_dataset(rq.dataset, rq.subject, OpenOptions{}, progress);
   return result_of(with_skipped(convert(ds), skipped));
 }
 
@@ -305,7 +305,7 @@ CommandResult import_inverse(const ImportInverseRequest& rq, const Progress& pro
 }
 
 static CommandResult import_inverse_work(const ImportInverseRequest& rq, const Progress& progress) {
-  Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
+  Opened o(rq.dataset, rq.subject, rq.created_by, progress);
   nxr::bst::AddInverseOptions ao;
   ao.acquisition = rq.acquisition;
   ao.bst_root = rq.bst_root;
@@ -331,7 +331,7 @@ static CommandResult import_covariance_work(const ImportCovarianceRequest& rq, c
   fs::path dir = data / rq.condition;
   if (!fs::is_directory(dir, ec)) dir = data / ("@raw" + rq.condition);     // a raw file's study
   if (!fs::is_directory(dir, ec)) throw Error(code::not_found, "no study " + rq.condition + " of " + rq.subject + " in the protocol");
-  Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
+  Opened o(rq.dataset, rq.subject, rq.created_by, progress);
   nxr::bst::CovarianceOptions co;
   co.kind = rq.kind;
   co.bst_root = rq.protocol;
@@ -356,7 +356,7 @@ static CommandResult import_map_work(const ImportMapRequest& rq, const Progress&
     buf << in.rdbuf();
     prov = Json::parse(buf.str());
   }
-  Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
+  Opened o(rq.dataset, rq.subject, rq.created_by, progress);
   const nxr::bst::MapHooks& hooks = nxr::bst::recording_map_hooks();   // a map over time is written as a recording is
   Json wrote = Json::array();
   o.sub.compose([&] {
@@ -379,7 +379,7 @@ CommandResult import_resample(const ImportResampleRequest& rq, const Progress& p
 }
 
 static CommandResult import_resample_work(const ImportResampleRequest& rq, const Progress& progress) {
-  Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
+  Opened o(rq.dataset, rq.subject, rq.created_by, progress);
   Json info;
   o.sub.compose([&] { info = nxr::bst::add_resampled(o.sub, rq.recording, rq.to, rq.name, said(progress)); });
   return result_of(std::move(info));
@@ -391,7 +391,7 @@ CommandResult import_badsegments(const ImportBadsegmentsRequest& rq, const Progr
 }
 
 static CommandResult import_badsegments_work(const ImportBadsegmentsRequest& rq, const Progress& progress) {
-  Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
+  Opened o(rq.dataset, rq.subject, rq.created_by, progress);
   std::ifstream f(rq.from, std::ios::binary);
   if (!f) throw Error(code::not_found, "[Errno 2] No such file or directory: " + nxr::bst::str_repr(nxr::bst::py_path(rq.from)));
   const Json src = Json::parse(f);
@@ -406,7 +406,7 @@ CommandResult import_events(const ImportEventsRequest& rq, const Progress& progr
 }
 
 static CommandResult import_events_work(const ImportEventsRequest& rq, const Progress& progress) {
-  Opened o(rq.dataset, rq.subject, rq.templates, rq.created_by, progress);
+  Opened o(rq.dataset, rq.subject, rq.created_by, progress);
   Json info;
   o.sub.compose([&] { info = nxr::bst::import_events(o.sub, rq.from, rq.replace); });
   return result_of(std::move(info));

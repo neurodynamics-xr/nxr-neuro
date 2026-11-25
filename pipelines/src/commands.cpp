@@ -26,7 +26,7 @@ namespace {
 
 
 // the subject's dataset as every command opens it (a catalogue's subject package, or a one-database dataset; nxr/io/task/commands.h)
-DatasetWriter open_subject_dataset(const std::string& folder, const std::string& subject, const OpenOptions& o, const std::vector<std::string>& templates, const Progress& progress) {
+DatasetWriter open_subject_dataset(const std::string& folder, const std::string& subject, const OpenOptions& o, const Progress& progress) {
   if (is_catalogue_dataset(folder)) return open_subject_package(folder, subject, o);
   if (progress && fs::is_regular_file(fs::path(folder) / "dataset.sqlite"))
     progress(Json{{"stage", "note"}, {"note", folder + " is a one-database dataset; `nxr-neuro split dataset` makes it a catalogue of subject packages (the default form)."}});
@@ -34,7 +34,7 @@ DatasetWriter open_subject_dataset(const std::string& folder, const std::string&
 }
 
 CommandResult list_nodes(const ListNodesRequest& rq, const std::string& what, const Progress& progress) {
-  task::Lease lease = task::open_reader(rq.dataset, rq.subject, rq.templates, progress);
+  task::Lease lease = task::open_reader(rq.dataset, rq.subject, progress);
   DatasetWriter& ds = *lease;
   SubjectWriter sub = SubjectWriter::open(ds, rq.subject);
   CommandResult r;
@@ -117,7 +117,7 @@ CommandResult read_crossspectrum(const ReadCrossspectrumRequest& rq, const Progr
 namespace {
 CommandResult read_crossspectrum_checked(const ReadCrossspectrumRequest& rq, const Progress& progress) {
   const std::string& reading = rq.reading;
-  DatasetWriter ds = open_subject_dataset(rq.dataset, rq.subject, OpenOptions{}, rq.templates, progress);
+  DatasetWriter ds = open_subject_dataset(rq.dataset, rq.subject, OpenOptions{}, progress);
   OpenSubjectOptions oo;
   oo.created_by = rq.created_by;
   SubjectWriter sub = SubjectWriter::open(ds, rq.subject, oo);

@@ -123,42 +123,6 @@ void require_same_rows(const Database& db, const std::string& table, const std::
   if (a) throw refuse(what + ": " + std::to_string(a) + " row(s) of " + table + " are not the original's");
 }
 
-
-std::string file_sha256(const fs::path& p) {
-  std::ifstream in(p, std::ios::binary);
-  Sha256 h;
-  std::vector<char> buf(1 << 20);
-  while (in) { in.read(buf.data(), static_cast<std::streamsize>(buf.size())); h.update(reinterpret_cast<const std::uint8_t*>(buf.data()), static_cast<std::size_t>(in.gcount())); }
-  return h.hex();
-}
-
-// Copy a folder tree, then compare every file's SHA-256 with its copy's (a file already there with the same bytes is left; one that differs is refused).
-std::int64_t copy_tree_verified(const fs::path& from, const fs::path& to, const std::string& what) {
-  std::int64_t files = 0;
-  for (const auto& e : fs::recursive_directory_iterator(from)) {
-    if (!e.is_regular_file()) continue;
-    const fs::path dest = to / fs::relative(e.path(), from);
-    fs::create_directories(dest.parent_path());
-    if (fs::exists(dest)) {
-      if (file_sha256(dest) != file_sha256(e.path())) throw refuse(what + ": " + dest.string() + " exists and differs from " + e.path().string());
-    } else {
-      fs::copy_file(e.path(), dest);
-    }
-    if (file_sha256(dest) != file_sha256(e.path())) throw refuse(what + ": " + dest.string() + " differs from " + e.path().string() + " after the copy");
-    ++files;
-  }
-  return files;
-}
-
-// Every file of `a` is in `b` with the same bytes, and the other way round.
-bool same_tree(const fs::path& a, const fs::path& b) {
-  std::map<std::string, std::string> x, y;
-  for (const auto& e : fs::recursive_directory_iterator(a)) if (e.is_regular_file()) x[fs::relative(e.path(), a).generic_string()] = file_sha256(e.path());
-  for (const auto& e : fs::recursive_directory_iterator(b)) if (e.is_regular_file()) y[fs::relative(e.path(), b).generic_string()] = file_sha256(e.path());
-  return x == y;
-}
-
-// The group results of one template (default subject) subject: the fields, and where their arrays are.
 struct SubjectOut {
   std::string name, outcome;
   std::int64_t rows = 0, anchor_rows = 0, keys = 0, small_keys_verified = 0;
@@ -401,9 +365,7 @@ Json join_dataset(const fs::path& folder_in, const JoinOptions& opt) {
   WriterLock lock = acquire_writer_lock(folder, "nxr-io join");
   BorrowedLock borrowed(folder);
   Catalogue cat = Catalogue::open(folder);
-  // the group results `split` moved out of the default subjects: they go back (the mapping split wrote, reversed)
-  Json groups = Json::array();
-  if (const auto r = cat.db().one("SELECT value FROM meta WHERE key = 'split_groups'")) groups = Json::parse(text(*r, "value"));
+
   const auto members = [&] { std::vector<CatalogueEntry> m; for (const auto& e : cat.entries()) if (e.status != "replaced") m.push_back(e); return m; }();
   for (const auto& e : members) {
     const fs::path p = cat.package_path(e);
@@ -425,10 +387,6 @@ Json join_dataset(const fs::path& folder_in, const JoinOptions& opt) {
         db.execute("DELETE FROM meta WHERE key = 'index_json'");
         db.execute("DELETE FROM sync_job");
         db.execute("UPDATE meta SET value = ? WHERE key = 'store_format'", {std::string(kStoreFormat52)});
-        for (const Json& g : groups) {
-          db.execute("UPDATE field SET subject_id = ? WHERE subject_id = ?", {g["template_subject_id"].get<std::string>(), g["group_subject_id"].get<std::string>()});
-          db.execute("DELETE FROM subject WHERE id = ?", {g["group_subject_id"].get<std::string>()});
-        }
         // the participants table, back into the model's two tables
         if (fs::is_regular_file(folder / kParticipantsFile)) {
           db.execute("ATTACH DATABASE ? AS part", {(folder / kParticipantsFile).string()});
@@ -452,39 +410,9 @@ Json join_dataset(const fs::path& folder_in, const JoinOptions& opt) {
   }
 
   // 2. each subject: its small keys back into its small_files.sqlite, byte for byte; its package database kept aside
-  //    a group package's keys go back to the default subject it came from: the arrays (the originals `split` moved aside, else the group package's copy, compared), the small keys
   Json subjects = Json::array();
-  std::map<std::string, std::vector<std::pair<std::string, std::string>>> returning;   // default subject's folder -> small keys coming back
-  std::set<std::string> group_ids;
-  for (const Json& g : groups) {
-    const std::string gid = g["group_subject_id"].get<std::string>();
-    group_ids.insert(gid);
-    const fs::path gdir = folder / g["group_path"].get<std::string>(), tdir = folder / g["template_path"].get<std::string>();
-    if (!fs::is_regular_file(gdir / kPackageDatabaseFile)) continue;   // already returned
-    for (const auto& r : Database::open(gdir / kPackageDatabaseFile, false, "", true).all("SELECT key, value FROM small_files ORDER BY key"))
-      returning[g["template_path"].get<std::string>()].emplace_back(text(r, "key"), std::get<std::string>(r.at("value")));
-    for (const Json& pj : g["prefixes"]) {
-      const std::string P = pj.get<std::string>();
-      if (!fs::exists(gdir / P)) continue;
-      if (!fs::exists(tdir / P)) {
-        const fs::path aside_dir = folder / "_moved-aside" / g["template_path"].get<std::string>() / P;
-        if (fs::exists(aside_dir) && same_tree(aside_dir, gdir / P)) { fs::create_directories((tdir / P).parent_path()); fs::rename(aside_dir, tdir / P); }
-        else copy_tree_verified(gdir / P, tdir / P, "join: the group results " + P);
-      } else if (!same_tree(tdir / P, gdir / P)) {
-        throw refuse("join: " + (tdir / P).string() + " is not the group package's copy of it");
-      }
-    }
-  }
   for (const auto& e : members) {
     const fs::path sdir = cat.package_path(e), pkg_file = sdir / kPackageDatabaseFile, small = sdir / kSmallFilesFile;
-    if (group_ids.count(e.subject_id)) {
-      if (fs::is_regular_file(pkg_file)) {
-        fs::rename(sdir, aside_name(sdir, ".format53"));   // the whole group package, kept: its arrays are copies of what went back
-        subjects.push_back(Json{{"name", e.name}, {"returned_to_default_subject", true}});
-        if (opt.on_stage) opt.on_stage("aside", e.name);
-      }
-      continue;
-    }
     if (fs::is_regular_file(pkg_file)) {
       std::int64_t keys = 0;
       {
@@ -499,8 +427,6 @@ Json join_dataset(const fs::path& folder_in, const JoinOptions& opt) {
               out.put_row(text(r, "key"), reinterpret_cast<const std::uint8_t*>(v.data()), v.size());
               ++keys;
             }
-            if (const auto it = returning.find(e.path); it != returning.end())
-              for (const auto& [k, v] : it->second) { out.put_row(k, reinterpret_cast<const std::uint8_t*>(v.data()), v.size()); ++keys; }
           });
           // verified byte for byte against the package's table
           SmallFileStore in(files, pkg, SmallFileOptions{kSmallFileThreshold, true});
@@ -509,7 +435,6 @@ Json join_dataset(const fs::path& folder_in, const JoinOptions& opt) {
             if (!x || !y || *x != *y) throw refuse("join: " + e.name + ": the key " + k + " differs after the move");
           }
           auto expected = in.table_keys();
-          if (const auto it = returning.find(e.path); it != returning.end()) { for (const auto& kv : it->second) expected.push_back(kv.first); std::sort(expected.begin(), expected.end()); }
           if (expected != out.table_keys()) throw refuse("join: " + e.name + ": the keys of the table are not the package's");
           out.close();
         }

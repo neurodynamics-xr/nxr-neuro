@@ -53,7 +53,7 @@ namespace {
 
 
 // the dataset a run works on, as the command line opens it (cli.h open_dataset): a catalogue's subject package, or a one-database dataset
-DatasetWriter open_for(const fs::path& folder, const std::string& subject, bool lock, const std::vector<std::string>& templates = {}) {
+DatasetWriter open_for(const fs::path& folder, const std::string& subject, bool lock) {
   OpenOptions o;
   o.lock = lock;
   if (is_catalogue_dataset(folder)) return open_subject_package(folder, subject, o);
@@ -752,7 +752,7 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
 Stored read(const fs::path& dataset, const std::string& subject, const std::string& name, const ReadRequest& rq) {
   if (!rq.cls.empty() && rq.cls != "field" && rq.cls != "statistic" && rq.cls != "operator" && rq.cls != "selection" && rq.cls != "manifold")
     refuse("read: class '" + rq.cls + "' (field, statistic, operator, selection or manifold)");
-  task::Lease lease = task::open_reader(dataset.string(), subject, rq.templates);
+  task::Lease lease = task::open_reader(dataset.string(), subject);
   DatasetWriter& ds = *lease;
   SubjectWriter sub = SubjectWriter::open(ds, subject);
   const task::Subject ts = task::Subject::of(sub);
@@ -939,7 +939,6 @@ namespace {
 CommandResult read_class(const std::string& cls, const ReadNodeRequest& r) {
   ReadRequest rq;
   rq.cls = cls;
-  rq.templates = r.templates;
   rq.region = r.region;
   rq.budget = r.budget;
   const bool series = r.from || r.to || r.all || !r.rows.empty() || r.projectors != "active" || r.shape_only;

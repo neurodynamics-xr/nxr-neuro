@@ -288,7 +288,7 @@ CommandResult list_subjects(const ListSubjectsRequest& rq, const Progress& progr
 }
 
 CommandResult show_subject(const ShowSubjectRequest& rq, const Progress& progress) {
-  Lease lease = open_reader(rq.dataset, rq.subject, rq.templates, progress);
+  Lease lease = open_reader(rq.dataset, rq.subject, progress);
   DatasetWriter& ds = *lease;
   SubjectWriter s = SubjectWriter::open(ds, rq.subject);
   const NodeCounts n = Subject::of(s).node_counts();
@@ -300,7 +300,7 @@ CommandResult show_subject(const ShowSubjectRequest& rq, const Progress& progres
 
 CommandResult delete_subject(const DeleteSubjectRequest& rq) {
   if (rq.node) {   // one node, named CLASS:NAME (commands_delete.cpp); a catalogue's package opens through the catalogue
-    DatasetWriter ds = is_catalogue_dataset(rq.dataset) ? open_dataset(rq.dataset, rq.subject, OpenOptions{}, rq.templates, {}) : open_one_database(rq.dataset, "delete subject");
+    DatasetWriter ds = is_catalogue_dataset(rq.dataset) ? open_dataset(rq.dataset, rq.subject, OpenOptions{}, {}) : open_one_database(rq.dataset, "delete subject");
     return delete_node(ds, rq.subject, *rq.node, rq.created_by, rq.by);
   }
   if (rq.by) throw Refused("--by goes with --node: it names the author of the node to delete");
@@ -340,7 +340,7 @@ CommandResult add_surface(const AddSurfaceRequest& rq, const Progress& progress)
     mesh = read_mesh(rq.file);
   }
   const std::string name = sanitize_node_name(rq.name.value_or(mesh_name(rq.file)));
-  DatasetWriter ds = open_dataset(rq.dataset, rq.subject, OpenOptions{}, rq.templates, progress);
+  DatasetWriter ds = open_dataset(rq.dataset, rq.subject, OpenOptions{}, progress);
   OpenSubjectOptions oo;
   oo.created_by = rq.by && !rq.by->empty() ? *rq.by : rq.created_by;   // the author (`--by`), else the program
   SubjectWriter sub = SubjectWriter::open(ds, rq.subject, oo);

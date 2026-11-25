@@ -101,7 +101,7 @@ int surface_command(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro convert surface";
   const Args a = parse(prog, rest, {"--dataset", "--subject", "--bst-root"}, {}, {"--dataset", "--subject"}, 0, {"--file"});
   if (!a.multi.count("--file")) throw Usage(prog + ": give --file tess_*.mat ... (--fs-dir is not ported yet)");
-  const task::ImportSurfaceRequest rq{a.get("--dataset"), a.get("--subject"), values_of(a, "--file"), a.maybe("--bst-root"), values_of(a, "--templates"), stamp()};
+  const task::ImportSurfaceRequest rq{a.get("--dataset"), a.get("--subject"), values_of(a, "--file"), a.maybe("--bst-root"), stamp()};
   emit_result(call(prog, [&] { return task::import_surface(rq, progress()); }).result);
   return 0;
 }
@@ -110,7 +110,7 @@ int surface_command(const std::vector<std::string>& rest) {
 int mri_command(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro convert mri";
   const Args a = parse(prog, rest, {"--dataset", "--subject", "--anat"}, {}, {"--dataset", "--subject", "--anat"}, 0, {"--only"});
-  const task::ImportMriRequest rq{a.get("--dataset"), a.get("--subject"), a.get("--anat"), maybe_values(a, "--only"), values_of(a, "--templates"), stamp()};
+  const task::ImportMriRequest rq{a.get("--dataset"), a.get("--subject"), a.get("--anat"), maybe_values(a, "--only"), stamp()};
   emit_result(call(prog, [&] { return task::import_mri(rq, progress()); }).result);
   return 0;
 }
@@ -134,7 +134,6 @@ int convert_condition_command(const std::vector<std::string>& rest) {
   rq.include_imported = a.flag.count("--include-imported") > 0;
   rq.no_raw = a.flag.count("--no-raw") > 0;
   rq.extra_surface = maybe_values(a, "--extra-surface");
-  rq.templates = values_of(a, "--templates");
   rq.created_by = stamp();
   emit_result(call(prog, [&] { return task::import_condition(rq, progress()); }).result);
   return 0;
@@ -156,7 +155,6 @@ int inverse_command(const std::vector<std::string>& rest) {
   rq.forward_id = a.maybe("--forward-id");
   rq.name = a.maybe("--name");
   rq.channel_file = a.maybe("--channel-file");
-  rq.templates = values_of(a, "--templates");
   rq.created_by = stamp();
   emit_result(call(prog, [&] { return task::import_inverse(rq, progress()); }).result);
   return 0;
@@ -175,7 +173,6 @@ int covariance_command(const std::vector<std::string>& rest) {
   if (rq.kind != "noise" && rq.kind != "data") throw Usage(prog + ": error: argument --kind: invalid choice: '" + rq.kind + "' (choose from 'noise', 'data')");
   rq.name = a.maybe("--name");
   rq.replace = a.flag.count("--replace") > 0;
-  rq.templates = values_of(a, "--templates");
   rq.created_by = stamp();
   emit_result(call(prog, [&] { return task::import_covariance(rq, progress()); }).result);
   return 0;
@@ -194,7 +191,6 @@ int map_command(const std::vector<std::string>& rest) {
   rq.acquisition = a.maybe("--acquisition");
   rq.provenance = a.maybe("--provenance");
   rq.replace = a.flag.count("--replace") > 0;
-  rq.templates = values_of(a, "--templates");
   rq.created_by = stamp();
   emit_result(call(prog, [&] { return task::import_map(rq, progress()); }).result);
   return 0;
@@ -204,7 +200,7 @@ int map_command(const std::vector<std::string>& rest) {
 int resample_command(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro convert resample";
   const Args a = parse(prog, rest, {"--dataset", "--subject", "--recording", "--to", "--name"}, {}, {"--dataset", "--subject", "--recording", "--to"});
-  const task::ImportResampleRequest rq{a.get("--dataset"), a.get("--subject"), a.get("--recording"), std::stod(a.get("--to")), a.maybe("--name"), values_of(a, "--templates"), stamp()};
+  const task::ImportResampleRequest rq{a.get("--dataset"), a.get("--subject"), a.get("--recording"), std::stod(a.get("--to")), a.maybe("--name"), stamp()};
   emit_result(call(prog, [&] { return task::import_resample(rq, progress()); }).result);
   return 0;
 }
@@ -213,7 +209,7 @@ int resample_command(const std::vector<std::string>& rest) {
 int events_command(const std::string& cmd, const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro convert " + cmd;
   const Args a = parse(prog, rest, {"--dataset", "--subject", "--from"}, {"--replace"}, {"--dataset", "--subject", "--from"});
-  const task::ImportBadsegmentsRequest rq{a.get("--dataset"), a.get("--subject"), a.get("--from"), a.flag.count("--replace") > 0, values_of(a, "--templates"), stamp()};
+  const task::ImportBadsegmentsRequest rq{a.get("--dataset"), a.get("--subject"), a.get("--from"), a.flag.count("--replace") > 0, stamp()};
   if (cmd == "badsegments") emit_result(call(prog, [&] { return task::import_badsegments(rq, progress()); }).result);
   else emit_result(call(prog, [&] { return task::import_events(rq, progress()); }).result);
   return 0;

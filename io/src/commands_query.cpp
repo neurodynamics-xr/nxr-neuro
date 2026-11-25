@@ -480,7 +480,7 @@ CommandResult read_subject(const ReadSubjectRequest& rq, const Progress& progres
     for (const auto& k : kSubjectClasses) if (std::find(classes.begin(), classes.end(), k) != classes.end()) ordered.push_back(k);
     classes = ordered;
   }
-  Lease lease = open_reader(rq.dataset, rq.subject, rq.templates, progress);
+  Lease lease = open_reader(rq.dataset, rq.subject, progress);
   const Database& db = (*lease).db();
   const auto subject = find_subject_ref(db, rq.subject);
   if (!subject) throw Error(code::no_such_row, "dataset " + rq.dataset + " holds no subject named '" + rq.subject + "'");
@@ -537,7 +537,7 @@ CommandResult list_class(const ListClassRequest& rq, const Progress& progress) {
     throw Refused("list " + noun + ": --on names the manifold the nodes lie on (manifolds, fields, selections, operators, statistics)");
   const bool catalogue = is_catalogue_dataset(rq.dataset);
   if (catalogue && !rq.subject) throw Refused("list " + noun + ": a catalogue of subject packages is listed one subject at a time: name it with --subject", true);
-  Lease lease = open_reader(rq.dataset, rq.subject, rq.templates, progress);
+  Lease lease = open_reader(rq.dataset, rq.subject, progress);
   const Database& db = (*lease).db();
   std::vector<SubjectRef> subjects;
   bool dataset_wide_jobs = false;

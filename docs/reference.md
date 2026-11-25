@@ -204,7 +204,7 @@ In the verb-first grammar, each with its own `--help`; they parse, call the func
 | `create subject --dataset D --name S` | on a catalogue: a new package `D/S.nxr.zarr`, registered |
 | `create package --package P --name S --home-dataset N [--kind subject\|template\|group]` | a subject package |
 | `verify package --package P`, `show package --package P` | recompute every digest and the content hash; show the record |
-| `register package --dataset D (--package P ... \| --scan) --registered-by WHO [--replace] [--templates DIR ...]` | register (idempotent; each outcome and refusal reported) |
+| `register package --dataset D (--package P ... \| --scan) --registered-by WHO [--replace]` | register (idempotent; each outcome and refusal reported) |
 | `list members --dataset D` | the packages with their state (registered, missing, stale) |
 | `list subjects --dataset D [--subjects A,B \| --where FILTER]` | on a catalogue: the members, or those selected (the matched subjects, their hashes and the filter text with its language version are printed); on a one-database dataset as before |
 | `import participants --dataset D --tsv FILE [--sidecar FILE]`, `export participants ...` | BIDS participants in and out of the dataset's own participants file; written only where named |
