@@ -63,9 +63,22 @@ int main() {
     for (int j = 0; j < N - overlap - part; ++j) endReflected.col(overlap + part + j) = w.col(overlap + part - 2 - j);
     const Eigen::MatrixXcd D = ns::overlappedSpectrum(op, w, overlap, 0, overlap, N, 0, N / 2 + 1);
     EXPECT((D - op.cast<cd>() * ns::rfft(endReflected, 1)).cwiseAbs().maxCoeff() < 1e-10, "a part chunk at the recording's end: reflected on the right to one transform length");
+    // a SHORT last chunk: the right side needs more reflection than the samples hold; reflected again (numpy pads `reflect` repeatedly): grown pass by pass here
+    const int shortPart = 3;
+    const Eigen::MatrixXd u = randn(channels, overlap + shortPart);
+    std::vector<Eigen::VectorXd> grown;
+    for (int j = 0; j < overlap + shortPart; ++j) grown.push_back(u.col(j));
+    while (static_cast<int>(grown.size()) < N) {
+      const int n = static_cast<int>(grown.size());
+      for (int j = 0; j < n - 1 && static_cast<int>(grown.size()) < N; ++j) grown.push_back(grown[static_cast<std::size_t>(n - 2 - j)]);
+    }
+    Eigen::MatrixXd shortReflected(channels, N);
+    for (int j = 0; j < N; ++j) shortReflected.col(j) = grown[static_cast<std::size_t>(j)];
+    const Eigen::MatrixXcd S = ns::overlappedSpectrum(op, u, overlap, 0, overlap, N, 0, N / 2 + 1);
+    EXPECT((S - op.cast<cd>() * ns::rfft(shortReflected, 1)).cwiseAbs().maxCoeff() < 1e-10, "a short last chunk: reflected again where the samples are too few (numpy reflect)");
     bool refused = false;
-    try { ns::overlappedSpectrum(op, randn(channels, 4), 0, 0, overlap, N, 0, 3); } catch (const std::invalid_argument&) { refused = true; }
-    EXPECT(refused, "refused: more reflection than the samples hold");
+    try { ns::overlappedSpectrum(op, randn(channels, 1), 0, 0, overlap, N, 0, 3); } catch (const std::invalid_argument&) { refused = true; }
+    EXPECT(refused, "refused: one sample cannot be reflected");
   }
 
   // ── the atoms and the partitions ──
