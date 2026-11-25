@@ -230,7 +230,30 @@ int main() {
     m.replace = true;
     task::add_measurements(m);
     m.measure = {"max=" + npy(root / "in" / "max3.npy", "float64", {3}, std::vector<double>{1, 2, 3}).string()};
-    CHECK(has(thrown([&] { task::add_measurements(m); }), "is [3]; one value a member of 'parts' is [2]"));
+    CHECK(has(thrown([&] { task::add_measurements(m); }), "is [3]; the values of 'parts' are [2]"));
+    // AN ARRAY A MEMBER ([members x rows]): stored as the pipelines store theirs, [rows x members x components], one row naming the array
+    task::AddMeasurementsRequest am;
+    am.dataset = D; am.subject = "S1"; am.created_by = by;
+    am.selection = "parts";
+    am.measure = {"map=" + npy(root / "in" / "map0.npy", "float64", {2, 3}, std::vector<double>{1, 2, 3, 10, 20, 30}).string()};
+    CHECK(has(thrown([&] { task::add_measurements(am); }), "give --field"));
+    am.field = "w";
+    am.measure = {"map=" + npy(root / "in" / "map.npy", "float64", {2, 3}, std::vector<double>{1, 2, 3, 10, 20, 30}).string()};
+    task::add_measurements(am);
+    {
+      task::Lease lease = task::open_reader(D, std::string("S1"));
+      SubjectWriter sub = SubjectWriter::open(*lease, "S1");
+      const auto row0 = sub.db().one("SELECT array_path FROM selection_measurement WHERE measure = 'map'");
+      const auto raw = ArrayReader::open(sub.store(), text(*row0, "array_path")).read();
+      std::vector<double> stored(raw.size() / sizeof(double));
+      std::memcpy(stored.data(), raw.data(), raw.size());
+      CHECK(stored == (std::vector<double>{1, 10, 2, 20, 3, 30}));                 // [rows x members x 1]: row r, member m at (r * 2 + m)
+      const auto row = sub.db().one("SELECT array_path, value FROM selection_measurement WHERE measure = 'map'");
+      CHECK(row.has_value() && text(*row, "array_path").find("_parts/map") != std::string::npos && is_null(*row, "value"));
+    }
+    CHECK(has(thrown([&] { task::add_measurements(am); }), "already_exists"));
+    am.measure = {"bad=" + npy(root / "in" / "bad.npy", "float64", {3, 2}, std::vector<double>{1, 2, 3, 4, 5, 6}).string()};
+    CHECK(has(thrown([&] { task::add_measurements(am); }), "the values of 'parts' are [2]"));
   }
   {
     task::AddStatisticRequest st;

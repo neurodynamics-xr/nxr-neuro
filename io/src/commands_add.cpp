@@ -459,15 +459,37 @@ CommandResult add_measurements(const AddMeasurementsRequest& rq, const Progress&
     if (codes.empty()) throw Refused("'" + sel->name + "' has no members to measure (a set, partition, pick or spans has)");
     Json rows = Json::array();
     Json replaced = Json::array();
+    std::int64_t array_rows = 0;
     for (const auto& [measure, file] : given) {
       const Values v = values_of(file, "--measure " + measure);
       need_real(v, "--measure " + measure, file);
-      if (v.shape.size() != 1 || v.shape[0] != static_cast<std::int64_t>(codes.size()))
-        throw Refused("--measure " + measure + "=" + file_name(file) + " is " + shape_text(v.shape) + "; one value a member of '" + sel->name + "' is [" + std::to_string(codes.size()) + "]");
+      const std::int64_t n_members = static_cast<std::int64_t>(codes.size());
+      if (v.shape.empty() || v.shape[0] != n_members || v.shape.size() > 3)
+        throw Refused("--measure " + measure + "=" + file_name(file) + " is " + shape_text(v.shape) + "; the values of '" + sel->name + "' are [" + std::to_string(n_members) +
+                      "] (one a member), [" + std::to_string(n_members) + " x N] (an array a member: a value a vertex, an edge, a mode) or [" + std::to_string(n_members) + " x N x C] (C components a value)");
       if (ts.has_measure(sel->id, measure, field ? std::optional<std::string>(field->id) : std::nullopt)) {
         if (!rq.replace) throw Error(code::already_exists, "'" + sel->name + "' already holds the measure '" + measure + "'" + (field ? " of " + field->name : std::string()) + ": pass --replace");
         u.remove_measurements(sel->id, field ? std::optional<std::string>(field->id) : std::nullopt, measure);
         replaced.push_back(measure);
+      }
+      if (v.shape.size() >= 2) {   // AN ARRAY A MEMBER: stored as the pipelines store it, [rows x members x components] (Unit::measurements), one row naming the array
+        if (!field) throw Refused("--measure " + measure + ": an array a member is a measurement OF a field (the recording or map it was computed from, as a pipeline's measurements are of their recording): give --field");
+        const Values d = as_f64(v);
+        const std::int64_t rows_n = v.shape[1], comps = v.shape.size() == 3 ? v.shape[2] : 1;
+        Values laid;
+        laid.shape = {rows_n, n_members, comps};
+        laid.f64.resize(static_cast<std::size_t>(rows_n * n_members * comps));
+        for (std::int64_t m = 0; m < n_members; ++m)
+          for (std::int64_t r = 0; r < rows_n; ++r)
+            for (std::int64_t c = 0; c < comps; ++c) laid.f64[static_cast<std::size_t>((r * n_members + m) * comps + c)] = d.f64[static_cast<std::size_t>((m * rows_n + r) * comps + c)];
+        MeasurementOut mo;
+        mo.selection_id = sel->id;
+        mo.of_field_id = field->id;
+        mo.path = field->path.value_or(safe_name(field->name)) + "_" + safe_name(sel->name);   // beside the field's arrays, under the selection's name (as the runner lays them)
+        mo.measures.push_back(MeasurementOut::Measure{measure, rq.unit.value_or(""), std::move(laid)});
+        if (comps > 1) mo.attributes = Json{{"components", comps}};
+        array_rows += u.measurements(mo);
+        continue;
       }
       const Values d = as_f64(v);                       // a measurement row's value is a float64
       for (std::size_t k = 0; k < codes.size(); ++k) {
@@ -477,7 +499,7 @@ CommandResult add_measurements(const AddMeasurementsRequest& rq, const Progress&
         rows.push_back(std::move(row));
       }
     }
-    const std::int64_t written = u.write_measurements(rows);
+    const std::int64_t written = u.write_measurements(rows) + array_rows;
     Json out = Json{{"class", "measurements"}, {"selection", sel->name}, {"field", field ? Json(field->name) : Json()}, {"measures", static_cast<std::int64_t>(given.size())}, {"rows", written}};
     if (!replaced.empty()) out["replaced"] = replaced;
     return out;

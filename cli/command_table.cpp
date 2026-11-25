@@ -1204,7 +1204,7 @@ R"TBL(--templates@add statistic	DIR	A folder of released templates to look in (r
 )TBL",
 R"TBL(--templates@add measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
 --selection@add measurements	NAME	The selection whose members are measured, by name or id.	required	-
---measure@add measurements	NAME=FILE.npy	A measure and its values, one a member in member order [members] (float32 or float64; stored as float64 measurement rows); repeat or give several.	required	-
+--measure@add measurements	NAME=FILE.npy	A measure and its values in member order: [members] (one value a member, stored as float64 measurement rows), [members x N] (an array a member: a value a vertex, an edge, a mode) or [members x N x C] (C components a value), stored as an array-backed measurement as the pipelines store theirs (an array needs --field: it is a measurement of that field); float32 or float64; repeat or give several.	required	-
 --field@add measurements	NAME	The stored field the measurements are of, by name or id.	none (the members' own)	-
 --unit@add measurements	TEXT	The unit of the measures' values.	none	-
 )TBL",
