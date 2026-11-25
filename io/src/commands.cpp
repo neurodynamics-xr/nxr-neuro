@@ -388,7 +388,6 @@ CommandResult register_package(const RegisterPackageRequest& rq) {
   RegisterOptions ro;
   ro.registered_by = rq.registered_by;
   ro.replace = rq.replace;
-  if (rq.templates) ro.templates = search_of(*rq.templates);
   Json out = Json::array();
   for (const auto& p : register_packages(rq.dataset, pk, ro)) out.push_back(Json{{"package", p.package.string()}, {"name", p.name}, {"outcome", p.outcome}, {"reason", p.reason}});
   CommandResult r;

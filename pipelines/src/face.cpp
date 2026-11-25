@@ -56,9 +56,7 @@ namespace {
 DatasetWriter open_for(const fs::path& folder, const std::string& subject, bool lock, const std::vector<std::string>& templates = {}) {
   OpenOptions o;
   o.lock = lock;
-  TemplateSearch search;
-  for (const auto& t : templates) search.command_paths.push_back(t);
-  if (is_catalogue_dataset(folder)) return open_subject_package(folder, subject, o, search);
+  if (is_catalogue_dataset(folder)) return open_subject_package(folder, subject, o);
   return open_writer(folder, o);
 }
 
