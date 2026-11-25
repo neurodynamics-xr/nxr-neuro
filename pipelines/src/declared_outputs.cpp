@@ -136,7 +136,12 @@ std::string default_manifold_id(nxr::io::SubjectWriter& sub, const std::string& 
     w.name = name;
     if (const auto m = task::Subject::of(sub.dataset(), text(*tpl, "id")).find(w)) return m->id;
   }
-  throw nxr::io::Error(nxr::io::code::no_such_row, sub.name() + ": the dataset's default subject has no manifold '" + name + "' (the shared line a band set lies on)");
+  {   // format 56: a subject package names no template; the line is the subject's own (a closed-form line, the same in every subject)
+    task::Want w{.cls = task::Cls::manifold};
+    w.name = name;
+    if (const auto m = task::Subject::of(sub.dataset(), sub.id()).find(w)) return m->id;
+  }
+  throw nxr::io::Error(nxr::io::code::no_such_row, sub.name() + ": no manifold '" + name + "' in the dataset's template or in the subject (the shared line a band set lies on)");
 }
 std::string link(const Plan& P, const std::string& ref, const MadeIds* made, const std::string& where) {
   if (ref.find('|') != std::string::npos) return link_first(P, ref, made, where);

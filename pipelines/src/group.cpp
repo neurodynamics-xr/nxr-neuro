@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
 
+#include "nxr/io/catalogue.h"
 #include "nxr/io/layout.h"
 #include "nxr/io/selection_store.h"
 #include "nxr/io/selection_reads.h"
@@ -37,11 +39,22 @@ std::optional<SurfaceInput> sphere_of(SubjectWriter& sub, const std::string& sur
 
 // the default subject's group tree as the subject `sub` is carried onto it (the node `select.dyadic_surface` rule transfer reads it through the runner: Bound::group_template)
 GroupTemplate read_group_template(DatasetWriter& ds, SubjectWriter& sub, const std::string& sname) {
-  const auto tpl = ds.template_();
-  if (!tpl) missing("the dataset has no default subject: the group tree is its ladder");
+  // format 56: a subject package carries nothing of the template; the dataset's template is opened READ ONLY through the catalogue (the package's folder lies in the dataset's)
+  std::unique_ptr<DatasetWriter> template_package;
+  DatasetWriter* tds = &ds;
+  if (ds.is_package()) {
+    const std::filesystem::path dataset = sub.folder().parent_path();
+    if (!nxr::io::is_catalogue_dataset(dataset)) missing(sub.name() + ": its package is not inside a catalogue dataset, so there is no dataset template to read the group tree from");
+    OpenOptions read_only;
+    read_only.lock = false;
+    template_package = std::make_unique<DatasetWriter>(nxr::io::open_subject_package(dataset, nxr::io::dataset_template(dataset).name, read_only));
+    tds = template_package.get();
+  }
+  const auto tpl = tds->template_();
+  if (!tpl) missing("the dataset has no template subject: the group tree is its ladder");
   const SurfaceInput S = read_surface(sub, sname, true);
   const int nV = static_cast<int>(S.n_vertices());
-  SubjectWriter tsub = SubjectWriter::open(ds, text(*tpl, "name"));
+  SubjectWriter tsub = SubjectWriter::open(*tds, text(*tpl, "name"));
   const SurfaceInput T = read_surface(tsub, std::nullopt, true);
   const auto tsphere = sphere_of(tsub, T.name), ssphere = sphere_of(sub, sname);
   if (!tsphere) missing(text(*tpl, "name") + ": no registered sphere (" + T.name + "_sphere)");
