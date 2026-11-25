@@ -1,6 +1,6 @@
 {
   "name": "@nxr/neuro",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "nxr-neuro in WebAssembly: every command of the nxr-neuro command line as nxr.<verb>.<noun>(options) (datasets, subjects, add and read each class, imports, exports, pipelines) and the geometry compute, in one module. Node host (its file layer is Node's: Node, or Electron's main process).",
   "type": "module",
   "main": "./index.mjs",
