@@ -133,6 +133,82 @@ Pt sample(const std::vector<Pt>& pts, const std::vector<double>& cum, double per
   return {a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), a[2] + t * (b[2] - a[2])};
 }
 
+
+// visits[k] = the previous position (< k) of the loop's vertex at position k (k = 1 .. n; position n is position 0 again), or -1: only for a vertex the loop
+// passes through more than once
+std::vector<long> previousVisits(const std::vector<I>& L) {
+  const std::size_t n = L.size();
+  std::unordered_map<I, std::size_t> count;
+  for (I v : L) ++count[v];
+  std::vector<long> prev(n + 1, -1);
+  std::unordered_map<I, long> last;
+  for (std::size_t k = 0; k <= n; ++k) {
+    const I v = L[k % n];
+    if (count[v] < 2) continue;
+    const auto it = last.find(v);
+    if (it != last.end()) prev[k] = it->second;
+    last[v] = static_cast<long>(k);
+  }
+  return prev;
+}
+bool hasLobePinch(const std::vector<I>& L) {
+  const std::size_t n = L.size();
+  if (n < 4) return false;
+  const std::vector<long> prev = previousVisits(L);
+  for (std::size_t k = 1; k <= n; ++k) if (prev[k] >= 0 && static_cast<long>(k) - prev[k] != 2) return true;   // a spike's two visits are two apart
+  return false;
+}
+// THE GENERAL RULE, for loops with lobe pinches: the band's edges from a loop vertex to the other loop are the cells it passes on that vertex's row, so two
+// visits of one vertex share an edge (of four faces) unless the band ADVANCES ON THE OTHER LOOP at least once strictly between them. The least total edge
+// length band under that rule (the apex rule is its case of visits two apart), by the same search with, per cell, how many of the loop's constraint starts
+// the last advance on the other loop has passed (few: one per pinch visit). Ties as the reference: an advance on A first.
+template <class At> std::vector<I> stitchPinched(const std::vector<I>& A, const std::vector<I>& B, const At& at) {
+  const std::size_t m = A.size(), nb = B.size(), W = nb + 1;
+  auto a = [&](std::size_t i) { return A[i % m]; };
+  auto b = [&](std::size_t j) { return B[j % nb]; };
+  const std::vector<long> prevA = previousVisits(A), prevB = previousVisits(B);
+  std::vector<long> startsA, startsB;
+  for (long p : prevA) if (p >= 0) startsA.push_back(p);
+  for (long p : prevB) if (p >= 0) startsB.push_back(p);
+  std::sort(startsA.begin(), startsA.end()); startsA.erase(std::unique(startsA.begin(), startsA.end()), startsA.end());
+  std::sort(startsB.begin(), startsB.end()); startsB.erase(std::unique(startsB.begin(), startsB.end()), startsB.end());
+  const std::size_t RA = startsA.size() + 1, RB = startsB.size() + 1;
+  auto rank = [](const std::vector<long>& st, long x) { return static_cast<std::size_t>(std::lower_bound(st.begin(), st.end(), x) - st.begin()); };   // starts < x
+  auto index = [](const std::vector<long>& st, long p) { return static_cast<std::size_t>(std::lower_bound(st.begin(), st.end(), p) - st.begin()); };
+  const double inf = std::numeric_limits<double>::infinity();
+  const std::size_t S = (m + 1) * W * RA * RB;
+  std::vector<double> cost(S, inf);
+  std::vector<std::int64_t> from(S, -1);
+  std::vector<std::uint8_t> moveOnA(S, 0);
+  auto at4 = [&](std::size_t i, std::size_t j, std::size_t ra, std::size_t rb) { return ((i * W + j) * RA + ra) * RB + rb; };
+  cost[at4(0, 0, 0, 0)] = 0;
+  for (std::size_t i = 0; i <= m; ++i) for (std::size_t j = 0; j <= nb; ++j) for (std::size_t ra = 0; ra < RA; ++ra) for (std::size_t rb = 0; rb < RB; ++rb) {
+    const std::size_t k = at4(i, j, ra, rb);
+    if (cost[k] == inf) continue;
+    // an advance on A into i + 1 (its last advance on A was at B position j); allowed when the previous visit of a(i + 1), if any, was passed by an advance on B
+    if (i < m && (prevA[i + 1] < 0 || index(startsA, prevA[i + 1]) < ra)) {
+      const std::size_t k2 = at4(i + 1, j, ra, std::max(rb, rank(startsB, static_cast<long>(j))));
+      const double x = cost[k] + dist(at(a(i + 1)), at(b(j)));
+      if (x < cost[k2]) { cost[k2] = x; from[k2] = static_cast<std::int64_t>(k); moveOnA[k2] = 1; }
+    }
+    if (j < nb && (prevB[j + 1] < 0 || index(startsB, prevB[j + 1]) < rb)) {
+      const std::size_t k2 = at4(i, j + 1, std::max(ra, rank(startsA, static_cast<long>(i))), rb);
+      const double x = cost[k] + dist(at(a(i)), at(b(j + 1)));
+      if (x < cost[k2]) { cost[k2] = x; from[k2] = static_cast<std::int64_t>(k); moveOnA[k2] = 0; }
+    }
+  }
+  std::size_t best = S;
+  for (std::size_t ra = 0; ra < RA; ++ra) for (std::size_t rb = 0; rb < RB; ++rb) { const std::size_t k = at4(m, nb, ra, rb); if (cost[k] < inf && (best == S || cost[k] < cost[best])) best = k; }
+  if (best == S) fail("glue: no band of triangles joins the two loops (a pinch the band cannot pass)");
+  std::vector<I> T;
+  for (std::size_t k = best; from[k] >= 0; k = static_cast<std::size_t>(from[k])) {
+    const std::size_t cell = k / (RA * RB), i = cell / W, j = cell % W;
+    if (moveOnA[k]) { T.push_back(a(i - 1)); T.push_back(a(i)); T.push_back(b(j)); }
+    else { T.push_back(a(i)); T.push_back(b(j)); T.push_back(b(j - 1)); }
+  }
+  return T;
+}
+
 // triangles joining two loops that run the same way round, from B's vertex nearest A's first: the band of least total edge length (Fuchs, Kedem &
 // Uselton 1977); a tie advances on A. A loop may pass through a vertex twice (a pinch: the spike u -> v -> u of a cortex vertex whose faces all touched the
 // wall): at such an APEX v (its neighbours in the loop the same vertex) the band must advance on the other loop at least once before it leaves v, or the
@@ -145,6 +221,9 @@ template <class At> std::vector<I> stitch(const std::vector<I>& A, const std::ve
   const std::size_t m = A.size(), nb = B.size(), W = nb + 1;
   auto a = [&](std::size_t i) { return A[i % m]; };
   auto b = [&](std::size_t j) { return B[j % nb]; };
+  // A LOBE PINCH (a loop passing through one vertex twice, not as a spike u -> v -> u: two lobes of the hole meeting there) needs the general rule below; the
+  // reference (glue.ts) has only the apex rule and makes an edge of three or more faces there. Without a lobe pinch, the reference's search, unchanged.
+  if (hasLobePinch(A) || hasLobePinch(B)) return stitchPinched(A, B, at);
   auto apexOfA = [&](std::size_t i) { return i < m && m > 2 && A[(i + m - 1) % m] == A[(i + 1) % m]; };
   auto apexOfB = [&](std::size_t j) { return j < nb && nb > 2 && B[(j + nb - 1) % nb] == B[(j + 1) % nb]; };
   const double inf = std::numeric_limits<double>::infinity();
