@@ -39,13 +39,12 @@ struct RunRequest {
   std::string preset;                      // a named parameter set of the definition to start from (`run measure --set cortical_band_pyramid`); provenance only, the cache key is the resolved parameters
   bool dry_run = false;                    // plan only: every run's plan as text, nothing read or stored
 };
-/** What a face asks of a GROUP run (a definition of scope group: `roll_up` across subjects): the member subjects are the caller's (no default), the result is stored in the group's default subject of the
- *  dataset (`into`, the group package named by the caller in a catalogue; the dataset's default subject otherwise). */
+/** What a face asks of a GROUP run (a definition of scope group: `roll_up` across subjects): the member subjects are the caller's (no default), the result is stored in the dataset's
+ *  template (format 56: the template holds the cohort; a catalogue's one member of kind template, a one-database dataset's default subject). */
 struct GroupRunRequest {
   std::string pipeline;
   Json parameters = Json::object();
   std::vector<std::string> subjects;       // the members, by name, in the order of the stack
-  std::string into;                        // the group package (a catalogue dataset) or the default subject's name (a one-database dataset)
   bool replace = false;
   std::string preset;
   bool dry_run = false;
@@ -121,7 +120,6 @@ struct ReadRequest {
   // A MANIFOLD (by name or id: its positions, its cells, its axes, its element names) or, with `family`, one LABELLING of it:
   std::optional<std::string> family;       // the labelling of the manifold of that name (type, unit, quality, hemisphere, lobe, ...): its code per element and its dictionary
   std::string cls;                         // only a node of this class: field | statistic | operator | selection | manifold (empty: the first of statistic, field, operator, selection, manifold)
-  std::vector<std::string> templates;      // where to look for the released templates a subject package is registered to
   // A PART of a node with no time line: [start, stop) per leading axis of EACH array the read gives (empty: whole); a stop past an array's extent is cut to it, and the result's `regions`
   // say what each array read. A time-resolved field is read by rows and a time range instead, a sparse operator or field whole.
   std::vector<std::array<std::int64_t, 2>> region;
@@ -162,10 +160,11 @@ struct ReadNodeRequest {
   std::vector<std::int32_t> rows;          // field: its rows, in order (empty: all)
   std::string projectors = "active";       // field: active | none | NAME[,NAME...]
   bool shape_only = false;                 // field: its description only, no sample read
+  bool projection_only = false;            // field: the projection the chosen projectors make [channels x channels] (every channel of the recording) and its record, no sample read
   std::optional<std::string> measure, field;   // selection: its measurement table of this measure (of this field)
   std::optional<std::string> family;       // manifold: one labelling of it
   std::optional<std::string> out;          // the .npy file (or stem) the arrays are written to
-  std::vector<std::string> templates;
+ 
   std::vector<std::array<std::int64_t, 2>> region;   // [start, stop) per leading axis of each array (`--region`; not with a time-resolved field: its rows and time range)
   double budget = 1e9;                     // bytes (`--budget`): a larger read is refused before anything is read, naming its size and suggesting `--region`
   std::optional<std::string> onto;         // operator, field: its rows carried onto this glued cortex (ReadRequest::onto)
@@ -203,7 +202,7 @@ struct CreateRegistrationRequest {
 CommandResult create_registration(const CreateRegistrationRequest& request, const Progress& progress = {});
 
 /** `list recordings` · `list kernels` · `list results`: {subject, <what>: [{name, kind, table}]} */
-struct ListNodesRequest { std::string dataset, subject; std::vector<std::string> templates; };
+struct ListNodesRequest { std::string dataset, subject; };
 CommandResult list_recordings(const ListNodesRequest& request, const Progress& progress = {});
 CommandResult list_kernels(const ListNodesRequest& request, const Progress& progress = {});
 CommandResult list_results(const ListNodesRequest& request, const Progress& progress = {});
@@ -216,7 +215,7 @@ struct ReadCrossspectrumRequest {
   std::optional<std::int32_t> seed;
   std::string reading = "coherency";
   std::string weights = "coherence";
-  std::vector<std::string> templates;
+ 
   std::string created_by;
 };
 CommandResult read_crossspectrum(const ReadCrossspectrumRequest& request, const Progress& progress = {});

@@ -2,10 +2,10 @@
 // command to one action here). The subject packages and the dataset module (store format 53), a thin front on io/include/nxr/io/{subject_package,catalogue,participants,
 // dataset_index,migrate,templates}.h: it parses and prints; every choice of data is named on the command line.
 //
-//   package create  --package P --name S --home-dataset N [--kind subject|template|group]
+//   package create  --package P --name S --home-dataset N [--kind subject|template]
 //   package verify  --package P
 //   package show    --package P
-//   package register --dataset D (--package P ... | --scan) --registered-by WHO [--replace] [--templates DIR ...]
+//   package register --dataset D (--package P ... | --scan) --registered-by WHO [--replace]
 //   package status  --dataset D
 //   package select  --dataset D (--subjects A,B,... | --where FILTER)
 //   package index   --dataset D [--force]
@@ -50,14 +50,13 @@ int package_main(const std::vector<std::string>& argv) {
     const Args a = parse(prog, rest, {"--package"}, {}, {"--package"});
     emit_result(task::show_package({a.get("--package")}).result);
   } else if (action == "register") {
-    const Args a = parse(prog, rest, {"--dataset", "--registered-by"}, {"--scan", "--replace"}, {"--dataset", "--registered-by"}, 0, {"--package", "--templates"});
+    const Args a = parse(prog, rest, {"--dataset", "--registered-by"}, {"--scan", "--replace"}, {"--dataset", "--registered-by"}, 0, {"--package"});
     task::RegisterPackageRequest rq;
     rq.dataset = a.get("--dataset");
     rq.registered_by = a.get("--registered-by");
     rq.package = values_of(a, "--package");
     rq.scan = a.flag.count("--scan") > 0;
     rq.replace = a.flag.count("--replace") > 0;
-    rq.templates = maybe_values(a, "--templates");
     const task::CommandResult r = call(prog, [&] { return task::register_package(rq); });
     emit_result(r.result);
     for (const auto& x : r.result["results"]) if (x["outcome"] == "refused") return 1;
@@ -89,6 +88,12 @@ int package_main(const std::vector<std::string>& argv) {
     o.dry_run = a.flag.count("--dry-run") > 0;
     o.on_stage = [](const std::string& stage, const std::string& subject) { emit(Json{{"stage", stage}, {"subject", subject}}); };
     emit(Json{{"stage", "result"}, {"report", migrate_selection_storage(a.get("--dataset"), o)}});
+  } else if (action == "migrate-template-links") {
+    // FORMAT 56 (io/migrate.h): the template holds the cohort; every subject's link to the template undone, every database brought to 56, the packages registered again.
+    const Args a = parse(prog, rest, {"--dataset", "--registered-by"}, {"--dry-run"}, {"--dataset"});
+    const bool dry = a.flag.count("--dry-run") > 0;
+    if (!dry && !a.maybe("--registered-by")) throw Usage(prog + ": error: --registered-by WHO is required (recorded with each catalogue entry)");
+    emit_result(task::migrate_template_links({a.get("--dataset"), a.maybe("--registered-by").value_or(""), dry}, progress()).result);
   } else if (action == "migrate-measurements") {
     // THE MEASUREMENTS' STORAGE (schema 53, io/migrate.h): one table for a value over a selection's members. Subject by subject, resumable, verified; the old statistics are KEPT unless the explicit second step is asked.
     const Args a = parse(prog, rest, {"--dataset"}, {"--dry-run", "--remove-statistics"}, {"--dataset"});
@@ -185,7 +190,7 @@ int package_main(const std::vector<std::string>& argv) {
 #endif
   } else {
     throw Usage("nxr-neuro package: error: argument action: invalid choice: '" + action +
-                "' (choose from 'create', 'verify', 'show', 'register', 'status', 'select', 'index', 'participants-import', 'participants-export', 'split', 'join', 'migrate-selections', 'migrate-measurements', 'migrate-eigensolve', 'migrate-glue', 'release', 'release-redistributable', 'templates', 'registration-create', 'template-create')");
+                "' (choose from 'create', 'verify', 'show', 'register', 'status', 'select', 'index', 'participants-import', 'participants-export', 'split', 'join', 'migrate-selections', 'migrate-template-links', 'migrate-measurements', 'migrate-eigensolve', 'migrate-glue', 'release', 'release-redistributable', 'templates', 'registration-create', 'template-create')");
   }
   return 0;
 }

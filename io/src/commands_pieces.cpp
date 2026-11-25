@@ -132,7 +132,7 @@ bool process_gone(long long pid) {
 // ---- the request of the one-shot command, kept with the write ----
 Json json_of(const AddFieldRequest& r) {
   Json j = Json{{"dataset", r.dataset}, {"subject", r.subject}, {"name", r.name}, {"manifold", r.manifold}, {"value_type", r.value_type}, {"kind", r.kind}, {"replace", r.replace},
-                {"contribution", r.contribution}, {"templates", r.templates}, {"created_by", r.created_by}};
+                {"contribution", r.contribution}, {"created_by", r.created_by}};
   for (const auto& [k, v] : std::vector<std::pair<const char*, const std::optional<std::string>*>>{{"time", &r.time}, {"unit", &r.unit}, {"cell", &r.cell}, {"derived_from", &r.derived_from},
                                                                                                {"description", &r.description}, {"by_operator", &r.by_operator}, {"producer", &r.producer}, {"by", &r.by}})
     if (*v) j[k] = **v;
@@ -140,7 +140,7 @@ Json json_of(const AddFieldRequest& r) {
 }
 Json json_of(const AddStatisticRequest& r) {
   Json j = Json{{"dataset", r.dataset}, {"subject", r.subject}, {"name", r.name}, {"measure", r.measure}, {"method", r.method}, {"value_type", r.value_type}, {"axes", r.axes}, {"replace", r.replace},
-                {"templates", r.templates}, {"created_by", r.created_by}};
+                {"created_by", r.created_by}};
   for (const auto& [k, v] : std::vector<std::pair<const char*, const std::optional<std::string>*>>{{"of_field", &r.of_field}, {"partition", &r.partition}, {"unit", &r.unit}, {"description", &r.description}, {"by", &r.by}})
     if (*v) j[k] = **v;
   return j;
@@ -151,7 +151,7 @@ std::vector<std::string> list(const Json& j, const char* k) { return j.contains(
 AddFieldRequest field_of(const Json& j) {
   AddFieldRequest r;
   r.dataset = j["dataset"]; r.subject = j["subject"]; r.name = j["name"]; r.manifold = j["manifold"]; r.value_type = j["value_type"]; r.kind = j["kind"]; r.replace = j["replace"];
-  r.contribution = list(j, "contribution"); r.templates = list(j, "templates"); r.created_by = j["created_by"];
+  r.contribution = list(j, "contribution"); r.created_by = j["created_by"];
   r.time = opt(j, "time"); r.unit = opt(j, "unit"); r.cell = opt(j, "cell"); r.derived_from = opt(j, "derived_from"); r.description = opt(j, "description"); r.by_operator = opt(j, "by_operator");
   r.producer = opt(j, "producer");
   r.by = opt(j, "by");
@@ -160,7 +160,7 @@ AddFieldRequest field_of(const Json& j) {
 AddStatisticRequest statistic_of(const Json& j) {
   AddStatisticRequest r;
   r.dataset = j["dataset"]; r.subject = j["subject"]; r.name = j["name"]; r.measure = j["measure"]; r.method = j["method"]; r.value_type = j["value_type"]; r.replace = j["replace"];
-  r.axes = list(j, "axes"); r.templates = list(j, "templates"); r.created_by = j["created_by"];
+  r.axes = list(j, "axes"); r.created_by = j["created_by"];
   r.of_field = opt(j, "of_field"); r.partition = opt(j, "partition"); r.unit = opt(j, "unit"); r.description = opt(j, "description");
   r.by = opt(j, "by");
   return r;
@@ -223,24 +223,27 @@ std::vector<std::uint8_t> region_bytes(const ArrayInput& in, const std::string& 
   return bytes_as<std::uint8_t>(in);
 }
 
-// the region's rows written into the staged file: runs along the last axis, in C order
+// the region's values written into the staged file, in C order, in as few runs as the region allows: the trailing axes the region covers in full are
+// merged into one run with the first axis it cuts (a block of whole rows of a [N x 2] complex field is ONE run, not N runs of two numbers)
 void write_region(const fs::path& file, std::uint64_t offset, std::size_t item, const std::vector<std::int64_t>& shape, const Box& box, const std::vector<std::uint8_t>& bytes) {
   const std::size_t rank = shape.size();
   std::vector<std::uint64_t> stride(rank, 1);
   for (std::size_t i = rank - 1; i > 0; --i) stride[i - 1] = stride[i] * static_cast<std::uint64_t>(shape[i]);
-  const std::uint64_t run = static_cast<std::uint64_t>(box[rank - 1][1] - box[rank - 1][0]) * item;
+  std::size_t inner = rank - 1;   // the innermost axis the region cuts; every axis after it is covered in full
+  while (inner > 0 && box[inner][0] == 0 && box[inner][1] == shape[inner]) --inner;
+  const std::uint64_t run = static_cast<std::uint64_t>(box[inner][1] - box[inner][0]) * stride[inner] * item;
   std::FILE* f = std::fopen(file.c_str(), "r+b");
   if (!f) throw Error(code::not_writable, file.string() + ": cannot be opened");
-  std::vector<std::int64_t> at(rank);
-  for (std::size_t i = 0; i < rank; ++i) at[i] = box[i][0];
+  std::vector<std::int64_t> at(rank, 0);
+  for (std::size_t i = 0; i <= inner; ++i) at[i] = box[i][0];
   std::uint64_t from = 0;
   bool ok = true;
   while (ok) {
     std::uint64_t cell = 0;
-    for (std::size_t i = 0; i < rank; ++i) cell += static_cast<std::uint64_t>(at[i]) * stride[i];
+    for (std::size_t i = 0; i <= inner; ++i) cell += static_cast<std::uint64_t>(at[i]) * stride[i];
     if (::fseeko(f, static_cast<off_t>(offset + cell * item), SEEK_SET) != 0 || std::fwrite(bytes.data() + from, 1, run, f) != run) ok = false;
     from += run;
-    std::size_t k = rank - 1;   // the next run: the axes but the last advance
+    std::size_t k = inner;   // the next run: the axes before `inner` advance
     bool done = true;
     while (k > 0) {
       --k;

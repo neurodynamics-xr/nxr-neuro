@@ -33,6 +33,19 @@ def _bands(bands) -> np.ndarray:
     return b
 
 
+def kernelGains(family: str, chart: str, anchors, params: dict, gain: float, line):
+    """The gains of a kernel set's members at the points of a line (`nxr::signal::kernelGains`, the one evaluator of the selection system's kernels): real
+    [members, points]. Nothing is stored: `select_kernels` stores the same set when a band of it is measured.
+
+    family : gaussian | box | cos2_partition | morlet_band | meyer_band | mexican_hat. chart : linear | log2 (the coordinates the widths are in).
+    anchors : [members, 2] (start, stop) on the line's coordinate: a point member is (centre, centre); a band member (lo, hi).
+    params : the family's numbers, every one stated (gaussian, box: {"fwhm": W} or {"fwhm_per_centre": Q}; meyer_band: {"half_width": octaves}).
+    gain : each member's peak amplitude. line : [points], the line's coordinates (Hz on a frequency line; a coordinate <= 0 has gain 0).
+    """
+    return _core.signal_kernelGains(family, chart, np.ascontiguousarray(np.asarray(anchors, float).reshape(-1, 2)), {k: float(v) for k, v in params.items()},
+                                    float(gain), np.ascontiguousarray(np.asarray(line, float)))
+
+
 def bandAnalytic(x, sfreq: float, bands, shape: str = "morlet", half_width: float = 1 / 3):
     """The analytic signal of bands (`nxr::signal::bandAnalytic`): complex [bands, channels, samples].
 

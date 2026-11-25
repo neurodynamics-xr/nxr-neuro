@@ -40,15 +40,16 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("compact", "dataset", "", "dataset* dry_run! no_shard! no_small_files! subject"),
     ("split", "dataset", "", "dataset* dry_run! registered_by*"),
     ("join", "dataset", "", "dataset*"),
-    ("migrate", "eigensolve", "", "dataset* name subject* templates+"),
-    ("migrate", "glue", "", "dataset* hemispheres left name right subject* templates+"),
+    ("migrate", "eigensolve", "", "dataset* name subject*"),
+    ("migrate", "glue", "", "dataset* hemispheres left name right subject*"),
     ("migrate", "measurements", "", "dataset* dry_run! remove_statistics!"),
     ("migrate", "selections", "", "dataset* dry_run!"),
+    ("migrate", "template-links", "", "dataset* dry_run! registered_by"),
     # subject packages and the catalogue
     ("create", "recording", "", "acquisition amplitude channels duration frequency+ name noise package* seed sfreq synthetic!"),
     ("create", "package", "", "home_dataset* kind name* package*"),
     ("create", "index", "", "dataset* force!"),
-    ("register", "package", "", "dataset* package+ registered_by* replace! scan! templates+"),
+    ("register", "package", "", "dataset* package+ registered_by* replace! scan!"),
     ("list", "members", "", "dataset*"),
     ("verify", "package", "", "package*"),
     ("show", "package", "", "package*"),
@@ -60,63 +61,63 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     # subjects
     ("create", "subject", "", "dataset* kind name*"),
     ("list", "subjects", "", "dataset* subjects where"),
-    ("show", "subject", "", "dataset* subject* templates+"),
-    ("delete", "subject", "", "by dataset* node subject* templates+"),
-    ("add", "surface", "file?", "by dataset* faces name no_primary! primary! scale subject* vertices templates+"),
-    ("list", "recordings", "", "dataset* subject* templates+"),
-    ("list", "kernels", "", "dataset* subject* templates+"),
-    ("list", "results", "", "dataset* subject* templates+"),
-    ("list", "manifolds", "", "after columns dataset* kind limit name on subject templates+"),
-    ("list", "fields", "", "after columns dataset* kind limit name on subject templates+"),
-    ("list", "selections", "", "after columns dataset* kind limit name on subject templates+"),
-    ("list", "operators", "", "after columns dataset* kind limit name on subject templates+"),
-    ("list", "statistics", "", "after columns dataset* kind limit name on subject templates+"),
-    ("list", "dictionaries", "", "after columns dataset* kind limit name subject templates+"),
-    ("list", "spaces", "", "after columns dataset* kind limit name subject templates+"),
-    ("list", "acquisitions", "", "after columns dataset* limit name subject templates+"),
-    ("list", "jobs", "", "after columns dataset* kind limit subject templates+"),
-    ("read", "subject", "", "classes dataset* related! subject* templates+"),
+    ("show", "subject", "", "dataset* subject*"),
+    ("delete", "subject", "", "by dataset* node subject*"),
+    ("add", "surface", "file?", "by dataset* faces name no_primary! primary! scale subject* vertices"),
+    ("list", "recordings", "", "dataset* subject*"),
+    ("list", "kernels", "", "dataset* subject*"),
+    ("list", "results", "", "dataset* subject*"),
+    ("list", "manifolds", "", "after columns dataset* kind limit name on subject"),
+    ("list", "fields", "", "after columns dataset* kind limit name on subject"),
+    ("list", "selections", "", "after columns dataset* kind limit name on subject"),
+    ("list", "operators", "", "after columns dataset* kind limit name on subject"),
+    ("list", "statistics", "", "after columns dataset* kind limit name on subject"),
+    ("list", "dictionaries", "", "after columns dataset* kind limit name subject"),
+    ("list", "spaces", "", "after columns dataset* kind limit name subject"),
+    ("list", "acquisitions", "", "after columns dataset* limit name subject"),
+    ("list", "jobs", "", "after columns dataset* kind limit subject"),
+    ("read", "subject", "", "classes dataset* related! subject*"),
     ("list", "pipelines", "", ""),
     # reading and querying
     ("read", "dataset", "folder", "array+ out region"),
-    ("read", "crossspectrum", "", "dataset* name* pair reading seed subject* weights templates+"),
-    ("read", "field", "", "all! budget dataset* from name* onto out projectors region rows shape_only! subject* to templates+"),
-    ("read", "statistic", "", "budget dataset* name* out region subject* templates+"),
-    ("read", "operator", "", "budget dataset* name* onto out region subject* templates+"),
-    ("read", "selection", "", "budget dataset* field measure name* out region subject* templates+"),
-    ("read", "manifold", "", "budget dataset* family name* out region subject* templates+"),
-    ("query", "measurements", "", "band dataset* factor field limit max_value measure* min_value order selection* spatial_scale subject* subjects tile templates+ where"),
+    ("read", "crossspectrum", "", "dataset* name* pair reading seed subject* weights"),
+    ("read", "field", "", "all! budget dataset* from name* onto out projection_only! projectors region rows shape_only! subject* to"),
+    ("read", "statistic", "", "budget dataset* name* out region subject*"),
+    ("read", "operator", "", "budget dataset* name* onto out region subject*"),
+    ("read", "selection", "", "budget dataset* field measure name* out region subject*"),
+    ("read", "manifold", "", "budget dataset* family name* out region subject*"),
+    ("query", "measurements", "", "band dataset* factor field limit max_value measure* min_value order selection* spatial_scale subject* subjects tile where"),
     ("compile", "", "definition", "dataset inputs set+ signatures subject"),
     # add <class>
-    ("add", "field", "", "append! begin! by by_operator cell commit! contribution+ dataset* derived_from description dtype kind manifold name producer region replace! shape subject time unit value_type values write templates+"),
-    ("add", "selection", "", "by dataset* description entries indices manifold* members name* of_field producer replace! spans subject* type* weights templates+"),
-    ("add", "statistic", "", "append! axes+ begin! by commit! dataset* description dtype measure method name of_field partition region replace! shape subject unit value_type values write templates+"),
-    ("add", "measurements", "", "by dataset* field measure*+ replace! selection* subject* unit templates+"),
-    ("add", "operator", "", "by data dataset* description from_manifold* from_selection indices indptr kind layout method name* params producer replace! subject* to_manifold* values templates+"),
-    ("add", "points", "", "by coordinate_system dataset* description name* positions* replace! subject* templates+"),
-    ("add", "line", "", "by coordinates dataset* dimension kinds n name* origin replace! spacing subject* unit* templates+"),
-    ("add", "product", "", "by dataset* factors* name* subject* templates+"),
-    ("add", "dictionary", "", "by dataset* description entries* name* scope* subject templates+"),
+    ("add", "field", "", "append! begin! by by_operator cell commit! contribution+ dataset* derived_from description dtype kind manifold name producer region replace! shape subject time unit value_type values write"),
+    ("add", "selection", "", "by dataset* description entries indices manifold* members name* of_field producer replace! spans subject* type* weights"),
+    ("add", "statistic", "", "append! axes+ begin! by commit! dataset* description dtype measure method name of_field partition region replace! shape subject unit value_type values write"),
+    ("add", "measurements", "", "by dataset* field measure*+ replace! selection* subject* unit"),
+    ("add", "operator", "", "by data dataset* description from_coordinate_system from_manifold* from_selection indices indptr kind layout method name* params producer replace! subject* to_coordinate_system to_manifold values"),
+    ("add", "points", "", "by coordinate_system dataset* description name* positions* replace! subject*"),
+    ("add", "line", "", "by coordinates dataset* dimension kinds n name* origin replace! spacing subject* unit*"),
+    ("add", "product", "", "by dataset* factors* name* subject*"),
+    ("add", "dictionary", "", "by dataset* description entries* name* scope* subject"),
     # edit
-    ("edit", "manifold", "", "dataset* description label name* primary subject* templates+"),
-    ("edit", "operator", "", "by dataset* name* note status* subject* templates+"),
-    ("edit", "dictionary", "", "colour dataset* description entries entry label name* name_of params replace! subject templates+"),
+    ("edit", "manifold", "", "dataset* description label name* primary subject*"),
+    ("edit", "operator", "", "by dataset* name* note status* subject*"),
+    ("edit", "dictionary", "", "colour dataset* description entries entry label name* name_of params replace! subject"),
     # import
     ("import", "list", "protocol", ""),
     ("import", "scan", "protocol", "out prefer summary!"),
-    ("import", "subject", "protocol", "dataset* no_sensor_mesh! resample subject* templates+"),
+    ("import", "subject", "protocol", "dataset* no_sensor_mesh! resample subject*"),
     ("import", "template", "protocol", "dataset* surface+"),
     ("import", "group", "protocol", "dataset*"),
     ("import", "templates", "templates_dir", "dataset* subject surface trk"),
-    ("import", "condition", "protocol", "all_surfaces! channel_file condition* dataset* extra_surface+ include_imported! no_gain! no_raw! recording resample subject* surface templates+"),
-    ("import", "surface", "", "bst_root dataset* file+ subject* templates+"),
-    ("import", "mri", "", "anat* dataset* only+ subject* templates+"),
-    ("import", "covariance", "", "condition* dataset* kind name protocol* replace! subject* templates+"),
-    ("import", "inverse", "", "acquisition* bst_root* channel_file channels_id dataset* file* forward_id name subject* surface_id templates+"),
-    ("import", "map", "", "acquisition bst_root* dataset* file*+ provenance replace! subject* templates+"),
-    ("import", "resample", "", "dataset* name recording* subject* to* templates+"),
-    ("import", "badsegments", "", "dataset* from* replace! subject* templates+"),
-    ("import", "events", "", "dataset* from* replace! subject* templates+"),
+    ("import", "condition", "protocol", "all_surfaces! channel_file condition* dataset* extra_surface+ include_imported! no_gain! no_raw! recording resample subject* surface"),
+    ("import", "surface", "", "bst_root dataset* file+ subject*"),
+    ("import", "mri", "", "anat* dataset* only+ subject*"),
+    ("import", "covariance", "", "condition* dataset* kind name protocol* replace! subject*"),
+    ("import", "inverse", "", "acquisition* bst_root* channel_file channels_id dataset* file* forward_id name subject* surface_id"),
+    ("import", "map", "", "acquisition bst_root* dataset* file*+ provenance replace! subject*"),
+    ("import", "resample", "", "dataset* name recording* subject* to*"),
+    ("import", "badsegments", "", "dataset* from* replace! subject*"),
+    ("import", "events", "", "dataset* from* replace! subject*"),
     ("import", "bids", "", "anonymize! dataset* from* in_place! no_participants! registered_by subject+"),
     ("import", "fif", "", "acquisition anonymize! attribution channels from* kind licence name package* recording source_root surface"),
     ("import", "nifti", "", "anonymize! attribution field_kind from* kind label_names licence name package* parcellation source_root unit"),
@@ -378,14 +379,14 @@ def verbs() -> dict[str, _Verb]:
 # ---- run ----
 
 def run(pipeline: str, dataset=None, subject: str | None = None, *, from_: float | None = None, to: float | None = None, all: bool = False, replace: bool = False,
-        dry_run: bool = False, preset: str | None = None, subjects: list[str] | None = None, into: str | None = None, progress: Callable[[dict], None] | None = None,
+        dry_run: bool = False, preset: str | None = None, subjects: list[str] | None = None, progress: Callable[[dict], None] | None = None,
         _handle=None, **parameters) -> Result:
     """`nxr-neuro run PIPELINE --dataset D --subject S (--from S --to S | --all) [--<parameter> VALUE ...]`: a pipeline on a subject.
 
     The time range is REQUIRED and the caller's: `from_` and `to` in seconds on the recording's clock (both), or `all=True` (the whole recording, still read one chunk at a
     time); none is refused. The pipeline's parameters are keyword arguments (`nxr_neuro.list.pipelines()` lists each one's meaning, default and unit); `preset` names one of
     its parameter sets (the command line's `--set NAME`). `replace=True` moves another job's outputs of the same names aside (never deleted); `dry_run=True` plans only. A group
-    definition runs over `subjects` (names, in order) into the group package `into`. `progress` receives each progress line as a dict. `projectors` (the command line's
+    definition runs over `subjects` (names, in order); its results go into the dataset's template (format 56: the template holds the cohort). `progress` receives each progress line as a dict. `projectors` (the command line's
     --projectors) is "active" (the default), "none", or the projectors' names (a list or comma-separated text: exactly those applied, whatever their stored status).
 
     Returns the result: {pipeline, subject, cache ("hit" | "computed"), stored: [{output, name, id, path}], runs, seconds}. Read what was stored with `nxr_neuro.read.<class>`.
@@ -396,11 +397,11 @@ def run(pipeline: str, dataset=None, subject: str | None = None, *, from_: float
                                        f"give {new}= instead of {old}=")
     if dataset is None:
         raise TypeError("nxr_neuro.run needs the dataset: run(pipeline, dataset=..., subject=..., from_=..., to=... | all=True)")
-    group = subjects is not None or into is not None
+    group = subjects is not None
     if not group and subject is None:
         raise TypeError("nxr_neuro.run needs the subject: run(pipeline, dataset=..., subject=..., from_=..., to=... | all=True)")
     text = _core._run(os.fspath(dataset), subject or "", os.fspath(pipeline), json.dumps(parameters, default=_plain), None if from_ is None else float(from_),
-                      None if to is None else float(to), bool(all), bool(replace), bool(dry_run), preset or "", [str(s) for s in (subjects or [])], into or "",
+                      None if to is None else float(to), bool(all), bool(replace), bool(dry_run), preset or "", [str(s) for s in (subjects or [])],
                       None if progress is None else (lambda line: progress(json.loads(line))), _handle)
     return Result(json.loads(text))
 

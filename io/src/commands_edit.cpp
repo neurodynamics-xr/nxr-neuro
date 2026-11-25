@@ -22,9 +22,9 @@ namespace {
 // a dataset opened, its unit open on `subject` (named, or in a one-database dataset any one subject: a dataset's own dictionary belongs to none, the unit needs a subject to write through),
 // committed when `body` returns
 template <class F>
-CommandResult in_unit_of(const std::string& dataset, const std::optional<std::string>& subject, const std::vector<std::string>& templates, const std::string& created_by, const Json& producer,
+CommandResult in_unit_of(const std::string& dataset, const std::optional<std::string>& subject, const std::string& created_by, const Json& producer,
                          const Progress& progress, F&& body) {
-  DatasetWriter ds = open_dataset(dataset, subject, OpenOptions{}, templates, progress);
+  DatasetWriter ds = open_dataset(dataset, subject, OpenOptions{}, progress);
   std::string name;
   if (subject) {
     name = *subject;
@@ -118,7 +118,7 @@ CommandResult add_dictionary(const AddDictionaryRequest& rq, const Progress& pro
   d.scope = rq.scope;
   d.description = rq.description;
   d.entries = entries_of(entries_json(rq.entries, "--entries"), "--entries");
-  return in_unit_of(rq.dataset, rq.subject, rq.templates, rq.by && !rq.by->empty() ? *rq.by : rq.created_by, producer_for("add dictionary", rq.created_by), progress, [&](const Subject&, Unit& u, SubjectWriter&) {
+  return in_unit_of(rq.dataset, rq.subject, rq.by && !rq.by->empty() ? *rq.by : rq.created_by, producer_for("add dictionary", rq.created_by), progress, [&](const Subject&, Unit& u, SubjectWriter&) {
     const std::string id = u.dictionary(d);
     Json entries = Json::array();
     for (const auto& e : d.entries) entries.push_back(Json{{"code", e.code}, {"name", e.name}});
@@ -148,7 +148,7 @@ CommandResult edit_dictionary(const EditDictionaryRequest& rq, const Progress& p
   }
   std::vector<DictionaryOut::Entry> entries;
   if (rq.entries) entries = entries_of(entries_json(*rq.entries, "--entries"), "--entries");
-  return in_unit_of(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_for("edit dictionary", rq.created_by), progress, [&](const Subject&, Unit& u, SubjectWriter& sub) {
+  return in_unit_of(rq.dataset, rq.subject, rq.created_by, producer_for("edit dictionary", rq.created_by), progress, [&](const Subject&, Unit& u, SubjectWriter& sub) {
     Database& db = sub.db();
     // the subject's own dictionary of that name first, else the dataset's; the app's are the program's
     std::optional<Row> have;
@@ -188,7 +188,7 @@ CommandResult edit_manifold(const EditManifoldRequest& rq, const Progress& progr
     else throw Refused("--primary " + *rq.primary + " (yes or no)");
   }
   if (!primary && !rq.label && !rq.description) throw Refused("nothing to change: give --primary yes|no, --label or --description");
-  return in_unit_of(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_for("edit manifold", rq.created_by), progress, [&](const Subject& ts, Unit& u, SubjectWriter& sub) {
+  return in_unit_of(rq.dataset, rq.subject, rq.created_by, producer_for("edit manifold", rq.created_by), progress, [&](const Subject& ts, Unit& u, SubjectWriter& sub) {
     const auto m = ts.by_id_or_name(Cls::manifold, rq.name);
     if (!m) throw Error(code::no_such_row, "the subject holds no manifold named '" + rq.name + "'");
     if (primary && *primary && m->type != std::optional<std::string>("surface")) throw Refused("'" + m->name + "' is a " + m->type.value_or("manifold") + ": only a surface is primary");
@@ -205,7 +205,7 @@ CommandResult edit_operator(const EditOperatorRequest& rq, const Progress& progr
   if (!rq.status) throw Refused("nothing to change: give --status 0|1 (a projector's status: 0 inactive, 1 active)");
   if (*rq.status != "0" && *rq.status != "1") throw Refused("--status " + *rq.status + " (0 inactive or 1 active)");
   const int status = *rq.status == "1" ? 1 : 0;
-  return in_unit_of(rq.dataset, rq.subject, rq.templates, rq.created_by, producer_for("edit operator", rq.created_by), progress, [&](const Subject& ts, Unit& u, SubjectWriter&) {
+  return in_unit_of(rq.dataset, rq.subject, rq.created_by, producer_for("edit operator", rq.created_by), progress, [&](const Subject& ts, Unit& u, SubjectWriter&) {
     const auto o = ts.by_id_or_name(Cls::operator_, rq.name);
     if (!o) throw Error(code::no_such_row, "the subject holds no operator named '" + rq.name + "'");
     if (o->kind != std::optional<std::string>("projector"))

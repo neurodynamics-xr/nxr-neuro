@@ -431,3 +431,12 @@ statistics: Finn ES et al. (2015) Nat Neurosci 18:1664; Amico E, Goñi J (2018) 
 4. **PCA solver**: scikit-learn's automatic solver is randomised at this size and unseeded; the golden for step 24 is then reproducible only to its
    tolerance.
 5. **The goldens' toolchain**: Brainstorm Oct-12-2018 is needed to make the per-subject goldens with the paper's defaults. **Done for steps 14 and 15 (2026-11-20):** the generator `meeg/test/golden/gen_lcmv_golden.m` runs Brainstorm at the last commit on or before 2018-10-12 (its `doc/version.txt`: 3.4 180911), found through `BRAINSTORM_2018_HOME`; it runs in MATLAB R2023b (the paper used 2017b: MATLAB's `svd` changed in 2018a, and the one sign-sensitive SVD of the 2016 code, of a source's whitened gain column, gives U = l / ‖l‖ in R2023b; its other SVDs are of symmetric matrices or signed by a majority rule).
+
+## Amendment (2026-11-24): the template holds the cohort (format 56)
+
+This amendment replaces what this document says about group packages and about a subject naming its template. A dataset has one template
+subject, its own copy. A subject package is self-contained: it names no template (no `template_id`, no record reference, no anchor rows from a
+template). The template holds each subject's registration onto it, each subject's results carried onto it, and the averages and statistics over
+them; it refers to its subjects. Cohort results (group fields, roll-ups, fingerprint statistics, their nulls) are written into the template, with
+their members and the members' content hashes in their provenance; there is no group package and no `--into`. Datasets made before are brought to
+format 56 by `migrate template-links`. Released templates and registrations between templates remain, for building and comparing templates.

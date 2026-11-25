@@ -2,10 +2,11 @@ name: wheels
 
 # The Python wheel (`pip install nxr-neuro`; bindings/python), built with cibuildwheel for Linux x86_64 (manylinux_2_28) and macOS arm64
 # (macos-15, deployment target 13.3). The pytest suite (bindings/python/tests) runs on each built wheel, installed into a clean environment.
-# - On a version tag (`v*`) and by hand (`workflow_dispatch`): build and test, upload the wheels as workflow artefacts.
+# - On a version tag (`v*`) and by hand (`workflow_dispatch`): build and test, upload the wheels as workflow artefacts; on a tag, also attach them to the
+#   tag's GitHub release (made by release.yml), so a dependant pins the release's wheel (nxr: nxr-neuro>=0.4.0, never built from source).
 # - On pull requests: only when bindings/python/**, the pipeline level's face (pipelines/face) or this workflow changes.
 # Only the module target and the libraries it links are built (bindings/python/pyproject.toml: build.targets; no tests, no command line). No nightly.
-# Nothing is published to PyPI: the artefacts are what a maintainer installs and checks.
+# Nothing is published to PyPI: the release's wheels are what a dependant installs.
 on:
   push:
     tags: ["v*"]
@@ -61,3 +62,25 @@ jobs:
           name: wheel-${{ matrix.name }}
           path: wheelhouse/*.whl
           if-no-files-found: error
+
+  attach:
+    name: attach the wheels to the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: wheel
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: wheelhouse
+          merge-multiple: true
+      - name: Attach to the release (waits for release.yml to make it)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l wheelhouse
+          for i in $(seq 1 60); do gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break; sleep 30; done
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null || { echo "no release $GITHUB_REF_NAME after 30 minutes"; exit 1; }
+          gh release upload "$GITHUB_REF_NAME" wheelhouse/*.whl --repo "$GITHUB_REPOSITORY" --clobber

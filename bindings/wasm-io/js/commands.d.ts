@@ -81,7 +81,6 @@ export interface RegisterPackageOptions {
   registered_by: string | number;
   replace?: boolean;
   scan?: boolean;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -117,6 +116,13 @@ export interface MigrateSelectionsOptions {
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
+export interface MigrateTemplateLinksOptions {
+  dataset: string | number;
+  dry_run?: boolean;
+  registered_by?: string | number;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
 export interface MigrateMeasurementsOptions {
   dataset: string | number;
   dry_run?: boolean;
@@ -128,7 +134,6 @@ export interface MigrateEigensolveOptions {
   dataset: string | number;
   name?: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -139,7 +144,6 @@ export interface MigrateGlueOptions {
   name?: string | number;
   right?: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -233,7 +237,6 @@ export interface ListSubjectsOptions {
 export interface ShowSubjectOptions {
   dataset: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -242,7 +245,6 @@ export interface DeleteSubjectOptions {
   dataset: string | number;
   node?: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -257,7 +259,6 @@ export interface AddSurfaceOptions {
   primary?: boolean;
   scale?: string | number;
   subject: string | number;
-  templates?: string[] | string;
   vertices?: ArrayInput | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
@@ -265,21 +266,18 @@ export interface AddSurfaceOptions {
 export interface ListRecordingsOptions {
   dataset: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface ListKernelsOptions {
   dataset: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface ListResultsOptions {
   dataset: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -309,7 +307,6 @@ export interface ImportSubjectOptions {
   no_sensor_mesh?: boolean;
   resample?: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -343,7 +340,6 @@ export interface ImportSurfaceOptions {
   dataset: string | number;
   file?: string[] | string;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -352,7 +348,6 @@ export interface ImportMriOptions {
   dataset: string | number;
   only?: string[] | string;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -540,7 +535,6 @@ export interface ImportConditionOptions {
   resample?: string | number;
   subject: string | number;
   surface?: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -555,7 +549,6 @@ export interface ImportInverseOptions {
   name?: string | number;
   subject: string | number;
   surface_id?: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -567,7 +560,6 @@ export interface ImportCovarianceOptions {
   protocol: string | number;
   replace?: boolean;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -579,7 +571,6 @@ export interface ImportMapOptions {
   provenance?: string | number;
   replace?: boolean;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -588,7 +579,6 @@ export interface ImportResampleOptions {
   name?: string | number;
   recording: string | number;
   subject: string | number;
-  templates?: string[] | string;
   to: string | number;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
@@ -598,7 +588,6 @@ export interface ImportBadsegmentsOptions {
   from: string | number;
   replace?: boolean;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -607,7 +596,6 @@ export interface ImportEventsOptions {
   from: string | number;
   replace?: boolean;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -627,7 +615,6 @@ export interface ReadCrossspectrumOptions {
   reading?: string | number;
   seed?: string | number;
   subject: string | number;
-  templates?: string[] | string;
   weights?: string | number;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
@@ -646,7 +633,6 @@ export interface QueryMeasurementsOptions {
   spatial_scale?: string | number;
   subject: string | number;
   subjects?: string | number;
-  templates?: string[] | string;
   tile?: string | number;
   where?: string | number;
   /** receives each progress line the command prints, as an object */
@@ -687,12 +673,12 @@ export interface ReadFieldOptions {
   name: string | number;
   onto?: string | number;
   out?: string | number;
+  projection_only?: boolean;
   projectors?: string | number;
   region?: string | number;
   rows?: string | number;
   shape_only?: boolean;
   subject: string | number;
-  templates?: string[] | string;
   to?: string | number;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
@@ -704,7 +690,6 @@ export interface ReadStatisticOptions {
   out?: string | number;
   region?: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -716,7 +701,6 @@ export interface ReadOperatorOptions {
   out?: string | number;
   region?: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -729,7 +713,6 @@ export interface ReadSelectionOptions {
   out?: string | number;
   region?: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -741,7 +724,6 @@ export interface ReadManifoldOptions {
   out?: string | number;
   region?: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -765,7 +747,6 @@ export interface AddFieldOptions {
   replace?: boolean;
   shape?: number[] | string;
   subject?: string | number;
-  templates?: string[] | string;
   time?: string | number;
   unit?: string | number;
   value_type?: string | number;
@@ -788,7 +769,6 @@ export interface AddSelectionOptions {
   replace?: boolean;
   spans?: ArrayInput | string;
   subject: string | number;
-  templates?: string[] | string;
   type: string | number;
   weights?: ArrayInput | string;
   /** receives each progress line the command prints, as an object */
@@ -812,7 +792,6 @@ export interface AddStatisticOptions {
   replace?: boolean;
   shape?: number[] | string;
   subject?: string | number;
-  templates?: string[] | string;
   unit?: string | number;
   value_type?: string | number;
   values?: ArrayInput | string;
@@ -828,7 +807,6 @@ export interface AddMeasurementsOptions {
   replace?: boolean;
   selection: string | number;
   subject: string | number;
-  templates?: string[] | string;
   unit?: string | number;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
@@ -838,6 +816,7 @@ export interface AddOperatorOptions {
   data?: ArrayInput | string;
   dataset: string | number;
   description?: string | number;
+  from_coordinate_system?: string | number;
   from_manifold: string | number;
   from_selection?: string | number;
   indices?: ArrayInput | string;
@@ -850,8 +829,8 @@ export interface AddOperatorOptions {
   producer?: Record<string, unknown> | unknown[] | string;
   replace?: boolean;
   subject: string | number;
-  templates?: string[] | string;
-  to_manifold: string | number;
+  to_coordinate_system?: string | number;
+  to_manifold?: string | number;
   values?: ArrayInput | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
@@ -865,7 +844,6 @@ export interface AddPointsOptions {
   positions: ArrayInput | string;
   replace?: boolean;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -881,7 +859,6 @@ export interface AddLineOptions {
   replace?: boolean;
   spacing?: string | number;
   subject: string | number;
-  templates?: string[] | string;
   unit: string | number;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
@@ -895,7 +872,6 @@ export interface ListManifoldsOptions {
   name?: string | number;
   on?: string | number;
   subject?: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -908,7 +884,6 @@ export interface ListFieldsOptions {
   name?: string | number;
   on?: string | number;
   subject?: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -921,7 +896,6 @@ export interface ListSelectionsOptions {
   name?: string | number;
   on?: string | number;
   subject?: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -934,7 +908,6 @@ export interface ListOperatorsOptions {
   name?: string | number;
   on?: string | number;
   subject?: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -947,7 +920,6 @@ export interface ListStatisticsOptions {
   name?: string | number;
   on?: string | number;
   subject?: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -959,7 +931,6 @@ export interface ListDictionariesOptions {
   limit?: string | number;
   name?: string | number;
   subject?: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -971,7 +942,6 @@ export interface ListSpacesOptions {
   limit?: string | number;
   name?: string | number;
   subject?: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -982,7 +952,6 @@ export interface ListAcquisitionsOptions {
   limit?: string | number;
   name?: string | number;
   subject?: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -993,7 +962,6 @@ export interface ListJobsOptions {
   kind?: string | number;
   limit?: string | number;
   subject?: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -1002,7 +970,6 @@ export interface ReadSubjectOptions {
   dataset: string | number;
   related?: boolean;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -1012,7 +979,6 @@ export interface AddProductOptions {
   factors: string | number;
   name: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -1024,7 +990,6 @@ export interface AddDictionaryOptions {
   name: string | number;
   scope: string | number;
   subject?: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -1035,7 +1000,6 @@ export interface EditManifoldOptions {
   name: string | number;
   primary?: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -1051,7 +1015,6 @@ export interface EditDictionaryOptions {
   params?: Record<string, unknown> | unknown[] | string;
   replace?: boolean;
   subject?: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -1062,7 +1025,6 @@ export interface EditOperatorOptions {
   note?: string | number;
   status: string | number;
   subject: string | number;
-  templates?: string[] | string;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -1153,6 +1115,7 @@ export interface Verbs {
   };
   migrate: {
     selections: (options: MigrateSelectionsOptions) => Promise<Result>;
+    template_links: (options: MigrateTemplateLinksOptions) => Promise<Result>;
     measurements: (options: MigrateMeasurementsOptions) => Promise<Result>;
     eigensolve: (options: MigrateEigensolveOptions) => Promise<Result>;
     glue: (options: MigrateGlueOptions) => Promise<Result>;

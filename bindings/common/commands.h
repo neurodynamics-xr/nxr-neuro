@@ -252,7 +252,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.subject = o.str("subject");
     q.name = o.str("name");
     q.out = o.maybe("out");
-    q.templates = o.list("templates");
     if (const auto r = o.region()) q.region = *r;
     if (const auto b = o.number("budget")) q.budget = *b;
     return q;
@@ -301,6 +300,9 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
   } else if (c == "join dataset") {
     task::JoinDatasetRequest q{o.str("dataset")};
     call([&] { return task::join_dataset(q); });
+  } else if (c == "migrate template-links") {
+    task::MigrateTemplateLinksRequest q{o.str("dataset"), o.maybe("registered_by").value_or(""), o.flag("dry_run")};
+    call([&] { return task::migrate_template_links(q, progress); });
   } else if (c == "migrate measurements") {
     task::MigrateMeasurementsRequest q{o.str("dataset"), o.flag("dry_run"), o.flag("remove_statistics")};
     call([&] { return task::migrate_measurements(q, progress); });
@@ -320,7 +322,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.where = o.maybe("where");
     call([&] { return task::list_subjects(q, progress); });
   } else if (c == "show subject") {
-    task::ShowSubjectRequest q{o.str("dataset"), o.str("subject"), o.list("templates")};
+    task::ShowSubjectRequest q{o.str("dataset"), o.str("subject")};
     call([&] { return task::show_subject(q, progress); });
   } else if (c == "read subject") {
     task::ReadSubjectRequest q;
@@ -328,7 +330,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.subject = o.str("subject");
     q.classes = o.maybe_commas("classes");
     q.related = o.flag("related");
-    q.templates = o.list("templates");
     call([&] { return face::read_subject(q, progress); });
   } else if (c == "list manifolds" || c == "list fields" || c == "list selections" || c == "list operators" || c == "list statistics" || c == "list dictionaries" || c == "list spaces" ||
              c == "list acquisitions" || c == "list jobs") {
@@ -342,7 +343,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.after = o.maybe("after");
     q.limit = o.integer("limit");
     q.columns = o.maybe_commas("columns");
-    q.templates = o.list("templates");
     call([&] { return face::list_class(q, progress); });
   } else if (c == "delete subject") {
     task::DeleteSubjectRequest q;
@@ -350,7 +350,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.subject = o.str("subject");
     q.node = o.maybe("node");
     q.by = o.maybe("by");
-    q.templates = o.list("templates");
     q.created_by = created_by;
     call([&] { return task::delete_subject(q); });
   } else if (c == "add surface") {
@@ -364,7 +363,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.scale = o.number("scale").value_or(1.0);
     q.primary = o.flag("primary");
     q.no_primary = o.flag("no_primary");
-    q.templates = o.list("templates");
     q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_surface(q, progress); });
@@ -389,7 +387,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.contribution = o.list("contribution");
     q.producer = o.maybe("producer");
     q.replace = o.flag("replace");
-    q.templates = o.list("templates");
     q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_field(q, progress); });
@@ -409,7 +406,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.weights = o.array("weights");
     q.producer = o.maybe("producer");
     q.replace = o.flag("replace");
-    q.templates = o.list("templates");
     q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_selection(q, progress); });
@@ -429,7 +425,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.unit = o.maybe("unit");
     q.description = o.maybe("description");
     q.replace = o.flag("replace");
-    q.templates = o.list("templates");
     q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_statistic(q, progress); });
@@ -444,7 +439,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     if (!o.has("measure") && q.measure_arrays.empty()) throw task::Refused(o.prog() + ": the following arguments are required: measure");
     q.measure = o.list("measure");
     q.replace = o.flag("replace");
-    q.templates = o.list("templates");
     q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_measurements(q, progress); });
@@ -454,7 +448,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.subject = o.str("subject");
     q.name = o.str("name");
     q.from_manifold = o.str("from_manifold");
-    q.to_manifold = o.str("to_manifold");
+    if (const auto v = o.maybe("to_manifold")) q.to_manifold = *v;
     if (const auto v = o.maybe("kind")) q.kind = *v;
     q.values = o.array("values");
     q.data = o.array("data");
@@ -465,9 +459,10 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.method = o.maybe("method");
     q.params = o.maybe("params");
     q.from_selection = o.maybe("from_selection");
+    q.from_coordinate_system = o.maybe("from_coordinate_system");
+    q.to_coordinate_system = o.maybe("to_coordinate_system");
     q.producer = o.maybe("producer");
     q.replace = o.flag("replace");
-    q.templates = o.list("templates");
     q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_operator(q, progress); });
@@ -480,7 +475,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.coordinate_system = o.maybe("coordinate_system");
     q.description = o.maybe("description");
     q.replace = o.flag("replace");
-    q.templates = o.list("templates");
     q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_points(q, progress); });
@@ -497,7 +491,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.coordinates = o.array("coordinates");
     q.kinds = o.array("kinds");
     q.replace = o.flag("replace");
-    q.templates = o.list("templates");
     q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_line(q, progress); });
@@ -507,7 +500,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.subject = o.str("subject");
     q.name = o.str("name");
     q.factors = o.commas("factors");
-    q.templates = o.list("templates");
     q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_product(q, progress); });
@@ -519,7 +511,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.scope = o.str("scope");
     q.entries = o.str("entries");
     q.description = o.maybe("description");
-    q.templates = o.list("templates");
     q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_dictionary(q, progress); });
@@ -531,7 +522,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.primary = o.maybe("primary");
     q.label = o.maybe("label");
     q.description = o.maybe("description");
-    q.templates = o.list("templates");
     q.created_by = created_by;
     call([&] { return task::edit_manifold(q, progress); });
   } else if (c == "edit operator") {
@@ -542,7 +532,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.status = o.maybe("status");                                       // 0 or 1 (a number or its text)
     q.note = o.maybe("note");
     q.by = o.maybe("by");
-    q.templates = o.list("templates");
     q.created_by = created_by;
     call([&] { return task::edit_operator(q, progress); });
   } else if (c == "edit dictionary") {
@@ -558,7 +547,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.params = o.maybe("params");
     q.entries = o.maybe("entries");
     q.replace = o.flag("replace");
-    q.templates = o.list("templates");
     q.created_by = created_by;
     call([&] { return task::edit_dictionary(q, progress); });
 
@@ -579,7 +567,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.package = o.list("package");
     q.scan = o.flag("scan");
     q.replace = o.flag("replace");
-    q.templates = o.maybe_list("templates");
     call([&] { return task::register_package(q); });
   } else if (c == "list members") {
     task::ListMembersRequest q{o.str("dataset")};
@@ -659,7 +646,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
 
     // ---- the lists that need the pipelines ----
   } else if (c == "list recordings" || c == "list kernels" || c == "list results") {
-    face::ListNodesRequest q{o.str("dataset"), o.str("subject"), o.list("templates")};
+    face::ListNodesRequest q{o.str("dataset"), o.str("subject")};
     call([&] {
       if (noun == "recordings") return face::list_recordings(q, progress);
       if (noun == "kernels") return face::list_kernels(q, progress);
@@ -708,6 +695,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
       for (const auto& n : *p) q.projectors += (q.projectors.empty() ? "" : ",") + n;
     }
     q.shape_only = o.flag("shape_only");
+    q.projection_only = o.flag("projection_only");
     q.onto = o.maybe("onto");
     call([&] { return face::read_field(q); });
   } else if (c == "read statistic") {
@@ -741,7 +729,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     if (const auto s = o.integer("seed")) q.seed = static_cast<std::int32_t>(*s);
     if (const auto v = o.maybe("reading")) q.reading = *v;
     if (const auto v = o.maybe("weights")) q.weights = *v;
-    q.templates = o.list("templates");
     q.created_by = created_by;
     call([&] { return face::read_crossspectrum(q, progress); });
   } else if (c == "query measurements") {
@@ -761,7 +748,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.max_value = o.number("max_value");
     q.limit = o.integer("limit");
     q.order = o.maybe("order");
-    o.list("templates");   // accepted as every subject command accepts it; the query opens the subject as `run` does
     call([&] { return face::query_measurements(q); });
   } else if (c == "compile ") {
     face::CompileRequest q;
@@ -794,7 +780,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     call([&] { return task::import_scan(q); });
   } else if (c == "import subject") {
     task::ImportSubjectRequest q{o.str("protocol"), o.str("subject"), o.str("dataset"), o.number("resample"), created_by};
-    o.list("templates");
     call([&] { return task::import_subject(q, progress); });
   } else if (c == "import template") {
     task::ImportTemplateRequest q{o.str("protocol"), o.str("dataset"), o.maybe_list("surface"), created_by};
@@ -820,15 +805,14 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.include_imported = o.flag("include_imported");
     q.no_raw = o.flag("no_raw");
     q.extra_surface = o.maybe_list("extra_surface");
-    q.templates = o.list("templates");
     q.created_by = created_by;
     call([&] { return task::import_condition(q, progress); });
   } else if (c == "import surface") {
     if (!o.has("file")) throw task::Refused(o.prog() + ": give file (tess_*.mat files)");
-    task::ImportSurfaceRequest q{o.str("dataset"), o.str("subject"), o.list("file"), o.maybe("bst_root"), o.list("templates"), created_by};
+    task::ImportSurfaceRequest q{o.str("dataset"), o.str("subject"), o.list("file"), o.maybe("bst_root"), created_by};
     call([&] { return task::import_surface(q, progress); });
   } else if (c == "import mri") {
-    task::ImportMriRequest q{o.str("dataset"), o.str("subject"), o.str("anat"), o.maybe_list("only"), o.list("templates"), created_by};
+    task::ImportMriRequest q{o.str("dataset"), o.str("subject"), o.str("anat"), o.maybe_list("only"), created_by};
     call([&] { return task::import_mri(q, progress); });
   } else if (c == "import inverse") {
     task::ImportInverseRequest q;
@@ -842,7 +826,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.forward_id = o.maybe("forward_id");
     q.name = o.maybe("name");
     q.channel_file = o.maybe("channel_file");
-    q.templates = o.list("templates");
     q.created_by = created_by;
     call([&] { return task::import_inverse(q, progress); });
   } else if (c == "import map") {
@@ -855,7 +838,6 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.acquisition = o.maybe("acquisition");
     q.provenance = o.maybe("provenance");
     q.replace = o.flag("replace");
-    q.templates = o.list("templates");
     q.created_by = created_by;
     call([&] { return task::import_map(q, progress); });
   } else if (c == "import resample") {
@@ -866,11 +848,10 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     if (!o.has("to")) throw task::Refused(o.prog() + ": the following arguments are required: to");
     q.to = *o.number("to");
     q.name = o.maybe("name");
-    q.templates = o.list("templates");
     q.created_by = created_by;
     call([&] { return task::import_resample(q, progress); });
   } else if (c == "import badsegments" || c == "import events") {
-    task::ImportBadsegmentsRequest q{o.str("dataset"), o.str("subject"), o.str("from"), o.flag("replace"), o.list("templates"), created_by};
+    task::ImportBadsegmentsRequest q{o.str("dataset"), o.str("subject"), o.str("from"), o.flag("replace"), created_by};
     call([&] { return noun == "badsegments" ? task::import_badsegments(q, progress) : task::import_events(q, progress); });
   } else if (c == "import recording") {
     task::ImportRecordingRequest q;
@@ -1032,7 +1013,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
   return r;
 }
 
-/** `run PIPELINE` on a subject, or a group: `args` is {pipeline, dataset, subject, parameters, from, to, all, replace, dry_run, preset, subjects, into}; the result as JSON.
+/** `run PIPELINE` on a subject, or a group: `args` is {pipeline, dataset, subject, parameters, from, to, all, replace, dry_run, preset, subjects}; the result as JSON.
  *  A handle: the same as `command`. */
 inline Json run(const Json& args, const task::Progress& progress, task::Handle* handle = nullptr) {
   const task::HandleScope through(handle);
@@ -1042,13 +1023,12 @@ inline Json run(const Json& args, const task::Progress& progress, task::Handle* 
   const Json parameters = args.contains("parameters") && args["parameters"].is_object() ? args["parameters"] : Json::object();
   std::vector<std::string> subjects;
   if (args.contains("subjects") && args["subjects"].is_array()) for (const auto& x : args["subjects"]) subjects.push_back(x.get<std::string>());
-  const std::string dataset = text("dataset"), subject = text("subject"), into = text("into");
-  if (!subjects.empty() || !into.empty()) {   // a group run: the members and the group package are the caller's
+  const std::string dataset = text("dataset"), subject = text("subject");
+  if (!subjects.empty()) {   // a group run: the members are the caller's; the results go into the dataset's template
     face::GroupRunRequest rq;
     rq.pipeline = text("pipeline");
     rq.parameters = parameters;
     rq.subjects = subjects;
-    rq.into = into;
     rq.replace = flag("replace");
     rq.preset = text("preset");
     rq.dry_run = flag("dry_run");

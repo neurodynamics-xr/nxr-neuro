@@ -240,6 +240,7 @@ test_quantity	unit
 test_query_measure	unit
 test_read_existing	unit
 test_read_add	integration
+test_add_transition	integration
 test_read_subject	integration
 test_add_options	integration
 test_subject_descriptions	integration
@@ -268,6 +269,8 @@ test_schema51	unit
 test_schema53	unit
 test_schema54	unit
 test_schema55	unit
+test_schema56	unit
+test_template_links	unit
 test_select_makers	integration
 test_signal_design	golden
 test_signal_grid	golden

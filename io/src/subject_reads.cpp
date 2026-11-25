@@ -82,6 +82,18 @@ std::optional<std::string> coordinate_system_name_of_geometry(const Database& db
   return text(*c, "name");
 }
 
+std::string coordinate_system_key(const Database& db, const std::string& coordinate_system_id) {
+  const auto r = db.one("SELECT sp.name AS space, cs.name AS name FROM coordinate_system cs JOIN space sp ON sp.id = cs.space_id WHERE cs.id = ?", {V(coordinate_system_id)});
+  return r ? text(*r, "space") + ":" + text(*r, "name") : std::string();
+}
+
+std::vector<std::pair<std::string, std::string>> subject_coordinate_systems(const Database& db, const std::string& subject_id) {
+  std::vector<std::pair<std::string, std::string>> out;
+  for (const Row& r : db.all("SELECT cs.id AS id, sp.name AS space, cs.name AS name FROM coordinate_system cs JOIN space sp ON sp.id = cs.space_id WHERE sp.subject_id = ? ORDER BY sp.name, cs.name", {V(subject_id)}))
+    out.emplace_back(text(r, "id"), text(r, "space") + ":" + text(r, "name"));
+  return out;
+}
+
 std::vector<std::string> factor_manifolds(const Database& db, const std::string& manifold_id) {
   std::vector<std::string> out;
   for (const Row& r : db.all("SELECT d.manifold_id AS mid FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? ORDER BY d.ordinal", {V(manifold_id)})) out.push_back(text(r, "mid"));

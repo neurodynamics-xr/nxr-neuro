@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(nxr_neuro VERSION 0.3.0 LANGUAGES CXX)
+project(nxr_neuro VERSION 0.4.0 LANGUAGES CXX)
 
 # nxr-neuro: the project's combined C++ toolkit. One build, separate libraries:
 #   compute/    nxr_compute    pure maths (geometry-central + Eigen + Spectra); no file I/O

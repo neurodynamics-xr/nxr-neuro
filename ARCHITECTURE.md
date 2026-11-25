@@ -196,6 +196,11 @@ Every function a user would call on data (a transform and its inverse, a bank's 
   (`--anonymize` drops identifying fields). The repository itself never contains real or identifying data.
 - Imported recordings are copied into the subject package by default; reading in place from the source file is an option.
 
+**6. The template holds the cohort** (format 56). A dataset has ONE template subject, its own copy. A subject package is self-contained: it names no
+template and carries none of its rows. The template holds each subject's registration onto it, each subject's results carried onto it, and the averages
+and statistics over them; it refers to its subjects, never the reverse. A cohort result is written into the template (one cohort writer at a time) and
+records its members with their content hashes, so a member changed since is flagged. There is no group package.
+
 **Transition** (to be removed when done): some pipelines are still hand-wired C++ verbs and some files still reach the database directly. They are
 listed in the layering check's allowlist, which only shrinks. A hand-wired verb is converted into a definition; it is never extended. `run <name>`
 dispatches to the hand-wired verbs until they are converted.

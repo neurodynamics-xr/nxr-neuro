@@ -304,6 +304,7 @@ python	signal_jwt	nxr::signal::jwt	ok
 python	signal_ijwt	nxr::signal::ijwt	ok
 python	signal_bandAnalytic	nxr::signal::bandAnalytic	ok
 python	signal_bandEnvelope	nxr::signal::bandEnvelope	ok
+python	signal_kernelGains	nxr::signal::kernelGains	ok
 python	signal_timeBank	nxr::signal::timefilterbank::timeBank	ok
 python	signal_graphBank	nxr::signal::graphfilterbank::graphBank	ok
 wasm	geometry.bff	nxr::geometry::parametrization::bff	ok

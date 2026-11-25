@@ -166,11 +166,11 @@ int main() {
     const auto sp = stored<double>(ds.store(), join_key(store, "source/cortex_pial_sphere/vertices"));
     CHECK(sp.size() == 36 && sp[0] == 100.0);                // the sphere as stored, no unit change (nxr's default subject)
 
-    // a second default subject is refused; a subject created now points at this one
+    // a second default subject is refused; a subject created now names no template (format 56: the template holds the cohort)
     CHECK_EQ(code_of([&] { create_default_subject(ds, o, "test"); }), std::string(code::already_exists));
     SubjectWriter s1 = SubjectWriter::create(ds, "S1");
     s1.complete();
-    CHECK_EQ(text(*ds.subject("S1"), "template_id"), text(*subj, "id"));
+    CHECK(is_null(*ds.subject("S1"), "template_id"));
   }
 
   // ── a refusal that leaves NO default subject (one composition): a templates folder with no surf/ ──

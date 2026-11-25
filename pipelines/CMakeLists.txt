@@ -191,6 +191,10 @@ if(NXR_NEURO_BUILD_TESTS)
     target_compile_definitions(test_read_add PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_read_add COMMAND test_read_add)
+  add_executable(test_add_transition test/test_add_transition.cpp)   # `add operator` as a transition between two coordinate systems: stored, read back, listed, refused, deleted
+  target_link_libraries(test_add_transition PRIVATE nxr_pipelines)
+  target_include_directories(test_add_transition PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_add_transition COMMAND test_add_transition)
   add_executable(test_read_subject test/test_read_subject.cpp)   # `read subject` and `list <class>` (data-layer queries spec, step 1): descriptions, paging, filters, columns, counts, no schema column in a result
   target_link_libraries(test_read_subject PRIVATE nxr_pipelines)
   target_include_directories(test_read_subject PRIVATE ${CMAKE_SOURCE_DIR}/io/test)

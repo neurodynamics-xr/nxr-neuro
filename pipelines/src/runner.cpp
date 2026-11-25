@@ -1558,7 +1558,8 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         if (group->names.count(k) && i < group->names.at(k).size()) one["name"] = group->names.at(k)[i];
         in[k] = one;
       }
-      each.push_back(Json{{"subject", group->subjects[i]}, {"inputs", in}});
+      each.push_back(Json{{"subject", group->subjects[i]}, {"name", group->subjects[i]}, {"subject_id", i < group->subject_ids.size() ? group->subject_ids[i] : std::string()},
+                          {"content_hash", i < group->content_hashes.size() ? group->content_hashes[i] : std::string()}, {"inputs", in}});
     }
     producer["group"] = Json{{"subjects", group->subjects}, {"inputs", members}, {"members", each}};
   }
@@ -1879,7 +1880,7 @@ nxr::graph::Array stack_statistics(const std::vector<GroupMember>& members, cons
 // For each per-subject STATISTIC input, the members' stored statistics as rows (stack_statistics).
 GroupInputs stack_members(const std::vector<GroupMember>& members, const std::vector<Values>& found, const std::vector<std::string>& per, const Json& params, const std::string& pipeline) {
   GroupInputs g;
-  for (const auto& m : members) g.subjects.push_back(m.name);
+  for (const auto& m : members) { g.subjects.push_back(m.name); g.subject_ids.push_back(m.subject_id); g.content_hashes.push_back(m.content_hash); }
   std::string field_input;
   for (const auto& k : per) if (found.front().at(k).cls == "field") { field_input = k; break; }
   bool any_keyed = false, any_selection = false;

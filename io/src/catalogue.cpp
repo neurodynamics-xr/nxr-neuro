@@ -19,7 +19,7 @@ namespace nxr::io {
 
 namespace {
 
-// (`subject_entry` and `template_reference` are the model's since schema 51)
+// (`subject_entry` is the model's since schema 51; `template_reference` was dropped in 56)
 const char* const kCatalogueTables =
     // the shared vocabulary the members' copies are held to by key (section 2.1): the first registrant's entries, as a digest
     "CREATE TABLE vocabulary (\n"
@@ -98,14 +98,6 @@ std::optional<CatalogueEntry> Catalogue::find(const std::string& name_or_id) con
 fs::path Catalogue::package_path(const CatalogueEntry& e) const {
   const fs::path p(e.path);
   return p.is_absolute() ? p : folder_ / p;
-}
-
-std::vector<Json> Catalogue::template_references() const {
-  std::vector<Json> out;
-  for (const auto& r : db_->all("SELECT * FROM template_reference ORDER BY name, version, edition"))
-    out.push_back(Json{{"name", text(r, "name")}, {"edition", text(r, "edition")}, {"version", text(r, "version")}, {"subject_id", text(r, "subject_id")},
-                       {"content_hash", text(r, "content_hash")}, {"location_hint", opt_text(r, "location_hint") ? Json(text(r, "location_hint")) : Json(nullptr)}});
-  return out;
 }
 
 bool Catalogue::has_participants() const { return fs::is_regular_file(folder_ / kParticipantsFile); }
@@ -198,14 +190,14 @@ std::vector<Vocab> vocabulary_of(const Database& db) {
 }
 
 // A package read for registration, or the reason it cannot be.
-std::optional<std::string> examine(const fs::path& path, Candidate& c, const std::optional<TemplateSearch>& templates) {
+std::optional<std::string> examine(const fs::path& path, Candidate& c) {
   if (!fs::is_directory(path) || !fs::is_regular_file(path / kPackageDatabaseFile)) return path.string() + ": not a subject package (no " + kPackageDatabaseFile + ")";
   std::error_code ec;
   if (fs::exists(path / kWriterLockFile, ec)) return path.string() + ": a writer holds the package (or left its lock): close it, or open and close it with a writer to recover";
   try {
     SubjectPackage p = SubjectPackage::open(path);
     c.rec = p.record();
-    if (c.rec.kind != "subject" && c.rec.kind != "template" && c.rec.kind != "group")
+    if (c.rec.kind != "subject" && c.rec.kind != "template")
       return path.string() + ": a package of kind '" + c.rec.kind + "' is not a member of a dataset";
     for (const char* t : kStatusTables) {
       if (!has_table(p.db(), t)) continue;
@@ -218,15 +210,6 @@ std::optional<std::string> examine(const fs::path& path, Candidate& c, const std
     c.subject = p.subject_row();
     c.counts = *p.db().one("SELECT n_acquisitions, n_recordings, n_surfaces, n_fields, n_operators FROM subject_status WHERE id = ?", {c.rec.subject_id});
     c.vocab = vocabulary_of(p.db());
-    if (templates && c.rec.template_reference.is_object() && c.rec.template_reference.contains("content_hash")) {
-      const ResolvedTemplate t = resolve_template(TemplateRef::from_json(c.rec.template_reference), *templates);
-      const auto differ = anchor_differences(p.db(), t.folder);
-      if (!differ.empty()) {
-        std::string list;
-        for (std::size_t i = 0; i < differ.size() && i < 5; ++i) list += (list.empty() ? "" : ", ") + differ[i];
-        return path.string() + ": its anchor rows differ from template " + t.record.release.value("name", "") + "@" + t.record.release.value("version", "") + "'s: " + list + (differ.size() > 5 ? ", ..." : "");
-      }
-    }
   } catch (const Error& e) {
     return path.string() + ": " + e.what();
   }
@@ -256,7 +239,7 @@ std::vector<RegisterResult> register_packages(const fs::path& folder_in, const s
     c.path = absolute_of(p);
     c.result = results.size() - 1;
     if (!seen.insert(c.path.string()).second) { results.back().outcome = "refused"; results.back().reason = c.path.string() + ": named twice"; continue; }
-    if (const auto why = examine(c.path, c, opt.templates)) { results.back().outcome = "refused"; results.back().reason = *why; continue; }
+    if (const auto why = examine(c.path, c)) { results.back().outcome = "refused"; results.back().reason = *why; continue; }
     results.back().name = c.rec.name;
     cands.push_back(std::move(c));
   }
@@ -343,18 +326,6 @@ std::vector<RegisterResult> register_packages(const fs::path& folder_in, const s
           if (existing) { db.upsert("subject", srow); db.upsert("subject_entry", ent); }   // a replaced entry registered again
           else { db.insert("subject", srow); db.insert("subject_entry", ent); }
           outcome = clash.empty() ? "registered" : "replaced";
-        }
-        // the template this subject is registered to: one reference a dataset, one hash a name, edition and version
-        if (c.rec.template_reference.is_object()) {
-          const Json& t = c.rec.template_reference;
-          const std::string tname = t.value("name", ""), ted = t.value("edition", "full"), tver = t.value("version", ""), thash = t.value("content_hash", "");
-          if (const auto have = db.one("SELECT content_hash FROM template_reference WHERE name = ? AND edition = ? AND version = ?", {tname, ted, tver})) {
-            if (text(*have, "content_hash") != thash)
-              throw value_error(c.path.string() + ": registered to template " + tname + "@" + tver + " with content hash " + thash + ", the dataset's subjects use " + text(*have, "content_hash") + " (a cohort is never pooled across template versions)");
-          } else {
-            db.insert("template_reference", {{"name", tname}, {"edition", ted}, {"version", tver}, {"subject_id", t.value("subject_id", "")}, {"content_hash", thash},
-                                             {"location_hint", t.contains("location_hint") && t["location_hint"].is_string() ? Value(t["location_hint"].get<std::string>()) : Value(std::monostate{})}});
-          }
         }
         // the shared vocabulary: copies under one key must agree
         for (const auto& v : c.vocab) {
@@ -454,7 +425,6 @@ SelectedSubjects select_subjects(const fs::path& folder, const SubjectSelection&
     std::sort(out.members.begin(), out.members.end(), [](const CatalogueEntry& a, const CatalogueEntry& b) { return a.name < b.name; });
   }
   if (out.members.empty()) throw value_error("select subjects: the selection matches no subject");
-  std::map<std::string, std::string> template_of;   // "name@version (edition, hash)" -> a member that uses it
   for (const auto& m : out.members) {
     if (m.kind != "subject") throw value_error("select subjects: " + m.name + " is a " + m.kind + ", not a subject: a cohort holds subjects only");
     if (m.status != "registered") throw value_error("select subjects: " + m.name + " is " + m.status + " (run the status check, then register again)");
@@ -463,66 +433,59 @@ SelectedSubjects select_subjects(const fs::path& folder, const SubjectSelection&
     std::string have;
     try { have = SubjectPackage::open(p).record().content_hash; } catch (const Error& e) { throw value_error("select subjects: " + m.name + ": " + e.what()); }
     if (have != m.content_hash) throw value_error("select subjects: " + m.name + " is stale: its package has changed since it was registered (register it again)");
-    const Json t = SubjectPackage::open(p).record().template_reference;
-    const std::string key = t.is_object() ? t.value("name", "") + "@" + t.value("version", "") + (t.value("edition", "full") == "full" ? "" : ":" + t.value("edition", "")) + " (" + t.value("content_hash", "") + ")" : "no template";
-    template_of.emplace(key, m.name);
-  }
-  if (template_of.size() > 1) {
-    std::string list;
-    for (const auto& [k, who] : template_of) list += (list.empty() ? "" : "; ") + k + " by " + who;
-    throw value_error("select subjects: the members are registered to different template versions (a cohort is never pooled across them): " + list);
   }
   return out;
 }
 
-// ══ group packages ══════════════════════════════════════════════════════════════════════════════════════════════
+// ══ the cohort's members ══════════════════════════════════════════════════════════════════════════════════════════
 
-fs::path create_group_package(const fs::path& folder_in, const std::string& group_name, const SelectedSubjects& members, const RegisterOptions& opt) {
-  check_name("group", group_name);
-  if (members.members.empty()) throw value_error("a group package names the subjects it was computed from");
-  Catalogue cat = Catalogue::open(folder_in);
-  if (cat.find(group_name)) throw value_error(group_name + ": the dataset already holds a member of that name");
-  const fs::path path = cat.folder() / (group_name + kPackageSuffix);
-  if (fs::exists(path)) throw Error(code::already_exists, path.string() + ": exists");
-  CreatePackageOptions po = cat.package_options();
-  po.subject.kind = "group";
-  po.subject.created_by = opt.registered_by;
-  Json list = Json::array();
-  for (const auto& m : members.members) list.push_back(Json{{"subject_id", m.subject_id}, {"name", m.name}, {"content_hash", m.content_hash}});
-  {
-    DatasetWriter w = create_package(path, group_name, po);
-    PackageRecord r = read_package_record(w.db());
-    r.members = list;
-    write_package_record(w.db(), r);
-  }
-  const auto res = register_packages(cat.folder(), {path}, opt);
-  if (res.empty() || (res[0].outcome != "registered" && res[0].outcome != "unchanged")) throw value_error("the group package was not registered: " + (res.empty() ? std::string() : res[0].reason));
-  return path;
-}
-
-std::vector<GroupMemberStatus> group_member_status(const fs::path& folder, const std::string& group_name) {
-  Catalogue cat = Catalogue::open(folder);
-  const auto g = cat.find(group_name);
-  if (!g || g->kind != "group") throw Error(code::no_such_row, group_name + ": no group package in this dataset");
-  const PackageRecord rec = SubjectPackage::open(cat.package_path(*g)).record();
+std::vector<GroupMemberStatus> cohort_member_status(const fs::path& folder, const Json& producer_group) {
+  const Catalogue cat = Catalogue::open(folder);
+  if (!producer_group.is_object() || !producer_group.contains("members") || !producer_group["members"].is_array())
+    throw value_error("cohort member status: the result records no members (producer.group.members)");
   std::vector<GroupMemberStatus> out;
-  for (const auto& m : rec.members) {
-    GroupMemberStatus s;
-    s.subject_id = m.value("subject_id", ""); s.name = m.value("name", ""); s.recorded_hash = m.value("content_hash", "");
-    if (const auto now = cat.find(s.subject_id); now && now->status != "replaced") s.current_hash = now->content_hash;
-    s.current = !s.current_hash.empty() && s.current_hash == s.recorded_hash;
-    out.push_back(s);
+  for (const auto& m : producer_group["members"]) {
+    GroupMemberStatus st;
+    st.subject_id = m.value("subject_id", ""); st.name = m.value("name", ""); st.recorded_hash = m.value("content_hash", "");
+    if (const auto now = cat.find(st.subject_id); now && now->status != "replaced" && fs::is_regular_file(cat.package_path(*now) / kPackageDatabaseFile))
+      st.current_hash = SubjectPackage::open(cat.package_path(*now)).record().content_hash;   // the package as it is now (a compute does not register it again)
+    st.current = !st.current_hash.empty() && st.current_hash == st.recorded_hash;
+    out.push_back(st);
   }
   return out;
 }
 
-}  // namespace nxr::io
+CatalogueEntry dataset_template(const fs::path& folder) {
+  const Catalogue cat = Catalogue::open(folder);
+  std::vector<CatalogueEntry> found;
+  for (const CatalogueEntry& e : cat.entries()) if (e.kind == "template" && e.status != "replaced") found.push_back(e);
+  if (found.empty()) throw Error(code::not_found, folder.string() + ": no template subject (a cohort's results go into the dataset's own template: create or import it first)");
+  if (found.size() > 1) {
+    std::string list;
+    for (const auto& e : found) list += (list.empty() ? "" : ", ") + e.name;
+    throw Error(code::invalid_argument, folder.string() + ": " + std::to_string(found.size()) + " template subjects (" + list + "); a dataset has ONE template, its own copy");
+  }
+  if (found[0].status != "registered") throw Error(code::invalid_argument, found[0].name + ": the dataset's template is `" + found[0].status + "`; register its package again");
+  return found[0];
+}
 
-namespace nxr::io {
+DatasetWriter open_template_of(const DatasetWriter& member, const OpenOptions& opt) {
+  if (!member.is_package()) throw Error(code::invalid_argument, "open_template_of: the writer is not over a subject package");
+  const fs::path dataset = member.root().parent_path();
+  if (!is_catalogue_dataset(dataset)) throw Error(code::not_found, member.root().string() + ": the package is not inside a catalogue dataset, so there is no dataset template to read");
+  return open_subject_package(dataset, dataset_template(dataset).name, opt);
+}
+
+SubjectPackage open_dataset_template(const fs::path& folder) {
+  const Catalogue cat = Catalogue::open(folder);
+  const fs::path p = cat.package_path(dataset_template(folder));
+  if (!fs::is_regular_file(p / kPackageDatabaseFile)) throw Error(code::not_found, p.string() + ": the dataset's template package is missing");
+  return SubjectPackage::open(p);
+}
 
 bool is_catalogue_dataset(const std::filesystem::path& dataset_folder) { return std::filesystem::is_regular_file(dataset_folder / kCatalogueFile); }
 
-DatasetWriter open_subject_package(const std::filesystem::path& dataset_folder, const std::string& subject, const OpenOptions& opt, const TemplateSearch& templates) {
+DatasetWriter open_subject_package(const std::filesystem::path& dataset_folder, const std::string& subject, const OpenOptions& opt) {
   namespace fs = std::filesystem;
   const Catalogue cat = Catalogue::open(dataset_folder);
   const auto entry = cat.find(subject);
@@ -530,44 +493,7 @@ DatasetWriter open_subject_package(const std::filesystem::path& dataset_folder, 
   if (entry->status != "registered") throw Error(code::invalid_argument, subject + ": the catalogue lists it as `" + entry->status + "`; register its package again");
   const fs::path folder = cat.package_path(*entry);
   if (!fs::is_regular_file(folder / kPackageDatabaseFile)) throw Error(code::not_found, subject + ": its package " + folder.string() + " is missing");
-  DatasetWriter w = open_package_writer(folder, opt);
-  // the template and the registration its rows are anchored to: their arrays are read from their own packages
-  const PackageRecord rec = read_package_record(w.db());
-  std::vector<std::filesystem::path> members;
-  std::map<std::string, std::filesystem::path> member_of;   // subject id -> its package in this dataset
-  for (const CatalogueEntry& e : cat.entries()) member_of[e.subject_id] = cat.package_path(e);
-  for (const Json* ref : {&rec.template_reference, &rec.registration}) {
-    if (!ref->is_object() || !ref->contains("subject_id") || !ref->contains("content_hash")) continue;
-    const std::string sid = (*ref)["subject_id"].get<std::string>();
-    const auto row = w.db().one("SELECT s.path AS s, d.path AS d FROM subject s JOIN dataset d ON d.id = s.dataset_id WHERE s.id = ?", {sid});
-    if (!row || sid == rec.subject_id) continue;
-    const Json r = *ref;
-    const fs::path local = member_of.count(sid) ? member_of[sid] : fs::path();
-    route_keys_to_package(w, text(*row, "d") + "/" + text(*row, "s"), [r, local, templates]() -> std::shared_ptr<SubjectPackage> {
-      const std::string hash = r["content_hash"].get<std::string>();
-      if (!local.empty() && fs::is_regular_file(local / kPackageDatabaseFile)) {
-        auto p = std::make_shared<SubjectPackage>(SubjectPackage::open(local));
-        if (p->record().content_hash == hash) return p;
-      }
-      const ResolvedTemplate t = resolve_template(TemplateRef::from_json(r), templates);
-      return std::make_shared<SubjectPackage>(SubjectPackage::open(t.folder));
-    });
-  }
-  return w;
-}
-
-
-ResolvedTemplate resolve_dataset_template(const std::filesystem::path& dataset_folder, const TemplateRef& ref, const TemplateSearch& search) {
-  namespace fs = std::filesystem;
-  const Catalogue cat = Catalogue::open(dataset_folder);
-  for (const CatalogueEntry& e : cat.entries()) {
-    if (e.kind != "template" || e.status == "replaced" || e.content_hash != ref.content_hash) continue;
-    const fs::path p = cat.package_path(e);
-    if (!fs::is_regular_file(p / kPackageDatabaseFile)) continue;
-    SubjectPackage pk = SubjectPackage::open(p);
-    return ResolvedTemplate{p, pk.record()};
-  }
-  return resolve_template(ref, search);
+  return open_package_writer(folder, opt);   // a subject is self-contained (format 56): nothing is routed to a template
 }
 
 namespace {
@@ -585,77 +511,31 @@ void drop_unreferenced_vocabulary_held_elsewhere(Database& db, const std::filesy
 }  // namespace
 
 struct GroupAnalysis::Impl {
-  std::filesystem::path dataset, group_folder;
-  std::string group_name, registered_by, template_name;
-  TemplateSearch search;
+  std::filesystem::path dataset, template_folder;
+  std::string registered_by, template_name;
   SelectedSubjects selected;
   std::map<std::string, std::unique_ptr<DatasetWriter>> members;
   std::map<std::string, std::filesystem::path> member_folder;   // subject id -> its package folder
-  std::unique_ptr<DatasetWriter> group;
+  std::unique_ptr<DatasetWriter> writer;                        // the dataset's template
 };
 GroupAnalysis::GroupAnalysis(GroupAnalysis&&) noexcept = default;
 GroupAnalysis& GroupAnalysis::operator=(GroupAnalysis&&) noexcept = default;
 GroupAnalysis::~GroupAnalysis() = default;
 
-GroupAnalysis GroupAnalysis::open(const std::filesystem::path& dataset_folder, const std::string& group_name, const std::vector<std::string>& subjects, const TemplateSearch& templates,
-                                  const std::string& registered_by) {
-  namespace fs = std::filesystem;
+GroupAnalysis GroupAnalysis::open(const std::filesystem::path& dataset_folder, const std::vector<std::string>& subjects, const std::string& registered_by) {
   GroupAnalysis a;
   a.impl_ = std::make_unique<Impl>();
   Impl& m = *a.impl_;
-  m.dataset = dataset_folder; m.group_name = group_name; m.search = templates; m.registered_by = registered_by;
+  m.dataset = dataset_folder; m.registered_by = registered_by;
   SubjectSelection sel;
   sel.subjects = subjects;
   m.selected = select_subjects(dataset_folder, sel);
   const Catalogue cat = Catalogue::open(dataset_folder);
-  Json tref;
-  for (const CatalogueEntry& e : m.selected.members) {
-    const fs::path p = cat.package_path(e);
-    m.member_folder[e.subject_id] = p;
-    const Json r = SubjectPackage::open(p).record().template_reference;
-    if (!r.is_object()) throw Error(code::invalid_argument, e.name + ": it is registered to no template, so a group analysis has no common anatomy to put its results on");
-    if (tref.is_null()) tref = r;
-    else if (r.value("content_hash", "") != tref.value("content_hash", ""))
-      throw Error(code::invalid_argument, e.name + ": registered to " + r.value("name", "") + "@" + r.value("version", "") + ", the others to " + tref.value("name", "") + "@" + tref.value("version", "") +
-                                          ": members of different template versions are never pooled");
-  }
-  const ResolvedTemplate tmpl = resolve_dataset_template(dataset_folder, TemplateRef::from_json(tref), templates);
-  m.template_name = tmpl.record.name;
-  // the group package: made, or the one of this name (a group) opened to replace its results
-  if (const auto have = cat.find(group_name)) {
-    if (have->kind != "group") throw Error(code::invalid_argument, group_name + ": the dataset holds a member of that name that is not a group package");
-    m.group_folder = cat.package_path(*have);
-  } else {
-    RegisterOptions ro;
-    ro.registered_by = registered_by;
-    m.group_folder = create_group_package(dataset_folder, group_name, m.selected, ro);
-  }
-  m.group = std::make_unique<DatasetWriter>(open_package_writer(m.group_folder));
-  DatasetWriter& g = *m.group;
-  {
-    PackageRecord rec = read_package_record(g.db());
-    Json list = Json::array();
-    for (const auto& e : m.selected.members) list.push_back(Json{{"subject_id", e.subject_id}, {"name", e.name}, {"content_hash", e.content_hash}});
-    rec.members = list;
-    rec.template_reference = tref;
-    write_package_record(g.db(), rec);
-  }
-  // the default subject's rows the results are on, as anchors: its manifolds, its selections, its canonical frames
-  {
-    const SubjectPackage tp = SubjectPackage::open(tmpl.folder);
-    const std::string tid = tmpl.record.subject_id;
-    std::vector<std::pair<std::string, std::string>> roots = {{"subject", tid}};
-    for (const auto& r : tp.db().all("SELECT id FROM manifold WHERE subject_id = ? AND status = 'complete'", {tid})) roots.emplace_back("manifold", text(r, "id"));
-    for (const auto& id : selection::complete_ids(tp.db(), tid)) roots.emplace_back("selection", id);
-    for (const auto& r : tp.db().all("SELECT id FROM field WHERE subject_id = ? AND status = 'complete' AND name LIKE '%_canonical_frames'", {tid})) roots.emplace_back("field", text(r, "id"));
-    drop_unreferenced_vocabulary_held_elsewhere(g.db(), tmpl.folder);
-    add_anchor_rows(g.db(), tmpl.folder, roots);
-    // the default subject's arrays are read from its own package
-    if (const auto row = g.db().one("SELECT s.path AS s, d.path AS d FROM subject s JOIN dataset d ON d.id = s.dataset_id WHERE s.id = ?", {tid})) {
-      const fs::path tfolder = tmpl.folder;
-      route_keys_to_package(g, text(*row, "d") + "/" + text(*row, "s"), [tfolder]() { return std::make_shared<SubjectPackage>(SubjectPackage::open(tfolder)); });
-    }
-  }
+  for (const CatalogueEntry& e : m.selected.members) m.member_folder[e.subject_id] = cat.package_path(e);
+  const CatalogueEntry t = dataset_template(dataset_folder);   // none or two: refused, by name
+  m.template_name = t.name;
+  m.template_folder = cat.package_path(t);
+  m.writer = std::make_unique<DatasetWriter>(open_package_writer(m.template_folder));
   return a;
 }
 
@@ -668,10 +548,10 @@ DatasetWriter& GroupAnalysis::member(const std::string& name) {
   if (!listed) throw Error(code::no_such_row, name + ": not a member of this group analysis");
   OpenOptions oo;
   oo.lock = false;
-  auto w = std::make_unique<DatasetWriter>(open_subject_package(m.dataset, name, oo, m.search));
+  auto w = std::make_unique<DatasetWriter>(open_subject_package(m.dataset, name, oo));
   return *(m.members[name] = std::move(w));
 }
-DatasetWriter& GroupAnalysis::group() { return *impl_->group; }
+DatasetWriter& GroupAnalysis::template_writer() { return *impl_->writer; }
 const std::string& GroupAnalysis::template_name() const { return impl_->template_name; }
 const SelectedSubjects& GroupAnalysis::selected() const { return impl_->selected; }
 
@@ -684,20 +564,20 @@ void GroupAnalysis::anchor_contributions(const std::vector<std::pair<std::string
   }
   for (auto& [sid, roots] : by_subject) {
     roots.insert(roots.begin(), {"subject", sid});
-    drop_unreferenced_vocabulary_held_elsewhere(m.group->db(), m.member_folder.at(sid));
-    add_anchor_rows(m.group->db(), m.member_folder.at(sid), roots);
+    drop_unreferenced_vocabulary_held_elsewhere(m.writer->db(), m.member_folder.at(sid));
+    add_anchor_rows(m.writer->db(), m.member_folder.at(sid), roots);
   }
 }
 
 std::string GroupAnalysis::finish() {
   Impl& m = *impl_;
   m.members.clear();
-  m.group->close();
-  m.group.reset();
+  m.writer->close();
+  m.writer.reset();
   RegisterOptions ro;
   ro.registered_by = m.registered_by;
-  const auto res = register_packages(m.dataset, {m.group_folder}, ro);
-  if (res.empty() || res[0].outcome == "refused") throw Error(code::invalid_argument, m.group_name + ": the group package was not registered: " + (res.empty() ? std::string() : res[0].reason));
+  const auto res = register_packages(m.dataset, {m.template_folder}, ro);
+  if (res.empty() || res[0].outcome == "refused") throw Error(code::invalid_argument, m.template_name + ": the template was not registered again: " + (res.empty() ? std::string() : res[0].reason));
   return res[0].outcome;
 }
 

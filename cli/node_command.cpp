@@ -1,6 +1,6 @@
 // nxr-neuro read <class> · add <class> (docs/specs/2026-11-19-io-service.md, section 4): one stored node by name, read as arrays; what a user computed, stored as one unit.
 //
-//   nxr-neuro read field --dataset D --subject S --name N [--from S --to S | --all] [--rows 0,2] [--projectors active|none|NAME[,NAME...]] [--shape-only] [--out FILE.npy]
+//   nxr-neuro read field --dataset D --subject S --name N [--from S --to S | --all] [--rows 0,2] [--projectors active|none|NAME[,NAME...]] [--shape-only | --projection-only] [--out FILE.npy]
 //   nxr-neuro read statistic | operator --dataset D --subject S --name N [--out FILE.npy]
 //   nxr-neuro read selection --dataset D --subject S --name N [--measure M [--field F]] [--out FILE.npy]
 //   nxr-neuro read manifold --dataset D --subject S --name N [--family NAME] [--out FILE.npy]
@@ -10,6 +10,7 @@
 //   nxr-neuro add statistic --dataset D --subject S --name N --measure M --method X --values FILE.npy --axes NAME:MANIFOLD ... [--value-type T] [--of-field F] [--partition P] [--unit U] [--description TEXT] [--replace]
 //   nxr-neuro add measurements --dataset D --subject S --selection SEL --measure NAME=FILE.npy ... [--field F] [--unit U] [--replace]
 //   nxr-neuro add operator --dataset D --subject S --name N --from-manifold A --to-manifold B (--values FILE.npy | --data F --indices F --indptr F) [--kind K] [--description TEXT] [--replace]
+//   nxr-neuro add operator --dataset D --subject S --name N --from-manifold A --from-coordinate-system SPACE:NAME --to-coordinate-system SPACE:NAME --values AFFINE_3x4.npy   (a transition)
 //   nxr-neuro add points --dataset D --subject S --name N --positions FILE.npy [--coordinate-system KEY] [--description TEXT] [--replace]
 //   nxr-neuro add line --dataset D --subject S --name N --n N --spacing X --unit U [--origin X] [--dimension time|frequency|...] [--replace]
 //   nxr-neuro add line --dataset D --subject S --name N --coordinates FILE.npy --dimension eigenvalue --unit U [--kinds FILE.npy] [--replace]
@@ -118,7 +119,6 @@ static int read_subject_main(const std::vector<std::string>& rest) {
   rq.subject = a.get("--subject");
   if (const auto v = a.maybe("--classes")) rq.classes = split_commas(*v);
   rq.related = a.flag.count("--related") > 0;
-  rq.templates = values_of(a, "--templates");
   emit_result(call(prog, [&] { return read_subject_call(rq); }).result);
   return 0;
 }
@@ -130,7 +130,7 @@ int list_class_main(const std::string& what, const std::vector<std::string>& res
   if (what != "jobs") valued.insert("--name");
   if (what != "acquisitions") valued.insert("--kind");
   if (what == "manifolds" || what == "fields" || what == "selections" || what == "operators" || what == "statistics") valued.insert("--on");
-  const Args a = parse(prog, rest, valued, {}, {"--dataset"}, 0, {"--templates"});
+  const Args a = parse(prog, rest, valued, {}, {"--dataset"}, 0, {});
   task::ListClassRequest rq;
   rq.cls = what;
   rq.dataset = a.get("--dataset");
@@ -141,7 +141,6 @@ int list_class_main(const std::string& what, const std::vector<std::string>& res
   rq.after = a.maybe("--after");
   if (const auto v = a.maybe("--limit")) rq.limit = integer_of(prog, "--limit", *v);
   if (const auto v = a.maybe("--columns")) rq.columns = split_commas(*v);
-  rq.templates = values_of(a, "--templates");
   emit_result(call(prog, [&] { return list_class_call(rq); }).result);
   return 0;
 }
@@ -155,7 +154,7 @@ int read_node_main(const std::vector<std::string>& argv) {
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const std::string prog = "nxr-neuro read " + what;
   std::set<std::string> valued = {"--dataset", "--subject", "--name", "--out", "--region", "--budget"}, flags;
-  if (what == "field") { valued.insert({"--from", "--to", "--rows", "--projectors", "--onto"}); flags = {"--all", "--shape-only"}; }
+  if (what == "field") { valued.insert({"--from", "--to", "--rows", "--projectors", "--onto"}); flags = {"--all", "--shape-only", "--projection-only"}; }
   else if (what == "operator") valued.insert("--onto");
   else if (what == "selection") valued.insert({"--measure", "--field"});
   else if (what == "manifold") valued.insert("--family");
@@ -170,6 +169,7 @@ int read_node_main(const std::vector<std::string>& argv) {
   if (const auto v = a.maybe("--to")) rq.to = parse_time("--to", *v);
   rq.all = a.flag.count("--all") > 0;
   rq.shape_only = a.flag.count("--shape-only") > 0;
+  rq.projection_only = a.flag.count("--projection-only") > 0;
   if (const auto v = a.maybe("--rows")) for (const auto& r : split_commas(*v)) rq.rows.push_back(static_cast<std::int32_t>(integer_of(prog, "--rows", r)));
   if (const auto v = a.maybe("--projectors")) {
     try { nxr::io::projectors_from(*v); } catch (const nxr::io::Error& e) { throw Usage(prog + ": error: argument --projectors: " + e.what()); }
@@ -180,7 +180,6 @@ int read_node_main(const std::vector<std::string>& argv) {
   rq.family = a.maybe("--family");
   rq.onto = a.maybe("--onto");
   rq.out = a.maybe("--out");
-  rq.templates = values_of(a, "--templates");
   if (const auto v = a.maybe("--region")) rq.region = region_of(prog, *v);
   if (const auto v = a.maybe("--budget")) rq.budget = number_of(prog, "--budget", *v);
   const auto r = call(prog, [&] {
@@ -209,7 +208,6 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.dataset = a.get("--dataset");
     rq.subject = a.get("--subject");
     rq.replace = a.flag.count("--replace") > 0;
-    rq.templates = values_of(a, "--templates");
     rq.created_by = by;
     rq.by = a.maybe("--by");
   };
@@ -217,12 +215,11 @@ int add_node_main(const std::vector<std::string>& argv) {
   if (what == "field") {
     const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--manifold", "--values", "--time", "--value-type", "--kind", "--unit", "--cell", "--derived-from", "--description", "--by-operator", "--producer", "--contribution",
                                       "--write", "--shape", "--dtype", "--region"},
-                         {"--replace", "--begin", "--append", "--commit"}, {"--dataset"}, 0, {"--contribution", "--templates"});
+                         {"--replace", "--begin", "--append", "--commit"}, {"--dataset"}, 0, {"--contribution"});
     task::AddFieldRequest rq;
     rq.dataset = a.get("--dataset");
     rq.subject = a.maybe("--subject").value_or("");
     rq.replace = a.flag.count("--replace") > 0;
-    rq.templates = values_of(a, "--templates");
     rq.created_by = by;
     rq.by = a.maybe("--by");
     rq.piece = piece_of(prog, a);
@@ -259,12 +256,11 @@ int add_node_main(const std::vector<std::string>& argv) {
     r = call(prog, [&] { return task::add_selection(rq, progress()); });
   } else if (what == "statistic") {
     const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--measure", "--method", "--values", "--value-type", "--of-field", "--partition", "--unit", "--description", "--write", "--shape", "--dtype", "--region"},
-                         {"--replace", "--begin", "--append", "--commit"}, {"--dataset"}, 0, {"--axes", "--templates"});
+                         {"--replace", "--begin", "--append", "--commit"}, {"--dataset"}, 0, {"--axes"});
     task::AddStatisticRequest rq;
     rq.dataset = a.get("--dataset");
     rq.subject = a.maybe("--subject").value_or("");
     rq.replace = a.flag.count("--replace") > 0;
-    rq.templates = values_of(a, "--templates");
     rq.created_by = by;
     rq.by = a.maybe("--by");
     rq.piece = piece_of(prog, a);
@@ -289,14 +285,14 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.measure = values_of(a, "--measure");
     r = call(prog, [&] { return task::add_measurements(rq, progress()); });
   } else if (what == "operator") {
-    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--kind", "--from-manifold", "--to-manifold", "--values", "--data", "--indices", "--indptr", "--description", "--layout", "--method", "--params", "--from-selection", "--producer"}, {"--replace"},
-                         {"--dataset", "--subject", "--name", "--from-manifold", "--to-manifold"});
+    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--kind", "--from-manifold", "--to-manifold", "--values", "--data", "--indices", "--indptr", "--description", "--layout", "--method", "--params", "--from-selection", "--from-coordinate-system", "--to-coordinate-system", "--producer"}, {"--replace"},
+                         {"--dataset", "--subject", "--name", "--from-manifold"});
     task::AddOperatorRequest rq;
     common(a, rq);
     rq.name = a.get("--name");
     if (const auto v = a.maybe("--kind")) rq.kind = *v;
     rq.from_manifold = a.get("--from-manifold");
-    rq.to_manifold = a.get("--to-manifold");
+    if (const auto v = a.maybe("--to-manifold")) rq.to_manifold = *v;
     rq.values = a.maybe("--values");
     rq.data = a.maybe("--data");
     rq.indices = a.maybe("--indices");
@@ -306,6 +302,8 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.method = a.maybe("--method");
     rq.params = a.maybe("--params");
     rq.from_selection = a.maybe("--from-selection");
+    rq.from_coordinate_system = a.maybe("--from-coordinate-system");
+    rq.to_coordinate_system = a.maybe("--to-coordinate-system");
     rq.producer = a.maybe("--producer");
     r = call(prog, [&] { return task::add_operator(rq, progress()); });
   } else if (what == "points") {
@@ -336,18 +334,16 @@ int add_node_main(const std::vector<std::string>& argv) {
     task::AddProductRequest rq;
     rq.dataset = a.get("--dataset");
     rq.subject = a.get("--subject");
-    rq.templates = values_of(a, "--templates");
     rq.created_by = by;
     rq.by = a.maybe("--by");
     rq.name = a.get("--name");
     rq.factors = split_commas(a.get("--factors"));
     r = call(prog, [&] { return task::add_product(rq, progress()); });
   } else if (what == "dictionary") {
-    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--scope", "--entries", "--description"}, {}, {"--dataset", "--name", "--scope", "--entries"}, 0, {"--templates"});
+    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--scope", "--entries", "--description"}, {}, {"--dataset", "--name", "--scope", "--entries"}, 0, {});
     task::AddDictionaryRequest rq;
     rq.dataset = a.get("--dataset");
     rq.subject = a.maybe("--subject");
-    rq.templates = values_of(a, "--templates");
     rq.created_by = by;
     rq.by = a.maybe("--by");
     rq.name = a.get("--name");
@@ -379,11 +375,10 @@ int edit_node_main(const std::vector<std::string>& argv) {
     rq.primary = a.maybe("--primary");
     rq.label = a.maybe("--label");
     rq.description = a.maybe("--description");
-    rq.templates = values_of(a, "--templates");
     rq.created_by = by;
     r = call(prog, [&] { return task::edit_manifold(rq, progress()); });
   } else if (what == "dictionary") {
-    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--entry", "--name-of", "--label", "--colour", "--description", "--params", "--entries"}, {"--replace"}, {"--dataset", "--name"}, 0, {"--templates"});
+    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--entry", "--name-of", "--label", "--colour", "--description", "--params", "--entries"}, {"--replace"}, {"--dataset", "--name"}, 0, {});
     task::EditDictionaryRequest rq;
     rq.dataset = a.get("--dataset");
     rq.subject = a.maybe("--subject");
@@ -396,11 +391,10 @@ int edit_node_main(const std::vector<std::string>& argv) {
     rq.params = a.maybe("--params");
     rq.entries = a.maybe("--entries");
     rq.replace = a.flag.count("--replace") > 0;
-    rq.templates = values_of(a, "--templates");
     rq.created_by = by;
     r = call(prog, [&] { return task::edit_dictionary(rq, progress()); });
   } else if (what == "operator") {
-    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--status", "--note", "--by"}, {}, {"--dataset", "--subject", "--name", "--status"}, 0, {"--templates"});
+    const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--status", "--note", "--by"}, {}, {"--dataset", "--subject", "--name", "--status"}, 0, {});
     task::EditOperatorRequest rq;
     rq.dataset = a.get("--dataset");
     rq.subject = a.get("--subject");
@@ -408,7 +402,6 @@ int edit_node_main(const std::vector<std::string>& argv) {
     rq.status = a.maybe("--status");
     rq.note = a.maybe("--note");
     rq.by = a.maybe("--by");
-    rq.templates = values_of(a, "--templates");
     rq.created_by = by;
     r = call(prog, [&] { return task::edit_operator(rq, progress()); });
   } else {
