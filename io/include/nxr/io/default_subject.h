@@ -1,12 +1,12 @@
-// nxr-io — the dataset's DEFAULT SUBJECT (D127): the average anatomy every subject of the dataset is registered to, Brainstorm's `@default_subject`.
+// nxr-io — the dataset's DEFAULT SUBJECT (D127): the dataset's template (the average anatomy subjects are registered onto), Brainstorm's `@default_subject`.
 //
 //   DefaultSubjectOptions o;
 //   o.templates = ".../brain-maps/spaces/fsaverage";                       // a FreeSurfer subjects folder
 //   Json r = create_default_subject(ds, o, "nxr-neuro 0.1.0");
 //
 // It is written as any subject is (SubjectWriter, add_surface, the same rows and folders), as ONE composition: complete, or nothing. Its row:
-// name `@default_subject`, kind `template`, store `@default_subject.nxr.zarr`, source FreeSurfer. A subject created after it points at it
-// (`template_id`). Its contents, the BASICS of nxr's `atlas default-subject` (nxr.pipelines.atlas.default_subject):
+// name `@default_subject`, kind `template`, store `@default_subject.nxr.zarr`, source FreeSurfer. It holds the cohort (format 56): each subject's
+// registration onto it and results carried onto it, and the averages and statistics over them; a subject never points at it. Its contents, the BASICS of nxr's `atlas default-subject` (nxr.pipelines.atlas.default_subject):
 //
 //   source/cortex_pial            the pial surface of `<templates>/<default>` (fsaverage5 by default), left then right, metres; the PRIMARY cortex
 //   source/cortex_pial_1, _2      its hemispheres (left, right): components over the same arrays

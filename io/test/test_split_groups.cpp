@@ -77,7 +77,6 @@ void make_old(const fs::path& datastore, const std::string& name) {
   DatasetWriter ds = create_dataset(datastore, name);
   SubjectOptions topt;
   topt.kind = "template";
-  topt.default_template = false;
   SubjectWriter t = SubjectWriter::create(ds, "@default_subject", topt);
   const std::string tm = add_surface(t, "cortex");
   add_field(t, "template_map", tm, 5000);

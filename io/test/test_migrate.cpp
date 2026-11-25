@@ -73,7 +73,6 @@ void make_old(const fs::path& datastore, const std::string& name, int store_form
   DatasetWriter ds = create_dataset(datastore, name, co);
   SubjectOptions topt;
   topt.kind = "template";
-  topt.default_template = false;
   SubjectWriter t = SubjectWriter::create(ds, "@default_subject", topt);
   const std::string tm = add_surface(t, "cortex");
   add_field(t, "template_map", tm, 400000);
@@ -105,7 +104,6 @@ void make_old(const fs::path& datastore, const std::string& name, int store_form
   }
   SubjectOptions gopt;
   gopt.kind = "group";
-  gopt.default_template = false;
   SubjectWriter g = SubjectWriter::create(ds, "G", gopt);
   FieldSpec gf;
   const std::vector<double> mean(4, 1.0);

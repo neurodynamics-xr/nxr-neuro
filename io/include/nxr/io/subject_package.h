@@ -46,11 +46,9 @@ struct PackageRecord {
   std::string subject_id, name, kind;
   int schema_version = 0;
   int store_format = 0;
-  Json template_reference;     // null, or {name, edition, version, content_hash, subject_id} of the template this subject is registered to (section 4.3)
   Json release;                // a released template or registration: {name, edition, version, released_by, released_utc, program, ...}; null while it is being made. A released package is FROZEN: no writer opens it
   Json description;            // a registration package: {method, warnings} (what it is and what it cannot resolve); null otherwise
-  Json registration;           // a subject: the registration between templates it uses, {name, edition, version, content_hash, from, to}; null otherwise
-  Json members;                // a group package: the subjects it was computed from, [{subject_id, name, content_hash}] (section 5); null otherwise
+  // (format 56: no template reference, registration or member list: a subject names no template; the template holds the cohort and its results name their members)
   std::string content_hash;    // empty until a writer has closed the package
   std::string hashed_utc;      // when it was computed
   Json to_json() const;
@@ -97,7 +95,7 @@ struct CreatePackageOptions {
   std::string home_dataset;                    // the name of the dataset the package is made in (provenance, not membership): required
   std::optional<std::string> home_dataset_id;  // the dataset's id, so the packages of one dataset carry the same home row; made when absent
   std::optional<std::string> datastore_id;     // likewise the hint row's id
-  SubjectOptions subject;                      // kind, source and creator of the subject row; `default_template` is ignored (a package has no sibling template)
+  SubjectOptions subject;                      // kind, source and creator of the subject row
   std::optional<std::string> built_by;         // the database's meta `built_by` (the program)
 };
 
