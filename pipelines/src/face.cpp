@@ -849,6 +849,7 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
                         {"values_a_member", mv->rows}, {"unit", mv->unit ? Json(*mv->unit) : Json()}};
         const Json provenance = ts.measurement_provenance(sel->id, fid, *measure);   // what the measure IS (declared) and how it was made
         for (const auto& [k, v] : provenance.items()) out.meta[k] = v;
+        out.meta["producers"] = mv->producers;                                 // only the producer of the array read (#290), not every measurement of the measure
         return out;
       }
     }

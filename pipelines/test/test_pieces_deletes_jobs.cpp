@@ -420,6 +420,42 @@ int main() {
     const task::CommandResult rb = face::read_selection(ro);
     CHECK(ra.arrays.size() == 2 && rb.arrays.size() == 2);
     if (ra.arrays.size() == 2 && rb.arrays.size() == 2 && y.arrays.size() == 2) CHECK(ra.arrays[1].bytes == y.arrays[1].bytes && rb.arrays[1].bytes != ra.arrays[1].bytes);
+    // ONE MEASURE STORED WITHOUT AND WITH --rows-on (issue #290): the unnamed one is one more manifold; read without --rows-on it is refused, naming both; with it, the named
+    // one, and the producers are the read array's alone
+    {
+      task::AddMeasurementsRequest old_m = whole, new_m = whole;
+      old_m.measure_arrays = {{"flow_old_new", mem("float64", {3, 4}, std::vector<double>(12, 1.0))}};
+      old_m.declare = {R"J({"name": "flow_old_new", "merge": "sum"})J"};
+      old_m.producer = R"J({"run": "old"})J";
+      new_m.measure_arrays = {{"flow_old_new", mem("float64", {3, 4}, std::vector<double>(12, 2.0))}};
+      new_m.declare.clear();
+      new_m.producer = R"J({"run": "new"})J";
+      new_m.rows_on = "sensors";
+      task::add_measurements(old_m);
+      task::add_measurements(new_m);
+      face::ReadNodeRequest rn = reading("channel_groups", false);
+      rn.measure = "flow_old_new"; rn.field = "rest";
+      const std::string why = thrown([&] { face::read_selection(rn); });
+      CHECK(has(why, "stored on several manifolds") && has(why, "sensors") && has(why, "unnamed"));
+      rn.rows_on = "sensors";
+      const task::CommandResult got = face::read_selection(rn);
+      CHECK(got.arrays.size() == 2);
+      if (got.arrays.size() == 2) {
+        std::vector<double> v(got.arrays[1].bytes.size() / sizeof(double));
+        std::memcpy(v.data(), got.arrays[1].bytes.data(), v.size() * sizeof(double));
+        CHECK(!v.empty() && v[0] == 2.0);
+      }
+      CHECK(got.result["producers"].size() == 1 && got.result["producers"][0]["run"] == "new");
+      // one measurement alone, unnamed: read without --rows-on as before, its own producer
+      task::AddMeasurementsRequest lone = old_m;
+      lone.measure_arrays = {{"flow_lone", mem("float64", {3, 4}, std::vector<double>(12, 3.0))}};
+      lone.declare = {R"J({"name": "flow_lone", "merge": "sum"})J"};
+      task::add_measurements(lone);
+      face::ReadNodeRequest rl = reading("channel_groups", false);
+      rl.measure = "flow_lone"; rl.field = "rest";
+      const task::CommandResult gl = face::read_selection(rl);
+      CHECK(gl.arrays.size() == 2 && gl.result["producers"].size() == 1 && gl.result["producers"][0]["run"] == "old");
+    }
     // a begin of two measures, or of a shape that is not [members ...], is refused
     task::AddMeasurementsRequest two = b;
     two.measure = {"x1", "x2"};

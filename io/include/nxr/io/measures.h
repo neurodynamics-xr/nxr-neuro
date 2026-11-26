@@ -117,8 +117,10 @@ struct MeasurementValues {
   bool array_backed = false;
   std::optional<std::string> unit;
   std::vector<std::string> computed_by;     // the producers of the rows read (their identity, for a cache key)
+  Json producers = Json::array();           // the producer records (producer_json) of the rows read, and of no other measurement of the measure (#290)
 };
-// `rows_manifold_id`: only the array whose rows lie on that manifold (issue #264); without it, arrays of the measure on several manifolds are refused, naming them.
+// `rows_manifold_id`: only the array whose rows lie on that manifold (issue #264); without it, arrays of the measure on several manifolds are refused, naming them
+// (the unnamed manifold of an array stored without --rows-on counts as one of them, #290).
 MeasurementValues measurement_values(SubjectWriter& sub, const std::string& selection_id, const std::optional<std::string>& of_field_id,
                                      const std::optional<std::string>& of_statistic_id, const std::optional<std::int64_t>& of_index, const std::string& measure,
                                      const std::optional<std::string>& rows_manifold_id = std::nullopt);
