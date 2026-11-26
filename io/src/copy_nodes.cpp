@@ -7,6 +7,7 @@
 #include <set>
 
 #include "nxr/io/hash.h"
+#include "nxr/io/measures.h"
 #include "nxr/io/statistic.h"
 #include "nxr/io/subject_package.h"
 
@@ -478,6 +479,17 @@ Json copy_nodes(const fs::path& source, SubjectWriter& target, const CopyNodesOp
       for (const auto& [id, tr] : p.rows) {
         if (!is_node(tr.first)) continue;
         if (const auto o = origin_of(*p.s, tr.first, id)) set_origin(db, tr.first, p.ids.at(id), *o);
+      }
+      // THE DECLARATIONS of the measures copied (issue #280): a measurement of a measure the registry does not know keeps its declared merge rule in the target, so its
+      // roll-ups read the same rule there; one that differs from the target's own declaration is refused by declare_measure (one name, one meaning), and nothing is copied
+      std::set<std::string> measures;
+      for (const auto& c : p.children) if (c.first == "selection_measurement") measures.insert(text(c.second, "measure"));
+      for (const auto& m : measures) {
+        const auto d = declared_measure(*p.s, m);
+        if (!d) continue;
+        Json j = Json::object();
+        for (const char* k : {"name", "merge", "form", "unit", "weight", "description"}) if (d->contains(k)) j[k] = (*d)[k];
+        declare_measure(db, measure_declaration_of(j), d->contains("declared_by") ? (*d)["declared_by"].get<std::string>() : opt.by);
       }
     });
   } catch (...) {
