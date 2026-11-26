@@ -645,6 +645,9 @@ CREATE TABLE selection_measurement (
   -- spectrum); both null for every other row. A dataset made before them gets both columns in place (ensure_statistics), user_version unchanged.
   of_statistic_id TEXT REFERENCES statistic (id) ON DELETE CASCADE,
   of_index     INTEGER,
+  -- THE PRODUCER (2026-11-26): how the values were made, as a node's producer_json records it (the command or pipeline, the program, the maker's own facts: the parameters,
+  -- the inputs and their hashes). Null for a row written before it, or by a writer that records none. A dataset made before it gets the column in place (ensure_measurement_producer).
+  producer_json TEXT,
   CHECK ((within_code IS NULL) >= (within_selection_id IS NULL)),   -- a code needs a selection to read it
   CHECK ((value IS NULL) = (array_path IS NOT NULL)),              -- a value here, or an array of them
   CHECK (array_path IS NULL OR (code IS NULL AND (of_field_id IS NOT NULL OR of_statistic_id IS NOT NULL)))   -- an array is per member, of a field or (schema 54) of a statistic
@@ -1214,6 +1217,24 @@ SELECT t.id, json_object('class', 'statistic', 'id', t.id, 'status', t.status, '
   'created_utc', t.created_utc, 'created_by', t.created_by, 'modified_utc', t.modified_utc, 'modified_by', t.modified_by
 ) AS attributes FROM statistic t;
 -- ── statistic (end) ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+-- ── measure_declaration (begin: ensure_measure_declarations runs this block on a database made before it, in place, user_version unchanged) ──────────────
+-- A MEASURE DECLARED by its writer (2026-11-26): the measures registry (measures.json, measures_nxr.json) is a vocabulary of known names and their defaults,
+-- not a gate. Any measure may be stored; the writer of its measurements declares how its values merge when members are rolled up (sum, max, min, mean, none,
+-- derived), and its form, unit, weight measure and description where they apply. One row a name: one name keeps one meaning in the subject (a second
+-- declaration that differs is refused; so is one that contradicts the registry's entry for a known name). Roll-ups read the rule here first, then the
+-- registry; a measure in neither is never rolled up (never summed by default).
+CREATE TABLE measure_declaration (
+  name         TEXT PRIMARY KEY,
+  merge        TEXT NOT NULL CHECK (merge IN ('sum', 'max', 'min', 'mean', 'none', 'derived')),
+  form         TEXT,                     -- the form of the field it is taken of (the registry's forms: power, phase_current, edge_1form, outer, vertex, member, mode, none, ...)
+  unit         TEXT,
+  weight       TEXT,                     -- for merge `mean`: the measure whose values weigh the members (area, count)
+  description  TEXT,
+  declared_utc TEXT,
+  declared_by  TEXT
+) STRICT;
+-- ── measure_declaration (end) ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 -- ── schema 51 (begin: Database::open runs this block, and the `registration` kind of `subject`, on a database at 50, in place) ──────────────
 -- The subject kind `registration` (the package of a registration between two templates) is in the `subject` table's kind list above.

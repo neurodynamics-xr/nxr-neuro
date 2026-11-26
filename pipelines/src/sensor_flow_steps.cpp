@@ -21,6 +21,7 @@
 #include <Eigen/Dense>
 
 #include "nxr/graph/node.h"
+#include "flow_measures.h"
 #include "nxr/pipelines/form_steps.h"
 #include "chunk_spectra_readers.h"
 #include "nxr/signal/aperiodic.h"
@@ -474,6 +475,7 @@ ng::NodeSpec spectral_flow() {
       Json at = attrs; at["rows"] = rowsAre; if (membersAre) at["members"] = membersAre;
       a.meta["describe"] = Json{{"method", "spectral_flow"}, {"measure", "flow"}, {"shape", Json::array({rows, cells, measures.size()})},
                                 {"axes", Json::array({indexed_axis("element", rows), indexed_axis("member", cells), indexed_axis("measure", static_cast<std::int64_t>(measures.size()), [&] { Json n = Json::array(); for (const auto& m : measures) n.push_back(m["measure"]); return n; }())})}, {"measures", measures}, {"values_shape", Json::array({rows, cells})}, {"attributes", at}};
+      declare_flow_measures(a.meta["describe"]["measures"]);   // the flow measures it writes, declared (flow_measures.h)
     };
     const char* pairsAre = "frequency member x band p x band q, the frequency member fastest (the phase current of the pair: conj(z_p) at the tail, z_q at the tip)";
     describe(wv, vertexMeasures, S, A, "the vertices of the surface", nullptr);
@@ -651,6 +653,7 @@ ng::NodeSpec sign_flip_consistency() {
         for (const char* m : names) measures.push_back(Json{{"measure", m}});
         a.meta["describe"] = Json{{"method", "sign_flip_consistency"}, {"measures", measures}, {"shape", Json::array({rows, G, static_cast<std::int64_t>(names.size())})},
                                   {"values_shape", Json::array({rows, G})}, {"attributes", Json{{"rows", rowsAre}, {"members", picked_members}, {"options", options}}}};
+        declare_flow_measures(a.meta["describe"]["measures"]);   // the flow measures it writes, declared (flow_measures.h)
       };
       describe(perElement, {"consistency", "p", "familywise_p"}, elements, edges ? "the edges of the intrinsic complex" : "the vertices of the surface");
       describe(summary, {"threshold", "median_consistency", "median_null_95", "median_p", "neighbour_correlation", "cells", "groups_flipped"}, 1, "one row: the member's summary");

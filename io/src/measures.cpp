@@ -126,15 +126,130 @@ const char* merge_rule_name(MergeRule r) {
   }
   return "sum";
 }
+namespace {
+MergeRule rule_of_text(const std::string& name, const std::string& m) {
+  for (const MergeRule r : {MergeRule::sum, MergeRule::max, MergeRule::min, MergeRule::mean, MergeRule::none, MergeRule::derived})
+    if (m == merge_rule_name(r)) return r;
+  throw Error(code::invalid_argument, "measure " + name + ": merge '" + m + "' is not a merge rule (sum, max, min, mean, none or derived)");
+}
+const char* kDeclBegin = "-- \xe2\x94\x80\xe2\x94\x80 measure_declaration (begin";
+const char* kDeclEnd = "-- \xe2\x94\x80\xe2\x94\x80 measure_declaration (end)";
+bool table_exists(const Database& db, const char* name) { return db.one("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", {Value(std::string(name))}).has_value(); }
+}  // namespace
+
+std::string undeclared_refusal(const std::string& name) {
+  return "measure " + name + " is neither declared nor registered, so how its values merge is unknown and its members are never rolled up: declare it when writing it "
+         "(its merge rule: sum, max, min, mean or none)";
+}
 MergeRule measure_merge(const std::string& name) {
   if (const auto s = measure_spec(name)) {
     const std::string m = (*s).value("merge", std::string());
-    for (const MergeRule r : {MergeRule::sum, MergeRule::max, MergeRule::min, MergeRule::mean, MergeRule::none, MergeRule::derived})
-      if (m == merge_rule_name(r)) return r;
-    throw Error(code::invalid_argument, "measure " + name + ": the registry gives it no merge rule (sum, max, min, mean, none or derived)");
+    if (m.empty()) throw Error(code::invalid_argument, "measure " + name + ": the registry gives it no merge rule (sum, max, min, mean, none or derived)");
+    return rule_of_text(name, m);
   }
-  if (name == "max" || (name.size() >= 4 && name.compare(name.size() - 4, 4, "_max") == 0)) return MergeRule::max;
-  return name == "min" ? MergeRule::min : MergeRule::sum;
+  throw Error(code::unsupported, undeclared_refusal(name));
+}
+
+MeasureDeclaration measure_declaration_of(const Json& j) {
+  if (!j.is_object()) throw Error(code::invalid_argument, "a measure declaration is an object {name, merge, form, unit, weight, description}");
+  static const std::set<std::string> keys = {"name", "merge", "form", "unit", "weight", "description"};
+  for (auto it = j.begin(); it != j.end(); ++it) {
+    if (!keys.count(it.key())) throw Error(code::invalid_argument, "a measure declaration has no key '" + it.key() + "' (name, merge, form, unit, weight, description)");
+    if (!it.value().is_null() && !it.value().is_string()) throw Error(code::invalid_argument, "a measure declaration's '" + it.key() + "' is a text");
+  }
+  MeasureDeclaration d;
+  if (!j.contains("name") || !j["name"].is_string() || j["name"].get<std::string>().empty()) throw Error(code::invalid_argument, "a measure declaration names its measure (name)");
+  d.name = j["name"].get<std::string>();
+  auto o = [&](const char* k) { return j.contains(k) && j[k].is_string() ? std::optional<std::string>(j[k].get<std::string>()) : std::nullopt; };
+  d.merge = o("merge"); d.form = o("form"); d.unit = o("unit"); d.weight = o("weight"); d.description = o("description");
+  return d;
+}
+Json measure_declaration_json(const MeasureDeclaration& d) {
+  Json j = Json{{"name", d.name}};
+  if (d.merge) j["merge"] = *d.merge;
+  if (d.form) j["form"] = *d.form;
+  if (d.unit) j["unit"] = *d.unit;
+  if (d.weight) j["weight"] = *d.weight;
+  if (d.description) j["description"] = *d.description;
+  return j;
+}
+
+bool ensure_measure_declarations(Database& db) {
+  if (table_exists(db, "measure_declaration")) return false;
+  const std::string s = model_sql();
+  const auto a = s.find(kDeclBegin), b = s.find(kDeclEnd);
+  if (a == std::string::npos || b == std::string::npos || b < a) throw Error(code::not_a_database, "model.sql: no measure_declaration block between its markers");
+  const auto line = s.find('\n', a);
+  const std::string ddl = s.substr(line + 1, b - line - 1);
+  db.tx([&] {
+    db.exec_script(ddl);
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", {Value(std::string("table:measure_declaration")), Value(now_utc() + " added in place (additive; user_version unchanged)")});
+  });
+  return true;
+}
+
+bool ensure_measurement_producer(Database& db) {
+  if (has_column(db, "selection_measurement", "producer_json")) return false;
+  db.tx([&] {
+    db.execute("ALTER TABLE selection_measurement ADD COLUMN producer_json TEXT");
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", {Value(std::string("columns:selection_measurement.producer_json")), Value(now_utc() + " added in place (additive; user_version unchanged)")});
+  });
+  return true;
+}
+
+std::optional<Json> declared_measure(const Database& db, const std::string& name) {
+  if (!table_exists(db, "measure_declaration")) return std::nullopt;
+  const auto r = db.one("SELECT * FROM measure_declaration WHERE name = ?", {Value(name)});
+  if (!r) return std::nullopt;
+  Json j = Json{{"name", name}, {"merge", text(*r, "merge")}};
+  for (const char* k : {"form", "unit", "weight", "description", "declared_utc", "declared_by"})
+    if (const auto v = opt_text(*r, k)) j[k] = *v;
+  return j;
+}
+
+Json declare_measure(Database& db, const MeasureDeclaration& d, const std::optional<std::string>& by) {
+  const std::string who = "measure " + d.name;
+  const auto reg = measure_spec(d.name);
+  if (!reg && !d.merge) throw Error(code::invalid_argument, who + " is not in the registry: its declaration gives its merge rule (sum, max, min, mean or none)");
+  if (d.merge) rule_of_text(d.name, *d.merge);
+  // what the declaration says, the registry's values filled in for a known name; a value that differs from the registry's is a contradiction
+  MeasureDeclaration full = d;
+  if (reg) {
+    auto agree = [&](const char* key, std::optional<std::string>& mine) {
+      const Json& r = (*reg)[key];
+      if (!r.is_string()) return;
+      if (mine && *mine != r.get<std::string>())
+        throw Error(code::invalid_argument, who + ": the declaration gives " + key + " '" + *mine + "', the registry '" + r.get<std::string>() + "' (one name keeps one meaning: use another name)");
+      if (!mine) mine = r.get<std::string>();
+    };
+    agree("merge", full.merge); agree("form", full.form); agree("unit", full.unit); agree("weight", full.weight);
+    if (!full.description && (*reg)["description"].is_string()) full.description = (*reg)["description"].get<std::string>();
+  } else if (*full.merge == "derived") {
+    throw Error(code::invalid_argument, who + ": a derived measure is computed at read by a formula io holds, and only registered measures have one; store its additive ingredients (each declared) and derive it at read");
+  }
+  ensure_measure_declarations(db);
+  if (const auto had = declared_measure(db, d.name)) {
+    for (const auto& [key, mine] : std::vector<std::pair<const char*, const std::optional<std::string>*>>{{"merge", &full.merge}, {"form", &full.form}, {"unit", &full.unit}, {"weight", &full.weight}}) {
+      const std::optional<std::string> theirs = had->contains(key) ? std::optional<std::string>((*had)[key].get<std::string>()) : std::nullopt;
+      if (*mine && theirs && **mine != *theirs)
+        throw Error(code::invalid_argument, who + ": the subject already declares " + key + " '" + *theirs + "'; this declaration gives '" + **mine + "' (one name keeps one meaning: use another name)");
+      if (*mine && !theirs) throw Error(code::invalid_argument, who + ": the subject declares it without " + key + "; this declaration gives '" + **mine + "' (a declaration is not changed: use another name)");
+    }
+    return *had;
+  }
+  db.execute("INSERT INTO measure_declaration (name, merge, form, unit, weight, description, declared_utc, declared_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+             {Value(d.name), Value(*full.merge), V(full.form), V(full.unit), V(full.weight), V(full.description), Value(now_utc()), V(by)});
+  return *declared_measure(db, d.name);
+}
+
+MergeRule measure_merge(const Database& db, const std::string& name) {
+  if (const auto d = declared_measure(db, name)) return rule_of_text(name, (*d)["merge"].get<std::string>());
+  return measure_merge(name);
+}
+ReadRule measure_read_rule(const Database& db, const std::string& name) {
+  if (const auto d = declared_measure(db, name)) return {rule_of_text(name, (*d)["merge"].get<std::string>()), true};
+  if (measure_spec(name)) return {measure_merge(name), true};
+  return {MergeRule::none, false};
 }
 Json measure_merge_table() {
   Json t = Json::object();

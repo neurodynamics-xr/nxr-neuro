@@ -490,6 +490,9 @@ NodeCounts Subject::node_counts() const {
   return NodeCounts{count("manifold"), count("field"), count("operator"), count("selection")};
 }
 
+Json Subject::measurement_provenance(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure) const {
+  return ::nxr::io::measurement_provenance(*impl_->db, selection_id, of_field_id, measure);
+}
 Json Subject::read_measurements(const Json& q) const {
   if (impl_->writer) return query_measurements(*impl_->db, impl_->writer->store(), q);
   if (q.contains("spaceLevel") || q.contains("timeLevel") || q.contains("band") || q.contains("spatialBand"))
@@ -784,9 +787,24 @@ std::string Unit::operator_(const OperatorOut& o) {
   return impl_->writer->operator_(std::move(op));
 }
 
+Json Unit::declare_measure(const Json& declaration) {
+  need_open(open_);
+  return ::nxr::io::declare_measure(*impl_->db, measure_declaration_of(declaration), by_.tool);
+}
+Json Unit::producer(const std::string& output, const Json& own) const { return producer_of(by_, output, own); }
+
 std::int64_t Unit::measurements(const MeasurementOut& m) {
   need_open(open_);
   SubjectWriter& sub = *impl_->writer;
+  for (const auto& x : m.measures)
+    if (x.declaration.is_object()) {
+      Json d = x.declaration;
+      d["name"] = x.measure;
+      if (!d.contains("unit") && !x.unit.empty()) d["unit"] = x.unit;
+      declare_measure(d);
+    }
+  const Json row_producer = producer_of(by_, m.output, m.producer);
+  ensure_measurement_producer(*impl_->db);
   std::optional<Json> band;
   if (m.band.is_object()) band = nxr::bst::band_ref(*impl_->db, m.band.value("name", std::string()), m.band.value("lo_hz", 0.0), m.band.value("hi_hz", 0.0));
   std::int64_t n = 0;
@@ -808,6 +826,7 @@ std::int64_t Unit::measurements(const MeasurementOut& m) {
     }
     Cols c;
     c.set("measure", x.measure).set("array_path", path).set("component", std::int64_t(0)).set("unit", x.unit).set("computed_by", by_.tool);
+    if (row_producer.is_object() && !row_producer.empty()) c.json("producer_json", row_producer);
     if (!m.of_field_id.empty()) c.set("of_field_id", m.of_field_id);        // none: the members' own (a size)
     if (m.of_statistic_id) { c.set("of_statistic_id", *m.of_statistic_id); c.set("of_index", m.of_index.value_or(0)); }
     if (m.within_selection_id) { c.set("within_selection_id", *m.within_selection_id); if (m.within_code) c.set("within_code", *m.within_code); }

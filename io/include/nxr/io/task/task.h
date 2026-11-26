@@ -180,8 +180,13 @@ struct OperatorOut {
 // Each measure's values are stored at `<path>/<measure>` and recorded as a measurement row of `selection_id`; `band` (name, lo_hz, hi_hz) records the band it is within.
 struct MeasurementOut {
   std::string output, selection_id, of_field_id, path;
-  struct Measure { std::string measure, unit; Values values; };
+  struct Measure {
+    std::string measure, unit;
+    Values values;
+    Json declaration;                              // what the measure IS, when the registry does not know it ({merge, form?, unit?, weight?, description?}: measures.h MeasureDeclaration; its name is `measure`); null: the registry's
+  };
   std::vector<Measure> measures;
+  Json producer;                                   // the maker's own facts, added to the unit's producer record in each row's producer_json (null: the unit's record alone)
   Json attributes;                                 // what each measure's array says of its own axes (the zarr attributes: rows = ..., columns = ...); null: none
   Json band;                                       // {name, lo_hz, hi_hz} or null: the band of the dataset's standard bank
   std::optional<std::string> within_selection_id;  // the Selection a measure is WITHIN (a bank of bands whose code is the band's index: the pyramid's `atlas bands`) and the member of it: wins over `band`
@@ -448,6 +453,8 @@ class Subject {
   // ---- read measurements: io's read-time query (nxr/io/measures.h, query_measurements): a stored measure as stored, a derived one from its ingredients, a pyramid's
   // array-backed measurement rolled up at read to the levels `q` names (that needs the subject's store: a Subject made from a writer)
   Json read_measurements(const Json& q) const;
+  // what a measurement IS and how it was made (measures.h measurement_provenance): {declaration, declared, producers}
+  Json measurement_provenance(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure) const;
   // the same measurements as a TABLE with filters and roll-ups, in SQL (nxr/io/measurement_query.h `query::members`, where the filter and roll-up structs are): through a grid's hierarchy and across subjects.
   // The query API is io's; the face (pipelines) applies nothing of its own.
 
@@ -491,7 +498,11 @@ class Unit {
   std::string statistic(const StatisticOut&);
   std::string operator_(const OperatorOut&);
   std::string selection(const SelectionOut&);
-  std::int64_t measurements(const MeasurementOut&);   // the rows written (one a measure); a measure already there for the field is replaced
+  std::int64_t measurements(const MeasurementOut&);   // the rows written (one a measure); a measure already there for the field is replaced; each declared measure is declared first
+  // a measure the subject declares (measures.h declare_measure): checked against the registry and the subject's earlier declaration, stored in the unit; returns it as stored
+  Json declare_measure(const Json& declaration);
+  // the unit's producer record (its By) with `own` added: what each measurement row it writes keeps as producer_json
+  Json producer(const std::string& output, const Json& own) const;
   // MANIFOLDS (the sixth kind): made first, so the other results of the unit can lie on them; each found and reused when identical, never replaced
   std::string line(const LineOut&);
   // the one-sided frequency line of a span of n samples at fs on a time line of this subject (origin 0, spacing fs / n, n / 2 + 1 bins): found by (time line, n, fs) through its analytic `fft` operator

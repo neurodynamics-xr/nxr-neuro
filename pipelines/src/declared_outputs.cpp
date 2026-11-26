@@ -876,6 +876,11 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       task::MeasurementOut::Measure x;
       x.measure = measures[c]["measure"].get<std::string>();
       x.unit = measures[c].value("unit", std::string());
+      if (measures[c].contains("merge")) {                                   // the node DECLARES the measure (measures.h): its merge rule, form and description, stored with the subject
+        x.declaration = Json::object();
+        for (const char* k : {"merge", "form", "weight", "description"})
+          if (measures[c].contains(k) && measures[c][k].is_string()) x.declaration[k] = measures[c][k];
+      }
       x.values.shape = vshape;
       for (std::int64_t r = 0; r < crow; ++r)
         for (std::int64_t part = 0; part < (complex_values ? 2 : 1); ++part) {

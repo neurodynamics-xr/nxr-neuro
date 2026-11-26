@@ -26,6 +26,7 @@
 
 #include "chunk_spectra_readers.h"
 #include "nxr/graph/node.h"
+#include "flow_measures.h"
 #include "nxr/meeg/tile_network.h"
 #include "nxr/select/grid.h"
 #include "nxr/signal/spectral_flow.h"
@@ -94,6 +95,7 @@ ng::Array measurement_of_blocks(const ng::Array& perAtom, std::int64_t first, st
   for (const auto& name : measures) ms.push_back(Json{{"measure", name}});
   m.meta["describe"] = Json{{"measures", ms}, {"shape", Json::array({rows, atoms, K})}, {"values_shape", Json::array({rows, atoms})},
                             {"attributes", Json{{"rows", rowsAre}, {"members", "the atoms"}}}};
+  declare_flow_measures(m.meta["describe"]["measures"]);   // the flow measures it writes, declared (flow_measures.h)
   return m;
 }
 // one value of a flow measurement: in a run [rows x atoms x measures] (its describe's shape), or a STORED measurement read by its measure [rows x atoms]
@@ -465,6 +467,7 @@ ng::NodeSpec tile_flow() {
                                                           Json{{"measure", "power"}, {"columns", Json::array({2 * P, 2 * P + T})}}})},
                                 {"producer", producer},
                                 {"description", "per atom, the whole run's cross-spectrum of the tiles' currents (Σ over chunks and the atom's bins of g² Σ_c z_i conj(z_j)): Re and Im per pair i < j, then each tile's power"}};
+    declare_flow_measures(out.meta["describe"]["measures"]);   // the flow measures it writes, declared (flow_measures.h)
     return ng::Arrays{{"pair_flow", measurement_of_blocks(out, 0, P, {"cross_spectrum_real", "cross_spectrum_imaginary"}, "the tile pairs i < j (S_ij = sum z_i conj(z_j); Im > 0 when tile j lags tile i)")},
                       {"tile_power", measurement_of_blocks(out, 2 * P, T, {"power"}, "the tiles (S_ii)")}};
   };
@@ -648,6 +651,7 @@ ng::NodeSpec network_sign_flip() {
                                                           Json{{"measure", "phase"}, {"columns", Json::array({4 * P, 5 * P})}}})},
                                 {"producer", producer},
                                 {"description", "per atom and pair i < j: the mean over the cells of Im C_ij / sqrt(C_ii C_jj) (> 0: tile j lags tile i), its sign-flip p and family-wise p, 1 for a distance-matched control pair, arg of Σ_cells C_ij"}};
+    declare_flow_measures(out.meta["describe"]["measures"]);   // the flow measures it writes, declared (flow_measures.h)
     return ng::Arrays{{"consistency", measurement_of_blocks(out, 0, P, {"mean_edge_flow", "p", "familywise_p", "control", "phase"}, "the tile pairs i < j")}};
   };
   n.record = [](const std::any& prepared) { const Json& p = std::get<2>(std::any_cast<const std::tuple<ng::Array, ng::Array, Json>&>(prepared)); return Json{{"patterns", p["patterns"]}, {"seed", p["seed"]}}; };
@@ -769,6 +773,7 @@ ng::NodeSpec network_flow() {
                                                           Json{{"measure", "weighted_flow_squares"}, {"columns", Json::array({3 * T + 1, 3 * T + 2})}}})},
                                 {"producer", producer},
                                 {"description", "per atom on the network's edges: divergence Bᵀ F per tile, the graph potential phi (L phi = Bᵀ W F, the 1/eigenvalue gain on the connectome eigenmodes, the null modes left out), its coefficients, the gradient part's and the flow's weighted sums of squares"}};
+    declare_flow_measures(out.meta["describe"]["measures"]);   // the flow measures it writes, declared (flow_measures.h)
     return ng::Arrays{{"network_tiles", measurement_of_blocks(out, 0, T, {"divergence", "potential"}, "the tiles")},
                       {"network_modes", measurement_of_blocks(out, 2 * T, T, {"potential_coefficient"}, "the connectome eigenmodes")},
                       {"network_totals", measurement_of_blocks(out, 3 * T, 1, {"weighted_gradient_squares", "weighted_flow_squares"}, "one row: the atom's totals")}};

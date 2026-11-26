@@ -24,8 +24,9 @@ void fold(Merge op, double& a, double v) {
 }
 }  // namespace
 
-Merge merge_of(const std::string& m) {
-  switch (measure_merge(m)) {
+Merge merge_of(const std::string& m) { return merge_of(measure_merge(m), m); }
+Merge merge_of(MergeRule rule, const std::string& m) {
+  switch (rule) {
     case MergeRule::sum: return Merge::Sum;
     case MergeRule::max: return Merge::Max;
     case MergeRule::min: return Merge::Min;

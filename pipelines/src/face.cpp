@@ -841,6 +841,8 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
         out.arrays = {doubles("code", code_v), std::move(values)};
         out.meta = Json{{"class", "measurements"}, {"name", name}, {"selection", sel->id}, {"measure", *measure}, {"array_backed", true}, {"members", mv->members},
                         {"values_a_member", mv->rows}, {"unit", mv->unit ? Json(*mv->unit) : Json()}};
+        const Json provenance = ts.measurement_provenance(sel->id, fid, *measure);   // what the measure IS (declared) and how it was made
+        for (const auto& [k, v] : provenance.items()) out.meta[k] = v;
         return out;
       }
     }
@@ -854,6 +856,8 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
     }
     out.arrays = {doubles("code", code_v), doubles("value", value), doubles("weight", weight), doubles("members", members)};
     out.meta = Json{{"class", "measurements"}, {"name", name}, {"selection", sel->id}, {"measure", *measure}, {"rows", rows.size()}};
+    const Json provenance = ts.measurement_provenance(sel->id, q.contains("ofFieldId") ? std::optional<std::string>(q["ofFieldId"].get<std::string>()) : std::nullopt, *measure);
+    for (const auto& [k, v] : provenance.items()) out.meta[k] = v;
     Window w = window_of(rq, name);
     window_made(out.arrays, w);
     if (!rq.region.empty()) out.meta["regions"] = w.regions;

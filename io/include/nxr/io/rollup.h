@@ -12,14 +12,17 @@
 #include <string>
 #include <vector>
 
+#include "nxr/io/measures.h"
+
 namespace nxr::io::rollup {
 
 /** The merge of a roll-up (measures.h `MergeRule`, the registry's data): Sum, Max, Min are folded here; Mean is folded as a SUM (the weighted numerator: the caller divides by the rolled-up weights, a mean through
  *  sums and a count, never a mean of means); None is never folded (a median or a member's own value: the folds refuse it, naming it). */
 enum class Merge { Sum, Max, Min, Mean, None };
-/** How a stored measure merges: the registry's `merge` rule (measures.h `measure_merge`: the ONE definition io's SQL roll-ups and compute's share); a name the registry does not know follows nxr's `mergeOf`
- *  (max if it is `max` or ends in `_max`, min if it is `min`, else sum). A derived measure is not merged (its ingredients are): Error(invalid_argument). */
+/** How a stored measure merges: the registry's `merge` rule (measures.h `measure_merge`: the ONE definition io's SQL roll-ups and compute's share). A name the registry does not know has no rule
+ *  here (Error(unsupported)): a subject's declaration gives it, read with `measure_merge(db, name)` and passed to the second form. A derived measure is not merged (its ingredients are): Error(invalid_argument). */
 Merge merge_of(const std::string& measure);
+Merge merge_of(MergeRule rule, const std::string& measure);
 const char* merge_name(Merge m);
 /** x [rows x leaves] (row-major) with leaves = pieces · 2^depth → [rows x nodes] at `level` (−1: one node; ≤ depth), nodes = pieces · 2^level; `nodes` receives the count. Throws std::invalid_argument. */
 std::vector<double> space(const std::vector<double>& x, std::int64_t rows, std::int64_t leaves, int depth, int level, Merge op, std::int64_t* nodes = nullptr);

@@ -1113,9 +1113,10 @@ struct SelectionMeasurementRow {
   std::optional<std::int64_t> component;
   std::optional<std::string> of_statistic_id;
   std::optional<std::int64_t> of_index;
+  Json producer_json;
   static constexpr const char* kTable = "selection_measurement";
   static const std::vector<std::string>& columns() {
-    static const std::vector<std::string> c = {"selection_id", "code", "of_field_id", "measure", "value", "weight", "within_selection_id", "within_code", "unit", "computed_utc", "computed_by", "array_path", "component", "of_statistic_id", "of_index"};
+    static const std::vector<std::string> c = {"selection_id", "code", "of_field_id", "measure", "value", "weight", "within_selection_id", "within_code", "unit", "computed_utc", "computed_by", "array_path", "component", "of_statistic_id", "of_index", "producer_json"};
     return c;
   }
   static SelectionMeasurementRow from_row(const Row& r) {
@@ -1135,6 +1136,7 @@ struct SelectionMeasurementRow {
     x.component = detail::take_opt<std::int64_t>(r, "component");
     x.of_statistic_id = detail::take_opt<std::string>(r, "of_statistic_id");
     x.of_index = detail::take_opt<std::int64_t>(r, "of_index");
+    x.producer_json = detail::take_json(r, "producer_json");
     return x;
   }
   static SelectionMeasurementRow from_json(const Json& j) {
@@ -1154,6 +1156,7 @@ struct SelectionMeasurementRow {
     x.component = detail::get_opt<std::int64_t>(j, "component");
     x.of_statistic_id = detail::get_opt<std::string>(j, "of_statistic_id");
     x.of_index = detail::get_opt<std::int64_t>(j, "of_index");
+    x.producer_json = detail::get_json(j, "producer_json");
     return x;
   }
   Json to_json() const {
@@ -1173,6 +1176,7 @@ struct SelectionMeasurementRow {
     detail::put(j, "component", component);
     detail::put(j, "of_statistic_id", of_statistic_id);
     detail::put(j, "of_index", of_index);
+    detail::put_json(j, "producer_json", producer_json);
     return j;
   }
 };
@@ -1999,6 +2003,59 @@ struct StatisticRow {
     detail::put(j, "created_by", created_by);
     detail::put(j, "modified_utc", modified_utc);
     detail::put(j, "modified_by", modified_by);
+    return j;
+  }
+};
+
+// table `measure_declaration`
+struct MeasureDeclarationRow {
+  std::string name;
+  std::string merge;
+  std::optional<std::string> form;
+  std::optional<std::string> unit;
+  std::optional<std::string> weight;
+  std::optional<std::string> description;
+  std::optional<std::string> declared_utc;
+  std::optional<std::string> declared_by;
+  static constexpr const char* kTable = "measure_declaration";
+  static const std::vector<std::string>& columns() {
+    static const std::vector<std::string> c = {"name", "merge", "form", "unit", "weight", "description", "declared_utc", "declared_by"};
+    return c;
+  }
+  static MeasureDeclarationRow from_row(const Row& r) {
+    MeasureDeclarationRow x;
+    x.name = detail::take<std::string>(r, "name");
+    x.merge = detail::take<std::string>(r, "merge");
+    x.form = detail::take_opt<std::string>(r, "form");
+    x.unit = detail::take_opt<std::string>(r, "unit");
+    x.weight = detail::take_opt<std::string>(r, "weight");
+    x.description = detail::take_opt<std::string>(r, "description");
+    x.declared_utc = detail::take_opt<std::string>(r, "declared_utc");
+    x.declared_by = detail::take_opt<std::string>(r, "declared_by");
+    return x;
+  }
+  static MeasureDeclarationRow from_json(const Json& j) {
+    MeasureDeclarationRow x;
+    x.name = detail::get<std::string>(j, "name");
+    x.merge = detail::get<std::string>(j, "merge");
+    x.form = detail::get_opt<std::string>(j, "form");
+    x.unit = detail::get_opt<std::string>(j, "unit");
+    x.weight = detail::get_opt<std::string>(j, "weight");
+    x.description = detail::get_opt<std::string>(j, "description");
+    x.declared_utc = detail::get_opt<std::string>(j, "declared_utc");
+    x.declared_by = detail::get_opt<std::string>(j, "declared_by");
+    return x;
+  }
+  Json to_json() const {
+    Json j = Json::object();
+    detail::put(j, "name", name);
+    detail::put(j, "merge", merge);
+    detail::put(j, "form", form);
+    detail::put(j, "unit", unit);
+    detail::put(j, "weight", weight);
+    detail::put(j, "description", description);
+    detail::put(j, "declared_utc", declared_utc);
+    detail::put(j, "declared_by", declared_by);
     return j;
   }
 };

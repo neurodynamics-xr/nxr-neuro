@@ -25,6 +25,7 @@
 
 #include "chunk_spectra_readers.h"
 #include "nxr/graph/node.h"
+#include "flow_measures.h"
 #include "nxr/pipelines/form_steps.h"
 #include "nxr/signal/intrinsic_forms.h"
 #include "nxr/signal/flow_readout.h"
@@ -386,6 +387,7 @@ ng::NodeSpec cortical_flow() {
       a.meta["describe"] = Json{{"method", "cortical_flow"}, {"measure", "flow"}, {"shape", Json::array({rows, cells, measures.size()})}, {"precision", "float32"},
                                 {"axes", Json::array({indexed_axis("element", rows), indexed_axis("member", cells), indexed_axis("measure", static_cast<std::int64_t>(measures.size()), names)})},
                                 {"measures", measures}, {"values_shape", Json::array({rows, cells})}, {"attributes", at}};
+      declare_flow_measures(a.meta["describe"]["measures"]);   // the flow measures it writes, declared (flow_measures.h)
     };
     const char* pairsAre = "frequency member x band p x band q, the frequency member fastest (the phase current of the pair: conj(z_p) at the tail, z_q at the tip)";
     const char* modeRows = "the cortex's Hodge-Dirac modes (exact: travel; coexact: rotation), then the phase current's star1 energy, then the remainder's (beyond the kept modes)";

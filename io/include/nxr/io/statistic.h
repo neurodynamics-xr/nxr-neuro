@@ -32,6 +32,11 @@ bool ensure_statistic_measurements(Database& db);
 const Json& statistic_registry();
 bool statistic_measure_known(const std::string& name);
 bool statistic_method_known(const std::string& name);
+// A statistic's measure and method are REGISTERED (statistics.json; a measurement's measure for the measure) or DECLARED by the writer: `declared` is
+// {measure: {description, unit_rule?}, method: {description}} (kept in the statistic's producer_json.declared). Refused, naming what is missing: a measure or a method
+// the registries do not know and the declaration does not describe; a declared unit_rule that contradicts the registry's for a known measure, or another statistic's
+// declaration of the same measure in the subject (one name keeps one meaning).
+void check_statistic_declaration(const Database& db, const std::string& measure, const std::string& method, const Json& declared, const std::string& who);
 
 /** a stored statistic: its row, its record parsed, and its values as float64 in C order */
 struct StoredStatistic {

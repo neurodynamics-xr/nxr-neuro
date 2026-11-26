@@ -375,7 +375,7 @@ target_link_libraries(nxr-neuro-bst-compare PRIVATE nxr_io)
 
 # --- tests (hand-written + ctest) ---
 if(NXR_IO_BUILD_TESTS)
-  set(NXR_IO_TESTS import_covariance export_gifti export_tsv export_fif export_bids import_recording import_fif_objects import_nifti import_surfaces import_cifti import_bids synthetic records task codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup measurement_query schema53 schema54 schema55 schema56 migrate_measurement chunk_separator compact format52 subject_package subject_filter catalogue migrate templates template_import import_skip_v73 import_catalogue fibers schema51 split_groups template_links task_dataset bst_binary import_replace_recording)
+  set(NXR_IO_TESTS import_covariance export_gifti export_tsv export_fif export_bids import_recording import_fif_objects import_nifti import_surfaces import_cifti import_bids synthetic records task codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup measurement_query measure_declarations schema53 schema54 schema55 schema56 migrate_measurement chunk_separator compact format52 subject_package subject_filter catalogue migrate templates template_import import_skip_v73 import_catalogue fibers schema51 split_groups template_links task_dataset bst_binary import_replace_recording)
   foreach(t ${NXR_IO_TESTS})
     add_executable(test_${t} test/test_${t}.cpp)
     target_link_libraries(test_${t} PRIVATE nxr_io nxr_io_testing)
