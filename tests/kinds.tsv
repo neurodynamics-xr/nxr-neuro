@@ -332,5 +332,6 @@ test_import_replace_recording	integration
 test_sensor_flow	integration
 test_sensor_bispectrum	integration
 test_connectome_flow	integration
+test_graph_network	integration
 test_source_flow_nodes	integration
 test_migrate_eigensolve	integration

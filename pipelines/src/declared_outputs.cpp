@@ -516,12 +516,12 @@ void check_declared(const Plan& P, const std::string& o) {
     }
   } else {
     const std::string t = spec.value("type", std::string());
-    if (t != "line" && t != "surface" && t != "product" && t != "points" && t != "complex") bad(o, "type: line, surface, product, points or complex");
+    if (t != "line" && t != "surface" && t != "product" && t != "points" && t != "complex" && t != "graph") bad(o, "type: line, surface, product, points, complex or graph");
     if (t == "product") {
       if (!spec.contains("factors") || !spec["factors"].is_array() || spec["factors"].size() < 2) bad(o, "a product's factors: a list of two or more links or outputs");
       for (const auto& f : spec["factors"]) link(P, f.get<std::string>(), nullptr, o);
     }
-    if ((t == "surface" || t == "points" || t == "complex") && spec.contains("derived_from")) link_of(P, spec, "derived_from", nullptr, o);
+    if ((t == "surface" || t == "points" || t == "complex" || t == "graph") && spec.contains("derived_from")) link_of(P, spec, "derived_from", nullptr, o);
     if (t == "complex" && spec.contains("geometry_of")) link_of(P, spec, "geometry_of", nullptr, o);   // the manifold whose positions it shares (an intrinsic triangulation: the surface's)
   }
 }
@@ -671,6 +671,21 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       else p.positions = values_of(a, {a.rows * a.cols}, false, o);
       if (replace) clear(task::Cls::manifold, unit.path_of(p));
       id = unit.points(p);
+    } else if (t == "graph") {
+      // a GRAPH (the fibre network on a surface's tiles): its vertices [n x 3] are the node's array, its edges [nE x 2] (stored rank-1 cells) and its components its description
+      task::GraphOut g;
+      g.name = name; g.output = o;
+      g.cs_key = spec.contains("cs") ? fill(P, spec["cs"].get<std::string>()) : d.value("cs", std::string("scs"));
+      if (g.cs_key.empty()) g.cs_key = "scs";
+      if (spec.contains("derived_from")) g.derived_from_id = link_of(P, spec, "derived_from", &made, o);
+      if (d.contains("description") && d["description"].is_string()) g.description = d["description"].get<std::string>();
+      if (d.contains("producer") && d["producer"].is_object()) g.producer = d["producer"];
+      if (a.cols != 3) bad(o, "a graph's vertices are [n x 3]");
+      g.vertices = values_of(a, {a.rows, a.cols}, false, o);
+      for (const auto& e : d.value("edges", Json::array())) g.edges.push_back(e.get<std::int32_t>());
+      g.components = d.value("components", 1);
+      if (replace) clear(task::Cls::manifold, unit.path_of(g));
+      id = unit.graph(g);
     } else if (t == "complex") {
       // a CELL COMPLEX: vertices [n x 3] are the node's array, its edges [nE x 2] and faces [nF x 3] its description
       task::ComplexOut c;
@@ -1152,8 +1167,11 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   // link into a member's package; the members and each one's inputs are in its provenance, `group`)
   const bool of_members = P.found.count(of) && P.found.at(of).facts.is_object() && P.found.at(of).facts.contains("stack");
   const bool of_field = !P.found.count(of) || P.found.at(of).cls == "field";
+  // OF A MANIFOLD (a fibre bundle: `tile_network`'s tiles and pairs): a statistic is of a field or a statistic, so one of a manifold is detached, the manifold named in its options
+  const bool of_manifold = !of_members && P.found.count(of) && P.found.at(of).cls == "manifold";
   const std::string of_id = of_members ? std::string() : link(P, of, &made, o);
-  if (of_members) st.detached = true;
+  if (of_manifold) { st.detached = true; st.options = Json{{"of_manifold", Json{{"id", of_id}, {"name", P.found.at(of).row ? text(*P.found.at(of).row, "name") : std::string()}}}}; }
+  else if (of_members) st.detached = true;
   else if (of_field) st.of_field_id = of_id;
   else st.of_statistic_id = of_id;
   const std::string acq = of_members ? std::string() : acquisition_of(P, of);
@@ -1261,7 +1279,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   if (d.contains("components")) st.components = d["components"];
   if (d.contains("scaling")) st.scaling = d["scaling"];
   if (d.contains("dof") && d["dof"].is_number()) st.dof = d["dof"].get<double>();
-  st.options = d.value("options", Json::object());
+  { const Json ofm = st.options.is_object() ? st.options.value("of_manifold", Json()) : Json(); st.options = d.value("options", Json::object()); if (!ofm.is_null()) st.options["of_manifold"] = ofm; }
   if (d.contains("unit") && d["unit"].is_string()) st.unit = d["unit"].get<std::string>();
   if (d.contains("description")) st.description = d["description"].get<std::string>();
   st.label = d.value("label", st.method);

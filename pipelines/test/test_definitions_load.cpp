@@ -50,6 +50,13 @@ int main() {
     if (b.outputs["left_whole_vertices"].value("rows", std::string()) != "left.to" || b.outputs["right_whole_modes"].value("rows", std::string()) != "right.from") { std::printf("  source_flow: the rows' manifold is not named\n"); ++failures; }
     for (const auto& u : b.after) if (u.with.contains("measure_suffix")) { std::printf("  source_flow: %s still suffixes its measures\n", u.step.c_str()); ++failures; }
     if (b.outputs.contains("glued_operator")) { std::printf("  source_flow per hemisphere stores a glued operator\n"); ++failures; }
+    // the time cells are STORED over a stored time grid's products (G7): the whole field's over grid x atoms, the bands' over grid x atoms x bands, rows on the cortex
+    if (b.outputs["left_whole_edge_cells"].value("over", std::string()) != "time_atoms" || b.outputs["right_vertex_cells"].value("over", std::string()) != "time_atom_bands" ||
+        b.outputs["left_edge_cells"].value("rows", std::string()) != "left.to" || !b.inputs.contains("time_grid")) { std::printf("  source_flow: the time cells are not stored over the time grid's products\n"); ++failures; }
+    // the sensor and connectome flows take the stored grid and store their cells; connectome_flow's fixed segments are gone
+    const np::Definition sf = np::load("sensor_flow"), cf = np::load("connectome_flow");
+    if (sf.outputs["edge_cells"].value("over", std::string()) != "time_atom_bands" || !sf.inputs.contains("time_grid")) { std::printf("  sensor_flow: its time cells are not stored\n"); ++failures; }
+    if (cf.outputs["pair_cells"].value("over", std::string()) != "time_atoms" || cf.parameters.contains("segment_seconds") || cf.parameters.contains("cells")) { std::printf("  connectome_flow: its time cells are not stored, or a fixed segment is left\n"); ++failures; }
   } catch (const std::exception& ex) {
     std::printf("  source_flow --spectra: %s\n", ex.what());
     ++failures;

@@ -5,7 +5,7 @@
 # chunks: recording, each chunk with an overlap of half a chunk on each side (reflected at the recording's ends) --[signal.overlapped_spectrum: one transform of 2^16 samples, no window, no
 # taper, no zero padding, the bins of [0, 60) Hz]--> the chunk's spectrum --[signal.chunk_spectra]--> the cross-spectrum in its factored form, stored.
 # after: --[signal.spectral_flow: the atoms (Gaussians normalised by the sum of their squared gains) x the cos² eigenvalue bands and their pairs]--> power, phase current per edge and
-# per vertex, Hodge-Dirac flow coefficients, potential and stream; --[signal.atom_time_cells]--> the same per time cell of each atom (in the run only: never stored); --[stats.sign_flip_consistency]--> R1 per edge;
+# per vertex, Hodge-Dirac flow coefficients, potential and stream; --[signal.atom_time_cells]--> the same summed over each tile of the STORED time grid (measurements over grid x atoms x bands); --[stats.sign_flip_consistency]--> R1 per edge on those cells rolled up to each atom's own window;
 # optional (aperiodic: true): --[signal.sensor_power]--> --[stats.aperiodic_fit]--> each sensor's aperiodic background.
 # Every value below is a stated choice of this definition (the nodes default nothing). The atoms and bands are kernel sets made first by `select_kernels` (nxr's flow analysis's atoms: centres
 # 4 x 2^(k/5) Hz, k = 0..16, gaussian, chart linear, width_rule proportional, width 0.19622 (FWHM = 2 sqrt(2 ln 2) / 12 x the centre: a standard deviation of centre / 12), gain 2;
@@ -28,6 +28,8 @@ inputs:
   bands:       {selection: any, where: {name: $bands}, hint: "the eigenvalue bands, a kernel set on the solve's eigenvalue line (`nxr-neuro run select_kernels --profile cos2_partition` first)"}
   pairs:       {selection: any, where: {name: $pairs}, hint: "the band pairs' members: atoms x bands x bands (`nxr-neuro run select_kernel_product --factors 3 --first ATOMS --second BANDS --third BANDS` first)"}
   atom_bands:  {selection: any, where: {name: $atom_bands}, hint: "the sign-flip test's members: atoms x bands (`nxr-neuro run select_kernel_product --factors 2 --first ATOMS --second BANDS` first)"}
+  time_grid:   {selection: any, manifold: recording.time, where: {name: $time_grid}, hint: "the recording's stored time grid, whose tiles are the time cells (`nxr-neuro run select_time_grid --rule tiles --duration D` first: D no longer than the finest atom's own window)"}
+  time_atom_bands: {selection: any, where: {name: $time_atom_bands}, hint: "the product the time cells are measured over: the time grid x the atoms x the bands (`nxr-neuro run select_product --time-grid GRID --atoms ATOMS --scales BANDS` first)"}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
@@ -42,7 +44,9 @@ parameters:
   frequency_span: {default: [0, 60], meaning: "[lo, hi) the bins kept of each chunk's transform (the physiological bands)", unit: Hz}
   frequency_normalisation: {default: sum_of_squared_gains, meaning: "the atoms divided at each bin by the square root of their squared gains' sum (they add back to the whole span) | none (nxr's flow analysis's gains as they are)", unit: "-", choices: [sum_of_squared_gains, none]}
   support_floor: {default: 0.001, meaning: "a bin whose atoms' squared gains sum to less than this fraction of their largest sum lies outside the atoms (gain 0)", unit: "-"}
-  cell_width: {default: 2.0, meaning: "a time cell's width in the atom's time standard deviations (1 / (2 pi sigma_f)), snapped to the nearest power of two of samples", unit: "-"}
+  time_grid: {default: required, meaning: "the stored time grid of the recording by name (one level of its dyadic tiling): the time cells are its tiles, stored as measurements over time_atom_bands", unit: "-"}
+  time_atom_bands: {default: required, meaning: "the product time grid x atoms x bands by name: the time cells are measured over its members", unit: "-"}
+  cell_width: {default: 2.0, meaning: "each atom's own window for the sign-flip test (a box): this many of the atom's time standard deviations (1 / (2 pi sigma_f)), snapped to the nearest dyadic level of the grid's tiling (not finer than the grid)", unit: "-"}
   flip_elements: {default: edges, meaning: "the sign-flip test's elements: edges (the edge phase current) | vertices (the vertex phase current, three components)", unit: "-", choices: [edges, vertices]}
   patterns: {default: 2000, meaning: "the sign-flip test's random patterns (nxr's flow analysis's maps: 2000)", unit: "-"}
   seed: {default: 0, meaning: "the seed of numpy's default_rng for the sign patterns (nxr's flow analysis: 0)", unit: "-"}
@@ -63,8 +67,8 @@ steps:
       - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: operator}, out: spectra}
   after:
     - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: atoms, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes]}
-    - {node: signal.atom_time_cells, in: {spectra: spectra, package: package, frequency: atoms, scale: bands}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cell_width: $cell_width}, out: cells}
-    - {node: stats.sign_flip_consistency, in: {cells: cells}, with: {elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip}, out: [consistency, consistency_summary, whole_consistency, whole_consistency_summary]}
+    - {node: signal.atom_time_cells, in: {spectra: spectra, package: package, frequency: atoms, scale: bands, grid: time_grid, product: time_atom_bands}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cell_width: $cell_width}, out: [edge_cells, vertex_cells]}
+    - {node: stats.sign_flip_consistency, in: {edge_cells: edge_cells, vertex_cells: vertex_cells}, with: {elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip}, out: [consistency, consistency_summary, whole_consistency, whole_consistency_summary]}
     - {node: signal.sensor_power, in: {spectra: spectra, package: package}, out: power, when: $aperiodic}
     - {node: stats.aperiodic_fit, in: {power: power}, with: {knee: false, fit_range: $aperiodic_range, iterations: 3, threshold: 2.0}, out: aperiodic_fit, when: {aperiodic: true, aperiodic_fixed: true}}
     - {node: stats.aperiodic_fit, in: {power: power}, with: {knee: true, fit_range: $aperiodic_range, iterations: 3, threshold: 2.0}, out: aperiodic_fit_knee, when: {aperiodic: true, aperiodic_knee: true}}
@@ -77,6 +81,9 @@ outputs:
   pair_vertices:  {kind: measurement, rows: package.to, over: pairs, of: recording}
   pair_edges:     {kind: measurement, rows: package.to, over: pairs, of: recording}
   pair_modes:     {kind: measurement, rows: package.from, over: pairs, of: recording}
+  # THE TIME CELLS (G7, spec docs/specs/2026-11-26-graph-manifold-and-time-cells.md): the sums per tile of the stored time grid, over grid x atoms x bands (declared sum: a coarser level rolls up at read)
+  edge_cells:     {kind: measurement, rows: package.to, over: time_atom_bands, of: recording}
+  vertex_cells:   {kind: measurement, rows: package.to, over: time_atom_bands, of: recording}
   consistency:    {kind: measurement, rows: package.to, over: atom_bands, of: recording}
   consistency_summary: {kind: measurement, rows: package.to, over: atom_bands, of: recording}
   # (whole_consistency, whole_consistency_summary: the sensor chain's time cells are per band only, so the node makes them absent; not stored)

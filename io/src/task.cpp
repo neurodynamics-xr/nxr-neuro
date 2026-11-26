@@ -642,6 +642,7 @@ std::string Unit::path_of(const PointsOut& p) const {
   return p.path ? *p.path : folder_for("points", "", std::nullopt, p.operator_name.empty() ? std::optional<std::string>() : std::optional<std::string>(p.operator_name)) + "/" + safe_name(p.name);
 }
 std::string Unit::path_of(const ComplexOut& c) const { return c.path ? *c.path : "source/" + safe_name(c.name); }
+std::string Unit::path_of(const GraphOut& g) const { return g.path ? *g.path : "fibre/" + safe_name(g.name); }
 std::string Unit::path_of(const StatisticOut& s) const {
   if (s.path) return *s.path;
   if (s.of_field_id)
@@ -1323,6 +1324,61 @@ std::string Unit::cell_complex(const ComplexOut& o) {
     if (own_vertices) sub.write_array(path + "/vertices", view(v.f64, {n, 3}));
     sub.write_array(path + "/edges", view(e, {nE, 2}));
     sub.write_array(path + "/faces", view(f, {nF, 3}));
+  };
+  return sub.manifold(std::move(ms));
+}
+
+// A GRAPH (the fibre network on a surface's tiles): vertices in space and edges as STORED rank-1 cells (topology kind `graph`); the schema has the type and the kind (model.sql),
+// io's manifold writer writes them (ManifoldSpec, TopologySpec): this is the unit's face for it, as `cell_complex` is for a triangulation
+std::string Unit::graph(const GraphOut& o) {
+  need_open(open_);
+  SubjectWriter& sub = *impl_->writer;
+  if (o.vertices.shape.size() != 2 || o.vertices.shape[1] != 3 || o.vertices.f64.empty() || o.vertices.size() != o.vertices.shape[0] * 3) throw Error(code::invalid_argument, "graph " + o.name + ": vertices [n x 3] in float64");
+  const std::int64_t n = o.vertices.shape[0];
+  if (o.edges.size() % 2) throw Error(code::invalid_argument, "graph " + o.name + ": edges [nE x 2]");
+  const std::int64_t nE = static_cast<std::int64_t>(o.edges.size() / 2);
+  for (std::int64_t e = 0; e < nE; ++e) {
+    const auto a = o.edges[static_cast<std::size_t>(2 * e)], b = o.edges[static_cast<std::size_t>(2 * e + 1)];
+    if (a < 0 || a >= n || b < 0 || b >= n) throw Error(code::invalid_argument, "graph " + o.name + ": an edge names a vertex outside 0 .. " + std::to_string(n - 1));
+    if (a == b) throw Error(code::invalid_argument, "graph " + o.name + ": an edge joins vertex " + std::to_string(a) + " to itself");
+  }
+  if (o.components < 1 || o.components > n) throw Error(code::invalid_argument, "graph " + o.name + ": its connected components are 1 .. its vertices");
+  const std::string path = path_of(o);
+  if (const auto r = sub.find("manifold", path)) {   // found again when it has the same vertices and edges; another one's is the caller's to replace first
+    const Node have = node_of(Cls::manifold, rec::ManifoldRow::from_row(*r));
+    if (have.n_vertices && *have.n_vertices == n && integer(*r, "n_edges") == nE) {
+      const std::vector<std::uint8_t> v = ArrayReader::open(sub.store(), path + "/vertices").read();
+      const std::vector<std::uint8_t> e = nE ? ArrayReader::open(sub.store(), path + "/edges").read() : std::vector<std::uint8_t>();
+      const auto* vb = reinterpret_cast<const std::uint8_t*>(o.vertices.f64.data());
+      const auto* eb = reinterpret_cast<const std::uint8_t*>(o.edges.data());
+      if (v.size() == static_cast<std::size_t>(n * 3) * sizeof(double) && std::equal(v.begin(), v.end(), vb) && e.size() == o.edges.size() * sizeof(std::int32_t) && std::equal(e.begin(), e.end(), eb)) return have.id;
+    }
+    throw Error(code::already_exists, sub.name() + ": the graph " + o.name + " (" + path + ") exists with other vertices or edges; replace it first");
+  }
+  ManifoldSpec ms;
+  ms.name = o.name;
+  ms.path = path;
+  ms.type = "graph";
+  ms.n_vertices = n;
+  ms.topology = {"graph", 1, o.components, std::nullopt, {}};
+  if (nE) ms.topology.cells.push_back({1, path + "/edges"});
+  {
+    GeometrySpec g;
+    g.form = "stored";
+    g.cs_key = o.cs_key;
+    g.positions_path = path + "/vertices";
+    ms.geometry = g;
+  }
+  if (o.acquisition_id) ms.cols.set("acquisition_id", *o.acquisition_id);
+  if (o.derived_from_id) ms.cols.set("derived_from_id", *o.derived_from_id);
+  if (o.description) ms.cols.set("comment", *o.description);
+  ms.cols.set("n_edges", nE);
+  ms.cols.json("producer_json", producer_of(by_, o.output, o.producer));
+  const Values& v = o.vertices;
+  const std::vector<std::int32_t>& e = o.edges;
+  ms.populate = [&sub, &v, &e, path, n, nE](Store&, const std::string&) {
+    sub.write_array(path + "/vertices", view(v.f64, {n, 3}));
+    if (nE) sub.write_array(path + "/edges", view(e, {nE, 2}));
   };
   return sub.manifold(std::move(ms));
 }

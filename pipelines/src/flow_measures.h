@@ -37,9 +37,10 @@ inline nxr::graph::Json flow_measure_declaration(const std::string& measure) {
       {"phase", "none", "none", "an angle: never summed"},
       {"divergence", "sum", "none", "the network divergence of the edge flow at a tile: linear in the flow"},
       {"potential", "none", "vertex", "the graph potential of the edge flow: a map, never summed"},
-      {"potential_coefficient", "sum", "mode", "the coefficient of the graph potential on one connectome mode: linear"},
+      {"potential_coefficient", "sum", "mode", "the coefficient of the graph potential on one connectome mode: linear (results made before the graph manifold; the network now writes flow_coefficient on its stored modes)"},
       {"weighted_gradient_squares", "sum", "none", "the conductance-weighted squares of the potential's gradient: an energy"},
       {"weighted_flow_squares", "sum", "none", "the conductance-weighted squares of the edge flow: an energy"},
+      {"weighted_cycle_squares", "sum", "none", "the conductance-weighted squares of the edge flow's cycle (harmonic) part on the graph: an energy"},
   };
   for (const D& d : table)
     if (measure == d.name) return J{{"merge", d.merge}, {"form", d.form}, {"description", d.description}};
