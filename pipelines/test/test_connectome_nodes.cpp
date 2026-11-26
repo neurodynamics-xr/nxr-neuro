@@ -88,7 +88,7 @@ int main() {
   CHECK(near.at("distance").data == want.distance);
   const auto none = run(db, "meeg.end_gate", Json{{"max_end_distance_mm", "none"}}, {{"end_distance", near.at("distance")}});
   CHECK_EQ(none.at("keep").meta["n_left_out"].get<int>(), 0);
-  const auto five = run(db, "meeg.end_gate", Json::object(), {{"end_distance", near.at("distance")}});   // the default, 5 mm
+  const auto five = run(db, "meeg.end_gate", Json{{"max_end_distance_mm", 5}}, {{"end_distance", near.at("distance")}});   // the connectome definition's 5 mm
   const auto tight = run(db, "meeg.end_gate", Json{{"max_end_distance_mm", 0.5}}, {{"end_distance", near.at("distance")}});
   CHECK(tight.at("keep").meta["n_left_out"].get<int>() > 0 && tight.at("keep").meta["n_left_out"].get<int>() <= 200);
   CHECK_EQ(five.at("keep").meta["max_end_distance_mm"].get<double>(), 5.0);
@@ -156,6 +156,7 @@ int main() {
   // refusals say their reason
   CHECK(has(refusal([&] { run(db, "meeg.fiber_ends", Json::object(), {{"fibers", dense(b.points, 1000, 3)}}); }), "points_per_fiber"));
   CHECK(has(refusal([&] { run(db, "meeg.end_gate", Json{{"max_end_distance_mm", -1}}, {{"end_distance", near.at("distance")}}); }), "max_end_distance_mm"));
+  CHECK(has(refusal([&] { run(db, "meeg.end_gate", Json::object(), {{"end_distance", near.at("distance")}}); }), "max_end_distance_mm"));   // no default in the node
   CHECK(has(refusal([&] { run(db, "meeg.end_connectome", Json::object(), {{"end_vertex", near.at("vertex")}}); }), "n_vertices"));
   CHECK(has(refusal([&] { run(db, "meeg.connection_weights", Json::object(), {{"fiber_counts", dense({1}, 1, 1)}, {"faces", faces}}); }), "COO"));
   CHECK(has(refusal([&] { g::step("meeg.partition_counts").plan(g::Values{}, Json::object(), g::PlanContext{db}); }), "missing"));
