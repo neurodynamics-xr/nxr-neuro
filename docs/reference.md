@@ -1336,7 +1336,9 @@ or tangent direction; the apparent speed is an upper bound. Cost: the time cells
 multiply-adds per chunk, atom and band on a 20 000-vertex cortex); `--time-cells false` skips them. **Stored inputs (2026-11-26).** `--spectra NAME` reads the chunk
 spectra stored before instead of the recording, as `connectome_flow` does: the sensor flow's (`<recording>_<sensor package>_chunk_spectra`, in the sensor surface's field coordinates:
 option A with the same `--sensor-package`) or an earlier source flow's own (option B, in channels); the recording is not read and no spectrum is stored again, the measurements stay
-of the recording. The operator is bound per run, not stored (issue). Tests:
+of the recording. **The mode operator is stored** (option B): `<kernel>__in__<cortex solve>` (kind `mode_analysis`, [3 K x channels], the three components' blocks of K rows, from
+the channels to the cortex's eigen line, derived from the kernel), one per hemisphere or the glued cortex, so clients read it by name; option A's is it times the sensor coordinates'
+synthesis (not stored). The run still composes it from the stored kernel and modes (a product, no solve); a later run does not look it up by key yet (issue). Tests:
 `test_source_flow` (compute: the bands add back to the kernel), `test_flow_readout` (compute: `pairFlow`, `timeCellPairFlow`, `takeWholeCells`, `flowSplit` against their definitions written out, the remainder split) and
 `test_source_flow_nodes` (two spheres as hemispheres and a 42-channel sheet: hemisphere selection, a glued package's zero bridge, option A = option B with a complete
 sensor basis, a travelling source mapped to an exact flow, the band pairs adding back, the time cells' sign-flip test).

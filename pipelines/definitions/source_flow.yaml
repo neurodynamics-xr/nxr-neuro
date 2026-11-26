@@ -101,6 +101,12 @@ steps:
     - {node: stats.sign_flip_consistency, in: {cells: glued_cells}, with: {measure_suffix: _glued, elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip}, out: [glued_consistency, glued_consistency_summary, glued_whole_consistency, glued_whole_consistency_summary], when: {cortex: glued, time_cells: true}}
 
 outputs:
+  # THE MODE OPERATOR (2026-11-26, storage plan G9): option B's kernel written in each cortex's eigenmode coordinates [3 K x channels, component-major: the three Cartesian
+  # components' blocks of K rows], stored with the run as an operator from the channels to the cortex's eigen line, derived from the kernel, named <kernel>__in__<cortex solve>:
+  # read by clients (nxr) by name instead of composed again. Option A's is this operator times the sensor coordinates' synthesis (not stored: one product of stored nodes).
+  left_operator:  {kind: operator, operator_kind: mode_analysis, name: "{kernel}__in__{left}", from: recording.manifold.0, to: left.from, derived_from: kernel, when: {cortex: per_hemisphere, columns: channels}}
+  right_operator: {kind: operator, operator_kind: mode_analysis, name: "{kernel}__in__{right}", from: recording.manifold.0, to: right.from, derived_from: kernel, when: {cortex: per_hemisphere, columns: channels}}
+  glued_operator: {kind: operator, operator_kind: mode_analysis, name: "{kernel}__in__{glued}", from: recording.manifold.0, to: glued.from, derived_from: kernel, when: {cortex: glued, columns: channels}}
   # each cortex's measures carry its suffix (measure_suffix _left / _right / _glued): the sensor flow's measures of the same recording over the same atoms, and the other
   # hemisphere's, stay apart (the store's key does not name the surface: #264)
   spectra: {kind: statistic, name: "{name}_chunk_spectra", of: recording, when: "!$spectra"}   # stored by the run that reads the recording; a run given --spectra stores none

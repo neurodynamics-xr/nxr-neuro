@@ -41,6 +41,12 @@ int main() {
     params["spectra"] = nullptr;
     const np::Definition r = np::expand(d0, params);
     if (r.do_.empty() || !r.outputs.contains("spectra") || r.inputs.contains("spectra")) { std::printf("  source_flow without --spectra: the recording is no longer streamed\n"); ++failures; }
+    // the mode operators are stored (storage plan G9): option B's, per hemisphere, from the channels to each hemisphere's eigen line, derived from the kernel
+    params["columns"] = "channels";
+    const np::Definition b = np::expand(d0, params);
+    for (const char* o : {"left_operator", "right_operator"})
+      if (!b.outputs.contains(o) || b.outputs[o].value("kind", std::string()) != "operator" || b.outputs[o].value("derived_from", std::string()) != "kernel") { std::printf("  source_flow: %s is not stored\n", o); ++failures; }
+    if (b.outputs.contains("glued_operator")) { std::printf("  source_flow per hemisphere stores a glued operator\n"); ++failures; }
   } catch (const std::exception& ex) {
     std::printf("  source_flow --spectra: %s\n", ex.what());
     ++failures;
