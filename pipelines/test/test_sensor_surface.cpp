@@ -260,8 +260,14 @@ int main() {
     CHECK(!nxrtest::run_definition(ds, sub, "select_kernel_product", Json{{"factors", 3}, {"first", "atoms"}, {"second", "bands"}, {"third", "bands"}, {"name", "atom_band_pairs"}}).empty());
     std::printf("  [flow] run select_kernel_product\n");
     CHECK(!nxrtest::run_definition(ds, sub, "select_kernel_product", Json{{"factors", 2}, {"first", "atoms"}, {"second", "bands"}, {"name", "atom_bands"}}).empty());
+    // the time cells' stored grid (G7): tiles of 0.125 s (32 samples at 256 Hz: no coarser than the 12 Hz atom's own window) and its product with the atoms and bands
+    std::printf("  [flow] run select_time_grid\n");
+    CHECK(!nxrtest::run_definition(ds, sub, "select_time_grid", Json{{"recording", "rest"}, {"rule", "tiles"}, {"duration", "0.125 s"}, {"name", "rest tiles"}}).empty());
+    std::printf("  [flow] run select_product\n");
+    CHECK(!nxrtest::run_definition(ds, sub, "select_product", Json{{"recording", "rest"}, {"time_grid", "rest tiles"}, {"kernels", "atoms_scales"}, {"atoms", "atoms"}, {"scales", "bands"}, {"name", "rest cells"}}).empty());
     Json flow = serve;
     flow["atoms"] = "atoms"; flow["bands"] = "bands"; flow["pairs"] = "atom_band_pairs"; flow["atom_bands"] = "atom_bands"; flow["patterns"] = 50; flow["name"] = "flow";
+    flow["time_grid"] = "rest tiles"; flow["time_atom_bands"] = "rest cells";
     flow["aperiodic"] = true; flow["aperiodic_knee"] = true; flow["aperiodic_range"] = Json::array({4.0, 40.0});   // both aperiodic models in one run
     std::printf("  [flow] run sensor_flow\n");
     CHECK(!nxrtest::run_definition(ds, sub, "sensor_flow", flow).empty());
@@ -278,6 +284,9 @@ int main() {
     CHECK(probe.rows("statistic", {{"name", V("flow_aperiodic")}}).size() == 1 && probe.rows("statistic", {{"name", V("flow_aperiodic_knee")}}).size() == 1);
     CHECK(measured("atom_band_pairs", "phase_current") == 1 && measured("atom_band_pairs", "power") == 1);                                   // every band pair, per atom
     CHECK(measured("atom_bands", "consistency") == 1 && measured("atom_bands", "threshold") == 1);                                         // the sign-flip test, per atom and band
+    // the time cells STORED (G7): sums over the grid's tiles, over grid x atoms x bands, declared sum (a coarser level is a roll-up at read)
+    CHECK(measured("rest cells", "phase_current") == 1 && measured("rest cells", "power_sum") == 1 && measured("rest cells", "vertex_phase_current_x") == 1);
+    CHECK(declared("vertex_phase_current_x") == "sum");
     // the member axis of each stored measurement is its selection's members, in the product's code order (the first factor fastest: atom + A (band p + Q band q))
     auto members_of = [&](const std::string& over, const std::string& measure) {
       const auto rows = probe.rows("selection_measurement", {{"selection_id", V(selection_id(over))}, {"measure", V(measure)}});
@@ -287,7 +296,8 @@ int main() {
     auto n_members = [&](const std::string& name) { return integer(probe.rows("selection", {{"name", V(name)}}).front(), "n_members"); };
     CHECK(n_members("atom_band_pairs") == n_members("atoms") * n_members("bands") * n_members("bands"));
     CHECK(members_of("atoms", "phase_current") == n_members("atoms") && members_of("atom_band_pairs", "phase_current") == n_members("atom_band_pairs") &&
-          members_of("atom_bands", "consistency") == n_members("atom_bands"));
+          members_of("atom_bands", "consistency") == n_members("atom_bands") && members_of("rest cells", "phase_current") == n_members("rest cells"));
+    CHECK(n_members("rest cells") == n_members("rest tiles") * n_members("atom_bands"));                                                   // the grid's tiles x atoms x bands
     // a later run reads the stored flow measurements: the speed and direction across frequencies
     std::printf("  [flow] run sensor_flow_across_frequencies\n");
     CHECK(!nxrtest::run_definition(ds, sub, "sensor_flow_across_frequencies", Json{{"recording", "rest"}, {"package", "hodgeDirac__helmet"}, {"atoms", "atoms"}}).empty());

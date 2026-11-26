@@ -2,7 +2,8 @@
 // one vertex each; the kernel the identity on twelve channels (three components a tile); the spectra served through a random complete serving operator; tile 1 follows tile 0
 // by a planted lag. Checked: the pairs (counts, medians, across), the network as a graph (its edges, its metric: tile areas and conductance) and its Hodge-Dirac modes (meeg.graph_hodge_dirac:
 // the constants out, orthonormal under the stars), the tile operator (the served coordinates back to the tiles), the
-// whole run's tile cross-spectrum (the planted lag back, the reference's sign), the segments and the reference's sign-flip test and control on them (the lagged pair consistent),
+// whole run's tile cross-spectrum (the planted lag back, the reference's sign), the time cells on a stored grid (their tiles roll up to the whole run's sums) and the reference's
+// sign-flip test and control on them rolled up to the atom's own window (the lagged pair consistent),
 // the network's divergence (out of tile 0, into tile 1) and the flow's coefficients on the graph's STORED modes (a forest: all gradient); refusals with their reasons.
 #include <cmath>
 #include <complex>
@@ -157,17 +158,44 @@ int main() {
   ng::Array wrongSpectra = spectra; wrongSpectra.meta["producer"]["modes"] = Json::array({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 99});
   CHECK(refused([&] { run_array("signal.tile_flow", {{"spectra", wrongSpectra}, {"operator", M}, {"frequency", atoms}}, fp); }));
 
-  const auto cells = run_array("signal.tile_time_cells", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}}, Json{{"frequency_normalisation", "none"}, {"cells", "segments"}, {"segment_seconds", 1.0}});
-  const ng::Array& Z = cells.at("cells");
-  const Json groups = Z.meta["producer"]["groups"];
-  CHECK(groups.size() == 1 && Z.cols == 2 * 6 + 4 && Z.rows == 10 && groups[0]["cell_samples"] == 200);   // 2048 own samples: ten whole segments of 200 (the eleventh cut off, as S = N // L)
-  bool positive = true;
-  for (std::int64_t r = 0; r < Z.rows; ++r) positive = positive && at(Z, r, 6 + q01) > 0;
-  CHECK(positive);
-  const auto width = run_array("signal.tile_time_cells", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}}, Json{{"frequency_normalisation", "none"}, {"cells", "atom_width"}, {"cell_width", 2.0}});
-  CHECK(width.at("cells").rows == 2048 / width.at("cells").meta["producer"]["groups"][0]["cell_samples"].get<std::int64_t>());
+  // THE TIME CELLS ON A STORED GRID (G7): the tiles of one level of the line's dyadic tiling (the select_time_grid record) x the atoms (the select_product record)
+  auto time_grid = [&](int level) {
+    ng::Array g;
+    const std::int64_t width = std::int64_t(1) << level, count = (own + width - 1) / width;
+    g.meta["name"] = "rec time grid L" + std::to_string(level);
+    g.meta["params"] = Json{{"grid", Json{{"kind", "time"}, {"origin", 0}, {"width", width}, {"hop", width}, {"count", count}, {"size", own}, {"level", level}, {"rate", fs}}}};
+    return g;
+  };
+  auto product_of = [&](int level) {
+    ng::Array g;
+    const std::int64_t width = std::int64_t(1) << level, count = (own + width - 1) / width;
+    g.meta["name"] = "rec cells";
+    g.meta["params"] = Json{{"product", Json{{"layout", "product"}, {"radices", Json::array({count, 1})}, {"factors", Json::array({Json{{"kind", "time"}, {"level", level}, {"count", count}}, Json{{"kind", "kernels"}, {"size", 1}}})}}}};
+    return g;
+  };
+  const Json cellParameters = Json{{"frequency_normalisation", "none"}, {"cell_width", 2.0}};
+  const auto cells = run_array("signal.tile_time_cells", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}, {"grid", time_grid(4)}, {"product", product_of(4)}}, cellParameters);
+  const ng::Array& Zp = cells.at("pair_cells");
+  const ng::Array& Zt = cells.at("tile_cells");
+  // measurements over grid x atoms: [pairs x 128 tiles x (Re, Im)] and [tiles x 128 x power_sum]; the atom's own window: 2 sd of centre / 12 at 200 Hz, 64 samples (level 6)
+  CHECK(Zp.rows == 6 * 128 && Zp.cols == 2 && Zt.rows == 4 * 128 && Zt.cols == 1);
+  CHECK(Zp.meta["describe"]["attributes"]["groups"][0]["own_level"] == 6);
+  CHECK(Zp.meta["describe"]["measures"][0]["merge"] == "sum" && Zp.meta["describe"]["measures"][1]["merge"] == "sum");   // declared: the tiles roll up at read
+  // the stored cells roll up to the whole run's: every tile summed = the one tile of a grid of 2^11 samples (the run's 2048 samples; own window made as wide by cell_width 64)
+  const auto whole = run_array("signal.tile_time_cells", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}, {"grid", time_grid(11)}, {"product", product_of(11)}},
+                               Json{{"frequency_normalisation", "none"}, {"cell_width", 64.0}});
+  {
+    double sumIm = 0, sumPower = 0;
+    for (std::int64_t n = 0; n < 128; ++n) { sumIm += at(Zp, q01 * 128 + n, 1); sumPower += at(Zt, 0 * 128 + n, 0); }
+    const double wholeIm = at(whole.at("pair_cells"), q01, 1), wholePower = at(whole.at("tile_cells"), 0, 0);
+    std::printf("  tiles rolled up: Im %.6g (whole %.6g), power %.6g (whole %.6g)\n", sumIm, wholeIm, sumPower, wholePower);
+    CHECK(std::abs(sumIm - wholeIm) < 1e-5 * std::abs(wholeIm) && std::abs(sumPower - wholePower) < 1e-5 * wholePower && sumIm > 0);
+  }
+  // a grid coarser than an atom's own window is refused (the window is the atom's own, never wider)
+  CHECK(refused([&] { run_array("signal.tile_time_cells", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}, {"grid", time_grid(8)}, {"product", product_of(8)}}, cellParameters); }));
+  CHECK(refused([&] { run_array("signal.tile_time_cells", {{"spectra", spectra}, {"operator", M}, {"frequency", atoms}, {"grid", time_grid(4)}, {"product", product_of(5)}}, cellParameters); }));   // not the grid's product
   const Json flipParameters = Json{{"patterns", 500}, {"seed", 0}, {"min_streamlines", 10}, {"distance_bin_edges", Json::array({0, 0.03, 0.045, 0.06, 0.08, 0.1, 0.13, 0.17, 0.25})}};
-  const auto flip = run_array("stats.network_sign_flip", {{"cells", Z}, {"pairs", pairs}}, flipParameters);
+  const auto flip = run_array("stats.network_sign_flip", {{"pair_cells", Zp}, {"tile_cells", Zt}, {"pairs", pairs}}, flipParameters);
   const ng::Array& R = flip.at("consistency");
   CHECK(R.rows == 6 && R.cols == 5);                                                          // [pairs x 1 atom x (mean flow, p, family-wise p, control, phase)]
   CHECK(at(R, q01, 0) > 0.3 && at(R, q01, 1) < 0.01 && at(R, q01, 2) < 0.05);               // the lagged pair: a positive mean flow, p and family-wise p small
@@ -176,7 +204,8 @@ int main() {
   double controls = 0;
   for (int q = 0; q < 6; ++q) controls += at(R, q, 3);
   CHECK(controls == 0);
-  const auto again = run_array("stats.network_sign_flip", {{"cells", Z}, {"pairs", pairs}}, flipParameters);
+  const auto again = run_array("stats.network_sign_flip", {{"pair_cells", Zp}, {"tile_cells", Zt}, {"pairs", pairs}}, flipParameters);
+  CHECK(R.meta["producer"]["rows"][0]["cells"] == 32);                           // the stored tiles rolled up to the atom's own window: 2048 / 64 whole cells
   CHECK(again.at("consistency").data == R.data);                                            // one seed, one result
   const auto replication = run_array("stats.run_replication", {{"first", R}, {"second", R}, {"pairs", pairs}}, Json{{"min_streamlines", 1}});
   CHECK(std::abs(at(replication.at("replication"), 0, 0) - 1) < 1e-12);

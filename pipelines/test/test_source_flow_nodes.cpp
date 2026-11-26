@@ -6,7 +6,7 @@
 // Checked: signal.mode_analysis selects each hemisphere's rows of the cortex kernel (and a glued-style package's bridge rows are zero); signal.source_mode_operator option B is
 // the mode operator itself and option A equals option B when the sensor basis is complete (nothing left out; the cortical flow identical), with a truncated basis what option A
 // leaves out is stated; signal.cortical_flow: the travelling source maps to an exact (travelling) flow with a small remainder, the band pairs add back to the whole field and the
-// complement band holds the kernel's content outside the kept modes; signal.cortical_time_cells + stats.sign_flip_consistency: the travelling wave is consistent over the cells.
+// complement band holds the kernel's content outside the kept modes; signal.cortical_time_cells (on a stored time grid, measurements over grid x atoms [x bands]) + stats.sign_flip_consistency: the travelling wave is consistent over the cells.
 #include <cmath>
 #include <complex>
 #include <cstdio>
@@ -271,15 +271,29 @@ int main() {
     CHECK(outside > 0 && outside < 1);
   }
 
-  // ── time cells and the sign-flip test ──
+  // ── time cells on a stored grid (G7) and the sign-flip test on them ──
   {
+    // the grid: tiles of 8 samples (one level of the line's dyadic tiling, select_time_grid's record); the products grid x atoms and grid x atoms x bands (select_product's records)
+    ng::Array grid;
+    grid.meta["name"] = "rec time grid L3";
+    grid.meta["params"] = Json{{"grid", Json{{"kind", "time"}, {"origin", 0}, {"width", 8}, {"hop", 8}, {"count", total / 8}, {"size", total}, {"level", 3}, {"rate", fs}}}};
+    auto product_of = [&](const Json& radices) {
+      ng::Array g;
+      Json factors = Json::array({Json{{"kind", "time"}, {"level", 3}}});
+      for (std::size_t i = 1; i < radices.size(); ++i) factors.push_back(Json{{"kind", "kernels"}});
+      g.meta["params"] = Json{{"product", Json{{"layout", "product"}, {"radices", radices}, {"factors", factors}}}};
+      return g;
+    };
     const ng::Arrays cells = run_array("signal.cortical_time_cells", ng::Arrays{{"spectra", spectraB}, {"package", left.package}, {"operator", optionB.at("operator")}, {"kernel_columns", optionB.at("kernel_columns")},
-                                                                            {"frequency", kernel_set(atoms)}, {"scale", kernel_set(bands)}},
+                                                                            {"frequency", kernel_set(atoms)}, {"scale", kernel_set(bands)}, {"grid", grid},
+                                                                            {"whole_product", product_of(Json::array({total / 8, 3}))}, {"product", product_of(Json::array({total / 8, 3, 3}))}},
                                        Json{{"frequency_weighting", "kernels"}, {"frequency_normalisation", "sum_of_squared_gains"}, {"support_floor", 1e-3}, {"cell_width", 2.0}});
-    const ng::Array& tc = cells.at("cells");
-    const Json groups = tc.meta.at("describe").at("attributes").at("groups");
-    CHECK(groups.size() == 12 && tc.cols == left.complex.nE + 4 * nV);
-    const ng::Arrays flip = run_array("stats.sign_flip_consistency", ng::Arrays{{"cells", tc}}, Json{{"elements", "edges"}, {"patterns", 200}, {"seed", 0}, {"cells_per_flip", 1}});
+    // the whole field's cells over grid x atoms, the bands' over grid x atoms x bands; each atom's own window recorded
+    CHECK(cells.at("whole_edge_cells").rows == left.complex.nE * (total / 8) * 3 && cells.at("edge_cells").rows == left.complex.nE * (total / 8) * 9);
+    CHECK(cells.at("whole_vertex_cells").cols == 4 && cells.at("whole_edge_cells").meta["describe"]["attributes"]["groups"][1]["own_level"] == 4);
+    const ng::Arrays flip = run_array("stats.sign_flip_consistency", ng::Arrays{{"whole_edge_cells", cells.at("whole_edge_cells")}, {"whole_vertex_cells", cells.at("whole_vertex_cells")},
+                                                                                {"edge_cells", cells.at("edge_cells")}, {"vertex_cells", cells.at("vertex_cells")}},
+                                      Json{{"elements", "edges"}, {"patterns", 200}, {"seed", 0}, {"cells_per_flip", 1}});
     const std::int64_t E = left.complex.nE;
     // the whole field's groups (band -1) are a measurement over the atoms, the bands' over atoms x bands: [E x members x 3] and [1 x members x 7]
     const ng::Array& whole = flip.at("whole_consistency_summary");

@@ -1,6 +1,6 @@
 # The sensor-space flow analysis (2026-11-24): the graph
 
-> **Storage, since the flow consolidation (2026-11-24):** the per-member flow results named below as statistics are stored as MEASUREMENTS over the atoms and their products, and the time cells are not stored; see `docs/reference.md`, "How the flow results are stored".
+> **Storage, since the flow consolidation (2026-11-24):** the per-member flow results named below as statistics are stored as MEASUREMENTS over the atoms and their products, and since 2026-11-26 (G7, `docs/specs/2026-11-26-graph-manifold-and-time-cells.md`) the time cells are the tiles of a stored time grid, stored as measurements over its product with the members and read at each atom's own window; see `docs/reference.md`, "How the flow results are stored".
 
 
 **Status:** design, written before the code (CONTRIBUTING, "Adding a node or a pipeline", step 0). Sensor space only: no inverse kernel, no cortex.

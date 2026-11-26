@@ -1222,9 +1222,18 @@ flow definitions read it; the flow itself is `flow_readout.h` (`pairFlow`, `time
 members is a measurement): the whole field's power, phase currents, potential, stream and flow coefficients over the atoms; the band pairs over the product atoms x bands
 x bands; the sign-flip test's per-element results and per-member summary over atoms x bands (and, in the source flow, the whole field's over the atoms). The products are
 made first by `run select_kernel_product` (`--factors 3 --first ATOMS --second BANDS --third BANDS`; `--factors 2` for atoms x bands), their code mixed radix, the first
-factor fastest: atom a, then the band q at the tip, then the band p at the tail (the stored member order a + A (q + Q p)). With `frequency_weighting every_bin` the frequency line's bins are an axis, not members: statistics. The time
-cells are made and tested inside the run, never stored. The order on a new recording: `run sensor_flow_bins` (no atoms: its chunk spectra make the frequency line
-`<time line>_freq_L<log2 transform>`), `run select_kernels` (the atoms on that line, the bands on the solve's eigenvalue line), `run select_kernel_product`, `run sensor_flow`.
+factor fastest: atom a, then the band q at the tip, then the band p at the tail (the stored member order a + A (q + Q p)). With `frequency_weighting every_bin` the frequency line's bins are an axis, not members: statistics. **The time
+cells are STORED (2026-11-26, storage plan G7, issue #282; spec `docs/specs/2026-11-26-graph-manifold-and-time-cells.md`):** every flow definition takes a stored time grid
+of the recording (`--time-grid NAME`: `select_time_grid --rule tiles --duration D`, one level k of the line's dyadic tiling from its first sample) and sums each member over
+its tiles (each sample once; a tile cut by a chunk's edge completed from the next chunk; the line's last tile as long as it is), stored as MEASUREMENTS over the product of
+the grid with the members, the grid's tile fastest (`select_product --time-grid G --kernels atoms --atoms A`, or `--kernels atoms_scales --atoms A --scales B`): the sums are
+declared `sum` (`phase_current`, `vertex_phase_current_x/y/z`, `power_sum`, `cross_spectrum_real/imaginary`), so a coarser level of the grid is a roll-up at read. Every
+windowed quantity uses the ATOM'S OWN WIDTH on that tiling (a window is an atom with a rectangular kernel: a box): `--cell-width` of the atom's time standard deviations,
+snapped to the nearest dyadic level k_a; the sign-flip test reads the stored cells rolled up to k_a (sums of 2^(k_a - k) tiles, `nxr::measurement::coarser_groups`; a cell
+holding the line's last part tile left out), and a grid coarser than an atom's own window is refused (it names the level needed). There is no fixed segment. The order on a
+new recording: `run sensor_flow_bins` (no atoms: its chunk spectra make the frequency line `<time line>_freq_L<log2 transform>`), `run select_kernels` (the atoms on that
+line, the bands on the solve's eigenvalue line), `run select_kernel_product`, `run select_time_grid --rule tiles` (no coarser than the finest atom's own window) and
+`run select_product --kernels atoms_scales` (and `--kernels atoms` for the source flow's whole field and the connectome flow), `run sensor_flow`.
 Per hemisphere, each side's measurements name the manifold their rows lie on (`rows:` in the definitions: the cortex solve's triangulation for vertices, edges and the
 sign-flip test, its eigen line for the modes; the sensor flow's its own solve's), so both sides and the sensor flow keep the same measure names (2026-11-26, issue #264; the
 nodes' `measure_suffix` is no longer used by the shipped definitions, and results stored before keep their `_left` / `_right` names). Read one side with `read selection
@@ -1242,8 +1251,9 @@ per member the weighted sum C = Y Yᴴ once, and reads per member the whole fiel
 `select_kernels --profile cos2_partition`: an amplitude partition, so the pairs add back to the whole): power per vertex, phase current per intrinsic edge
 J = Im(conj(z_tail) z_tip) (travel tail to tip gives J < 0), phase current per vertex Im(conj(z) grad z), the edge current's Hodge-Dirac coefficients
 (`projectOneForm`), the exact potential (Neumann on an open surface) and the coexact stream (Dirichlet). `signal.atom_time_cells` reads each atom and band back in time
-per chunk (the synthesis composed on the atom's bins, one inverse transform) and sums the same quantities over cells of the atom's own width (the power of two of
-samples nearest `--cell-width` time standard deviations); `stats.sign_flip_consistency` tests the direction's consistency over those cells (nxr's flow analysis's R1 with
+per chunk (the synthesis composed on the atom's bins, one inverse transform) and sums the same quantities over the stored time grid's tiles (`edge_cells`: `phase_current`;
+`vertex_cells`: `vertex_phase_current_x/y/z`, `power_sum`; over grid x atoms x bands); `stats.sign_flip_consistency` tests the direction's consistency over those cells
+rolled up to each atom's own window (the power of two of samples nearest `--cell-width` time standard deviations) (nxr's flow analysis's R1 with
 numpy's `default_rng(--seed)`, `--patterns`, a family-wise maximum, `--cells-per-flip`; the measured correlation of neighbouring cells is stored as the check).
 With `--aperiodic true`: `signal.sensor_power` (each sensor's power per bin, the mean over chunks, stored as `<name>_sensor_power`) and `stats.aperiodic_fit` (nxr's specparam
 port, `--aperiodic-range`), once for each model asked, from the one power: `--aperiodic-fixed` (default true; no knee, `<name>_aperiodic`) and `--aperiodic-knee` (default false;
@@ -1312,9 +1322,9 @@ cycle modes at 0 first), `_eigenvalues`, `_kinds` (exact 0, harmonic 1), ONE ope
 recording): `signal.tile_operator` averages the caller's free-orientation kernel over each tile's vertices (three components, no orientation assumed) and composes it with
 the synthesis of the served coordinates back to the kernel's channels (the pseudo-inverse of the serving operator `signal.mode_analysis` makes, as `sensor_flow` binds it): one
 operator [3 tiles x coordinates]; `signal.tile_flow` gives per atom the whole run's tile cross-spectrum S_ij = Σ over chunks and the atom's bins of g² Σ_c z_i conj(z_j)
-(Re and Im per pair, power per tile; the sensor chain's whole-run form); `signal.tile_time_cells` the same sums per cell of a level of the time line (`--cells segments`, the
-default and nxr's: non-overlapping 4 s segments from the run's first sample, `--segment-seconds`; or `atom_width`, each atom's own cells); `stats.network_sign_flip` ports nxr's
-nulls exactly (numpy's `default_rng(--seed)` bit for bit, drawn in nxr's order): per pair the mean over the cells of Im C_ij / sqrt(C_ii C_jj), its sign-flip p over the cells
+(Re and Im per pair, power per tile; the sensor chain's whole-run form); `signal.tile_time_cells` the same sums per tile of the stored time grid (`--time-grid`, `--time-atoms`:
+`pair_cells` Re and Im per pair, `tile_cells` `power_sum` per tile, over grid x atoms; nxr's fixed 4 s segments are not kept: the cells are each atom's own window,
+`--cell-width` time standard deviations, read from the stored tiles); `stats.network_sign_flip` ports nxr's nulls exactly on those cells (numpy's `default_rng(--seed)` bit for bit, drawn in nxr's order): per pair the mean over the cells of Im C_ij / sqrt(C_ii C_jj), its sign-flip p over the cells
 (`--patterns`) and the family-wise p (the null maximum of the normalised sums), the distance-matched control (as many not-joined pairs per distance bin, `--distance-bin-edges`,
 as joined ones, numpy's `choice`), and the phase of the summed cross-spectrum; `meeg.network_flow` reads that mean edge flow F (or the whole-run ratio Im S_ij / sqrt(S_ii S_jj))
 on the graph's edges and, from the graph's STORED modes and its conductance (no solve), gives the divergence Bᵀ F, the flow's coefficient on every mode (`flow_coefficient`,
@@ -1348,7 +1358,8 @@ formed), the flow coefficients on the cortex's STORED Hodge-Dirac edge rows, the
 flow beyond the kept modes split by sparse Poisson solves (stored as its own potential and stream; its star1 energy beside the flow's, so its share is derived at read).
 The cross-spectrum stays in sensor coordinates: per band one product conj(C) U_qᵀ (or conj(Y) (Yᵀ U_qᵀ) when the member has fewer draws than columns), then only the
 entries read. `signal.cortical_time_cells` inverts each atom's spectrum on the columns' side (one inverse transform of the columns, not of the vertices), then reads the
-cells through the readout; `stats.sign_flip_consistency` tests them unchanged. Per hemisphere (`--cortex per_hemisphere --left L --right R`, the reference) or glued
+stored time grid's tiles through the readout (`<side>_whole_edge_cells`, `<side>_whole_vertex_cells` over grid x atoms; `<side>_edge_cells`, `<side>_vertex_cells` over grid x
+atoms x bands; `--time-grid`, `--time-atoms`, `--time-atom-bands`); `stats.sign_flip_consistency` tests them rolled up to each atom's own window, the whole field first. Per hemisphere (`--cortex per_hemisphere --left L --right R`, the reference) or glued
 (`--cortex glued --glued G`). What it cannot resolve: it is the kernel's estimate in other coordinates (point spread, depth bias, field spread inherited; flow at
 wavelengths the kernel cannot resolve is leakage, not travel); rank at most the sensor coordinates (A) or the kernel's (B); wavelengths shorter than the last kept mode
 appear only in the complement band; per hemisphere no flow across the midline, glued no medial-wall sources; the three components summed make no claim about the normal
@@ -2391,7 +2402,7 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
     are options with their defaults in the YAML** (2026-11-17): `frames_per_cycle` (default 36, the 10 degree step of phase work) or `frames_per_tile`, and `origin` as a
     point: `start` (the recording's first sample), `clock`, or `event` (a stored selection's first member). No method constant is hard-wired in compute;
   - `run select_bands --rule frequency|eigenvalue|wavelength|parts|levels`: a band set on the dataset's Frequency or Eigenvalue line (was `pyramid_bands`, `spatial_bands`);
-  - `run select_product`: a product of grids and band sets (a box, a grid of cells, the joint partition), levels coupled to a band in closed form (was `joint`);
+  - `run select_product`: a product of grids and band sets (a box, a grid of cells, the joint partition), levels coupled to a band in closed form (was `joint`); `--kernels atoms|atoms_scales` the stored time grid x kernel sets (a flow's time cells, G7);
   - `select.events.spans|regions|cores|tracks`: irregular selections made by detection (nodes inside `band_bursts`, `global_bursts`, `patches`, `spatial_events`, `vortex_cores`).
 - **The glued cortex is made by its own definition** (2026-11-17; its result as selections, 2026-11-23): `run glue --surface cortex_pial [--hemispheres Structures] [--left "Cortex L"] [--right "Cortex R"]`
   READS the hemispheres from the caller's labelling of the original (Brainstorm's `Structures` by default; a left or right member that is not one connected piece, cortex outside its own `unassigned`,
