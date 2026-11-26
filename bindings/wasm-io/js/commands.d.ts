@@ -152,6 +152,15 @@ export interface JoinDatasetOptions {
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
+export interface CopyNodesOptions {
+  dataset: string | number;
+  dry_run?: boolean;
+  from: string | number;
+  manifold: string[] | string;
+  subject: string | number;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
 export interface VerifyPackageOptions {
   package: string | number;
   /** receives each progress line the command prints, as an object */
@@ -531,7 +540,9 @@ export interface ImportConditionOptions {
   include_imported?: boolean;
   no_gain?: boolean;
   no_raw?: boolean;
+  note?: string | number;
   recording?: string | number;
+  replace_recording?: boolean;
   resample?: string | number;
   subject: string | number;
   surface?: string | number;
@@ -1122,6 +1133,9 @@ export interface Verbs {
   };
   join: {
     dataset: (options: JoinDatasetOptions) => Promise<Result>;
+  };
+  copy: {
+    nodes: (options: CopyNodesOptions) => Promise<Result>;
   };
   verify: {
     package: (options: VerifyPackageOptions) => Promise<Result>;

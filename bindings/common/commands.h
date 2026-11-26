@@ -790,6 +790,15 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
   } else if (c == "import templates") {
     task::ImportTemplatesRequest q{o.str("templates_dir"), o.str("dataset"), o.maybe("subject"), o.maybe("trk"), o.maybe("surface"), created_by};
     call([&] { return task::import_templates(q); });
+  } else if (c == "copy nodes") {
+    task::CopyNodesRequest q;
+    q.dataset = o.str("dataset");
+    q.subject = o.str("subject");
+    q.from = o.str("from");
+    q.manifold = o.list("manifold");
+    q.dry_run = o.flag("dry_run");
+    q.created_by = created_by;
+    call([&] { return task::copy_nodes(q, progress); });
   } else if (c == "import condition") {
     task::ImportConditionRequest q;
     q.protocol = o.str("protocol");
@@ -805,6 +814,8 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.include_imported = o.flag("include_imported");
     q.no_raw = o.flag("no_raw");
     q.extra_surface = o.maybe_list("extra_surface");
+    q.replace_recording = o.flag("replace_recording");
+    q.note = o.maybe("note");
     q.created_by = created_by;
     call([&] { return task::import_condition(q, progress); });
   } else if (c == "import surface") {

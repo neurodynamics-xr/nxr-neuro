@@ -204,6 +204,7 @@ In the verb-first grammar, each with its own `--help`; they parse, call the func
 | `create subject --dataset D --name S` | on a catalogue: a new package `D/S.nxr.zarr`, registered |
 | `create package --package P --name S --home-dataset N [--kind subject\|template\|group]` | a subject package |
 | `verify package --package P`, `show package --package P` | recompute every digest and the content hash; show the record |
+| `copy nodes --dataset D --subject S --from PACKAGE --manifold NAME [--manifold NAME ...] [--dry-run]` | copy a subject's stored solves (a manifold with what lies on it and was made from it) from another package of the same subject, nothing solved again (`### copy` below) |
 | `register package --dataset D (--package P ... \| --scan) --registered-by WHO [--replace]` | register (idempotent; each outcome and refusal reported) |
 | `list members --dataset D` | the packages with their state (registered, missing, stale) |
 | `list subjects --dataset D [--subjects A,B \| --where FILTER]` | on a catalogue: the members, or those selected (the matched subjects, their hashes and the filter text with its language version are printed); on a one-database dataset as before |
@@ -676,13 +677,36 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
 | `nxr-neuro import transform` | Import a head-to-MRI transform (an MNE `-trans.fif`, either direction) as a transition operator from the head frame to FreeSurfer's surface RAS (`freesurfer-tkr`, metres). | - |
 | `nxr-neuro import bids` | Import a BIDS dataset (MEG, EEG, iEEG) as a new dataset of subject packages: one package per `sub-<label>`, each recording imported through `import recording` (copied, or `--in-place`), `participants.tsv` as the participant variables (so `--where` works), `channels.tsv` (types, bad channels), `events.tsv` (the recording's events) and `electrodes.tsv` with `coordsystem.json` (channel positions; the coordinate system is recorded verbatim, never interpreted). The dataset's licence and authors are the origin of every item. | - |
 | `nxr-neuro create recording --synthetic` | Make a small synthetic recording in a subject package: sine waves (`--frequency`, repeatable) plus white noise from a `--seed`, with `--channels`, `--sfreq` and `--duration` as options. Stored as an imported recording is stored, with an origin record saying it is synthetic (CC0-1.0, redistributable); the same seed and options give the same samples. Used by the release smoke test. | - |
-| `nxr-neuro import condition PROTOCOL` | Import a Brainstorm condition (its recordings, channels and head models) into a dataset. | `convert convert` |
+| `nxr-neuro import condition PROTOCOL` | Import a Brainstorm condition (its recordings, channels and head models) into a dataset. `--replace-recording --note TEXT` replaces, in place, the samples of the condition's raw recording already imported (below). | `convert convert` |
 | `nxr-neuro import inverse` | Import a Brainstorm inverse kernel as an operator of a subject. | `convert inverse` |
 | `nxr-neuro import covariance` | Import a Brainstorm study's own noise covariance (`noisecov_*.mat`, `--kind noise`) or data covariance (`ndatacov_*.mat`, `--kind data`) as a statistic `<condition>_noise_covariance` / `<condition>_data_covariance` (measure covariance, method empirical), on the pick of the condition's channels that have non-zero rows (a Selection `<name>_channels` on the condition's channel manifold, in the channel file's order), so `run inverse --noise-cov NAME` reads it. The file is the study's `NoiseCov` record, else the first `noisecov_*.mat` / `ndatacov_*.mat` in the study folder; one with no such file is refused with its reason. Its source file, comment, history, the recording it was computed from (named, not imported) and its sample count are in the statistic's options; `FourthMoment` is not imported. An existing statistic of that name is refused unless `--replace`. | `convert covariance` |
 | `nxr-neuro import map` | Import Brainstorm source or matrix maps as fields of a subject. | `convert map` |
 | `nxr-neuro import resample` | Resample a recording to a new sampling rate, as a new recording. | `convert resample` |
 | `nxr-neuro import badsegments` | Import a recording's bad segments from a file. | `convert badsegments` |
 | `nxr-neuro import events` | Import a recording's events from a file. | `convert events` |
+
+**The BST-BIN binary of a raw link** (`nxr::bst::BstReader`, `io/src/bst_recording.cpp`; issue #276; register D169). Brainstorm writes and reads every epoch of a `.bst`, the last one included, with each
+channel's block `epochsize` samples apart (`out_fwrite_bst.m`, `in_fread_bst.m`; the reference): when `nsamples` ends inside the last epoch, its channels are still `epochsize` apart, the
+file ends after the last channel's declared samples (or holds the last epoch whole), and only the declared samples are kept. The reader takes the layout from the file's size: that one,
+the last epoch whole, or the last epoch re-laid with its channels their declared length apart (what an earlier re-lay script writes); a size that fits none of them is refused, naming the
+three sizes. A file shorter than all of them is a copy cut short, read in Brainstorm's layout: the samples every channel holds in full are imported and reported (`truncated`), fewer than half
+refused. Up to 0.4.3 the reader took a partial last epoch's channels to be their declared length apart, so every channel but the first read its last epoch from the wrong place, with no
+error. A package imported so is repaired in place with `import condition --replace-recording` (below). Tests: `test_bst_binary` (issue #276's file, Brainstorm's layout, the last epoch whole, the
+re-laid layout, cut short, a size that fits none).
+
+**Replacing a recording's samples in place** (`import condition PROTOCOL --subject S --condition C --dataset D --replace-recording --note TEXT [--resample HZ]`;
+`nxr::bst::replace_raw_timeseries`; the maintainers' decision of 2026-11-26, register D170). The condition's raw recording, already imported into the subject, is read again from its
+BST-BIN file exactly as the import reads it (the same reader, the same `--resample`), and its samples and envelope are rewritten in place: the recording's row and id, its time line,
+channels, channel flags, events and bad segments, its chunk and envelope tilings, the channel file's projectors and every other node of the package (manifolds, eigensolves, kernels,
+registrations) are kept, so everything that names the recording still names it. Nothing else of the condition is read or written. Why it is a flag of the import and not a write to a
+stored field: the samples are a function of the source file and the import's options, so the importer, and only it, can write them again; a field committed by any other writer stays
+written once. **Refused, with nothing written:** no `--note`; a subject or acquisition not imported (`nothing to replace`); a recording linked in place (no stored samples); another
+channel count, or a channel file or flags whose sha1 differs from the one the channels were imported with (D121); another shape [channels x samples] or sampling rate. **Bytes first,
+the row last:** the new samples and envelope are written beside the stored ones, the stored ones then moved aside (`_replaced-<date>/<path>`, never deleted) and the new ones put in
+their place; then the recording's `producer_json` gains an entry of `replaced_samples` (`utc`, `by`, `note`, `command`, `source` {file, layout, declared_samples, read_samples},
+`channels_checked`, `from` {samples: the SHA-256 of the stored chunks' digests, moved_aside}, `to` {samples}). In a subject package every key's digest and the content hash follow the
+new bytes (`verify package` agrees). **What was computed from the samples:** a run's cache key names its inputs by id, so a stored result computed from the old samples would be
+found again: the result lists every node whose provenance names the recording (`derived`) and says to run them again with `--replace`. Test: `test_import_replace_recording`.
 
 **MATLAB v7.3 files in the WebAssembly build.** A `.mat` saved with `-v7.3` is an HDF5 file. The native builds read it (matio over HDF5), as before. The WebAssembly build has no HDF5
 (and is 32-bit, with 4 GB at most), so there `import subject`, `import condition`, `import template` and `import group` **skip each v7.3 file and import the rest**, instead of
@@ -736,6 +760,36 @@ condition's channel file, the surface its kernels index, a template's only corte
 | `nxr-neuro add line` | A closed-form line: `--n`, `--spacing`, `--origin`, `--unit`; `--dimension time` (seconds) makes a time line fields can be time-resolved on. With `--coordinates C.npy --dimension eigenvalue [--kinds K.npy]`, a line whose points are not evenly spaced. | |
 | `nxr-neuro add product` | The product manifold of stored factors (`--name N --factors A,B`: a line over time, a surface over time). | |
 | `nxr-neuro add dictionary` | A dictionary of codes of the dataset or a subject (`--name N --scope dataset\|subject --entries E.json`). | |
+
+### `copy`: Copy a subject's stored nodes from another package of the same subject
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro copy nodes` | Copy each `--manifold` of the package `--from`, with what lies on it and was made from it, into the subject's package of `--dataset`; nothing solved; `--dry-run` reports the plan. | |
+
+**`copy nodes --dataset D --subject S --from PACKAGE --manifold NAME [--manifold NAME ...] [--dry-run]`** (`io/include/nxr/io/copy_nodes.h`; the maintainers' decision of 2026-11-26, register
+D171). A re-imported subject takes the solves of its earlier package instead of solving them again: eigenmodes are solved once per manifold and stored, and this is how a stored solve moves to
+another package of the same subject. Nothing is computed; rows and bytes are copied.
+- **What goes:** each named manifold and, until nothing is added, every node that lies on or was made from one that goes: the manifolds derived from it (an intrinsic triangulation, an
+  eigensolve's eigenvalue line, a glued surface) or its components, the fields and selections on it, the operators from or to it, the selections that are members of one that goes, the
+  statistics of a field that goes, and every node the same run made (the same cache key in its provenance: a run's outputs go together, so a sensor mesh takes its map and its channels pick,
+  an eigensolve its eigenvalues, kinds and eigenvectors). A product (a manifold times a time line) is not followed. With a manifold go its topology and geometry rows, with a selection its
+  members, extents, spans, factors and measurements, with a dictionary its entries. Name the solved surface (the glued cortex, a sensor mesh), not its parent: everything on the parent goes
+  with it (an inverse kernel to a cortex included).
+- **What it finds in the target:** every other row a copied row names must be in the target and the same: a node by its path (its counts, and the size and SHA-256 of every chunk under its
+  folder and of the arrays its geometry and cells name), an acquisition by its label, a space and a coordinate system by name, a dictionary by name and scope (its entries equal); the
+  subject is the target's. A space, coordinate system or dictionary the target lacks is copied; a node or an acquisition it lacks refuses the copy, naming it. A node that goes and that the
+  target already holds, the same, is **kept** (the target's row is used and nothing is written: a second copy is a no-op); one it holds that differs refuses the copy (delete it there first).
+- **The target's own rows:** every copied row has a new id; every id in its columns and its JSON is the target's (the cache keys in its provenance included), so a run asked again in the
+  target finds the copy as its own result (a cache hit, nothing solved, with the same build). Each copied node's `producer_json` gains `copied` {from_package (the folder's name),
+  from_subject, from_id, from_content_hash, utc, by}. A copy of the source's primary surface is not primary in a target that has one.
+- **Checked:** the source is a subject package whose recorded content hash equals the hash of its rows and digests (nothing changed since its writer closed it), at this schema version, of a
+  subject of the target's name; the target is a subject package; every chunk copied has, in the target, the size and SHA-256 the source recorded (a zarr.json document is rewritten with the
+  target's ids, and the drain writes its attributes from the target's row). The readers' own checks hold on the copy: the eigensolve's options (`mollify`, `flip_eps`, `star1_floor`) are the
+  source's, and the vertex reader checks the triangulation against the target's surface. Bytes first, the rows last in one transaction; a failure removes what was written.
+- **Result:** `from` {package, subject, content_hash}, `copied` [{class, name, path, id, from_id}], `kept`, `found` (the target's rows the copies name), `keys`, `bytes`, `dry_run`. A copy leaves
+  a job row `copy:nodes`. Test: `test_copy_nodes` (a closed surface's and a sensor mesh's solves copied into a re-import, read, a cache hit on the same runs, a second copy keeps everything,
+  refusals for a surface that differs and for missing channels).
 
 ### `edit`: Edit what a subject holds without touching its arrays
 
