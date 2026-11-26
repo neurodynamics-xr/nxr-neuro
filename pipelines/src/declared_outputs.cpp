@@ -3,7 +3,9 @@
 
 #include <cmath>
 
+#include "nxr/bst/frequency.h"
 #include "nxr/io/errors.h"
+#include "nxr/io/spatial_bands.h"
 #include "nxr/selection/selection.h"
 #include "nxr/io/fibers.h"
 #include "nxr/io/finder.h"
@@ -129,7 +131,7 @@ std::string on_named(const Plan& P, const std::string& o, std::string t) {
       for (std::size_t at; (at = t.find("{" + k + "}")) != std::string::npos;) t.replace(at, k.size() + 2, v.get<std::string>());
   return t;
 }
-std::string default_manifold_id(nxr::io::SubjectWriter& sub, const std::string& ref) {
+std::optional<std::string> find_default_manifold(nxr::io::SubjectWriter& sub, const std::string& ref) {
   const std::string name = ref.substr(8);
   if (const auto tpl = sub.dataset().template_()) {
     task::Want w{.cls = task::Cls::manifold};
@@ -141,7 +143,27 @@ std::string default_manifold_id(nxr::io::SubjectWriter& sub, const std::string& 
     w.name = name;
     if (const auto m = task::Subject::of(sub.dataset(), sub.id()).find(w)) return m->id;
   }
-  throw nxr::io::Error(nxr::io::code::no_such_row, sub.name() + ": no manifold '" + name + "' in the dataset's template or in the subject (the shared line a band set lies on)");
+  return std::nullopt;
+}
+std::string default_manifold_id(nxr::io::SubjectWriter& sub, const std::string& ref) {
+  if (const auto id = find_default_manifold(sub, ref)) return *id;
+  throw nxr::io::Error(nxr::io::code::no_such_row, sub.name() + ": no manifold '" + ref.substr(8) + "' in the dataset's template or in the subject (the shared line a band set lies on)");
+}
+// the shared line found, or, when neither the template nor the subject holds it (a dataset made before any band set, a package whose template has none), MADE in the subject
+// (format 56: the line is the subject's own, a closed-form line the same in every subject): the Frequency line (bst::ensure_frequency's grid) and the Eigenvalue line (io::ensure_eigenvalue's)
+std::string default_manifold_made(task::Unit& unit, nxr::io::SubjectWriter& sub, const std::string& ref) {
+  if (const auto id = find_default_manifold(sub, ref)) return *id;
+  const std::string name = ref.substr(8);
+  task::LineOut l;
+  l.name = name;
+  if (name == nxr::bst::kFrequencyName) {
+    l.n = nxr::bst::kFrequencySamples; l.spacing = nxr::bst::kFrequencySpacingHz; l.unit = "Hz"; l.dimension = "frequency"; l.folder = "spectral"; l.cs_key = "frequency:line";
+  } else if (name == nxr::io::kEigenvalueName) {
+    l.n = nxr::io::kEigenvalueSamples; l.spacing = nxr::io::kEigenvalueSpacing; l.unit = "1/m\xc2\xb2"; l.dimension = "eigenvalue"; l.folder = "eigen"; l.cs_key = "eigenvalue:Laplace-Beltrami";
+  } else {
+    return default_manifold_id(sub, ref);                                     // not a shared line io knows how to make: refused with the reason
+  }
+  return unit.line(l);
 }
 std::string link(const Plan& P, const std::string& ref, const MadeIds* made, const std::string& where) {
   if (ref.find('|') != std::string::npos) return link_first(P, ref, made, where);
@@ -585,8 +607,10 @@ std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, co
     // on a manifold this run makes (a frequency line made with it): it has no place before that manifold is stored, and the store order puts the
     // manifold first, so it is checked there (a new manifold has no node to collide with)
     const bool on_made_here = spec.contains("on") && spec["on"].is_string() && P.definition.outputs.contains(spec["on"].get<std::string>());
-    if (spec.contains("on") && spec["on"].is_string() && is_default_link(spec["on"].get<std::string>())) out.emplace_back(task::Cls::selection, ts.node_path(default_manifold_id(sub, on_named(P, o, spec["on"].get<std::string>())), name));
-    else if (!on_made_here) out.emplace_back(task::Cls::selection, ts.node_path(link_of(P, spec, "on", nullptr, o), name));
+    if (spec.contains("on") && spec["on"].is_string() && is_default_link(spec["on"].get<std::string>())) {
+      // the shared line not stored yet: it is made when the output is stored (a new line has no node to collide with)
+      if (const auto mid = find_default_manifold(sub, on_named(P, o, spec["on"].get<std::string>()))) out.emplace_back(task::Cls::selection, ts.node_path(*mid, name));
+    } else if (!on_made_here) out.emplace_back(task::Cls::selection, ts.node_path(link_of(P, spec, "on", nullptr, o), name));
     else if (const auto id = ts.manifold_named(declared_name(P, spec["on"].get<std::string>()))) out.emplace_back(task::Cls::selection, ts.node_path(*id, name));   // the manifold is stored already (a re-run): its place is known, so a re-run is a hit
   }
   return out;
@@ -620,7 +644,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   };
   Json report = Json{{"output", o}, {"kind", k}, {"name", name}};
   if (spec.contains("on") && spec["on"].is_string() && is_default_link(spec["on"].get<std::string>()) && !made.count(spec["on"].get<std::string>()))
-    made[spec["on"].get<std::string>()] = default_manifold_id(sub, on_named(P, o, spec["on"].get<std::string>()));
+    made[spec["on"].get<std::string>()] = default_manifold_made(unit, sub, on_named(P, o, spec["on"].get<std::string>()));
 
   if (k == "manifold") {
     const std::string t = spec["type"].get<std::string>();
