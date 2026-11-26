@@ -11,13 +11,15 @@
 
 namespace nxr::io::task::pieces {
 
-/** `add field | statistic` with `piece.begin | append | commit` */
+/** `add field | statistic | measurements` with `piece.begin | append | commit` (measurements: one measure a write) */
 CommandResult field(const AddFieldRequest& request, const Progress& progress);
 CommandResult statistic(const AddStatisticRequest& request, const Progress& progress);
+CommandResult measurements(const AddMeasurementsRequest& request, const Progress& progress);
 
 /** what `begin` checks against the subject, read only (the refusals of the one-shot command: the manifold, the name, the shape the values must have) */
 void plan_field(const AddFieldRequest& request, const std::vector<std::int64_t>& shape, const Progress& progress);
 void plan_statistic(const AddStatisticRequest& request, const std::vector<std::int64_t>& shape, const Progress& progress);
+void plan_measurements(const AddMeasurementsRequest& request, const std::vector<std::int64_t>& shape, const Progress& progress);
 
 /** the unfinished writes of `dataset`: every one rolled back (`recover dataset`); those a handle began that has closed; those whose owner process is gone (a writable open's recovery) */
 int discard_all(const std::string& dataset);

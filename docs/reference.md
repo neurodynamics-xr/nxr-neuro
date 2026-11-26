@@ -753,8 +753,8 @@ condition's channel file, the surface its kernels index, a template's only corte
 | `nxr-neuro add surface FILE` | Add a mesh file (OBJ, PLY or STL), or `--vertices V.npy --faces F.npy` with `--name`, to a subject as a surface. | `surface add` |
 | `nxr-neuro add field` | Values on a manifold (`--manifold M --values V.npy`), optionally time-resolved on a line (`--time LINE`); its lineage with `--by-operator`, `--contribution SUBJECT:FIELD[:WEIGHT]`, `--producer JSON`. | |
 | `nxr-neuro add selection` | A partition or set (`--members`), a pick (`--indices`) or spans on a line (`--spans`), `--type` naming which; `--of-field`, `--weights V.npy`, `--producer JSON`. | |
-| `nxr-neuro add statistic` | Values on named axes (`--axes NAME:MANIFOLD ...`), with `--measure` and `--method` from the registries, of a field (`--of-field`) or detached. | |
-| `nxr-neuro add measurements` | One value a member of a selection for each measure (`--measure NAME=V.npy ...`), of a field (`--field`) or the members' own. | |
+| `nxr-neuro add statistic` | Values on named axes (`--axes NAME:MANIFOLD ...`), with `--measure` and `--method` from the registries or declared (`--declare JSON`), of a field (`--of-field`) or detached; `--producer JSON`. | |
+| `nxr-neuro add measurements` | One value a member of a selection for each measure (`--measure NAME=V.npy ...`), of a field (`--field`) or the members' own; each measure the registry does not know declared (`--declare JSON`, repeatable); `--producer JSON`; one measure in pieces (`--begin --measure NAME --shape --dtype`, `--append --write ID --region --values`, `--commit`). | |
 | `nxr-neuro add operator` | A map between two manifolds, dense (`--values` [to x from]), sparse CSR (`--data --indices --indptr`) or analytic (`--layout analytic --method NAME --params JSON`, no matrix); `--from-selection`, `--producer JSON`; or a transition between two coordinate systems (`--from-coordinate-system SPACE:NAME --to-coordinate-system SPACE:NAME`, `--values` one affine [3 x 4]). | |
 | `nxr-neuro add points` | A manifold of points: positions [n x 3] or one coordinate each [n]. | |
 | `nxr-neuro add line` | A closed-form line: `--n`, `--spacing`, `--origin`, `--unit`; `--dimension time` (seconds) makes a time line fields can be time-resolved on. With `--coordinates C.npy --dimension eigenvalue [--kinds K.npy]`, a line whose points are not evenly spaced. | |
@@ -809,7 +809,9 @@ another package of the same subject. Nothing is computed; rows and bytes are cop
 
 ### Writes in pieces, deletes by class and jobs (spec `docs/specs/2026-11-20-data-layer-queries.md`, 3.7 and 3.8; `io/src/commands_pieces.cpp`, `commands_delete.cpp`, `jobs.cpp`)
 
-**`add field | statistic` in three steps** for values too large to hand over at once. The three steps are ONE unit: until the commit the node is not in the subject (`read subject`, `list <class>` and
+**`add field | statistic | measurements` in three steps** for values too large to hand over at once (a write of measurements holds ONE measure: `--begin` names it, `--measure NAME`,
+with `--selection`, `--field` and its `--declare`, and its shape is the one-shot command's, `[members]`, `[members x N]` or `[members x N x C]`; each `--append` gives a region's values with
+`--values`). The three steps are ONE unit: until the commit the node is not in the subject (`read subject`, `list <class>` and
 `read <class>` do not see it).
 - `--begin` takes the full `--shape N,N,...` of the values (as the one-shot `--values` would be) and the stored `--dtype` (float32, float64, int32, int64, uint8 or bool; no default: precision follows the
   caller's data), with the command's usual options (`--subject`, `--name`, `--manifold`, `--time`, `--value-type`, `--axes`, ...). Everything the one-shot command checks without the values is checked now
@@ -2325,6 +2327,29 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
   column (the form of the field a measure is taken of); io applies the merge rule in SQL (`nxr::io::query`: filters by selection, member, level in physical units, subject or group; roll-ups through a grid's hierarchy
   and across subjects) and compute in memory (`roll_values`), and a parity test (`test_rollup_parity`) compares the two. `nxr-neuro migrate measurements --dataset D [--dry-run] [--remove-statistics]` makes a
   dataset made before schema 53 follow it, subject by subject and resumable; the old statistics are kept unless `--remove-statistics` (the explicit second step).
+- **Declared measures (2026-11-26).** The registries are a VOCABULARY of known names and their defaults, not a gate: any measure may be stored. The writer of a measure the registry
+  does not know DECLARES it: its merge rule (`sum`, `max`, `min`, `mean`, `none`; `derived` only for a registered name, whose formula io holds), and its form, unit, weight measure
+  and description where they apply. The declaration is kept in the subject's `measure_declaration` table (one row a name; added in place to a database made before it, user_version
+  unchanged), so one name keeps one meaning in a subject: a second declaration that differs, or one that contradicts the registry's entry for a known name, is refused (a declaration
+  may leave out what the registry gives). **Roll-ups read the rule from the declaration first, then the registry** (`measure_merge(db, name)`: io's SQL query, the array roll-ups,
+  across subjects, where every subject must declare the same rule). **A measure neither declared nor registered is never rolled up**: it reads as stored (each member its own value),
+  and a read that would merge members is refused, naming the declaration it needs. There is no fallback to `sum` (the old `max` for `*_max`, `sum` for any other name is gone), so a
+  p value or a consistency is never summed by a coarser query.
+  - **Who declares.** `add measurements --declare '{"name": "p", "merge": "none", "description": "..."}'` (repeatable, one a measure; in Python a dict or a list of dicts); a node through
+    its `describe.measures` entries (`{measure, merge, form, description}`), which the runner stores as the declaration: the flow nodes (`sensor_flow`, `source_flow`, `connectome_flow`,
+    `stats.sign_flip_consistency`) declare every measure they write that the registry does not know (`pipelines/src/flow_measures.h`: `flow_coefficient`, `vertex_phase_current_x/y/z`,
+    `remainder_*`, `cross_spectrum_real/imaginary`, `potential_coefficient`, `divergence`, `weighted_*_squares` and the counts `cells`, `groups_flipped` sum; `consistency`, `p`,
+    `familywise_p`, the sign-flip summaries, `mean_edge_flow`, `control`, `phase`, `potential` and the remainder maps none). A suffixed name (`_left`) is declared under that name.
+  - **Statistics** keep their measure and method in their row; a measure or a method neither statistics registry knows is DECLARED by the writer, `add statistic --declare
+    '{"measure": {"description": "...", "unit_rule": "..."}, "method": {"description": "..."}}'` (kept in the statistic's `producer.declared`), else refused. A declared `unit_rule`
+    that contradicts the registry's, or another statistic's declaration of the same measure in the subject, is refused.
+  - **Read back:** `read selection --name SEL --measure M [--field F]` gives `declaration` (the subject's, else the registry's entry), `declared` and `producers` beside the values.
+  Test: `test_measure_declarations` (a new measure rolled up by its declared rule; a p value declared `none` refused at roll-up; an undeclared unknown measure refused; the
+  contradictions), `test_pieces_deletes_jobs` (the commands).
+- **The producer of a measurement (2026-11-26).** Every row a measurement writes through a unit keeps how it was made in `selection_measurement.producer_json` (the command or the
+  pipeline's record with the output's name; `add measurements --producer JSON` adds the maker's own facts, as `add field --producer` does). A database made before it gets the column in
+  place, user_version unchanged. `add statistic --producer JSON` adds the maker's facts to a statistic's producer record (a group statistic's members, their ids and hashes, as `run
+  fingerprint` records them).
 - **The glued cortex.** The imported two-hemisphere mesh is the manifold of record; the glued surface is derived (`run glue`) and is the default computational manifold. A Field, a selection or a measurement made on the
   glued surface is stored on the original: the elements are restricted back through the glue map (the bridge has no counterpart and is dropped, like the medial wall) and the record says so (`restricted_from`).
 - **Operators a node builds** (the fused kernel of a chain, with its band and pre-operator) are stored through io as operators with their provenance and found by their key on the next run; no process-wide cache.
@@ -2362,7 +2387,7 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
   - `summarize`: members to a statistic (`run summarize`, was `statistic`);
   - `estimate`: a statistic from a partition of the stream (the Welch family, histograms).
   **Roll-ups exist in io's query as well as in compute** (2026-11-17): each measure's merge rule (sum, max, min, mean via sum and count, ratios derived at read) is DATA in the
-  measures registry, applied by io in SQL and by compute in memory, with a parity test between the two.
+  measures registry or the subject's declaration (above), applied by io in SQL and by compute in memory, with a parity test between the two.
 - **Quantities, never level indices.** Every selection parameter is a number with a unit in a named chart of the space it lies in: `8-12 Hz`, `2-5 s`, `20 mm`,
   `wavelength 40 mm`, `parts 16`, `area 100-400 mm2`. A bare level index is refused outside the explicit `index` chart; a definition declares `unit` and `chart` for each
   such parameter. The run records the stated quantity, the resolved level and the snapped quantity.

@@ -792,6 +792,7 @@ export interface AddStatisticOptions {
   by?: string | number;
   commit?: boolean;
   dataset: string | number;
+  declare?: string | number;
   description?: string | number;
   dtype?: string | number;
   measure?: Record<string, ArrayInput | string> | string[];
@@ -799,6 +800,7 @@ export interface AddStatisticOptions {
   name?: string | number;
   of_field?: string | number;
   partition?: string | number;
+  producer?: string | number;
   region?: Array<[number, number]> | string[] | string;
   replace?: boolean;
   shape?: number[] | string;
@@ -811,14 +813,24 @@ export interface AddStatisticOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddMeasurementsOptions {
+  append?: string | number;
+  begin?: string | number;
   by?: string | number;
+  commit?: string | number;
   dataset: string | number;
+  declare?: string[] | string;
+  dtype?: string | number;
   field?: string | number;
-  measure: Record<string, ArrayInput | string> | string[];
+  measure?: Record<string, ArrayInput | string> | string[];
+  producer?: string | number;
+  region?: Array<[number, number]> | string[] | string;
   replace?: boolean;
-  selection: string | number;
-  subject: string | number;
+  selection?: string | number;
+  shape?: number[] | string;
+  subject?: string | number;
   unit?: string | number;
+  values?: string | number;
+  write?: string | number;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }

@@ -13,6 +13,7 @@
 #include "nxr/io/task/handle.h"
 #include "pieces.h"
 #include "nxr/io/layout.h"
+#include "nxr/io/measures.h"
 #include "nxr/io/npy.h"
 #include "nxr/io/task/commands.h"
 #include "nxr/io/task/task.h"
@@ -377,6 +378,21 @@ CommandResult add_selection(const AddSelectionRequest& rq, const Progress& progr
   });
 }
 
+// `--declare` of add statistic: {measure: {description, unit_rule?}, method: {description}}, either part alone (the other registered); what the subject's writer checks
+Json statistic_declaration(const std::string& text) {
+  Json j = json_of(text, "--declare");
+  for (auto it = j.begin(); it != j.end(); ++it) {
+    if (it.key() != "measure" && it.key() != "method") throw Refused("--declare: a statistic declares its measure and its method ({measure: {description, unit_rule}, method: {description}}), not '" + it.key() + "'");
+    if (!it.value().is_object()) throw Refused("--declare: '" + it.key() + "' is an object ({description, ...})");
+    for (auto k = it.value().begin(); k != it.value().end(); ++k) {
+      const bool ok = k.key() == "description" || (it.key() == "measure" && k.key() == "unit_rule");
+      if (!ok) throw Refused("--declare: the " + it.key() + " declares " + (it.key() == "measure" ? "description and unit_rule" : "description") + ", not '" + k.key() + "'");
+      if (!k.value().is_string()) throw Refused("--declare: " + it.key() + "." + k.key() + " is a text");
+    }
+  }
+  return j;
+}
+
 CommandResult add_statistic(const AddStatisticRequest& rq, const Progress& progress) {
   if (rq.piece.active()) return pieces::statistic(rq, progress);
   need_options({{"--subject", rq.subject}, {"--name", rq.name}, {"--measure", rq.measure}, {"--method", rq.method}}, rq.values, "add statistic");
@@ -386,8 +402,14 @@ CommandResult add_statistic(const AddStatisticRequest& rq, const Progress& progr
   if (rq.axes.empty()) throw Refused("name each axis of the values and the manifold it runs along: --axes NAME:MANIFOLD ...");
   check_statistic_rank(rq, v.shape, "--values " + file_name(rq.values));
   Json inputs = Json{{"values", file_name(rq.values)}};
+  Json maker = maker_producer(rq.producer);
+  if (rq.declare) {
+    if (maker.is_null()) maker = Json::object();
+    maker["declared"] = statistic_declaration(*rq.declare);
+  }
   return in_unit(rq.dataset, rq.subject, author_of(rq), producer_of("add statistic", rq.created_by, inputs, rq.description), progress, [&](const Subject& ts, Unit& u) {
     StatisticOut st;
+    st.producer = maker;
     st.name = rq.name;
     st.output = rq.name;
     st.measure = rq.measure;
@@ -428,8 +450,36 @@ CommandResult add_statistic(const AddStatisticRequest& rq, const Progress& progr
   });
 }
 
+// the declarations of `add measurements` (--declare JSON, one a measure): parsed and checked to name a measure given; the subject checks them against the registry when they are stored
+std::vector<Json> measurement_declarations(const std::vector<std::string>& texts, const std::vector<std::string>& names) {
+  std::vector<Json> out;
+  std::vector<std::pair<std::string, Json>> each;   // a text may hold one declaration or a list of them (the Python face's list of dicts)
+  for (const auto& t : texts) {
+    const Json j = json_of(t, "--declare", false);
+    if (j.is_array()) { for (const auto& x : j) each.emplace_back(x.dump(), x); }
+    else each.emplace_back(t, j);
+  }
+  for (auto& [t, j] : each) {
+    if (!j.is_object()) throw Refused("--declare " + t.substr(0, 60) + ": a declaration is a JSON object {name, merge, ...}");
+    try {
+      (void)measure_declaration_of(j);
+    } catch (const Error& e) {
+      throw Refused("--declare " + t.substr(0, 60) + ": " + e.what());
+    }
+    const std::string name = j["name"].get<std::string>();
+    if (std::find(names.begin(), names.end(), name) == names.end()) throw Refused("--declare names the measure '" + name + "', which is not among the measures given (--measure)");
+    for (const auto& o : out) if (o["name"] == name) throw Refused("--declare: the measure '" + name + "' is declared twice");
+    out.push_back(std::move(j));
+  }
+  return out;
+}
+
 CommandResult add_measurements(const AddMeasurementsRequest& rq, const Progress& progress) {
+  if (rq.piece.active()) return pieces::measurements(rq, progress);
+  need_options({{"--subject", rq.subject}, {"--selection", rq.selection}}, ArrayInput("-"), "");
   if (rq.measure.empty() && rq.measure_arrays.empty()) throw Refused("give each measure and its values: --measure NAME=FILE.npy ...");
+  for (const auto& [name, array] : rq.measure_arrays)
+    if (name.empty()) throw Refused("--values belongs to a write in pieces (--append); the one-shot command takes each measure as --measure NAME=FILE.npy");
   std::vector<std::pair<std::string, ArrayInput>> given;
   Json inputs = Json::object();
   for (const auto& m : rq.measure) {
@@ -442,7 +492,14 @@ CommandResult add_measurements(const AddMeasurementsRequest& rq, const Progress&
     given.emplace_back(name, array);
     inputs[name] = file_name(array);
   }
+  std::vector<std::string> names;
+  for (const auto& g : given) names.push_back(g.first);
+  const std::vector<Json> declarations = measurement_declarations(rq.declare, names);
+  const Json maker = maker_producer(rq.producer);
   return in_unit(rq.dataset, rq.subject, author_of(rq), producer_of("add measurements", rq.created_by, inputs, std::nullopt), progress, [&](const Subject& ts, Unit& u) {
+    Json declared = Json::array();
+    for (const auto& d : declarations) declared.push_back(u.declare_measure(d));   // in the unit: refused declarations store nothing
+    const Json row_producer = u.producer("", maker);
     const auto sel = ts.by_id_or_name(Cls::selection, rq.selection);
     if (!sel) throw Error(code::no_such_row, "the subject holds no selection named '" + rq.selection + "' (--selection)");
     std::optional<Node> field;
@@ -486,7 +543,8 @@ CommandResult add_measurements(const AddMeasurementsRequest& rq, const Progress&
         mo.selection_id = sel->id;
         mo.of_field_id = field->id;
         mo.path = field->path.value_or(safe_name(field->name)) + "_" + safe_name(sel->name);   // beside the field's arrays, under the selection's name (as the runner lays them)
-        mo.measures.push_back(MeasurementOut::Measure{measure, rq.unit.value_or(""), std::move(laid)});
+        mo.measures.push_back(MeasurementOut::Measure{measure, rq.unit.value_or(""), std::move(laid), Json()});
+        mo.producer = maker;
         if (comps > 1) mo.attributes = Json{{"components", comps}};
         array_rows += u.measurements(mo);
         continue;
@@ -496,12 +554,14 @@ CommandResult add_measurements(const AddMeasurementsRequest& rq, const Progress&
         Json row = Json{{"selection_id", sel->id}, {"code", codes[k]}, {"measure", measure}, {"value", d.f64[k]}};
         if (field) row["of_field_id"] = field->id;
         if (rq.unit) row["unit"] = *rq.unit;
+        if (row_producer.is_object() && !row_producer.empty()) row["producer_json"] = row_producer;
         rows.push_back(std::move(row));
       }
     }
     const std::int64_t written = u.write_measurements(rows) + array_rows;
     Json out = Json{{"class", "measurements"}, {"selection", sel->name}, {"field", field ? Json(field->name) : Json()}, {"measures", static_cast<std::int64_t>(given.size())}, {"rows", written}};
     if (!replaced.empty()) out["replaced"] = replaced;
+    if (!declared.empty()) out["declared"] = declared;
     return out;
   });
 }
@@ -769,6 +829,35 @@ void plan_statistic(const AddStatisticRequest& rq, const std::vector<std::int64_
   if (ts.by_id_or_name(Cls::statistic, rq.name) && !rq.replace) throw Error(code::already_exists, "the subject already holds a statistic named '" + rq.name + "': pass --replace to move it aside");
   if (rq.of_field && !ts.by_id_or_name(Cls::field, *rq.of_field)) throw Error(code::no_such_row, "the subject holds no field named '" + *rq.of_field + "' (--of-field)");
   if (rq.partition && !ts.by_id_or_name(Cls::selection, *rq.partition)) throw Error(code::no_such_row, "the subject holds no selection named '" + *rq.partition + "' (--partition)");
+  (void)maker_producer(rq.producer);
+  if (rq.declare) (void)statistic_declaration(*rq.declare);
+}
+
+void plan_measurements(const AddMeasurementsRequest& rq, const std::vector<std::int64_t>& shape, const Progress& progress) {
+  if (rq.measure.size() != 1 || rq.measure.front().find('=') != std::string::npos || !rq.measure_arrays.empty())
+    throw Refused("a write of measurements in pieces is of ONE measure: begin names it (--measure NAME) with --shape and --dtype; append gives each region's values");
+  need_options({{"--subject", rq.subject}, {"--selection", rq.selection}}, ArrayInput("-"), "");
+  const std::string measure = rq.measure.front();
+  (void)measurement_declarations(rq.declare, {measure});
+  (void)maker_producer(rq.producer);
+  Lease lease = open_reader(rq.dataset, rq.subject, progress);
+  SubjectWriter sub = SubjectWriter::open(*lease, rq.subject);
+  const Subject ts = Subject::of(sub);
+  const auto sel = ts.by_id_or_name(Cls::selection, rq.selection);
+  if (!sel) throw Error(code::no_such_row, "the subject holds no selection named '" + rq.selection + "' (--selection)");
+  std::optional<Node> field;
+  if (rq.field) {
+    field = ts.by_id_or_name(Cls::field, *rq.field);
+    if (!field) throw Error(code::no_such_row, "the subject holds no field named '" + *rq.field + "' (--field)");
+  }
+  std::int64_t n_members = 0;
+  try { n_members = static_cast<std::int64_t>(ts.element_members(sel->id).member_codes.size()); } catch (const Error&) {}
+  if (!n_members && sel->n_members) n_members = *sel->n_members;
+  if (shape.empty() || shape[0] != n_members || shape.size() > 3)
+    throw Refused("--shape " + shape_text(shape) + ": the values of '" + sel->name + "' are [" + std::to_string(n_members) + "], [" + std::to_string(n_members) + " x N] or [" + std::to_string(n_members) + " x N x C]");
+  if (shape.size() >= 2 && !field) throw Refused("--measure " + measure + ": an array a member is a measurement OF a field: give --field");
+  if (ts.has_measure(sel->id, measure, field ? std::optional<std::string>(field->id) : std::nullopt) && !rq.replace)
+    throw Error(code::already_exists, "'" + sel->name + "' already holds the measure '" + measure + "'" + (field ? " of " + field->name : std::string()) + ": pass --replace");
 }
 
 }  // namespace pieces
