@@ -54,9 +54,15 @@ struct TimeGrid {
   int level = 0;
   double rate = 0;
   std::string name, id;                          // id: the stored grid's row (empty when made in the run)
+  // THE SPAN the spectra cover (issue #291): samples [start, stop) of the line, a run of whole tiles of the grid (an end at the line's end stays there); its tiles
+  // first .. first + tiles - 1 keep the grid's codes. The whole line: start 0, stop size, first 0, tiles count.
+  std::int64_t start = 0, stop = 0, first = 0, tiles = 0;
+  bool whole() const { return start == 0 && stop == size; }
   nxr::graph::Json record() const;
 };
-/** the stored grid handed to a node (its params.grid), checked against the spectra's line (rate, samples); refused for a grid that is not one dyadic level from the line's first sample */
+/** the stored grid handed to a node (its params.grid), checked against the spectra's line (rate, samples) and RESTRICTED to the span the spectra cover (their chunks' samples: a
+ *  run of whole tiles of the grid, the same codes; issue #291); refused for a grid that is not one dyadic level from the line's first sample, a line shorter than the spectra's
+ *  samples, or a span whose ends are not tile boundaries (a grid coarser than the span's chunks) */
 TimeGrid time_grid_of(const nxr::graph::Array& grid, const Spectra& s, const char* who);
 /** an atom's own window level: `cellWidth` time standard deviations of an atom whose frequency standard deviation is `frequencySd` (Hz), the nearest power of two of samples;
  *  refused when it is finer than the grid's level (name the grid that is needed) */
@@ -64,19 +70,21 @@ int own_level(double cellWidth, double frequencySd, const TimeGrid& g, const cha
 /** the product the cells are measured over (`select_product`), checked: its factors' radices are the grid's tiles and then `members` */
 void check_cells_product(const nxr::graph::Array& product, const TimeGrid& g, const std::vector<std::int64_t>& members, const char* who);
 /** one member's sums per grid tile over every chunk of the spectra: the member's gains on the bins, back in time through `readout` (timeCellPairFlow); a tile cut by a chunk's
- *  edge completed from the next chunk; the line's last tile as long as it is. [rows x tiles] each; vertexCurrent empty without `sharp` */
+ *  edge completed from the next chunk; the line's last tile as long as it is. [rows x the span's tiles] each (column j is the grid's tile g.first + j); vertexCurrent empty without `sharp` */
 struct TileSums { Eigen::MatrixXd power, pairReal, pairImaginary, vertexCurrent; std::vector<std::int64_t> samples; };
 TileSums tile_sums(const Spectra& s, const Eigen::RowVectorXd& gains, const TimeGrid& g, const Eigen::MatrixXd& readout, int components, const std::vector<std::int32_t>& pairs,
                    const Eigen::SparseMatrix<double>* sharp);
-/** a cells MEASUREMENT over the product (rows x members x measures, members = tile + tiles x group): `values[g][k]` the group's [rows x tiles] of measure k (stored float32);
- *  `groups` [{atom, band, own_level, ...}] in the product's member order; declared by flow_measures.h */
+/** a cells MEASUREMENT over the product (rows x members x measures, members = tile + tiles x group): `values[g][k]` the group's [rows x the span's tiles] of measure k (stored
+ *  float32); a tile outside the span is NaN (not measured); `groups` [{atom, band, own_level, ...}] in the product's member order; declared by flow_measures.h */
 nxr::graph::Array cells_measurement(const std::vector<std::vector<Eigen::MatrixXd>>& values, const std::vector<std::string>& measures, const TimeGrid& g, const nxr::graph::Json& groups,
                                     const char* rowsAre, const nxr::graph::Json& producer);
 /** a cells measurement read back (made in the run or as stored): the grid, its groups and their measures; `rolled` one group's measure summed over each whole cell of the
- *  group's own level ([cells x rows]: cell c the tiles c 2^(k_a - k) .. (c + 1) 2^(k_a - k) - 1, by nxr::measurement::coarser_groups; a cell past the line's end left out) */
+ *  group's own level ([cells x rows]: cell c the tiles c 2^(k_a - k) .. (c + 1) 2^(k_a - k) - 1, by nxr::measurement::coarser_groups; a cell past the line's end, or not wholly
+ *  inside the span measured, left out) */
 struct StoredCells {
   const nxr::graph::Array* array = nullptr;
   std::int64_t rows = 0, members = 0, K = 0, tiles = 0, width = 0, size = 0;
+  std::int64_t start = 0, stop = 0;                                          // the span measured (samples; the whole line for cells stored before spans): only cells inside it are whole
   int level = 0;
   nxr::graph::Json groups, measures;
   Eigen::MatrixXd rolled(std::int64_t group, std::int64_t measure) const;

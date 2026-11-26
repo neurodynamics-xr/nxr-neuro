@@ -199,9 +199,9 @@ int read_node_main(const std::vector<std::string>& argv) {
 #endif
 }
 
-// ── nxr-neuro add field|selection|statistic|measurements|operator|points|line ──
+// ── nxr-neuro add field|selection|statistic|measurements|operator|points|line|product|dictionary|fibres ──
 int add_node_main(const std::vector<std::string>& argv) {
-  need_noun(argv, "add", "field, selection, statistic, measurements, operator, points, line, product, dictionary");
+  need_noun(argv, "add", "field, selection, statistic, measurements, operator, points, line, product, dictionary, fibres");
   const std::string what = argv[0];
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const std::string prog = "nxr-neuro add " + what;
@@ -366,8 +366,24 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.entries = a.get("--entries");
     rq.description = a.maybe("--description");
     r = call(prog, [&] { return task::add_dictionary(rq, progress()); });
+  } else if (what == "fibres") {
+    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--points", "--points-per-fibre", "--origin", "--source", "--comment", "--producer"}, {},
+                         {"--dataset", "--subject", "--name", "--points"});
+    task::AddFibresRequest rq;
+    rq.dataset = a.get("--dataset");
+    rq.subject = a.get("--subject");
+    rq.created_by = by;
+    rq.by = a.maybe("--by");
+    rq.name = a.get("--name");
+    rq.points = a.get("--points");
+    if (const auto v = a.maybe("--points-per-fibre")) rq.points_per_fibre = integer_of(prog, "--points-per-fibre", *v);
+    rq.origin = a.maybe("--origin");
+    rq.source = a.maybe("--source");
+    rq.comment = a.maybe("--comment");
+    rq.producer = a.maybe("--producer");
+    r = call(prog, [&] { return task::add_fibres(rq, progress()); });
   } else {
-    throw Usage("nxr-neuro add: error: argument what: invalid choice: '" + what + "' (choose from 'field', 'selection', 'statistic', 'measurements', 'operator', 'points', 'line', 'product', 'dictionary', 'surface')");
+    throw Usage("nxr-neuro add: error: argument what: invalid choice: '" + what + "' (choose from 'field', 'selection', 'statistic', 'measurements', 'operator', 'points', 'line', 'product', 'dictionary', 'fibres', 'surface')");
   }
   emit_result(r.result);
   return 0;

@@ -15,6 +15,9 @@
 #include "nxr/io/array_writer.h"
 #include "nxr/io/fibers.h"
 #include "nxr/io/subject_package.h"
+#include "nxr/io/array_reader.h"
+#include "nxr/io/task/commands.h"
+#include "nxr/io/testing/probe.h"
 
 using namespace nxr::io;
 namespace fs = std::filesystem;
@@ -178,6 +181,59 @@ int main() {
     CHECK(near(b.points[3 * 5 + 1], y1 * 1e-3) && near(b.points[3 * 9 + 2], (z1 + 10) * 1e-3 + 0.05));    // fiber 1: its last point is 10 mm above its first in z
     CHECK_EQ(b.origin["licence"]["id"].get<std::string>(), std::string("CC-BY-SA-4.0"));
     CHECK_EQ(b.source, std::string("t.trk"));
+
+    // ── `add fibres` (task::add_fibres): the same points stored by the command make the importer's layout, row for row and byte for byte ──
+    {
+      const fs::path cat = root / "cat";
+      task::CreateDatasetRequest cd;
+      cd.dataset = cat.string(); cd.name = "cat"; cd.created_by = "test";
+      task::create_dataset(cd);
+      task::CreateSubjectRequest cs;
+      cs.dataset = cat.string(); cs.name = "S4"; cs.created_by = "test";
+      task::create_subject(cs);
+      std::vector<std::uint8_t> bytes(b.points.size() * sizeof(float));
+      std::memcpy(bytes.data(), b.points.data(), bytes.size());
+      task::AddFibresRequest af;
+      af.dataset = cat.string(); af.subject = "S4"; af.name = "tracts"; af.created_by = "test";
+      af.points = task::ArrayInput::memory("tracts.npy", "float32", {b.n_fibers, b.points_per_fiber, 3}, bytes);
+      af.origin = origin.dump();
+      af.source = "t.trk";
+      // the refusals: [rows x 3] without the points a fibre, a row count that is not whole fibres, integers, a fibre of one point
+      task::AddFibresRequest flat = af;
+      flat.points = task::ArrayInput::memory("flat.npy", "float32", {b.n_fibers * b.points_per_fiber, 3}, bytes);
+      CHECK(has(what_of([&] { task::add_fibres(flat); }), "--points-per-fibre"));
+      flat.points_per_fibre = 3;
+      CHECK(has(what_of([&] { task::add_fibres(flat); }), "whole number of fibres"));
+      task::AddFibresRequest ints = af;
+      ints.points = task::ArrayInput::memory("ints.npy", "int32", {b.n_fibers, b.points_per_fiber, 3}, bytes);
+      CHECK(has(what_of([&] { task::add_fibres(ints); }), "float32 or float64"));
+      task::AddFibresRequest single = af;
+      single.points = task::ArrayInput::memory("one.npy", "float32", {b.n_fibers * b.points_per_fiber, 1, 3}, bytes);
+      CHECK(has(what_of([&] { task::add_fibres(single); }), "at least 2 points"));
+      const Json made = task::add_fibres(af).result;
+      CHECK_EQ(made["n_fibres"].get<std::int64_t>(), b.n_fibers);
+      CHECK_EQ(made["precision"].get<std::string>(), std::string("float32"));
+      CHECK(has(what_of([&] { task::add_fibres(af); }), "already has a manifold"));          // the name is taken
+      SubjectPackage imported = SubjectPackage::open(pkg2), added = SubjectPackage::open(cat / "S4.nxr.zarr");
+      const testing::Probe pi(imported), pa(added);
+      const Row mi = pi.rows("manifold", {{"name", std::string("tracts")}}).at(0), ma = pa.rows("manifold", {{"name", std::string("tracts")}}).at(0);
+      for (const char* c : {"type", "path", "n_vertices", "n_edges", "n_faces", "source", "is_primary"}) CHECK(mi.at(c) == ma.at(c));
+      const Row ti = pi.rows("topology", {{"id", mi.at("topology_id")}}).at(0), ta = pa.rows("topology", {{"id", ma.at("topology_id")}}).at(0);
+      for (const char* c : {"kind", "rank", "n_components", "winding", "closed", "orientable"}) CHECK(ti.at(c) == ta.at(c));
+      CHECK_EQ(pi.count("topology_cell", {{"topology_id", mi.at("topology_id")}}), pa.count("topology_cell", {{"topology_id", ma.at("topology_id")}}));
+      const Row gi = pi.rows("geometry", {{"id", mi.at("geometry_id")}}).at(0), ga = pa.rows("geometry", {{"id", ma.at("geometry_id")}}).at(0);
+      for (const auto& [c, v] : gi) if (c != "id" && c != "subject_id" && c.find("_id") == std::string::npos) CHECK(v == ga.at(c));
+      // the points array: the same dtype, shape and bytes
+      ArrayReader ri = ArrayReader::open(imported.store(), text(mi, "path") + "/points"), ra = ArrayReader::open(added.store(), text(ma, "path") + "/points");
+      CHECK(ri.dtype() == ra.dtype() && ri.shape() == ra.shape() && ri.read() == ra.read());
+      // the producer record: the importer's own keys, equal; the command named
+      const Json pri = Json::parse(text(mi, "producer_json")), pra = Json::parse(text(ma, "producer_json"));
+      for (const char* k : {"points_per_component", "precision", "origin", "description"}) CHECK(pri.at(k) == pra.at(k));
+      CHECK_EQ(pra.at("command").get<std::string>(), std::string("add fibres"));
+      // read back by the one reader, as tile_network reads it
+      const auto back = fibers::read_bundle<float>(task::Subject::of(added), added.store(), "tracts");
+      CHECK(back.points == b.points && back.points_per_fiber == b.points_per_fiber && back.n_fibers == b.n_fibers);
+    }
   }
   // ── the TRX import: the same streamlines, positions in RAS mm as the file has them ──
   for (const char* dtype : {"float32", "float16"}) {

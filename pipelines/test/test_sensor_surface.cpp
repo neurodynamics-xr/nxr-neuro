@@ -4,7 +4,10 @@
 // channels in the pick's order at Brainstorm's positions (the pickup coil's centre), its map the pick, its faces nxr::geometry::pointset::pointSetMesh of those positions (a disc,
 // outward); position_rule stored gives the first coils; the refusals (no pick, a pick of another manifold's size); then `run eigenmodes` on the surface (an open disc) with the
 // *1 floor named: the mode axis, both kinds of modes, the 0-, 1- and 2-form parts. `run sensor_mesh`: the good gradiometers (one flagged bad) chosen from the type and
-// quality labellings, the surface, its map and its stored channels, a cache hit on a second run, and the refusals (no sensor type; three good electrodes).
+// quality labellings, the surface, its map and its stored channels, a cache hit on a second run, and the refusals (no sensor type; three good electrodes). `run sensor_flow` end to end
+// on the helmet, then on A SPAN (issue #291): a one-chunk canary (`--chunks 1`) on the same stored time grid equals the whole run on its tiles (NaN outside), is never a hit on the whole
+// run's measurements, records its span, and is a hit when asked again. THE FIBRE NETWORK: a bundle stored by `add fibres`, `tile_network` on the cortex's tiles and `connectome_flow` on the
+// canary's chunk spectra, their outputs stored.
 #include "nxr/io/subject_api.h"
 #include <unistd.h>
 
@@ -16,13 +19,16 @@
 #include <iostream>
 #include <set>
 
+#include "brain_helpers.h"
 #include "check.h"
 #include "nxr/bst/entities.h"
 #include "nxr/geometry/point_set_mesh.h"
 #include "nxr/io/array_reader.h"
+#include "nxr/io/task/commands.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
 #include "nxr/pipelines/input.h"
+#include "make_grids.h"
 #include "run_definition.h"
 
 using namespace nxr::io;
@@ -149,6 +155,32 @@ int main() {
     });
   }
 
+  // THE CORTEX AND ITS FIBRES for the connectome flow at the end: a synthetic two-hemisphere brain (about 10 cm across, SCS metres) and 400 straight fibres between its vertices,
+  // stored by `add fibres` (task::add_fibres, the command's library function) as the importers store a bundle. The command opens the dataset itself, so the writer is let go first.
+  const Brain brainSurface = [] { Brain b = brain(3, false); for (double& x : b.P) x *= 0.04; return b; }();
+  {
+    SubjectWriter sub = SubjectWriter::open(ds, "S1");
+    sub.compose([&] { SurfaceOptions so; so.name = "cortex"; so.sphere = brainSurface.Sph; so.primary = false; add_surface(sub, so, brainSurface.P, brainSurface.F); });
+  }
+  ds.close();
+  {
+    std::uint64_t f = 7;
+    auto pick = [&] { f = f * 6364136223846793005ULL + 1442695040888963407ULL; return static_cast<int>((f >> 33) % static_cast<std::uint64_t>(brainSurface.n)); };
+    std::vector<double> fibre;
+    for (int k = 0; k < 400; ++k) {
+      const int a = pick(), c = pick();
+      for (int t = 0; t < 3; ++t) for (int d = 0; d < 3; ++d) fibre.push_back(brainSurface.P[static_cast<std::size_t>(3 * a + d)] + 0.5 * t * (brainSurface.P[static_cast<std::size_t>(3 * c + d)] - brainSurface.P[static_cast<std::size_t>(3 * a + d)]));
+    }
+    std::vector<std::uint8_t> bytes(fibre.size() * sizeof(double));
+    std::memcpy(bytes.data(), fibre.data(), bytes.size());
+    nxr::io::task::AddFibresRequest af;
+    af.dataset = (root / "demo").string(); af.subject = "S1"; af.name = "bundle"; af.created_by = "test_sensor_surface";
+    af.points = nxr::io::task::ArrayInput::memory("bundle.npy", "float64", {400, 3, 3}, bytes);
+    af.origin = Json{{"source", Json{{"name", "synthetic straight fibres"}}}}.dump();
+    const Json added = nxr::io::task::add_fibres(af).result;
+    CHECK(added.value("n_fibres", 0) == 400 && added.value("precision", std::string()) == "float64" && added.value("type", std::string()) == "curve");
+  }
+  ds = open_writer(root / "demo");
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   const auto rep = nxrtest::run_definition(ds, sub, "sensor_surface", Json{{"channels", "sensors"}, {"pick", "sensors_meg"}, {"name", "helmet"}});
   CHECK(!rep.empty());
@@ -321,6 +353,102 @@ int main() {
     CHECK(!nxrtest::run_definition(ds, sub, "sensor_flow_across_frequencies", Json{{"recording", "rest"}, {"package", "hodgeDirac__helmet"}, {"atoms", "atoms"}}).empty());
     CHECK(!probe.rows("statistic", {{"name", V("rest_hodgeDirac__helmet_eigenvectors_across_frequencies_atom_pairs")}}).empty());
     CHECK(probe.rows("statistic", {{"name", V("flow_time_cells")}}).empty() && probe.rows("statistic", {{"name", V("flow_flow_edges")}}).empty());   // no stored cells; no flow statistics
+
+    // ── A ONE-CHUNK CANARY (issue #291): sensor_flow on chunk 1 alone (samples [256, 512) of 2048) on the same stored grid, restricted to its tiles (codes 8..15 of 64, the same codes) ──
+    auto cells_of = [&](const std::string& measure) {                         // the stored cells of a measure over "rest cells" [rows x members], and the row's producer
+      const auto rows = probe.rows("selection_measurement", {{"selection_id", V(selection_id("rest cells"))}, {"measure", V(measure)}});
+      CHECK(rows.size() == 1);
+      return std::make_pair(read_as<double>(sub, text(rows.front(), "array_path")), Json::parse(text(rows.front(), "producer_json")));
+    };
+    const auto [wholeCurrent, wholeProducer] = cells_of("phase_current");
+    const auto [wholePower, wholePowerProducer] = cells_of("power_sum");
+    CHECK(wholeProducer["run"]["span"].is_object());
+    Json canary = flow;
+    canary["name"] = "flow_chunk1";
+    canary["aperiodic"] = false;
+    // the whole run's measurements are there: a span run is another result (another cache key), never a hit on them, and is refused without --replace
+    const std::string notReplaced = refusal([&] { nxrtest::run_definition(ds, sub, "sensor_flow", canary, false, "1"); });
+    std::printf("  [span] chunk 1 without --replace: %s\n", notReplaced.substr(0, 140).c_str());
+    CHECK(notReplaced.find("already exist") != std::string::npos);
+    std::printf("  [span] run sensor_flow --chunks 1\n");
+    const auto spanRun = nxrtest::run_definition(ds, sub, "sensor_flow", canary, true, "1");
+    CHECK(spanRun.size() == 1 && !spanRun[0].value("hit", false));
+    const auto [spanCurrent, spanProducer] = cells_of("phase_current");
+    const auto [spanPower, spanPowerProducer] = cells_of("power_sum");
+    CHECK(spanCurrent.size() == wholeCurrent.size() && spanPower.size() == wholePower.size());   // the same members: the grid's codes, not a new grid
+    const std::int64_t tiles = n_members("rest tiles"), groups = n_members("atom_bands");
+    CHECK(tiles == 64);
+    double worst = 0, scale = 0;
+    bool outsideNaN = true, insideFinite = true;
+    auto compare = [&](const std::vector<double>& part, const std::vector<double>& whole) {
+      const std::int64_t members = tiles * groups, rows = static_cast<std::int64_t>(whole.size()) / members;
+      for (std::int64_t r = 0; r < rows; ++r)
+        for (std::int64_t q = 0; q < groups; ++q)
+          for (std::int64_t n = 0; n < tiles; ++n) {
+            const std::size_t at = static_cast<std::size_t>(r * members + n + tiles * q);
+            if (n >= 8 && n < 16) { insideFinite = insideFinite && std::isfinite(part[at]); worst = std::max(worst, std::abs(part[at] - whole[at])); scale = std::max(scale, std::abs(whole[at])); }
+            else outsideNaN = outsideNaN && std::isnan(part[at]);
+          }
+    };
+    compare(spanCurrent, wholeCurrent);
+    compare(spanPower, wholePower);
+    std::printf("  [span] chunk 1 against the whole run on its tiles: %.2e of %.3g\n", worst, scale);
+    CHECK(insideFinite && outsideNaN && worst <= 1e-5 * scale);
+    // the span in the producer: the run's (the chunk read) and the cells' grid (the tiles measured)
+    const Json runSpan = spanProducer["run"]["span"];
+    std::printf("  [span] run.span %s\n", runSpan.dump().substr(0, 200).c_str());
+    CHECK(runSpan != wholeProducer["run"]["span"]);
+    CHECK(spanProducer.dump().find("\"first_tile\":8") != std::string::npos && spanProducer.dump().find("\"whole_line\":false") != std::string::npos);
+    // the sign-flip test ran on the span's cells alone and stored its measurements
+    CHECK(measured("atom_bands", "consistency") == 1);
+    // the same span again: a cache hit
+    const auto spanAgain = nxrtest::run_definition(ds, sub, "sensor_flow", canary, false, "1");
+    CHECK(spanAgain.size() == 1 && spanAgain[0].value("hit", false));
+
+    // ── THE FIBRE NETWORK FROM `add fibres`, END TO END: tile_network (the graph manifold) on the cortex's tiles, then connectome_flow on the one-chunk span's stored chunk spectra
+    // through a free-orientation kernel from the gradiometers to the cortex; its outputs stored ──
+    std::printf("  [fibres] the cortex's tiles, a kernel, tile_network, connectome_flow\n");
+    CHECK(!nxrtest::make_tiles(ds, sub, "parts 4", std::string("cortex")).empty());
+    {
+      const nxr::io::task::Subject ts = nxr::io::task::Subject::of(sub);
+      const auto cortex = ts.find({.cls = nxr::io::task::Cls::manifold, .name = "cortex", .type = "surface"});
+      const auto meg = probe.rows("selection", {{"name", V("sensors_meg")}});
+      CHECK(cortex.has_value() && meg.size() == 1);
+      const std::int64_t nv = brainSurface.n;
+      std::vector<float> K(static_cast<std::size_t>(3 * nv * G));
+      std::uint64_t k = 11;
+      for (auto& x : K) { k = k * 6364136223846793005ULL + 1442695040888963407ULL; x = static_cast<float>(static_cast<double>(k >> 11) / 9007199254740992.0 - 0.5); }
+      sub.compose([&] {
+        OperatorSpec op;
+        op.name = "kernel"; op.path = "kernel"; op.kind = "inverse kernel"; op.from_manifold_id = text(probe.rows("manifold", {{"name", V("sensors")}}).front(), "id");
+        op.layout = "dense"; op.n_rows = 3 * nv; op.n_cols = G; op.data = view(K, {3 * nv, static_cast<std::int64_t>(G)});
+        op.cols.set("to_manifold_id", cortex->id).set("from_selection_id", text(meg.front(), "id")).set("from_value_type", "scalar").set("to_value_type", "vector3");
+        sub.operator_(std::move(op));
+      });
+    }
+    const Json net = Json{{"fibers", "bundle"}, {"end_surface", "cortex"}, {"tiles", "cortex tiles"}, {"scale", "parts 4"}, {"min_streamlines", 3}, {"name", "net"}};
+    CHECK(!nxrtest::run_definition(ds, sub, "tile_network", net).empty());
+    CHECK(probe.rows("manifold", {{"name", V("net")}, {"type", V("graph")}}).size() == 1 && probe.rows("field", {{"name", V("net_conductance")}}).size() == 1);
+    CHECK(!nxrtest::run_definition(ds, sub, "select_product", Json{{"recording", "rest"}, {"time_grid", "rest tiles"}, {"kernels", "atoms"}, {"atoms", "atoms"}, {"name", "rest atom cells"}}).empty());
+    const Json cf = Json{{"spectra", "flow_chunk1_chunk_spectra"}, {"package", "hodgeDirac__helmet"}, {"channel_map", "helmet_map"}, {"atoms", "atoms"}, {"kernel", "kernel"}, {"tiles", "cortex tiles"},
+                         {"network", "net"}, {"scale", "parts 4"}, {"min_streamlines", 3}, {"time_grid", "rest tiles"}, {"time_atoms", "rest atom cells"}, {"patterns", 50}};
+    const auto flowRun = nxrtest::run_definition(ds, sub, "connectome_flow", cf);
+    CHECK(flowRun.size() == 1);
+    std::printf("  [fibres] the network: %lld tiles, %lld edges; connectome_flow stored %zu outputs\n", static_cast<long long>(integer(probe.rows("manifold", {{"name", V("net")}}).front(), "n_vertices")),
+                static_cast<long long>(integer(probe.rows("manifold", {{"name", V("net")}}).front(), "n_edges")), flowRun.empty() ? std::size_t(0) : flowRun[0].value("stored", Json::array()).size());
+    // its outputs stored: the time cells over grid x atoms (the span's tiles, the others NaN), the per-atom flow, the sign-flip test and the network's readings, all measurements
+    CHECK(measured("rest atom cells", "cross_spectrum_real") == 1 && measured("rest atom cells", "power_sum") == 1);
+    CHECK(measured("atoms", "mean_edge_flow") == 1 && measured("atoms", "familywise_p") == 1 && measured("atoms", "flow_coefficient") >= 2);   // the test; the sensor's and the network's coefficients
+    CHECK(probe.rows("operator", {{"name", V("hodgeDirac__net_eigenvectors")}}).size() == 1);   // the network's modes, made first as their own run
+    {
+      const auto rows = probe.rows("selection_measurement", {{"selection_id", V(selection_id("rest atom cells"))}, {"measure", V("power_sum")}});
+      const std::vector<double> cells = read_as<double>(sub, text(rows.front(), "array_path"));
+      const std::int64_t members = n_members("rest atom cells"), T = static_cast<std::int64_t>(cells.size()) / members;
+      bool spanOnly = true;
+      for (std::int64_t r = 0; r < T; ++r)
+        for (std::int64_t m = 0; m < members; ++m) { const std::int64_t n = m % 64; const double v = cells[static_cast<std::size_t>(r * members + m)]; spanOnly = spanOnly && ((n >= 8 && n < 16) ? std::isfinite(v) && v >= 0 : std::isnan(v)); }
+      CHECK(T == 8 && spanOnly);                                                                // eight tiles of the network; chunk 1's grid tiles measured
+    }
   }
   fs::remove_all(root);
   return nxrtest::finish("test_sensor_surface");

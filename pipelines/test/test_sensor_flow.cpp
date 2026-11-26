@@ -120,12 +120,15 @@ int main() {
   const std::vector<double> ov = O.values();
   const Eigen::MatrixXd op = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(ov.data(), O.rows, O.cols);
   double serveError = 0;
+  std::vector<std::pair<ng::Block, ng::Place>> served;                     // each chunk's spectrum and its place: a span's spectra are gathered from them below (issue #291)
+  std::vector<std::vector<std::uint8_t>> goods(3);
   for (std::int64_t k = 0; k < 3; ++k) {
     const std::int64_t left = std::min(overlap, k * chunk), right = std::min(overlap, total - (k + 1) * chunk);
     ng::Block b;
     b.rows = nV; b.width = left + chunk + right; b.left = left; b.right = right;
     for (int v = 0; v < nV; ++v) for (std::int64_t t = 0; t < b.width; ++t) b.re.push_back(static_cast<float>(x(v, k * chunk - left + t)));
-    std::vector<std::uint8_t> good(static_cast<std::size_t>(chunk), 1);
+    std::vector<std::uint8_t>& good = goods[static_cast<std::size_t>(k)];
+    good.assign(static_cast<std::size_t>(chunk), 1);
     ng::Place at; at.first = k * chunk; at.n = chunk; at.good = &good;
     const ng::Blocks serveBlocks{{"x", b}};
     ng::NodeCall sc = ng::NodeCall::chunk(sprep.made, serveBlocks, 0, at);
@@ -136,6 +139,7 @@ int main() {
     const Eigen::MatrixXcd want = nxr::signal::overlappedSpectrum(op, block, left, right, overlap, transform, 0, out.width);
     for (Eigen::Index rr = 0; rr < want.rows(); ++rr) for (Eigen::Index kk = 0; kk < want.cols(); ++kk)
       serveError = std::max(serveError, std::abs(want(rr, kk) - std::complex<double>(out.re[static_cast<std::size_t>(rr * out.width + kk)], out.im[static_cast<std::size_t>(rr * out.width + kk)])) / (std::abs(want(rr, kk)) + 1.0));
+    served.emplace_back(out, at);
     const ng::Blocks gatherBlocks{{"spectrum", out}};
     ng::NodeCall gst = ng::NodeCall::step(gprep.made, std::move(state), gatherBlocks, 0, at);
     ng::dispatch(gather, gst);
@@ -220,6 +224,60 @@ int main() {
     }
     std::printf("  tiles rolled up to the whole run: power_sum %.2e of %.3g\n", worst, scale);
     CHECK(worst < 1e-5 * scale);
+  }
+  // ── A SPAN (issue #291): the spectra of chunk 1 alone (samples [256, 512)) on the same stored grid. Its tiles inside the span (codes 32..63 at 8 samples) equal the whole run's
+  // for every measure, the same codes; the tiles outside are NaN; the producer records the span; the sign-flip test reads only the span's whole cells ──
+  {
+    ng::NodeCall g1 = ng::NodeCall::prepare(gtypes, operatorInput, sp, shared);
+    ng::dispatch(gather, g1);
+    ng::NodeCall s1 = ng::NodeCall::start(g1.made);
+    ng::dispatch(gather, s1);
+    std::any st1 = std::move(s1.made);
+    const ng::Blocks one{{"spectrum", served[1].first}};
+    ng::NodeCall step1 = ng::NodeCall::step(g1.made, std::move(st1), one, 0, served[1].second);
+    ng::dispatch(gather, step1);
+    ng::NodeCall fin1 = ng::NodeCall::finish(g1.made, std::move(step1.made_state));
+    ng::dispatch(gather, fin1);
+    ng::Arrays spanInputs = cellInputs;
+    spanInputs["spectra"] = fin1.made_arrays.at("spectra");
+    const ng::Arrays spanCells = run_array(ng::registry().at("signal.atom_time_cells"), spanInputs, cp);
+    const ng::Array& sce = spanCells.at("edge_cells");
+    const ng::Array& scv = spanCells.at("vertex_cells");
+    CHECK(sce.rows == tce.rows && scv.rows == tcv.rows);                                   // the same members: the grid's codes, not a new grid
+    const Json span = sce.meta.at("describe").at("attributes").at("grid").at("span");
+    CHECK(span.at("start_sample") == chunk && span.at("stop_sample") == 2 * chunk && span.at("first_tile") == 32 && span.at("tiles") == 32 && span.at("whole_line") == false);
+    CHECK(sce.meta.at("producer").at("grid").at("span") == span);                         // in the producer: never read as the whole recording's
+    CHECK(tce.meta.at("producer").at("grid").at("span").at("whole_line") == true);
+    double worst = 0, scale = 0;
+    bool outsideNaN = true, insideFinite = true;
+    auto compare = [&](const ng::Array& part, const ng::Array& whole, std::int64_t rows, std::int64_t K) {
+      for (std::int64_t r = 0; r < rows; ++r)
+        for (std::int64_t q = 0; q < 6; ++q)
+          for (std::int64_t n = 0; n < 96; ++n)
+            for (std::int64_t k = 0; k < K; ++k) {
+              const std::size_t at = static_cast<std::size_t>(((r * 576) + n + 96 * q) * K + k);
+              if (n >= 32 && n < 64) {
+                insideFinite = insideFinite && std::isfinite(part.data[at]);
+                worst = std::max(worst, std::abs(part.data[at] - whole.data[at])); scale = std::max(scale, std::abs(whole.data[at]));
+              } else outsideNaN = outsideNaN && std::isnan(part.data[at]);
+            }
+    };
+    compare(sce, tce, cx.nE, 1);
+    compare(scv, tcv, nV, 4);
+    std::printf("  a span (chunk 1) against the whole run on its tiles: %.2e of %.3g\n", worst, scale);
+    CHECK(insideFinite && outsideNaN && worst <= 1e-6 * scale);
+    // the sign-flip test on the span's cells: only the cells of each atom's own window wholly inside the span (5 Hz: 32 samples, so 256 / 32 = 8 cells)
+    const ng::Arrays spanFlip = run_array(ng::registry().at("stats.sign_flip_consistency"), ng::Arrays{{"edge_cells", sce}, {"vertex_cells", scv}}, Json{{"elements", "edges"}, {"patterns", 200}, {"seed", 0}, {"cells_per_flip", 1}});
+    const ng::Array& sfs = spanFlip.at("consistency_summary");
+    CHECK(sfs.rows == 6 && sfs.data[static_cast<std::size_t>(0 * 7 + 5)] == 8 && sfs.data[static_cast<std::size_t>(1 * 7 + 5)] == 16);   // cells: 5 Hz 8, 10 Hz 16
+    bool finite = true;
+    for (const double v : spanFlip.at("consistency").data) finite = finite && std::isfinite(v);
+    CHECK(finite);
+    // a span that is not a run of whole tiles is refused: a grid coarser than the chunk (2^9 samples against chunks of 2^8)
+    ng::Arrays tooCoarse = spanInputs;
+    tooCoarse["grid"] = time_grid(9); tooCoarse["product"] = product_of(9);
+    Json wide = cp; wide["cell_width"] = 256.0;
+    CHECK(refused([&] { run_array(ng::registry().at("signal.atom_time_cells"), tooCoarse, wide); }));
   }
   ng::Arrays coarse = inputs;
   coarse["grid"] = time_grid(4); coarse["product"] = product_of(4);

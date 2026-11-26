@@ -6,6 +6,7 @@
 
 #include <zlib.h>
 
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <set>
@@ -16,6 +17,7 @@
 #include "nxr/io/compact.h"
 #include "nxr/io/dataset_index.h"
 #include "nxr/io/errors.h"
+#include "nxr/io/fibers.h"
 #include "nxr/io/migrate.h"
 #include "nxr/io/npy.h"
 #include "nxr/io/bundle.h"
@@ -354,6 +356,70 @@ CommandResult add_surface(const AddSurfaceRequest& rq, const Progress& progress)
   CommandResult r;
   r.result = Json{{"name", info.name}, {"folder", info.folder}, {"n_vertices", info.n_vertices}, {"n_faces", info.n_faces}, {"atlases", info.atlases},
                   {"registration", info.registration}, {"hemispheres", info.hemispheres}, {"flipped", info.flipped}, {"mesh_health", info.mesh_health}};
+  return r;
+}
+
+CommandResult add_fibres(const AddFibresRequest& rq, const Progress& progress) {
+  // the points [fibres x points x 3], or [fibres·points x 3] with points_per_fibre; float32 or float64 as given (precision follows the input)
+  const std::string label = rq.points.label();
+  const std::string dtype = array_dtype(rq.points);
+  if (dtype != "float32" && dtype != "float64") throw Refused("--points " + label + " holds " + dtype + " values: give float32 or float64 positions (SCS metres)");
+  const std::vector<std::int64_t> shape = array_shape(rq.points);
+  std::int64_t nF = 0, nP = 0;
+  if (shape.size() == 3 && shape[2] == 3) {
+    if (rq.points_per_fibre && *rq.points_per_fibre != shape[1]) throw Refused("--points-per-fibre " + std::to_string(*rq.points_per_fibre) + " is not the points array's " + std::to_string(shape[1]) + " points a fibre");
+    nF = shape[0]; nP = shape[1];
+  } else if (shape.size() == 2 && shape[1] == 3) {
+    if (!rq.points_per_fibre) throw Refused("--points " + label + " is [rows x 3]: name the points of each fibre (--points-per-fibre), or give [fibres x points x 3]");
+    nP = *rq.points_per_fibre;
+    if (nP < 1 || shape[0] % nP != 0) throw Refused("--points " + label + " has " + std::to_string(shape[0]) + " rows, not a whole number of fibres of " + std::to_string(nP) + " points");
+    nF = shape[0] / nP;
+  } else {
+    throw Refused("--points " + label + ": the fibres' points are [fibres x points x 3], or [fibres·points x 3] with --points-per-fibre");
+  }
+  if (nP < 2) throw Refused("a fibre has at least 2 points (" + std::to_string(nP) + " given)");
+  if (nF < 1) throw Refused("--points " + label + " holds no fibre");
+  Json origin;
+  if (rq.origin) {
+    origin = Json::parse(*rq.origin, nullptr, false);
+    if (origin.is_discarded() || !origin.is_object()) throw Refused("--origin: a JSON object ({source, citation, licence, terms, ...})");
+  }
+  Json made = Json::object();
+  if (rq.producer) {
+    made = Json::parse(*rq.producer, nullptr, false);
+    if (made.is_discarded() || !made.is_object()) throw Refused("--producer: a JSON object ({...})");
+    for (const char* k : {"command", "program", "inputs", "points_per_component", "precision", "origin", "description"})
+      if (made.contains(k)) throw Refused(std::string("--producer: the key '") + k + "' is the record's own; name the maker's facts under other keys");
+  }
+  made["command"] = "add fibres";
+  made["program"] = rq.created_by;
+  made["inputs"] = Json{{"points", label}};
+  auto bundle_of = [&](auto zero) {
+    using S = decltype(zero);
+    nxr::io::fibers::Bundle<S> b;
+    b.name = rq.name;
+    b.n_fibers = nF;
+    b.points_per_fiber = nP;
+    b.points = array_all<S>(rq.points);
+    for (const S x : b.points) if (!std::isfinite(static_cast<double>(x))) throw Refused("--points " + label + ": a position is not finite");
+    b.source = rq.source.value_or(label);
+    b.comment = rq.comment.value_or("");
+    b.origin = origin;
+    b.producer = made;
+    return b;
+  };
+  if (rq.name.empty()) throw Refused("--name: the bundle's name");
+  DatasetWriter ds = open_dataset(rq.dataset, rq.subject, OpenOptions{}, progress);
+  OpenSubjectOptions oo;
+  oo.created_by = rq.by && !rq.by->empty() ? *rq.by : rq.created_by;   // the author (`--by`), else the program
+  SubjectWriter sub = SubjectWriter::open(ds, rq.subject, oo);
+  nxr::io::fibers::Stored st;
+  // store_bundle: the one writer the importers use (import_trk, import_trx, the template importer's HCP-1065), so the layout is theirs
+  if (dtype == "float32") { const auto b = bundle_of(0.0f); sub.compose([&] { st = nxr::io::fibers::store_bundle(sub, b); }); }
+  else { const auto b = bundle_of(0.0); sub.compose([&] { st = nxr::io::fibers::store_bundle(sub, b); }); }
+  CommandResult r;
+  r.result = Json{{"class", "manifold"}, {"type", "curve"}, {"name", st.name}, {"id", st.id}, {"path", st.path}, {"n_fibres", st.n_fibers}, {"points_per_fibre", st.points_per_fiber},
+                  {"precision", st.precision}, {"origin", origin.is_null() ? Json() : origin}};
   return r;
 }
 

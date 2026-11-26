@@ -7,6 +7,7 @@ export const ARRAY_OPTIONS = {
   'add statistic': ['values'],
   'add operator': ['values', 'data', 'indices', 'indptr'],
   'add points': ['positions'],
+  'add fibres': ['points'],
   'add line': ['coordinates', 'kinds'],
   'add surface': ['vertices', 'faces'],
 };
