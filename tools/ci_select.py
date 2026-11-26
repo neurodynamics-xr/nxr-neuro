@@ -89,6 +89,16 @@ def main() -> None:
     sel = [t for t in pool if t["name"] in names]
     print(f"scope: {len(sel)} tests; libraries {sorted(libs)}", file=sys.stderr)
     print("CTEST_NAMES=^(" + "|".join(re.escape(n) for n in sorted(names)) + ")$")
+    # every selected test must have its target built, or ctest reports it `Not Run` and the job fails (milestone #277's macOS job: 141 selected tests had
+    # no command in ctest's listing nor in the registration, so only the command line was built); a test whose target is not known builds everything
+    by_name = [t["name"] for t in sel if not (t.get("command") or [])]
+    if by_name:
+        print(f"{len(by_name)} selected test(s) had no command in ctest's listing or the registration; their targets are taken by name from build.ninja", file=sys.stderr)
+    unknown = T.untargeted(sel)
+    if unknown:
+        print(f"{len(unknown)} selected test(s) with no known build target (e.g. {', '.join(unknown[:5])}): building all", file=sys.stderr)
+        print("BUILD_TARGETS=all")
+        return
     print("BUILD_TARGETS=" + " ".join(T.targets_for(sel)))
 
 
