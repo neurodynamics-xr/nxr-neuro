@@ -109,7 +109,7 @@ int main() {
 
   // ── store on miss: a definition that names the modes (connectome_flow) makes them first, as their own run, even when its other inputs are not there ──
   const std::string flowError = refusal([&] {
-    nxrtest::run_definition(ds, sub, "connectome_flow", Json{{"spectra", "none_stored"}, {"package", "none"}, {"channel_map", "none"}, {"atoms", "none"}, {"kernel", "none"}, {"tiles", "cortex tiles"}, {"network", "net"}});
+    nxrtest::run_definition(ds, sub, "connectome_flow", Json{{"spectra", "none_stored"}, {"package", "none"}, {"channel_map", "none"}, {"atoms", "none"}, {"kernel", "none"}, {"tiles", "cortex tiles"}, {"network", "net"}, {"time_grid", "none"}, {"time_atoms", "none"}});
   });
   CHECK(!flowError.empty());                                                         // the flow itself is refused: no spectra
   const auto vectors = ts.find({.cls = tk::Cls::operator_, .name = "hodgeDirac__net_eigenvectors"});
@@ -137,7 +137,7 @@ int main() {
   }
   // a second read finds them stored: nothing is solved again
   const std::string first = vectors->id;
-  CHECK(!refusal([&] { nxrtest::run_definition(ds, sub, "connectome_flow", Json{{"spectra", "none_stored"}, {"package", "none"}, {"channel_map", "none"}, {"atoms", "none"}, {"kernel", "none"}, {"tiles", "cortex tiles"}, {"network", "net"}}); }).empty());
+  CHECK(!refusal([&] { nxrtest::run_definition(ds, sub, "connectome_flow", Json{{"spectra", "none_stored"}, {"package", "none"}, {"channel_map", "none"}, {"atoms", "none"}, {"kernel", "none"}, {"tiles", "cortex tiles"}, {"network", "net"}, {"time_grid", "none"}, {"time_atoms", "none"}}); }).empty());
   CHECK(ts.find({.cls = tk::Cls::operator_, .name = "hodgeDirac__net_eigenvectors"})->id == first);
   const auto again = nxrtest::run_definition(ds, sub, "eigenmodes", Json{{"graph", "net"}});
   CHECK(again.size() == 1 && again[0].value("hit", false));                         // eigenmodes --graph run again: a cache hit
