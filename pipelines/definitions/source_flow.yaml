@@ -18,6 +18,12 @@
 # per hemisphere: no flow across the midline; glued: no medial-wall sources; the apparent speed derived at read is an upper bound.
 #
 #   nxr-neuro run source_flow --dataset D --subject S --recording REC --all --kernel KERNEL --cortex per_hemisphere --left LEFT --right RIGHT --columns channels --atoms ATOMS --bands BANDS
+#
+# THE STORED CHUNK SPECTRA (2026-11-26): with --spectra NAME the run reads the chunk spectra stored before instead of the recording, as connectome_flow does: the sensor flow's
+# (`<recording>_<sensor package>_chunk_spectra`, in the sensor surface's field coordinates: option A, --columns sensor_coordinates with the same --sensor-package) or an earlier
+# source flow's own (option B, in channels). Nothing is read from the recording and no spectrum is stored again; the measurements stay of the recording.
+#
+#   nxr-neuro run source_flow --dataset D --subject S --recording REC --spectra REC_HELMET_chunk_spectra --columns sensor_coordinates --sensor-package HELMET --channel-map MAP ...
 pipeline: source_flow
 version: 1
 description: the flow of the cortical current per atom of the joint frequency x cortical eigenvalue level - a minimum-norm kernel projected onto the cortex's eigenmodes (options A and B, per hemisphere or glued), power, phase currents, Hodge-Dirac flow, band pairs, time cells and their sign-flip test
@@ -34,9 +40,11 @@ inputs:
   atoms:          {selection: any, where: {name: $atoms}, hint: "the frequency atoms, a kernel set (`nxr-neuro run select_kernels --profile gaussian --chart linear --width-rule proportional` first)"}
   pairs:          {selection: any, where: {name: $pairs}, hint: "the band pairs' members: atoms x bands x bands (`nxr-neuro run select_kernel_product --factors 3 --first ATOMS --second BANDS --third BANDS` first)"}
   atom_bands:     {selection: any, where: {name: $atom_bands}, hint: "the sign-flip test's members per band: atoms x bands (`nxr-neuro run select_kernel_product --factors 2` first)"}
+  spectra:        {statistic: any, where: {name: $spectra}, when: $spectra, hint: "the chunk spectra stored before: the sensor flow's (`nxr-neuro run sensor_flow` first: <recording>_<package>_chunk_spectra; option A) or an earlier source flow's (option B)"}
   bands:          {selection: any, where: {name: $bands}, hint: "the cortical eigenvalue bands, a kernel set (`nxr-neuro run select_kernels --profile cos2_partition`; centres as wavelengths in the surface's unit)"}
 
 parameters:
+  spectra: {default: null, meaning: "the stored chunk spectra by name, read instead of the recording (the sensor flow's for option A, an earlier source flow's for option B); null: the recording is read and its chunk spectra stored", unit: "-"}
   pairs: {default: null, meaning: "the product atoms x bands x bands by name: the band pairs are measured over its members", unit: "-"}
   atom_bands: {default: null, meaning: "the product atoms x bands by name: the sign-flip test per band is measured over its members (the whole field's over the atoms)", unit: "-"}
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
@@ -77,6 +85,7 @@ steps:
     - {node: signal.source_mode_operator, in: {cortex_operator: glued_cortex, kernel: kernel, package: glued}, with: {columns: channels}, out: [glued_operator, glued_kernel_columns, serving], when: {cortex: glued, columns: channels}}
   chunks:
     over: recording
+    when: "!$spectra"
     do:
       - {node: signal.overlapped_spectrum, in: {x: recording, operator: serving}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectrum}
       - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: serving}, out: spectra}
@@ -94,7 +103,7 @@ steps:
 outputs:
   # each cortex's measures carry its suffix (measure_suffix _left / _right / _glued): the sensor flow's measures of the same recording over the same atoms, and the other
   # hemisphere's, stay apart (the store's key does not name the surface: #264)
-  spectra: {kind: statistic, name: "{name}_chunk_spectra", of: recording}
+  spectra: {kind: statistic, name: "{name}_chunk_spectra", of: recording, when: "!$spectra"}   # stored by the run that reads the recording; a run given --spectra stores none
   left_whole_vertices: {kind: measurement, over: atoms, of: recording, when: {cortex: per_hemisphere}}
   left_whole_edges: {kind: measurement, over: atoms, of: recording, when: {cortex: per_hemisphere}}
   left_whole_modes: {kind: measurement, over: atoms, of: recording, when: {cortex: per_hemisphere}}
