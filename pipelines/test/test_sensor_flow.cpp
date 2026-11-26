@@ -4,7 +4,8 @@
 //     right), and the result does not depend on how the run is cut: the chunk spectra are the same whatever the block order of the neighbours;
 //   signal.spectral_flow: one Gaussian atom at the wave's frequency, two cos² bands: the whole field's flow is mostly exact (travel); the band pairs sum to the whole; the flow
 //     coefficients add back to the phase current; every_bin gives one member per bin and the members' power sums to the atoms' unnormalised power where the gain is 1;
-//   signal.atom_time_cells: the cells' edge phase currents keep the whole run's direction; stats.sign_flip_consistency: the travelling wave is consistent (small family-wise p);
+//   signal.atom_time_cells: the sums over the tiles of a stored time grid (measurements over grid x atoms x bands; every tile summed = the whole run's); stats.sign_flip_consistency
+//   on them rolled up to each atom's own window: the travelling wave is consistent (small family-wise p);
 //   signal.sensor_power and stats.aperiodic_fit run and give one fit per vertex; refusals with their reasons.
 #include <cmath>
 #include <complex>
@@ -178,13 +179,52 @@ int main() {
   CHECK(!flow.at("pair_vertices").meta.value("absent", false));
   CHECK(refused([&] { run_array(ng::registry().at("signal.spectral_flow"), inputs, Json{{"frequency_weighting", "every_bin"}}); }));
 
-  // ── time cells and the sign-flip statistic ──
+  // ── time cells on a stored grid (G7) and the sign-flip statistic on them ──
+  // the grid: one level of the line's dyadic tiling (select_time_grid's record); the product grid x atoms x bands (select_product's record). The atoms' own windows (2 time sd):
+  // 5 Hz 32 samples, 10 Hz 16, 20 Hz 8: a grid of 8 samples serves all three
+  auto time_grid = [&](int level) {
+    ng::Array g;
+    const std::int64_t width = std::int64_t(1) << level, count = (total + width - 1) / width;
+    g.meta["name"] = "rec time grid L" + std::to_string(level);
+    g.meta["params"] = Json{{"grid", Json{{"kind", "time"}, {"origin", 0}, {"width", width}, {"hop", width}, {"count", count}, {"size", total}, {"level", level}, {"rate", fs}}}};
+    return g;
+  };
+  auto product_of = [&](int level) {
+    ng::Array g;
+    const std::int64_t width = std::int64_t(1) << level, count = (total + width - 1) / width;
+    g.meta["params"] = Json{{"product", Json{{"layout", "product"}, {"radices", Json::array({count, 3, 2})}, {"factors", Json::array({Json{{"kind", "time"}, {"level", level}}, Json{{"kind", "kernels"}}, Json{{"kind", "kernels"}}})}}}};
+    return g;
+  };
+  ng::Arrays cellInputs = inputs;
+  cellInputs["grid"] = time_grid(3); cellInputs["product"] = product_of(3);
   const Json cp = Json{{"frequency_weighting", "kernels"}, {"frequency_normalisation", "sum_of_squared_gains"}, {"support_floor", 1e-3}, {"cell_width", 2.0}};
-  const ng::Arrays cells = run_array(ng::registry().at("signal.atom_time_cells"), inputs, cp);
-  const ng::Array& tc = cells.at("cells");
-  const Json groups = tc.meta.at("describe").at("attributes").at("groups");
-  CHECK(groups.size() == 6 && tc.cols == cx.nE + 4 * nV);
-  const ng::Arrays flip = run_array(ng::registry().at("stats.sign_flip_consistency"), ng::Arrays{{"cells", tc}}, Json{{"elements", "edges"}, {"patterns", 200}, {"seed", 0}, {"cells_per_flip", 1}});
+  const ng::Arrays cells = run_array(ng::registry().at("signal.atom_time_cells"), cellInputs, cp);
+  const ng::Array& tce = cells.at("edge_cells");
+  const ng::Array& tcv = cells.at("vertex_cells");
+  const Json groups = tce.meta.at("describe").at("attributes").at("groups");
+  // measurements over grid x atoms x bands: [E x 96 x 6 x phase_current], [V x 96 x 6 x (x, y, z, power_sum)]
+  CHECK(groups.size() == 6 && tce.rows == cx.nE * 96 * 6 && tce.cols == 1 && tcv.rows == nV * 96 * 6 && tcv.cols == 4);
+  CHECK(groups[0]["own_level"] == 5 && groups[1]["own_level"] == 4 && groups[2]["own_level"] == 3);
+  // the stored tiles roll up to the whole run's sums: every tile of member (10 Hz, band 0) summed = the one tile of a grid of 2^10 samples
+  {
+    ng::Arrays wholeInputs = inputs;
+    wholeInputs["grid"] = time_grid(10); wholeInputs["product"] = product_of(10);
+    Json wide = cp; wide["cell_width"] = 256.0;
+    const ng::Arrays one = run_array(ng::registry().at("signal.atom_time_cells"), wholeInputs, wide);
+    double worst = 0, scale = 0;
+    for (std::int64_t v = 0; v < nV; ++v) {
+      double sum = 0;
+      for (std::int64_t n = 0; n < 96; ++n) sum += tcv.data[static_cast<std::size_t>(((v * 576) + n + 96 * 1) * 4 + 3)];
+      const double w = one.at("vertex_cells").data[static_cast<std::size_t>(((v * 6) + 1) * 4 + 3)];
+      worst = std::max(worst, std::abs(sum - w)); scale = std::max(scale, std::abs(w));
+    }
+    std::printf("  tiles rolled up to the whole run: power_sum %.2e of %.3g\n", worst, scale);
+    CHECK(worst < 1e-5 * scale);
+  }
+  ng::Arrays coarse = inputs;
+  coarse["grid"] = time_grid(4); coarse["product"] = product_of(4);
+  CHECK(refused([&] { run_array(ng::registry().at("signal.atom_time_cells"), coarse, cp); }));   // a grid coarser than the 20 Hz atom's own window
+  const ng::Arrays flip = run_array(ng::registry().at("stats.sign_flip_consistency"), ng::Arrays{{"edge_cells", tce}, {"vertex_cells", tcv}}, Json{{"elements", "edges"}, {"patterns", 200}, {"seed", 0}, {"cells_per_flip", 1}});
   const ng::Array& fc = flip.at("consistency");
   const ng::Array& fs_ = flip.at("consistency_summary");
   // measurements over the members atom x band (the groups' order): per element R1, p, family-wise p [E x 6 x 3]; the summary [1 x 6 x 7]
@@ -224,7 +264,7 @@ int main() {
     CHECK(refused([&] { run_array(ng::registry().at("signal.spectral_flow"), withOld, fp); }));
   }
   CHECK(refused([&] { run_array(ng::registry().at("signal.spectral_flow"), inputs, Json{{"frequency_weighting", "kernels"}}); }));          // no normalisation named
-  CHECK(refused([&] { run_array(ng::registry().at("signal.atom_time_cells"), ng::Arrays{{"spectra", spectra}, {"package", H}, {"frequency", kernel_set(bands)}, {"scale", kernel_set(bands)}}, cp); }));   // not Gaussian atoms
+  CHECK(refused([&] { run_array(ng::registry().at("signal.atom_time_cells"), ng::Arrays{{"spectra", spectra}, {"package", H}, {"frequency", kernel_set(bands)}, {"scale", kernel_set(bands)}, {"grid", time_grid(3)}, {"product", product_of(3)}}, cp); }));   // not Gaussian atoms
   const Json overlapOnly = Json{{"overlap_samples", overlap}};
   CHECK(refused([&] { ng::NodeCall p2 = ng::NodeCall::prepare(stypes, operatorInput, overlapOnly, shared); ng::dispatch(serve, p2); }));
   return nxrtest::finish("test_sensor_flow");

@@ -134,6 +134,7 @@ StepSpec tile_grid_step() {
     Value v;
     v.cls = "selection";
     v.manifolds = ins.at("surface").manifolds;
+    v.facts["names"] = Json{{"tiles", "tiles"}};                             // the grid's name `<surface> tiles` (the subject's own, or the template's group tree)
     return Values{{"tiles", v}};
   };
   s.prepare = [](const Values& ins, const Json& p, ExecContext& ctx) {
@@ -270,6 +271,7 @@ StepSpec group_tile_grid_step() {
     Value v;
     v.cls = "selection";
     v.manifolds = ins.at("surface").manifolds;
+    v.facts["names"] = Json{{"tiles", "tiles transfer"}};                    // its own name, `<surface> tiles transfer`: the subject's own grid `<surface> tiles` and the transferred one coexist
     return Values{{"tiles", v}};
   };
   s.prepare = [](const Values& ins, const Json&, ExecContext& ctx) {

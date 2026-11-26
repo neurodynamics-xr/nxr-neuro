@@ -442,6 +442,10 @@ add_executable(test_sensor_flow test/test_sensor_flow.cpp)   # the sensor-space 
   target_link_libraries(test_sensor_flow PRIVATE nxr_pipelines)
   target_include_directories(test_sensor_flow PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_sensor_flow COMMAND test_sensor_flow)
+add_executable(test_graph_network test/test_graph_network.cpp)   # the fibre network as a graph manifold, its metric and its Hodge-Dirac modes (eigenmodes --graph, store on miss); synthetic
+  target_link_libraries(test_graph_network PRIVATE nxr_pipelines)
+  target_include_directories(test_graph_network PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_graph_network COMMAND test_graph_network)
 add_executable(test_connectome_flow test/test_connectome_flow.cpp)   # the fibre network and connectome flow nodes on a small surface with planted lags; synthetic
   target_link_libraries(test_connectome_flow PRIVATE nxr_pipelines)
   target_include_directories(test_connectome_flow PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
@@ -500,6 +504,10 @@ add_executable(test_source_flow_nodes test/test_source_flow_nodes.cpp)   # the s
   target_link_libraries(test_sensor_surface PRIVATE nxr_pipelines)
   target_include_directories(test_sensor_surface PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
   add_test(NAME test_sensor_surface COMMAND test_sensor_surface)
+  add_executable(test_copy_nodes test/test_copy_nodes.cpp)   # a subject's solves copied from another package (io/copy_nodes.h), read and found again without a solve, synthetic
+  target_link_libraries(test_copy_nodes PRIVATE nxr_pipelines)
+  target_include_directories(test_copy_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_copy_nodes COMMAND test_copy_nodes)
   add_executable(test_headmodel test/test_headmodel.cpp)
   target_link_libraries(test_headmodel PRIVATE nxr_pipelines)
   target_include_directories(test_headmodel PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test)

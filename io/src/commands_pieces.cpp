@@ -1,4 +1,5 @@
-// Writes in pieces (pieces.h; nxr/io/task/commands.h `PieceOptions`; docs/specs/2026-11-20-data-layer-queries.md, 3.7): `add field | statistic` as begin, append, commit.
+// Writes in pieces (pieces.h; nxr/io/task/commands.h `PieceOptions`; docs/specs/2026-11-20-data-layer-queries.md, 3.7): `add field | statistic | measurements` as begin, append, commit
+// (a measurements write holds ONE measure: its values [members], [members x N] or [members x N x C], as the one-shot command takes them).
 //
 // The pieces wait in `<dataset>/.writes/<write id>/` (write.json, values.npy), outside the database: nothing is in the subject until the commit, which is the one-shot command's own unit
 // (add_field | add_statistic called on the staged file), so a commit stores exactly what the one-shot command stores. Rolling back is removing the folder.
@@ -141,7 +142,14 @@ Json json_of(const AddFieldRequest& r) {
 Json json_of(const AddStatisticRequest& r) {
   Json j = Json{{"dataset", r.dataset}, {"subject", r.subject}, {"name", r.name}, {"measure", r.measure}, {"method", r.method}, {"value_type", r.value_type}, {"axes", r.axes}, {"replace", r.replace},
                 {"created_by", r.created_by}};
-  for (const auto& [k, v] : std::vector<std::pair<const char*, const std::optional<std::string>*>>{{"of_field", &r.of_field}, {"partition", &r.partition}, {"unit", &r.unit}, {"description", &r.description}, {"by", &r.by}})
+  for (const auto& [k, v] : std::vector<std::pair<const char*, const std::optional<std::string>*>>{{"of_field", &r.of_field}, {"partition", &r.partition}, {"unit", &r.unit}, {"description", &r.description}, {"by", &r.by},
+                                                                                               {"producer", &r.producer}, {"declare", &r.declare}})
+    if (*v) j[k] = **v;
+  return j;
+}
+Json json_of(const AddMeasurementsRequest& r) {
+  Json j = Json{{"dataset", r.dataset}, {"subject", r.subject}, {"selection", r.selection}, {"measure", r.measure}, {"declare", r.declare}, {"replace", r.replace}, {"created_by", r.created_by}};
+  for (const auto& [k, v] : std::vector<std::pair<const char*, const std::optional<std::string>*>>{{"field", &r.field}, {"unit", &r.unit}, {"producer", &r.producer}, {"by", &r.by}, {"rows_on", &r.rows_on}})
     if (*v) j[k] = **v;
   return j;
 }
@@ -162,7 +170,15 @@ AddStatisticRequest statistic_of(const Json& j) {
   r.dataset = j["dataset"]; r.subject = j["subject"]; r.name = j["name"]; r.measure = j["measure"]; r.method = j["method"]; r.value_type = j["value_type"]; r.replace = j["replace"];
   r.axes = list(j, "axes"); r.created_by = j["created_by"];
   r.of_field = opt(j, "of_field"); r.partition = opt(j, "partition"); r.unit = opt(j, "unit"); r.description = opt(j, "description");
+  r.producer = opt(j, "producer"); r.declare = opt(j, "declare");
   r.by = opt(j, "by");
+  return r;
+}
+AddMeasurementsRequest measurements_of(const Json& j) {
+  AddMeasurementsRequest r;
+  r.dataset = j["dataset"]; r.subject = j["subject"]; r.selection = j["selection"]; r.replace = j["replace"]; r.created_by = j["created_by"];
+  r.measure = list(j, "measure"); r.declare = list(j, "declare");
+  r.field = opt(j, "field"); r.unit = opt(j, "unit"); r.producer = opt(j, "producer"); r.by = opt(j, "by"); r.rows_on = opt(j, "rows_on");
   return r;
 }
 
@@ -297,7 +313,32 @@ Found find_write(const std::string& dataset, const std::optional<std::string>& w
   return f;
 }
 
-// ---- the three steps, for a field or a statistic ----
+// ---- the three steps, for a field, a statistic or one measure's measurements ----
+// what the three request kinds share, read the same way: the values given, and the node's name (a measurements write is named by its one measure)
+bool has_values(const AddFieldRequest& r) { return r.values.in_memory || !r.values.path.empty(); }
+bool has_values(const AddStatisticRequest& r) { return r.values.in_memory || !r.values.path.empty(); }
+bool has_values(const AddMeasurementsRequest& r) {
+  for (const auto& m : r.measure) if (m.find('=') != std::string::npos) return true;
+  return !r.measure_arrays.empty();
+}
+const ArrayInput& values_of_request(const AddFieldRequest& r) { return r.values; }
+const ArrayInput& values_of_request(const AddStatisticRequest& r) { return r.values; }
+const ArrayInput& values_of_request(const AddMeasurementsRequest& r) {
+  static thread_local ArrayInput from_file;
+  if (r.measure_arrays.size() == 1 && r.measure.empty()) return r.measure_arrays.front().second;
+  if (r.measure.size() == 1 && r.measure_arrays.empty()) {
+    const std::string& m = r.measure.front();
+    const auto eq = m.find('=');
+    if (eq == std::string::npos) throw Refused("append takes the region's values as --values FILE.npy (or --measure NAME=FILE.npy)");
+    from_file = ArrayInput(m.substr(eq + 1));
+    return from_file;
+  }
+  throw Refused("append writes the values of ONE measure's region: --values FILE.npy");
+}
+std::string name_of(const AddFieldRequest& r) { return r.name; }
+std::string name_of(const AddStatisticRequest& r) { return r.name; }
+std::string name_of(const AddMeasurementsRequest& r) { return r.measure.empty() ? std::string() : r.measure.front(); }
+
 template <class Req>
 CommandResult run(const Req& rq, const std::string& cls, const Progress& progress) {
   const PieceOptions& p = rq.piece;
@@ -307,14 +348,15 @@ CommandResult run(const Req& rq, const std::string& cls, const Progress& progres
 
   if (p.begin) {
     if (p.write || p.region) throw Refused("begin gives the write id: it takes no write and no region");
-    if (rq.values.in_memory || !rq.values.path.empty()) throw Refused("begin takes the shape and dtype of the values, not the values (append writes them)");
+    if (has_values(rq)) throw Refused("begin takes the shape and dtype of the values, not the values (append writes them)");
     if (!p.shape || p.shape->empty()) throw Refused("begin needs the full shape of the values: --shape N,N,...");
     if (!p.dtype) throw Refused("begin needs the dtype the values are stored in: --dtype float32|float64|int32|int64|uint8|bool");
     static const std::set<std::string> dtypes = {"float32", "float64", "int32", "int64", "uint8", "bool"};
     if (!dtypes.count(*p.dtype)) throw Refused("--dtype " + *p.dtype + " (float32, float64, int32, int64, uint8 or bool)");
     for (const auto d : *p.shape) if (d < 1) throw Refused("--shape " + shape_text(*p.shape) + ": every axis has at least one element");
     if constexpr (std::is_same_v<Req, AddFieldRequest>) plan_field(rq, *p.shape, progress);
-    else plan_statistic(rq, *p.shape, progress);
+    else if constexpr (std::is_same_v<Req, AddStatisticRequest>) plan_statistic(rq, *p.shape, progress);
+    else plan_measurements(rq, *p.shape, progress);
     discard_orphans(dataset);
     const std::string id = new_id();
     const fs::path dir = root_of(dataset) / id;
@@ -330,7 +372,7 @@ CommandResult run(const Req& rq, const std::string& cls, const Progress& progres
       fs::remove_all(dir, ec);
       throw;
     }
-    out.result = Json{{"write", id}, {"class", cls}, {"name", rq.name}, {"shape", *p.shape}, {"dtype", *p.dtype}, {"step", "begin"}};
+    out.result = Json{{"write", id}, {"class", cls}, {"name", name_of(rq)}, {"shape", *p.shape}, {"dtype", *p.dtype}, {"step", "begin"}};
     return out;
   }
 
@@ -339,14 +381,18 @@ CommandResult run(const Req& rq, const std::string& cls, const Progress& progres
   w.manifest = load(w.dir);   // read again under the hold: another call may have written a region meanwhile
   const Json& req = w.manifest["request"];
   if (!rq.subject.empty() && rq.subject != req["subject"].get<std::string>()) throw Refused("write " + w.id + " is of subject " + req["subject"].get<std::string>() + ", not " + rq.subject, true);
-  if (!rq.name.empty() && rq.name != req["name"].get<std::string>()) throw Refused("write " + w.id + " is of the " + cls + " " + req["name"].get<std::string>() + ", not " + rq.name, true);
+  if constexpr (std::is_same_v<Req, AddMeasurementsRequest>) {
+    if (!rq.selection.empty() && rq.selection != req["selection"].get<std::string>()) throw Refused("write " + w.id + " is of the selection " + req["selection"].get<std::string>() + ", not " + rq.selection, true);
+  } else if (!rq.name.empty() && rq.name != req["name"].get<std::string>()) {
+    throw Refused("write " + w.id + " is of the " + cls + " " + req["name"].get<std::string>() + ", not " + rq.name, true);
+  }
   const std::vector<std::int64_t> shape = w.manifest["shape"].get<std::vector<std::int64_t>>();
   const std::string dtype = w.manifest["dtype"];
 
   if (p.append) {
     if (p.shape || p.dtype) throw Refused("append takes the region and its values; the shape and dtype are begin's");
     if (!p.region) throw Refused("append needs the region: --region START:STOP per axis, comma separated (one entry for each of the " + std::to_string(shape.size()) + " axes)");
-    if (!rq.values.in_memory && rq.values.path.empty()) throw Refused("append needs the values of the region (--values)");
+    if (!has_values(rq)) throw Refused("append needs the values of the region (--values)");
     Box box(p.region->begin(), p.region->end());
     if (box.size() != shape.size()) throw Refused("--region has " + std::to_string(box.size()) + " axes; the values of write " + w.id + " are " + shape_text(shape) + " (" + std::to_string(shape.size()) + " axes)");
     std::vector<std::int64_t> want;
@@ -361,11 +407,12 @@ CommandResult run(const Req& rq, const std::string& cls, const Progress& progres
       if (r == box) throw Refused("region [" + box_text(box) + "] of write " + w.id + " was already written (a region is written once)", true);
       if (overlap(r, box)) throw Refused("region [" + box_text(box) + "] overlaps region [" + box_text(r) + "] already written in write " + w.id + " (regions do not overlap)", true);
     }
-    const std::vector<std::int64_t> got = array_shape(rq.values);
-    if (got != want) throw Refused("--values " + rq.values.label() + " is " + shape_text(got) + "; region [" + box_text(box) + "] is " + shape_text(want));
-    const std::string have = array_dtype(rq.values);
-    if (have != dtype) throw Refused("--values " + rq.values.label() + " is " + have + "; write " + w.id + " stores " + dtype + " (the dtype begin named)");
-    write_region(w.dir / "values.npy", w.manifest["offset"].get<std::uint64_t>(), itemsize(dtype), shape, box, region_bytes(rq.values, dtype));
+    const ArrayInput& values = values_of_request(rq);
+    const std::vector<std::int64_t> got = array_shape(values);
+    if (got != want) throw Refused("--values " + values.label() + " is " + shape_text(got) + "; region [" + box_text(box) + "] is " + shape_text(want));
+    const std::string have = array_dtype(values);
+    if (have != dtype) throw Refused("--values " + values.label() + " is " + have + "; write " + w.id + " stores " + dtype + " (the dtype begin named)");
+    write_region(w.dir / "values.npy", w.manifest["offset"].get<std::uint64_t>(), itemsize(dtype), shape, box, region_bytes(values, dtype));
     w.manifest["regions"].push_back(box_json(box));
     save(w.dir, w.manifest);
     regions.push_back(box);
@@ -378,7 +425,7 @@ CommandResult run(const Req& rq, const std::string& cls, const Progress& progres
 
   // commit
   if (p.shape || p.dtype || p.region) throw Refused("commit takes only the write");
-  if (rq.values.in_memory || !rq.values.path.empty()) throw Refused("commit takes no values: append wrote them");
+  if (has_values(rq)) throw Refused("commit takes no values: append wrote them");
   std::vector<Box> regions;
   for (const auto& r : w.manifest["regions"]) regions.push_back(box_of(r));
   std::int64_t covered = 0, total = 1;
@@ -393,13 +440,22 @@ CommandResult run(const Req& rq, const std::string& cls, const Progress& progres
     if (!rq.created_by.empty()) q.created_by = rq.created_by;
     if (rq.by) q.by = rq.by;
     r = add_field(q, progress);
-  } else {
+  } else if constexpr (std::is_same_v<Req, AddStatisticRequest>) {
     AddStatisticRequest q = statistic_of(req);
     q.dataset = dataset;
     q.values = ArrayInput((w.dir / "values.npy").string());
     if (!rq.created_by.empty()) q.created_by = rq.created_by;
     if (rq.by) q.by = rq.by;
     r = add_statistic(q, progress);
+  } else {
+    AddMeasurementsRequest q = measurements_of(req);
+    q.dataset = dataset;
+    const std::string measure = q.measure.front();
+    q.measure.clear();
+    q.measure_arrays = {{measure, ArrayInput((w.dir / "values.npy").string())}};
+    if (!rq.created_by.empty()) q.created_by = rq.created_by;
+    if (rq.by) q.by = rq.by;
+    r = add_measurements(q, progress);
   }
   r.result["write"] = w.id;
   r.result["step"] = "commit";
@@ -413,6 +469,7 @@ CommandResult run(const Req& rq, const std::string& cls, const Progress& progres
 
 CommandResult field(const AddFieldRequest& request, const Progress& progress) { return run(request, "field", progress); }
 CommandResult statistic(const AddStatisticRequest& request, const Progress& progress) { return run(request, "statistic", progress); }
+CommandResult measurements(const AddMeasurementsRequest& request, const Progress& progress) { return run(request, "measurements", progress); }
 
 int discard_all(const std::string& dataset) {
   int n = 0;

@@ -354,6 +354,17 @@ std::vector<std::map<std::string, Value>> resolve(const Database& db, const std:
         }
         if (unset) continue;
       }
+      // an optional input whose relation (`manifold: surface.manifold.0`, `from: kernel.to`, ...) names another input that is absent is absent too: nothing to relate it to
+      if (!spec.value("required", true)) {
+        bool on_absent = false;
+        for (const char* k : {"from", "to", "manifold", "is"})
+          if (spec.contains(k) && spec[k].is_string()) {
+            const std::string r = spec[k].get<std::string>();
+            const auto dot = r.find('.');
+            if (dot != std::string::npos && inputs.contains(r.substr(0, dot)) && !found.count(r.substr(0, dot))) on_absent = true;
+          }
+        if (on_absent) continue;
+      }
       std::vector<Row> hits;
       try { hits = matches(db, subject_id, name, spec, found, params); }
       catch (const Error& e) {                                              // an optional input on the time line of a field that has none (a map): nothing to find, absent

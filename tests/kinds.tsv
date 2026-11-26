@@ -150,6 +150,7 @@ test_groups	unit
 test_hat	golden
 test_headmodel	integration
 test_sensor_surface	integration
+test_copy_nodes	integration
 test_histogram	golden
 test_hodge_dirac	unit
 test_hodge_power	integration
@@ -189,6 +190,7 @@ test_mass_variants	unit
 test_measure_pipeline	integration
 test_measurement	golden
 test_measurement_query	unit
+test_measure_declarations	unit
 test_measures	unit
 test_meeg_pipelines	integration
 test_projector_choice	integration
@@ -326,8 +328,10 @@ test_component_surface	unit
 test_derived_origin	integration
 test_glue_onto	integration
 test_import_covariance	integration
+test_import_replace_recording	integration
 test_sensor_flow	integration
 test_sensor_bispectrum	integration
 test_connectome_flow	integration
+test_graph_network	integration
 test_source_flow_nodes	integration
 test_migrate_eigensolve	integration

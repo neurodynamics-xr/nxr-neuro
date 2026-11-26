@@ -266,6 +266,8 @@ struct AddStatisticRequest {
   std::vector<std::string> axes;           // NAME:MANIFOLD
   std::string value_type = "scalar";
   std::optional<std::string> of_field, partition, unit, description;
+  std::optional<std::string> producer;     // JSON text: what the maker says of how it was made (a group statistic's members, their ids and hashes), added to the producer record
+  std::optional<std::string> declare;      // JSON text {measure: {description, unit_rule?}, method: {description}}: what a measure or method the registry does not know IS (required for one)
   bool replace = false;
   PieceOptions piece;                      // a write in pieces, as add field's
  
@@ -278,9 +280,13 @@ CommandResult add_statistic(const AddStatisticRequest& request, const Progress& 
 struct AddMeasurementsRequest {
   std::string dataset, subject, selection;
   std::optional<std::string> field, unit;
-  std::vector<std::string> measure;        // MEASURE=FILE.npy
+  std::vector<std::string> measure;        // MEASURE=FILE.npy (in pieces: the ONE measure's name at begin)
   std::vector<std::pair<std::string, ArrayInput>> measure_arrays;   // MEASURE and its values given as arrays (in memory, or a file): after `measure`
+  std::vector<std::string> declare;        // JSON text, one a measure: {name, merge, form?, unit?, weight?, description?} (measures.h MeasureDeclaration); required for a measure the registry does not know
+  std::optional<std::string> producer;     // JSON text: what the maker says of how the values were made, added to the producer record each row keeps
+  std::optional<std::string> rows_on;      // an array a member: the manifold its rows lie on, by name (a hemisphere, an eigen line): two manifolds' arrays of one measure stay apart (issue #264)
   bool replace = false;
+  PieceOptions piece;                      // a write in pieces of ONE measure: begin (--measure NAME, --shape, --dtype), append (a region of its values), commit
  
   std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
   std::string created_by;
@@ -476,7 +482,9 @@ struct ImportConditionRequest {
   std::optional<double> resample;
   bool no_gain = false, all_surfaces = false, include_imported = false, no_raw = false;
   std::optional<std::vector<std::string>> extra_surface;
- 
+  // replace the samples of the condition's raw recording, already imported into the subject, in place (nxr::bst::replace_raw_timeseries), with `note` saying why
+  bool replace_recording = false;
+  std::optional<std::string> note;
   std::string created_by;
 };
 CommandResult import_condition(const ImportConditionRequest& request, const Progress& progress = {});
@@ -591,6 +599,16 @@ struct ImportBidsRequest {
   std::string created_by;                  // the default of registered_by
 };
 CommandResult import_bids(const ImportBidsRequest& request, const Progress& progress = {});
+
+/** `copy nodes`: a subject's stored nodes from another package of the same subject (nxr/io/copy_nodes.h): each `manifold` of `from` and what goes with it, into the subject's
+ *  package of `dataset`; nothing solved, every chunk checked against the source's digests; `dry_run` reports the plan */
+struct CopyNodesRequest {
+  std::string dataset, subject, from;
+  std::vector<std::string> manifold;
+  bool dry_run = false;
+  std::string created_by;
+};
+CommandResult copy_nodes(const CopyNodesRequest& request, const Progress& progress = {});
 
 /** `import participants` · `export participants`: the participant variables of a catalogue dataset from or to a TSV (and its JSON sidecar) */
 struct ParticipantsRequest { std::string dataset, tsv; std::optional<std::string> sidecar; };

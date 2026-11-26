@@ -8,6 +8,10 @@
 # Every factor's level is a QUANTITY (a tile diameter, a wavelength, a duration, a band), never an index.
 #
 #   nxr-neuro run select_product --dataset <folder> --subject sub-01 --recording rest --surface cortex --band-set "frequency bands" --couple '[{"factor": 1, "band": "alpha"}]'
+#
+# A FLOW'S TIME CELLS (G7): the stored time grid with kernel sets, the grid first (fastest): `--kernels atoms` (grid x atoms) or `--kernels atoms_scales` (grid x atoms x bands); the flows
+# (sensor_flow, source_flow, connectome_flow) measure their time cells over it, and a coarser level of the grid is a roll-up at read:
+#   nxr-neuro run select_product --dataset <folder> --subject sub-01 --recording rest --time-grid "rest time grid tiles 0.05 s" --kernels atoms_scales --atoms "rest atoms" --scales "sensor bands" --name "rest cells"
 pipeline: select_product
 version: 1
 description: the product of grids and band sets on a product manifold (a box, a grid of cells, or the joint partition), with levels coupled to bands in closed form
@@ -15,10 +19,12 @@ scope: subject
 
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}, required: false}
-  surface:   {manifold: surface, where: {name: $surface}, required: false}
-  space:     {selection: ladder, manifold: surface.manifold.0, required: false, hint: "the surface's whole grid (`nxr-neuro run select_dyadic_surface` first): its level is coupled by `couple`"}
+  surface:   {manifold: surface, where: {name: $surface}, required: false, when: {kernels: none}}
+  space:     {selection: ladder, manifold: surface.manifold.0, required: false, when: {kernels: none}, hint: "the surface's whole grid (`nxr-neuro run select_dyadic_surface` first): its level is coupled by `couple`"}
   time:      {selection: any, manifold: recording.time, where: {name: $time_grid}, required: false, hint: "the line's time grid by name (`time_grid`; `nxr-neuro run select_time_grid --rule band --band 8-16Hz` first: a band's tiles are a time grid of their own, found by the rule's name)"}
-  bands:     {selection: spans, where: {name: $band_set}, required: false, hint: "a stored band set whose members couple the levels (`nxr-neuro run select_bands` first)"}
+  bands:     {selection: spans, where: {name: $band_set}, required: false, when: {kernels: none}, hint: "a stored band set whose members couple the levels (`nxr-neuro run select_bands` first)"}
+  atoms:     {selection: any, where: {name: $atoms}, required: false, hint: "kernels atoms or atoms_scales: the frequency atoms, a kernel set (`nxr-neuro run select_kernels` first)"}
+  scales:    {selection: any, where: {name: $scales}, required: false, hint: "kernels atoms_scales: the eigenvalue bands, a kernel set (`nxr-neuro run select_kernels` first)"}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
@@ -27,20 +33,32 @@ parameters:
   layout: {default: product, meaning: "product = mixed radix, first factor fastest | joint = the atlas layout (tile << bits) | frame, arrays [band x tile x frame]", unit: "-", choices: [product, joint]}
   time_grid: {default: null, meaning: "the time grid of the line by name, e.g. the band 8-16 Hz grid of the recording (made by `select_time_grid --rule band`)", unit: "-"}
   couple: {default: null, meaning: "factors whose level is coupled in closed form: a list of {factor: index, band: name of a member of `band_set`, or a frequency band quantity \"8-16 Hz\"} for a time factor (its tile holds the band's cycles), {factor: index, scale: a quantity} for a surface factor (parts per hemisphere, a wavelength, an eigenvalue, an area), or {factor: index, band: name} with an eigenvalue band set", unit: "-"}
+  kernels: {default: none, meaning: "the product's form: none (a surface grid x a time grid, the default) | atoms (the time grid x the atoms: a flow's time cells) | atoms_scales (the time grid x the atoms x the scales: a flow's time cells per band); the time grid is the first factor, fastest", unit: "-", choices: [none, atoms, atoms_scales]}
+  atoms: {default: null, meaning: "kernels atoms or atoms_scales: the frequency atoms' kernel set by name", unit: "-"}
+  scales: {default: null, meaning: "kernels atoms_scales: the eigenvalue bands' kernel set by name", unit: "-"}
   name: {default: "{recording} {surface} product", meaning: "the product's name", unit: "-"}
 
 steps:
   before:
-    - {node: select.product, in: {first: space, second: time, bands: bands}, with: {layout: $layout, couple: $couple}, out: [product_space, product]}
+    - {node: select.product, in: {first: space, second: time, bands: bands}, with: {layout: $layout, couple: $couple}, out: [product_space, product], when: {kernels: none}}
+    - {node: select.product, in: {first: time, second: atoms}, with: {layout: product}, out: [time_atoms_space, time_atoms], when: {kernels: atoms}}
+    - {node: select.product, in: {first: time, second: atoms, third: scales}, with: {layout: product}, out: [time_atoms_scales_space, time_atoms_scales], when: {kernels: atoms_scales}}
 
 outputs:
   product_space:
     kind: manifold
     type: product
     factors: [surface.manifold.0, recording.time]
+    when: {kernels: none}
   product:
     kind: selection
     type: product
     name: $name
     on: product_space
     factors: [space, time]
+    when: {kernels: none}
+  # A FLOW'S TIME CELLS (G7, spec docs/specs/2026-11-26-graph-manifold-and-time-cells.md): the stored time grid (one level of the dyadic tiling) x the atoms [x the scales], the grid fastest
+  time_atoms_space:        {kind: manifold, type: product, factors: [recording.time, atoms.manifold.0], when: {kernels: atoms}}
+  time_atoms:              {kind: selection, type: product, name: $name, on: time_atoms_space, factors: [time, atoms], when: {kernels: atoms}}
+  time_atoms_scales_space: {kind: manifold, type: product, factors: [recording.time, atoms.manifold.0, scales.manifold.0], when: {kernels: atoms_scales}}
+  time_atoms_scales:       {kind: selection, type: product, name: $name, on: time_atoms_scales_space, factors: [time, atoms, scales], when: {kernels: atoms_scales}}

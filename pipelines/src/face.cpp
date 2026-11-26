@@ -828,8 +828,14 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
     {   // AN ARRAY A MEMBER (an array-backed measurement: a value a vertex, an edge, a mode for each member): the array, member first [members x rows], as it was given
       std::optional<std::string> fid;
       if (q.contains("ofFieldId")) fid = q["ofFieldId"].get<std::string>();
+      std::optional<std::string> on;   // the manifold its rows lie on, by name (issue #264)
+      if (rq.rows_on) {
+        const auto m = ts.by_id_or_name(task::Cls::manifold, *rq.rows_on);
+        if (!m) throw Error(code::no_such_row, "no manifold named '" + *rq.rows_on + "' in subject " + subject + " (--rows-on)");
+        on = m->id;
+      }
       std::optional<MeasurementValues> mv;
-      try { mv = measurement_values(sub, sel->id, fid, std::nullopt, std::nullopt, *measure); } catch (const Error& e) { if (e.code() != code::no_such_row) throw; }
+      try { mv = measurement_values(sub, sel->id, fid, std::nullopt, std::nullopt, *measure, on); } catch (const Error& e) { if (e.code() != code::no_such_row) throw; }
       if (mv && mv->array_backed) {
         std::vector<double> by_member(static_cast<std::size_t>(mv->rows * mv->members));
         for (std::int64_t r = 0; r < mv->rows; ++r)
@@ -841,6 +847,8 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
         out.arrays = {doubles("code", code_v), std::move(values)};
         out.meta = Json{{"class", "measurements"}, {"name", name}, {"selection", sel->id}, {"measure", *measure}, {"array_backed", true}, {"members", mv->members},
                         {"values_a_member", mv->rows}, {"unit", mv->unit ? Json(*mv->unit) : Json()}};
+        const Json provenance = ts.measurement_provenance(sel->id, fid, *measure);   // what the measure IS (declared) and how it was made
+        for (const auto& [k, v] : provenance.items()) out.meta[k] = v;
         return out;
       }
     }
@@ -854,6 +862,8 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
     }
     out.arrays = {doubles("code", code_v), doubles("value", value), doubles("weight", weight), doubles("members", members)};
     out.meta = Json{{"class", "measurements"}, {"name", name}, {"selection", sel->id}, {"measure", *measure}, {"rows", rows.size()}};
+    const Json provenance = ts.measurement_provenance(sel->id, q.contains("ofFieldId") ? std::optional<std::string>(q["ofFieldId"].get<std::string>()) : std::nullopt, *measure);
+    for (const auto& [k, v] : provenance.items()) out.meta[k] = v;
     Window w = window_of(rq, name);
     window_made(out.arrays, w);
     if (!rq.region.empty()) out.meta["regions"] = w.regions;
@@ -990,9 +1000,11 @@ CommandResult read_class(const std::string& cls, const ReadNodeRequest& r) {
   }
   if (cls == "selection") {
     if (r.field && !r.measure) throw task::Refused("--field names the field a measurement is of: give --measure too");
+    if (r.rows_on && !r.measure) throw task::Refused("--rows-on names the manifold a measurement's rows lie on: give --measure too");
     rq.measure = r.measure;
     rq.of_field = r.field;
-  } else if (r.measure || r.field) {
+    rq.rows_on = r.rows_on;
+  } else if (r.measure || r.field || r.rows_on) {
     throw task::Refused("--measure and --field read a selection's measurement table: options of `read selection`");
   }
   if (cls == "field" || cls == "operator") rq.onto = r.onto;

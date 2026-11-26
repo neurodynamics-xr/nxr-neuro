@@ -180,8 +180,14 @@ struct OperatorOut {
 // Each measure's values are stored at `<path>/<measure>` and recorded as a measurement row of `selection_id`; `band` (name, lo_hz, hi_hz) records the band it is within.
 struct MeasurementOut {
   std::string output, selection_id, of_field_id, path;
-  struct Measure { std::string measure, unit; Values values; };
+  struct Measure {
+    std::string measure, unit;
+    Values values;
+    Json declaration;                              // what the measure IS, when the registry does not know it ({merge, form?, unit?, weight?, description?}: measures.h MeasureDeclaration; its name is `measure`); null: the registry's
+  };
   std::vector<Measure> measures;
+  Json producer;                                   // the maker's own facts, added to the unit's producer record in each row's producer_json (null: the unit's record alone)
+  std::optional<std::string> rows_manifold_id;     // the manifold the arrays' rows lie on (a hemisphere, an eigen line): part of the store's key and of the arrays' path (issue #264); none: not named
   Json attributes;                                 // what each measure's array says of its own axes (the zarr attributes: rows = ..., columns = ...); null: none
   Json band;                                       // {name, lo_hz, hi_hz} or null: the band of the dataset's standard bank
   std::optional<std::string> within_selection_id;  // the Selection a measure is WITHIN (a bank of bands whose code is the band's index: the pyramid's `atlas bands`) and the member of it: wins over `band`
@@ -315,6 +321,19 @@ struct ComplexOut {
   std::optional<std::string> geometry_of;
   Json producer;
 };
+// a GRAPH: a manifold of type `graph` whose vertices are points in space ([n x 3]) and whose STORED rank-1 cells are its edges ([nE x 2] tail, tip; topology kind `graph`,
+// rank 1, its connected components counted by the caller). Its weights (a node's area, an edge's conductance) are fields on its cells, written beside it. Found by path and
+// kept when it holds the same vertices and edges; another one's is replaced by `replace` first
+struct GraphOut {
+  std::string name, output;
+  std::optional<std::string> path;                 // default: `fibre/<name>` (io's folder for curves and graphs)
+  std::string cs_key = "scs";
+  std::optional<std::string> derived_from_id, description, acquisition_id;
+  Values vertices;                                 // [n x 3], float64
+  std::vector<std::int32_t> edges;                 // [nE x 2]
+  int components = 1;
+  Json producer;
+};
 // a product of MANIFOLDS (a sensor × time line, a surface × frequency): its factors in axis order, existing or made in the same unit. (A product of SELECTIONS, with factor levels, is `SelectionOut` type "product".)
 struct ProductOut {
   std::vector<std::string> factors;
@@ -443,11 +462,14 @@ class Subject {
   // the selections that carry `measure` measured on `of_field_id` (ids, ascending)
   std::vector<std::string> measured_selections(const std::string& of_field_id, const std::string& measure) const;
   bool has_measures(const std::string& selection_id, const std::string& of_field_id) const;   // any measure of that field on the selection
-  bool has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt) const;
+  bool has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt,
+                   const std::optional<std::string>& rows_manifold_id = std::nullopt) const;   // rows_manifold_id: only the rows on that manifold (issue #264)
 
   // ---- read measurements: io's read-time query (nxr/io/measures.h, query_measurements): a stored measure as stored, a derived one from its ingredients, a pyramid's
   // array-backed measurement rolled up at read to the levels `q` names (that needs the subject's store: a Subject made from a writer)
   Json read_measurements(const Json& q) const;
+  // what a measurement IS and how it was made (measures.h measurement_provenance): {declaration, declared, producers}
+  Json measurement_provenance(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure) const;
   // the same measurements as a TABLE with filters and roll-ups, in SQL (nxr/io/measurement_query.h `query::members`, where the filter and roll-up structs are): through a grid's hierarchy and across subjects.
   // The query API is io's; the face (pipelines) applies nothing of its own.
 
@@ -484,14 +506,19 @@ class Unit {
   // the measurement rows of the unit, recorded as computed by `by().tool` unless a row names its own `computed_by`; returns the number written
   std::int64_t write_measurements(const Json& rows);
   std::int64_t remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id = std::nullopt,
-                                   const std::optional<std::string>& measure = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt);
+                                   const std::optional<std::string>& measure = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt,
+                                   const std::optional<std::string>& rows_manifold_id = std::nullopt);   // rows_manifold_id: only the rows on that manifold
   void set_params(const std::string& selection_id, const Json& params);
   // ---- typed writes, each returning the new node's id (call `replace` on its `path_of` first: a node already there is refused or moved aside)
   std::string field(const FieldOut&);
   std::string statistic(const StatisticOut&);
   std::string operator_(const OperatorOut&);
   std::string selection(const SelectionOut&);
-  std::int64_t measurements(const MeasurementOut&);   // the rows written (one a measure); a measure already there for the field is replaced
+  std::int64_t measurements(const MeasurementOut&);   // the rows written (one a measure); a measure already there for the field is replaced; each declared measure is declared first
+  // a measure the subject declares (measures.h declare_measure): checked against the registry and the subject's earlier declaration, stored in the unit; returns it as stored
+  Json declare_measure(const Json& declaration);
+  // the unit's producer record (its By) with `own` added: what each measurement row it writes keeps as producer_json
+  Json producer(const std::string& output, const Json& own) const;
   // MANIFOLDS (the sixth kind): made first, so the other results of the unit can lie on them; each found and reused when identical, never replaced
   std::string line(const LineOut&);
   // the one-sided frequency line of a span of n samples at fs on a time line of this subject (origin 0, spacing fs / n, n / 2 + 1 bins): found by (time line, n, fs) through its analytic `fft` operator
@@ -501,6 +528,7 @@ class Unit {
   std::string product(const ProductOut&);
   std::string points(const PointsOut&);            // found by path and kept when it holds the same coordinates; another one's is replaced by `replace` first
   std::string cell_complex(const ComplexOut&);     // found by path and kept when it holds the same cells; another one's is replaced by `replace` first
+  std::string graph(const GraphOut&);              // found by path and kept when it holds the same vertices and edges; another one's is replaced by `replace` first
   std::string dictionary(const DictionaryOut&);    // refused (already_exists) when a dictionary of that name and scope exists
   // EDITS of what is stored (each inside the unit, a node's description only, never its arrays): a manifold's label, description and primary flag (making a surface primary clears the one before it,
   // in the same unit); a dictionary's entry or its whole entry list
@@ -524,6 +552,7 @@ class Unit {
   std::string path_of(const SelectionOut&) const;
   std::string path_of(const PointsOut&) const;
   std::string path_of(const ComplexOut&) const;
+  std::string path_of(const GraphOut&) const;
   // a node of class `cls` already at `path`: refused (code already_exists, naming `what`) unless `replace`, then moved aside (its arrays to a dated
   // `_replaced-*` folder, never deleted) and its row removed; returns where its arrays went (empty: nothing was there, or it had none)
   std::string replace(Cls cls, const std::string& path, bool replace, const std::string& what);

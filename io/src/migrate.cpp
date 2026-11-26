@@ -90,6 +90,8 @@ std::string ownership(const std::string& table, const std::vector<std::string>& 
   if (table == "subject") return "id = ?";
   if (table == "dictionary") return "scope IN ('app', 'dataset', 'user') OR subject_id = ?";
   if (table == "dictionary_entry") return "dictionary_id IN (SELECT id FROM src.dictionary WHERE scope IN ('app', 'dataset', 'user') OR subject_id = ?)";
+  if (table == "measure_declaration")   // a declaration goes with the subject whose measurements use the name (one database's declarations are its subjects')
+    return "name IN (SELECT m.measure FROM src.selection_measurement m JOIN src.selection s ON s.id = m.selection_id WHERE s.subject_id = ?)";
   if (table == "field_contribution") return "field_id IN (SELECT id FROM src.field WHERE subject_id = ?)";   // the contributor (subject_id) is another subject: the owner is the field's
   if (const auto it = child.find(table); it != child.end()) return it->second.first + " IN (SELECT id FROM src." + it->second.second + " WHERE subject_id = ?)";
   if (has(cols, "subject_id")) return "subject_id = ?";

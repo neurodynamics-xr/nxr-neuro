@@ -204,6 +204,7 @@ In the verb-first grammar, each with its own `--help`; they parse, call the func
 | `create subject --dataset D --name S` | on a catalogue: a new package `D/S.nxr.zarr`, registered |
 | `create package --package P --name S --home-dataset N [--kind subject\|template\|group]` | a subject package |
 | `verify package --package P`, `show package --package P` | recompute every digest and the content hash; show the record |
+| `copy nodes --dataset D --subject S --from PACKAGE --manifold NAME [--manifold NAME ...] [--dry-run]` | copy a subject's stored solves (a manifold with what lies on it and was made from it) from another package of the same subject, nothing solved again (`### copy` below) |
 | `register package --dataset D (--package P ... \| --scan) --registered-by WHO [--replace]` | register (idempotent; each outcome and refusal reported) |
 | `list members --dataset D` | the packages with their state (registered, missing, stale) |
 | `list subjects --dataset D [--subjects A,B \| --where FILTER]` | on a catalogue: the members, or those selected (the matched subjects, their hashes and the filter text with its language version are printed); on a one-database dataset as before |
@@ -447,7 +448,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run fingerprint_features` | A person's two features over a span (steps 18 and 19): the bands' region spectra cut to their bands side by side (68 x 301 by default), and their envelope correlations on a band axis. | (the definition) |
 | `nxr-neuro run headmodel` | The sphere head model (gain matrix) for a subject's cortex, MEG and EEG. | `headmodel compute` |
 | `nxr-neuro run pointspread` | The instrument's blur: unit currents at sample vertices through the head model and inverse kernel. | `pointspread compute` |
-| `nxr-neuro run eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface on its intrinsic triangulation (made first when missing): the eigenvalue line, the kinds, and each mode's mixed form as one operator (cached). | `eigen solve` |
+| `nxr-neuro run eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface on its intrinsic triangulation (made first when missing), or of a stored graph (`--graph`: exact and cycle modes under its area and conductance): the eigenvalue line, the kinds, and each mode's mixed form as one operator (cached). | `eigen solve` |
 | `nxr-neuro run intrinsic` | The intrinsic Delaunay triangulation of a stored surface: its own cells on the surface's positions, d0, d1 and the Hodge stars as analytic operators, the lengths and signposts as fields. | - |
 | `nxr-neuro migrate eigensolve` | A stored eigensolve of the earlier form (`_eigenvectors`, `_forms1`, `_forms2`, a kind field) converted in place to the four classes, with no solve. | `package migrate-eigensolve` |
 | `nxr-neuro run surface_frames` | The canonical (north, west) and anatomical frames of a surface. | `frames compute`, `run surface_frames` |
@@ -462,8 +463,8 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run sensor_flow` | The flow of the field on the sensor surface per atom of the joint frequency x eigenvalue level: chunk spectra with overlap, power, phase currents, Hodge-Dirac flow, band pairs, time cells and their sign-flip test, an optional aperiodic fit. | (new) |
 | `nxr-neuro run sensor_bispectrum` | The bispectrum of the stored chunk spectra in eigenmode coordinates, weighted by the flow's frequency atoms (one gain per axis): phase-amplitude coupling and harmonics (waveform shape from the biphase), with the bicoherence's sums; per coordinate or per vertex (per band). | (new) |
 | `nxr-neuro run sensor_flow_across_frequencies` | Whether the sensor flow moves at the same speed and direction across frequencies: per pair of atoms the cosines of their flows, per vertex the direction consistency and the slope of apparent speed against frequency, from the flow's stored results. | (new) |
-| `nxr-neuro run tile_network` | The fibre network on the tiles of a surface's dyadic grid: per pair of tiles the streamlines joining them, their median length, the tiles' distance and whether they lie on different hemispheres; the connectome Laplacian of the edges and all its eigenmodes. | (new) |
-| `nxr-neuro run connectome_flow` | The flow through the fibre network: the tiles' cross-spectrum per atom from the stored chunk spectra (the kernel averaged over each tile, composed once), per segment, nxr's nulls (sign flip with its family-wise maximum, the distance-matched control), the network's divergence and graph potential in the connectome eigenmodes. | (new) |
+| `nxr-neuro run tile_network` | The fibre network on the tiles of a surface's dyadic grid: per pair of tiles the streamlines joining them, their median length, the tiles' distance and whether they lie on different hemispheres; the network as a graph manifold (the tiles at a level stated as a quantity, the joined pairs its edges) with its metric (tile area, conductance) as fields. | (new) |
+| `nxr-neuro run connectome_flow` | The flow through the fibre network: the tiles' cross-spectrum per atom from the stored chunk spectra (the kernel averaged over each tile, composed once), per segment, nxr's nulls (sign flip with its family-wise maximum, the distance-matched control), the network's divergence, graph potential and flow coefficients on its stored Hodge-Dirac modes (`eigenmodes --graph`, made first when missing). | (new) |
 | `nxr-neuro run connectome_flow_replication` | The run-to-run replication of the flow through the fibre network: per atom the correlation of two runs' edge flows over the joined and the not-joined pairs. | (new) |
 | `nxr-neuro run source_flow`, `source_flow_bins` | The flow of the cortical current: a minimum-norm kernel projected onto the cortex's eigenmodes (option A on the sensor field coordinates, option B on the channels; per hemisphere or glued), per atom (or per bin of the whole recording), with cortical band pairs, the remainder beyond the kept modes, time cells and their sign-flip test. | (new) |
 | `nxr-neuro run roll_up` | A measurement rolled up through its grid's hierarchy, or across a group's subjects (scope group). | `run roll_up` |
@@ -676,13 +677,36 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
 | `nxr-neuro import transform` | Import a head-to-MRI transform (an MNE `-trans.fif`, either direction) as a transition operator from the head frame to FreeSurfer's surface RAS (`freesurfer-tkr`, metres). | - |
 | `nxr-neuro import bids` | Import a BIDS dataset (MEG, EEG, iEEG) as a new dataset of subject packages: one package per `sub-<label>`, each recording imported through `import recording` (copied, or `--in-place`), `participants.tsv` as the participant variables (so `--where` works), `channels.tsv` (types, bad channels), `events.tsv` (the recording's events) and `electrodes.tsv` with `coordsystem.json` (channel positions; the coordinate system is recorded verbatim, never interpreted). The dataset's licence and authors are the origin of every item. | - |
 | `nxr-neuro create recording --synthetic` | Make a small synthetic recording in a subject package: sine waves (`--frequency`, repeatable) plus white noise from a `--seed`, with `--channels`, `--sfreq` and `--duration` as options. Stored as an imported recording is stored, with an origin record saying it is synthetic (CC0-1.0, redistributable); the same seed and options give the same samples. Used by the release smoke test. | - |
-| `nxr-neuro import condition PROTOCOL` | Import a Brainstorm condition (its recordings, channels and head models) into a dataset. | `convert convert` |
+| `nxr-neuro import condition PROTOCOL` | Import a Brainstorm condition (its recordings, channels and head models) into a dataset. `--replace-recording --note TEXT` replaces, in place, the samples of the condition's raw recording already imported (below). | `convert convert` |
 | `nxr-neuro import inverse` | Import a Brainstorm inverse kernel as an operator of a subject. | `convert inverse` |
 | `nxr-neuro import covariance` | Import a Brainstorm study's own noise covariance (`noisecov_*.mat`, `--kind noise`) or data covariance (`ndatacov_*.mat`, `--kind data`) as a statistic `<condition>_noise_covariance` / `<condition>_data_covariance` (measure covariance, method empirical), on the pick of the condition's channels that have non-zero rows (a Selection `<name>_channels` on the condition's channel manifold, in the channel file's order), so `run inverse --noise-cov NAME` reads it. The file is the study's `NoiseCov` record, else the first `noisecov_*.mat` / `ndatacov_*.mat` in the study folder; one with no such file is refused with its reason. Its source file, comment, history, the recording it was computed from (named, not imported) and its sample count are in the statistic's options; `FourthMoment` is not imported. An existing statistic of that name is refused unless `--replace`. | `convert covariance` |
 | `nxr-neuro import map` | Import Brainstorm source or matrix maps as fields of a subject. | `convert map` |
 | `nxr-neuro import resample` | Resample a recording to a new sampling rate, as a new recording. | `convert resample` |
 | `nxr-neuro import badsegments` | Import a recording's bad segments from a file. | `convert badsegments` |
 | `nxr-neuro import events` | Import a recording's events from a file. | `convert events` |
+
+**The BST-BIN binary of a raw link** (`nxr::bst::BstReader`, `io/src/bst_recording.cpp`; issue #276; register D169). Brainstorm writes and reads every epoch of a `.bst`, the last one included, with each
+channel's block `epochsize` samples apart (`out_fwrite_bst.m`, `in_fread_bst.m`; the reference): when `nsamples` ends inside the last epoch, its channels are still `epochsize` apart, the
+file ends after the last channel's declared samples (or holds the last epoch whole), and only the declared samples are kept. The reader takes the layout from the file's size: that one,
+the last epoch whole, or the last epoch re-laid with its channels their declared length apart (what an earlier re-lay script writes); a size that fits none of them is refused, naming the
+three sizes. A file shorter than all of them is a copy cut short, read in Brainstorm's layout: the samples every channel holds in full are imported and reported (`truncated`), fewer than half
+refused. Up to 0.4.3 the reader took a partial last epoch's channels to be their declared length apart, so every channel but the first read its last epoch from the wrong place, with no
+error. A package imported so is repaired in place with `import condition --replace-recording` (below). Tests: `test_bst_binary` (issue #276's file, Brainstorm's layout, the last epoch whole, the
+re-laid layout, cut short, a size that fits none).
+
+**Replacing a recording's samples in place** (`import condition PROTOCOL --subject S --condition C --dataset D --replace-recording --note TEXT [--resample HZ]`;
+`nxr::bst::replace_raw_timeseries`; the maintainers' decision of 2026-11-26, register D170). The condition's raw recording, already imported into the subject, is read again from its
+BST-BIN file exactly as the import reads it (the same reader, the same `--resample`), and its samples and envelope are rewritten in place: the recording's row and id, its time line,
+channels, channel flags, events and bad segments, its chunk and envelope tilings, the channel file's projectors and every other node of the package (manifolds, eigensolves, kernels,
+registrations) are kept, so everything that names the recording still names it. Nothing else of the condition is read or written. Why it is a flag of the import and not a write to a
+stored field: the samples are a function of the source file and the import's options, so the importer, and only it, can write them again; a field committed by any other writer stays
+written once. **Refused, with nothing written:** no `--note`; a subject or acquisition not imported (`nothing to replace`); a recording linked in place (no stored samples); another
+channel count, or a channel file or flags whose sha1 differs from the one the channels were imported with (D121); another shape [channels x samples] or sampling rate. **Bytes first,
+the row last:** the new samples and envelope are written beside the stored ones, the stored ones then moved aside (`_replaced-<date>/<path>`, never deleted) and the new ones put in
+their place; then the recording's `producer_json` gains an entry of `replaced_samples` (`utc`, `by`, `note`, `command`, `source` {file, layout, declared_samples, read_samples},
+`channels_checked`, `from` {samples: the SHA-256 of the stored chunks' digests, moved_aside}, `to` {samples}). In a subject package every key's digest and the content hash follow the
+new bytes (`verify package` agrees). **What was computed from the samples:** a run's cache key names its inputs by id, so a stored result computed from the old samples would be
+found again: the result lists every node whose provenance names the recording (`derived`) and says to run them again with `--replace`. Test: `test_import_replace_recording`.
 
 **MATLAB v7.3 files in the WebAssembly build.** A `.mat` saved with `-v7.3` is an HDF5 file. The native builds read it (matio over HDF5), as before. The WebAssembly build has no HDF5
 (and is 32-bit, with 4 GB at most), so there `import subject`, `import condition`, `import template` and `import group` **skip each v7.3 file and import the rest**, instead of
@@ -729,13 +753,43 @@ condition's channel file, the surface its kernels index, a template's only corte
 | `nxr-neuro add surface FILE` | Add a mesh file (OBJ, PLY or STL), or `--vertices V.npy --faces F.npy` with `--name`, to a subject as a surface. | `surface add` |
 | `nxr-neuro add field` | Values on a manifold (`--manifold M --values V.npy`), optionally time-resolved on a line (`--time LINE`); its lineage with `--by-operator`, `--contribution SUBJECT:FIELD[:WEIGHT]`, `--producer JSON`. | |
 | `nxr-neuro add selection` | A partition or set (`--members`), a pick (`--indices`) or spans on a line (`--spans`), `--type` naming which; `--of-field`, `--weights V.npy`, `--producer JSON`. | |
-| `nxr-neuro add statistic` | Values on named axes (`--axes NAME:MANIFOLD ...`), with `--measure` and `--method` from the registries, of a field (`--of-field`) or detached. | |
-| `nxr-neuro add measurements` | One value a member of a selection for each measure (`--measure NAME=V.npy ...`), of a field (`--field`) or the members' own. | |
+| `nxr-neuro add statistic` | Values on named axes (`--axes NAME:MANIFOLD ...`), with `--measure` and `--method` from the registries or declared (`--declare JSON`), of a field (`--of-field`) or detached; `--producer JSON`. | |
+| `nxr-neuro add measurements` | One value a member of a selection for each measure (`--measure NAME=V.npy ...`), of a field (`--field`) or the members' own; each measure the registry does not know declared (`--declare JSON`, repeatable); `--producer JSON`; one measure in pieces (`--begin --measure NAME --shape --dtype`, `--append --write ID --region --values`, `--commit`); `--rows-on MANIFOLD`: the manifold an array's rows lie on. | |
 | `nxr-neuro add operator` | A map between two manifolds, dense (`--values` [to x from]), sparse CSR (`--data --indices --indptr`) or analytic (`--layout analytic --method NAME --params JSON`, no matrix); `--from-selection`, `--producer JSON`; or a transition between two coordinate systems (`--from-coordinate-system SPACE:NAME --to-coordinate-system SPACE:NAME`, `--values` one affine [3 x 4]). | |
 | `nxr-neuro add points` | A manifold of points: positions [n x 3] or one coordinate each [n]. | |
 | `nxr-neuro add line` | A closed-form line: `--n`, `--spacing`, `--origin`, `--unit`; `--dimension time` (seconds) makes a time line fields can be time-resolved on. With `--coordinates C.npy --dimension eigenvalue [--kinds K.npy]`, a line whose points are not evenly spaced. | |
 | `nxr-neuro add product` | The product manifold of stored factors (`--name N --factors A,B`: a line over time, a surface over time). | |
 | `nxr-neuro add dictionary` | A dictionary of codes of the dataset or a subject (`--name N --scope dataset\|subject --entries E.json`). | |
+
+### `copy`: Copy a subject's stored nodes from another package of the same subject
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro copy nodes` | Copy each `--manifold` of the package `--from`, with what lies on it and was made from it, into the subject's package of `--dataset`; nothing solved; `--dry-run` reports the plan. | |
+
+**`copy nodes --dataset D --subject S --from PACKAGE --manifold NAME [--manifold NAME ...] [--dry-run]`** (`io/include/nxr/io/copy_nodes.h`; the maintainers' decision of 2026-11-26, register
+D171). A re-imported subject takes the solves of its earlier package instead of solving them again: eigenmodes are solved once per manifold and stored, and this is how a stored solve moves to
+another package of the same subject. Nothing is computed; rows and bytes are copied.
+- **What goes:** each named manifold and, until nothing is added, every node that lies on or was made from one that goes: the manifolds derived from it (an intrinsic triangulation, an
+  eigensolve's eigenvalue line, a glued surface) or its components, the fields and selections on it, the operators from or to it, the selections that are members of one that goes, the
+  statistics of a field that goes, and every node the same run made (the same cache key in its provenance: a run's outputs go together, so a sensor mesh takes its map and its channels pick,
+  an eigensolve its eigenvalues, kinds and eigenvectors). A product (a manifold times a time line) is not followed. With a manifold go its topology and geometry rows, with a selection its
+  members, extents, spans, factors and measurements, with a dictionary its entries. Name the solved surface (the glued cortex, a sensor mesh), not its parent: everything on the parent goes
+  with it (an inverse kernel to a cortex included).
+- **What it finds in the target:** every other row a copied row names must be in the target and the same: a node by its path (its counts, and the size and SHA-256 of every chunk under its
+  folder and of the arrays its geometry and cells name), an acquisition by its label, a space and a coordinate system by name, a dictionary by name and scope (its entries equal); the
+  subject is the target's. A space, coordinate system or dictionary the target lacks is copied; a node or an acquisition it lacks refuses the copy, naming it. A node that goes and that the
+  target already holds, the same, is **kept** (the target's row is used and nothing is written: a second copy is a no-op); one it holds that differs refuses the copy (delete it there first).
+- **The target's own rows:** every copied row has a new id; every id in its columns and its JSON is the target's (the cache keys in its provenance included), so a run asked again in the
+  target finds the copy as its own result (a cache hit, nothing solved, with the same build). Each copied node's `producer_json` gains `copied` {from_package (the folder's name),
+  from_subject, from_id, from_content_hash, utc, by}. A copy of the source's primary surface is not primary in a target that has one.
+- **Checked:** the source is a subject package whose recorded content hash equals the hash of its rows and digests (nothing changed since its writer closed it), at this schema version, of a
+  subject of the target's name; the target is a subject package; every chunk copied has, in the target, the size and SHA-256 the source recorded (a zarr.json document is rewritten with the
+  target's ids, and the drain writes its attributes from the target's row). The readers' own checks hold on the copy: the eigensolve's options (`mollify`, `flip_eps`, `star1_floor`) are the
+  source's, and the vertex reader checks the triangulation against the target's surface. Bytes first, the rows last in one transaction; a failure removes what was written.
+- **Result:** `from` {package, subject, content_hash}, `copied` [{class, name, path, id, from_id}], `kept`, `found` (the target's rows the copies name), `keys`, `bytes`, `dry_run`. A copy leaves
+  a job row `copy:nodes`. Test: `test_copy_nodes` (a closed surface's and a sensor mesh's solves copied into a re-import, read, a cache hit on the same runs, a second copy keeps everything,
+  refusals for a surface that differs and for missing channels).
 
 ### `edit`: Edit what a subject holds without touching its arrays
 
@@ -755,7 +809,9 @@ condition's channel file, the surface its kernels index, a template's only corte
 
 ### Writes in pieces, deletes by class and jobs (spec `docs/specs/2026-11-20-data-layer-queries.md`, 3.7 and 3.8; `io/src/commands_pieces.cpp`, `commands_delete.cpp`, `jobs.cpp`)
 
-**`add field | statistic` in three steps** for values too large to hand over at once. The three steps are ONE unit: until the commit the node is not in the subject (`read subject`, `list <class>` and
+**`add field | statistic | measurements` in three steps** for values too large to hand over at once (a write of measurements holds ONE measure: `--begin` names it, `--measure NAME`,
+with `--selection`, `--field` and its `--declare`, and its shape is the one-shot command's, `[members]`, `[members x N]` or `[members x N x C]`; each `--append` gives a region's values with
+`--values`). The three steps are ONE unit: until the commit the node is not in the subject (`read subject`, `list <class>` and
 `read <class>` do not see it).
 - `--begin` takes the full `--shape N,N,...` of the values (as the one-shot `--values` would be) and the stored `--dtype` (float32, float64, int32, int64, uint8 or bool; no default: precision follows the
   caller's data), with the command's usual options (`--subject`, `--name`, `--manifold`, `--time`, `--value-type`, `--axes`, ...). Everything the one-shot command checks without the values is checked now
@@ -1121,6 +1177,11 @@ one whose 2-form part is zero exact), the old labelling checked against them. A 
 per entry. No support is stored: the input's vertex under each solved vertex is the
 glue's correspondence (the glued cortex's hemispheres labelling and the input's medial wall), or every vertex when the input itself was solved; `migrate eigensolve` moves a stored `<stem>_support` aside.
 
+**On a graph** (2026-11-26, G1): `run eigenmodes --graph NAME` (one of `--surface` or `--graph`) solves a stored graph manifold's Hodge-Dirac modes under its node weights
+`<graph>_area` (⋆0) and edge weights `<graph>_conductance` (⋆1): the exact modes and the harmonic (cycle) modes, all of them, stored in the same four classes (stem
+`hodgeDirac__<graph>`; kinds exact 0 and harmonic 1; the eigenvectors operator to the graph's cells `0+1`). The node `meeg.graph_hodge_dirac`; compute `nxr::meeg::graphHodgeDirac`.
+A definition that reads them names them with `made_by: eigenmodes` (`connectome_flow`): the runner makes inputs under `when:` only when the run's own parameters keep them.
+
 ## The sensor surface (`run sensor_surface`; the nodes `meeg.channel_positions`, `geometry.point_set_mesh`, `geometry.surface_from_parts`)
 
 Why: a cross-spectrum between channels holds the lags between sensors but gives them no place; read on a surface whose vertices ARE the sensors, a field on the
@@ -1161,10 +1222,22 @@ flow definitions read it; the flow itself is `flow_readout.h` (`pairFlow`, `time
 members is a measurement): the whole field's power, phase currents, potential, stream and flow coefficients over the atoms; the band pairs over the product atoms x bands
 x bands; the sign-flip test's per-element results and per-member summary over atoms x bands (and, in the source flow, the whole field's over the atoms). The products are
 made first by `run select_kernel_product` (`--factors 3 --first ATOMS --second BANDS --third BANDS`; `--factors 2` for atoms x bands), their code mixed radix, the first
-factor fastest: atom a, then the band q at the tip, then the band p at the tail (the stored member order a + A (q + Q p)). With `frequency_weighting every_bin` the frequency line's bins are an axis, not members: statistics. The time
-cells are made and tested inside the run, never stored. The order on a new recording: `run sensor_flow_bins` (no atoms: its chunk spectra make the frequency line
-`<time line>_freq_L<log2 transform>`), `run select_kernels` (the atoms on that line, the bands on the solve's eigenvalue line), `run select_kernel_product`, `run sensor_flow`.
-Per hemisphere, each side's measures carry a stated suffix (`measure_suffix`: `_left`, `_right`) until a measurement's key names the surface its rows are on.
+factor fastest: atom a, then the band q at the tip, then the band p at the tail (the stored member order a + A (q + Q p)). With `frequency_weighting every_bin` the frequency line's bins are an axis, not members: statistics. **The time
+cells are STORED (2026-11-26, storage plan G7, issue #282; spec `docs/specs/2026-11-26-graph-manifold-and-time-cells.md`):** every flow definition takes a stored time grid
+of the recording (`--time-grid NAME`: `select_time_grid --rule tiles --duration D`, one level k of the line's dyadic tiling from its first sample) and sums each member over
+its tiles (each sample once; a tile cut by a chunk's edge completed from the next chunk; the line's last tile as long as it is), stored as MEASUREMENTS over the product of
+the grid with the members, the grid's tile fastest (`select_product --time-grid G --kernels atoms --atoms A`, or `--kernels atoms_scales --atoms A --scales B`): the sums are
+declared `sum` (`phase_current`, `vertex_phase_current_x/y/z`, `power_sum`, `cross_spectrum_real/imaginary`), so a coarser level of the grid is a roll-up at read. Every
+windowed quantity uses the ATOM'S OWN WIDTH on that tiling (a window is an atom with a rectangular kernel: a box): `--cell-width` of the atom's time standard deviations,
+snapped to the nearest dyadic level k_a; the sign-flip test reads the stored cells rolled up to k_a (sums of 2^(k_a - k) tiles, `nxr::measurement::coarser_groups`; a cell
+holding the line's last part tile left out), and a grid coarser than an atom's own window is refused (it names the level needed). There is no fixed segment. The order on a
+new recording: `run sensor_flow_bins` (no atoms: its chunk spectra make the frequency line `<time line>_freq_L<log2 transform>`), `run select_kernels` (the atoms on that
+line, the bands on the solve's eigenvalue line), `run select_kernel_product`, `run select_time_grid --rule tiles` (no coarser than the finest atom's own window) and
+`run select_product --kernels atoms_scales` (and `--kernels atoms` for the source flow's whole field and the connectome flow), `run sensor_flow`.
+Per hemisphere, each side's measurements name the manifold their rows lie on (`rows:` in the definitions: the cortex solve's triangulation for vertices, edges and the
+sign-flip test, its eigen line for the modes; the sensor flow's its own solve's), so both sides and the sensor flow keep the same measure names (2026-11-26, issue #264; the
+nodes' `measure_suffix` is no longer used by the shipped definitions, and results stored before keep their `_left` / `_right` names). Read one side with `read selection
+--measure M --field REC --rows-on <manifold>`.
 
 Why: the cross-spectrum of the MEG channels holds their lags but no spatial meaning; read on the sensor surface with its Hodge-Dirac eigenmodes the lags become a
 phase current on a surface, split into travel (exact) and rotation (coexact). Graph: `signal.mode_analysis` (`modes exact_and_constant`: the constant and the exact
@@ -1178,11 +1251,13 @@ per member the weighted sum C = Y Yᴴ once, and reads per member the whole fiel
 `select_kernels --profile cos2_partition`: an amplitude partition, so the pairs add back to the whole): power per vertex, phase current per intrinsic edge
 J = Im(conj(z_tail) z_tip) (travel tail to tip gives J < 0), phase current per vertex Im(conj(z) grad z), the edge current's Hodge-Dirac coefficients
 (`projectOneForm`), the exact potential (Neumann on an open surface) and the coexact stream (Dirichlet). `signal.atom_time_cells` reads each atom and band back in time
-per chunk (the synthesis composed on the atom's bins, one inverse transform) and sums the same quantities over cells of the atom's own width (the power of two of
-samples nearest `--cell-width` time standard deviations); `stats.sign_flip_consistency` tests the direction's consistency over those cells (nxr's flow analysis's R1 with
+per chunk (the synthesis composed on the atom's bins, one inverse transform) and sums the same quantities over the stored time grid's tiles (`edge_cells`: `phase_current`;
+`vertex_cells`: `vertex_phase_current_x/y/z`, `power_sum`; over grid x atoms x bands); `stats.sign_flip_consistency` tests the direction's consistency over those cells
+rolled up to each atom's own window (the power of two of samples nearest `--cell-width` time standard deviations) (nxr's flow analysis's R1 with
 numpy's `default_rng(--seed)`, `--patterns`, a family-wise maximum, `--cells-per-flip`; the measured correlation of neighbouring cells is stored as the check).
-With `--aperiodic true`: `signal.sensor_power` (each sensor's power per bin, the mean over chunks) and `stats.aperiodic_fit` (nxr's specparam port, `--aperiodic-knee`,
-`--aperiodic-range`). Derived at read, never stored: travel and rotation shares (squared flow coefficients by kind), band-pair shares, the apparent speed
+With `--aperiodic true`: `signal.sensor_power` (each sensor's power per bin, the mean over chunks, stored as `<name>_sensor_power`) and `stats.aperiodic_fit` (nxr's specparam
+port, `--aperiodic-range`), once for each model asked, from the one power: `--aperiodic-fixed` (default true; no knee, `<name>_aperiodic`) and `--aperiodic-knee` (default false;
+with a knee, `<name>_aperiodic_knee`), so both models are one run (2026-11-26; `--aperiodic-knee true` used to replace the fixed model under `<name>_aperiodic`). Derived at read, never stored: travel and rotation shares (squared flow coefficients by kind), band-pair shares, the apparent speed
 2 pi f power / |vertex phase current| (an upper bound), the power-weighted phase gradient, the periodic share 1 - background / power. Every value is a stated
 parameter of the definition; the nodes default none. What it cannot resolve: the field on the helmet only (no source, no field spread); patterns shorter than about
 two sensor spacings; a whole-run cross-spectrum keeps the net quadrature only; an incomplete eigensolve leaves coordinates and flow modes out (issue #219); the
@@ -1227,32 +1302,44 @@ phase current|, an upper bound) against log frequency: 0 the same speed at every
 the same node from the atoms' time cells measured over the event: the graph is in the spec); one run gives descriptions, not a test. Tests: `test_bispectrum`,
 `test_sensor_bispectrum` (waves at two frequencies with the same wavelength: slope 1; the same speed: slope 0).
 
-## The flow through the fibre network (`run tile_network`, `run connectome_flow`; the nodes `meeg.fiber_lengths`, `meeg.tile_pairs`, `meeg.laplacian_eigenmodes`, `signal.tile_operator`, `signal.tile_flow`, `signal.tile_time_cells`, `meeg.network_flow`; compute `nxr/meeg/tile_network.h`, `nxr/signal/tile_flow.h`; spec `docs/specs/2026-11-24-connectome-flow.md`)
+## The flow through the fibre network (`run tile_network`, `run connectome_flow`; the nodes `meeg.fiber_lengths`, `meeg.tile_pairs`, `meeg.graph_hodge_dirac`, `signal.tile_operator`, `signal.tile_flow`, `signal.tile_time_cells`, `meeg.network_flow`; compute `nxr/meeg/tile_network.h`, `nxr/signal/tile_flow.h`; spec `docs/specs/2026-11-24-connectome-flow.md`)
 
 Why: the surface flow moves between neighbouring vertices; whether part of the coordination between distant regions travels ALONG the white-matter fibres (a lag specific to
 joined regions, growing with the bundle, repeatable) needs the fibre network. The reference is nxr's flow through the fibre network. `tile_network` (no recording): the
 fibres' ends on the end surface (`meeg.fiber_ends`, `meeg.nearest_vertex`, `meeg.end_gate`: the `connectome` definition's steps; `--max-end-distance none`, nxr's ends), each
-fibre's length (`meeg.fiber_lengths`, the points' unit), the tiles of the surface's dyadic grid at `--tiles-per-piece` (a power of two: the grid's level; nxr: 32) and
-every pair of tiles (`meeg.tile_pairs`: the streamlines with one end in each, their median length, the centroids' distance, across the hemispheres), the edges (pairs
-joined by at least `--min-streamlines`, nxr 10) and the connectome Laplacian L = D - W (W the edges' streamline counts) with ALL its eigenmodes (`meeg.laplacian_eigenmodes`,
-one dense solve; its null modes, one per connected component, counted with `--null-tolerance`). `connectome_flow` reads the sensor flow's stored chunk spectra (never the
+fibre's length (`meeg.fiber_lengths`, the points' unit), the tiles of the surface's dyadic grid at the level `--scale` states as a quantity (`"parts 32"` a hemisphere, nxr's; a tile
+diameter `"20 mm"`; an area `"area 400 mm^2"`: the run records the level and the snapped quantity) and every pair of tiles (`meeg.tile_pairs`: the streamlines with one end in each,
+their median length, the centroids' distance, across the hemispheres). **The network is a GRAPH MANIFOLD** (2026-11-26, storage plan G1, issue #281; spec
+`docs/specs/2026-11-26-graph-manifold-and-time-cells.md`): `<name>` of type `graph`, its vertices the tiles at their centroids, its edges the pairs joined by at least
+`--min-streamlines` (nxr 10) as STORED rank-1 cells (topology kind `graph`, its connected components counted); its metric as fields on its cells, stated in its producer:
+`<name>_area` (each tile's area, the sum of its vertices' barycentric areas: the node weight ⋆0) and `<name>_conductance` (streamline count / median length: the edge weight ⋆1),
+with `<name>_streamlines` and `<name>_median_length` beside them; the statistics `<name>_tiles` and `<name>_pairs` (every pair, joined or not: the control reads the not-joined
+ones) as before. The network solves no Laplacian (`meeg.laplacian_eigenmodes` and `<name>_eigenmodes` are gone): **its Hodge-Dirac modes are `run eigenmodes --graph <name>`'s**
+(`meeg.graph_hodge_dirac`): the exact (gradient) modes of Bᵀ⋆1 B ψ = λ ⋆0 ψ (one dense generalized solve; the constants, one per component, out, `--null-tolerance`) and the
+harmonic (cycle) modes, the kernel of Bᵀ⋆1 (E - V + components of them; no coexact mode on a graph), stored in the surfaces' four classes: the line `hodgeDirac__<name>` (μ, the
+cycle modes at 0 first), `_eigenvalues`, `_kinds` (exact 0, harmonic 1), ONE operator `_eigenvectors` to the graph's cells `0+1` ([(V + E) x K]: exact [ψ/√2 ; Bψ/(μ√2)], cycle
+[0 ; h]; orthonormal under diag(⋆0, ⋆1)). `connectome_flow` names them with `made_by`, so they are solved once, as their own run, the first time a flow reads them, and read after. `connectome_flow` reads the sensor flow's stored chunk spectra (never the
 recording): `signal.tile_operator` averages the caller's free-orientation kernel over each tile's vertices (three components, no orientation assumed) and composes it with
 the synthesis of the served coordinates back to the kernel's channels (the pseudo-inverse of the serving operator `signal.mode_analysis` makes, as `sensor_flow` binds it): one
 operator [3 tiles x coordinates]; `signal.tile_flow` gives per atom the whole run's tile cross-spectrum S_ij = Σ over chunks and the atom's bins of g² Σ_c z_i conj(z_j)
-(Re and Im per pair, power per tile; the sensor chain's whole-run form); `signal.tile_time_cells` the same sums per cell of a level of the time line (`--cells segments`, the
-default and nxr's: non-overlapping 4 s segments from the run's first sample, `--segment-seconds`; or `atom_width`, each atom's own cells); `stats.network_sign_flip` ports nxr's
-nulls exactly (numpy's `default_rng(--seed)` bit for bit, drawn in nxr's order): per pair the mean over the cells of Im C_ij / sqrt(C_ii C_jj), its sign-flip p over the cells
+(Re and Im per pair, power per tile; the sensor chain's whole-run form); `signal.tile_time_cells` the same sums per tile of the stored time grid (`--time-grid`, `--time-atoms`:
+`pair_cells` Re and Im per pair, `tile_cells` `power_sum` per tile, over grid x atoms; nxr's fixed 4 s segments are not kept: the cells are each atom's own window,
+`--cell-width` time standard deviations, read from the stored tiles); `stats.network_sign_flip` ports nxr's nulls exactly on those cells (numpy's `default_rng(--seed)` bit for bit, drawn in nxr's order): per pair the mean over the cells of Im C_ij / sqrt(C_ii C_jj), its sign-flip p over the cells
 (`--patterns`) and the family-wise p (the null maximum of the normalised sums), the distance-matched control (as many not-joined pairs per distance bin, `--distance-bin-edges`,
 as joined ones, numpy's `choice`), and the phase of the summed cross-spectrum; `meeg.network_flow` reads that mean edge flow F (or the whole-run ratio Im S_ij / sqrt(S_ii S_jj))
-on the edges and gives the divergence Bᵀ F, the graph potential phi of L phi = Bᵀ W F as the 1/eigenvalue gain on the complete connectome
-eigenmodes (the minimum-norm solution: the null modes left out) and its coefficients, and the weighted sums of squares of the gradient part and of the flow. Derived at
+on the graph's edges and, from the graph's STORED modes and its conductance (no solve), gives the divergence Bᵀ F, the flow's coefficient on every mode (`flow_coefficient`,
+rows the graph's eigen line: its projection on the mode's 1-form part, as the surfaces' flowSplit), the graph potential phi = Σ_exact c_k ψ_k / μ_k (the conductance-weighted
+least-squares potential, the constants out) and the ⋆1 energies of the gradient part, the cycle part and the flow (`weighted_gradient_squares`, `weighted_cycle_squares`,
+`weighted_flow_squares`); the weights are the graph's conductance, not the reference's streamline counts. Derived at
 read, never stored: the edge flow (> 0 when tile j lags tile i), the lag -arg S_ij / (2 pi f), the speed (median length / |lag|, an upper bound), the gradient share, the
 potential's energy over the connectome's eigenvalues, the counts over the edges and over the distance-matched not-joined pairs (the control). What it cannot resolve: a
 tile's current is the kernel's mean over its vertices; tractography ends are not cortical terminations; leakage pulls lags towards zero; a consistent lag between joined tiles
-does not by itself show that the fibres carry it (the control); a whole-run cross-spectrum keeps the net quadrature only. Memory: the fibre bundle is read whole (10^6
+does not by itself show that the fibres carry it (the control); a whole-run cross-spectrum keeps the net quadrature only; the graph's metric (area, conductance) is a stated choice.
+Memory: the fibre bundle is read whole (10^6
 fibres of 100 points: 2.4 GB in double); the tile operator [3T x K]; per chunk the tiles' coefficients [3T x bins] and one atom's band signal of one component [T x transform
 samples]. `run connectome_flow_replication` (`stats.run_replication`): per atom the correlation of two runs' mean edge flows over the joined and the not-joined pairs. Tests:
-`test_tile_network` (the potential against a direct solve; a gradient and a circulation), `test_tile_flow` (a planted directed lag), `test_network_flip` (golden: numpy and nxr's
+`test_tile_network` (the graph Hodge-Dirac modes: a path's eigenvalues, orthonormality under the stars, the cycle space's size; the potential against a direct weighted solve,
+the coefficients synthesising the flow back, a gradient and a circulation), `test_graph_network` (a synthetic brain: the graph manifold, its metric, `eigenmodes --graph`, store on miss), `test_tile_flow` (a planted directed lag), `test_network_flip` (golden: numpy and nxr's
 flip and control), `test_connectome_flow` (the nodes on hand-made arrays with a planted lag).
 ## The source mapping of the flow (`run source_flow`, `run source_flow_bins`; the nodes `signal.source_mode_operator`, `signal.cortical_flow`, `signal.cortical_time_cells`; compute `nxr/signal/source_flow.h`; spec `docs/specs/2026-11-24-source-flow.md`)
 
@@ -1271,12 +1358,18 @@ formed), the flow coefficients on the cortex's STORED Hodge-Dirac edge rows, the
 flow beyond the kept modes split by sparse Poisson solves (stored as its own potential and stream; its star1 energy beside the flow's, so its share is derived at read).
 The cross-spectrum stays in sensor coordinates: per band one product conj(C) U_qᵀ (or conj(Y) (Yᵀ U_qᵀ) when the member has fewer draws than columns), then only the
 entries read. `signal.cortical_time_cells` inverts each atom's spectrum on the columns' side (one inverse transform of the columns, not of the vertices), then reads the
-cells through the readout; `stats.sign_flip_consistency` tests them unchanged. Per hemisphere (`--cortex per_hemisphere --left L --right R`, the reference) or glued
+stored time grid's tiles through the readout (`<side>_whole_edge_cells`, `<side>_whole_vertex_cells` over grid x atoms; `<side>_edge_cells`, `<side>_vertex_cells` over grid x
+atoms x bands; `--time-grid`, `--time-atoms`, `--time-atom-bands`); `stats.sign_flip_consistency` tests them rolled up to each atom's own window, the whole field first. Per hemisphere (`--cortex per_hemisphere --left L --right R`, the reference) or glued
 (`--cortex glued --glued G`). What it cannot resolve: it is the kernel's estimate in other coordinates (point spread, depth bias, field spread inherited; flow at
 wavelengths the kernel cannot resolve is leakage, not travel); rank at most the sensor coordinates (A) or the kernel's (B); wavelengths shorter than the last kept mode
 appear only in the complement band; per hemisphere no flow across the midline, glued no medial-wall sources; the three components summed make no claim about the normal
 or tangent direction; the apparent speed is an upper bound. Cost: the time cells are a product of 3 x vertices x columns x the cell's samples per cell (about 0.5 T
-multiply-adds per chunk, atom and band on a 20 000-vertex cortex); `--time-cells false` skips them. The operator is bound per run, not stored (issue). Tests:
+multiply-adds per chunk, atom and band on a 20 000-vertex cortex); `--time-cells false` skips them. **Stored inputs (2026-11-26).** `--spectra NAME` reads the chunk
+spectra stored before instead of the recording, as `connectome_flow` does: the sensor flow's (`<recording>_<sensor package>_chunk_spectra`, in the sensor surface's field coordinates:
+option A with the same `--sensor-package`) or an earlier source flow's own (option B, in channels); the recording is not read and no spectrum is stored again, the measurements stay
+of the recording. **The mode operator is stored** (option B): `<kernel>__in__<cortex solve>` (kind `mode_analysis`, [3 K x channels], the three components' blocks of K rows, from
+the channels to the cortex's eigen line, derived from the kernel), one per hemisphere or the glued cortex, so clients read it by name; option A's is it times the sensor coordinates'
+synthesis (not stored). The run still composes it from the stored kernel and modes (a product, no solve); a later run does not look it up by key yet (issue). Tests:
 `test_source_flow` (compute: the bands add back to the kernel), `test_flow_readout` (compute: `pairFlow`, `timeCellPairFlow`, `takeWholeCells`, `flowSplit` against their definitions written out, the remainder split) and
 `test_source_flow_nodes` (two spheres as hemispheres and a 42-channel sheet: hemisphere selection, a glued package's zero bridge, option A = option B with a complete
 sensor basis, a travelling source mapped to an exact flow, the band pairs adding back, the time cells' sign-flip test).
@@ -2271,18 +2364,48 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
   column (the form of the field a measure is taken of); io applies the merge rule in SQL (`nxr::io::query`: filters by selection, member, level in physical units, subject or group; roll-ups through a grid's hierarchy
   and across subjects) and compute in memory (`roll_values`), and a parity test (`test_rollup_parity`) compares the two. `nxr-neuro migrate measurements --dataset D [--dry-run] [--remove-statistics]` makes a
   dataset made before schema 53 follow it, subject by subject and resumable; the old statistics are kept unless `--remove-statistics` (the explicit second step).
+- **Declared measures (2026-11-26).** The registries are a VOCABULARY of known names and their defaults, not a gate: any measure may be stored. The writer of a measure the registry
+  does not know DECLARES it: its merge rule (`sum`, `max`, `min`, `mean`, `none`; `derived` only for a registered name, whose formula io holds), and its form, unit, weight measure
+  and description where they apply. The declaration is kept in the subject's `measure_declaration` table (one row a name; added in place to a database made before it, user_version
+  unchanged), so one name keeps one meaning in a subject: a second declaration that differs, or one that contradicts the registry's entry for a known name, is refused (a declaration
+  may leave out what the registry gives). **Roll-ups read the rule from the declaration first, then the registry** (`measure_merge(db, name)`: io's SQL query, the array roll-ups,
+  across subjects, where every subject must declare the same rule). **A measure neither declared nor registered is never rolled up**: it reads as stored (each member its own value),
+  and a read that would merge members is refused, naming the declaration it needs. There is no fallback to `sum` (the old `max` for `*_max`, `sum` for any other name is gone), so a
+  p value or a consistency is never summed by a coarser query.
+  - **Who declares.** `add measurements --declare '{"name": "p", "merge": "none", "description": "..."}'` (repeatable, one a measure; in Python a dict or a list of dicts); a node through
+    its `describe.measures` entries (`{measure, merge, form, description}`), which the runner stores as the declaration: the flow nodes (`sensor_flow`, `source_flow`, `connectome_flow`,
+    `stats.sign_flip_consistency`) declare every measure they write that the registry does not know (`pipelines/src/flow_measures.h`: `flow_coefficient`, `vertex_phase_current_x/y/z`,
+    `remainder_*`, `cross_spectrum_real/imaginary`, `potential_coefficient`, `divergence`, `weighted_*_squares` and the counts `cells`, `groups_flipped` sum; `consistency`, `p`,
+    `familywise_p`, the sign-flip summaries, `mean_edge_flow`, `control`, `phase`, `potential` and the remainder maps none). A suffixed name (`_left`, from results made before the rows' manifold was named) is declared under that name.
+  - **Statistics** keep their measure and method in their row; a measure or a method neither statistics registry knows is DECLARED by the writer, `add statistic --declare
+    '{"measure": {"description": "...", "unit_rule": "..."}, "method": {"description": "..."}}'` (kept in the statistic's `producer.declared`), else refused. A declared `unit_rule`
+    that contradicts the registry's, or another statistic's declaration of the same measure in the subject, is refused.
+  - **Read back:** `read selection --name SEL --measure M [--field F]` gives `declaration` (the subject's, else the registry's entry), `declared` and `producers` beside the values.
+  Test: `test_measure_declarations` (a new measure rolled up by its declared rule; a p value declared `none` refused at roll-up; an undeclared unknown measure refused; the
+  contradictions), `test_pieces_deletes_jobs` (the commands).
+- **The manifold its rows lie on (2026-11-26, issue #264).** An array-backed measurement may name the manifold its rows are the elements of (`selection_measurement.rows_manifold_id`,
+  part of the store's key and a folder of its arrays' path): one measure of one field over one selection on two manifolds (two hemispheres) is two measurements, with no suffix on
+  the measure's name. A definition's measurement output says it with `rows: LINK` (`left.to`, `package.from`); `add measurements --rows-on NAME` in the command; `read selection
+  --measure M --rows-on NAME` reads one (without it, a measure stored on several manifolds is refused, naming them). A database made before it gets the column and the key in place.
+- **The producer of a measurement (2026-11-26).** Every row a measurement writes through a unit keeps how it was made in `selection_measurement.producer_json` (the command or the
+  pipeline's record with the output's name; `add measurements --producer JSON` adds the maker's own facts, as `add field --producer` does). A database made before it gets the column in
+  place, user_version unchanged. `add statistic --producer JSON` adds the maker's facts to a statistic's producer record (a group statistic's members, their ids and hashes, as `run
+  fingerprint` records them).
 - **The glued cortex.** The imported two-hemisphere mesh is the manifold of record; the glued surface is derived (`run glue`) and is the default computational manifold. A Field, a selection or a measurement made on the
   glued surface is stored on the original: the elements are restricted back through the glue map (the bridge has no counterpart and is dropped, like the medial wall) and the record says so (`restricted_from`).
 - **Operators a node builds** (the fused kernel of a chain, with its band and pre-operator) are stored through io as operators with their provenance and found by their key on the next run; no process-wide cache.
 - **Quantities.** A range may be open: `>=0.4 s`, `<=5 s`; a duration may be in `cycles` of the band's centre (`>=3 cycles`).
 - **The makers (selections are made, never recomputed from parameters).** Each is a definition that also runs alone and stores its selection once (get-or-create):
   - `run select_dyadic_surface --rule subject|group|transfer`: the dyadic equal-area tiles of a surface as one grid with closed-form levels (was `tiles`, `group_tree`,
-    `group_tiles`); the finest tile is a quantity (`--finest "20 mm"`, `"parts 256"`, `"area 400 mm2"`), the level and its snapped quantity are recorded;
+    `group_tiles`); the finest tile is a quantity (`--finest "20 mm"`, `"parts 256"`, `"area 400 mm2"`), the level and its snapped quantity are recorded; rules subject and group store
+    `<surface> tiles`, rule transfer `<surface> tiles transfer`, so a subject holds its own grid and the group tree carried onto it side by side;
   - `run select_time_grid --rule tiles|band|frames|constant_q|segments|windows|chunks`: the dyadic time grid of a line (was `frametiling`, `constantq`). **Frame density and origin
     are options with their defaults in the YAML** (2026-11-17): `frames_per_cycle` (default 36, the 10 degree step of phase work) or `frames_per_tile`, and `origin` as a
-    point: `start` (the recording's first sample), `clock`, or `event` (a stored selection's first member). No method constant is hard-wired in compute;
-  - `run select_bands --rule frequency|eigenvalue|wavelength|parts|levels`: a band set on the dataset's Frequency or Eigenvalue line (was `pyramid_bands`, `spatial_bands`);
-  - `run select_product`: a product of grids and band sets (a box, a grid of cells, the joint partition), levels coupled to a band in closed form (was `joint`);
+    point: `start` (the recording's first sample), `clock`, or `event` (a stored selection's first member). No method constant is hard-wired in compute. Rules tiles, segments and windows
+    take the tile, segment or window as `--duration`; a window's `--step` defaults to the window (no overlap);
+  - `run select_bands --rule frequency|eigenvalue|wavelength|parts|levels`: a band set on the dataset's Frequency or Eigenvalue line (was `pyramid_bands`, `spatial_bands`); the rules that
+    take no grid need no `--surface`, and a line neither the template nor the subject holds is made in the subject (the same closed-form line in every subject);
+  - `run select_product`: a product of grids and band sets (a box, a grid of cells, the joint partition), levels coupled to a band in closed form (was `joint`); `--kernels atoms|atoms_scales` the stored time grid x kernel sets (a flow's time cells, G7);
   - `select.events.spans|regions|cores|tracks`: irregular selections made by detection (nodes inside `band_bursts`, `global_bursts`, `patches`, `spatial_events`, `vortex_cores`).
 - **The glued cortex is made by its own definition** (2026-11-17; its result as selections, 2026-11-23): `run glue --surface cortex_pial [--hemispheres Structures] [--left "Cortex L"] [--right "Cortex R"]`
   READS the hemispheres from the caller's labelling of the original (Brainstorm's `Structures` by default; a left or right member that is not one connected piece, cortex outside its own `unassigned`,
@@ -2308,7 +2431,7 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
   - `summarize`: members to a statistic (`run summarize`, was `statistic`);
   - `estimate`: a statistic from a partition of the stream (the Welch family, histograms).
   **Roll-ups exist in io's query as well as in compute** (2026-11-17): each measure's merge rule (sum, max, min, mean via sum and count, ratios derived at read) is DATA in the
-  measures registry, applied by io in SQL and by compute in memory, with a parity test between the two.
+  measures registry or the subject's declaration (above), applied by io in SQL and by compute in memory, with a parity test between the two.
 - **Quantities, never level indices.** Every selection parameter is a number with a unit in a named chart of the space it lies in: `8-12 Hz`, `2-5 s`, `20 mm`,
   `wavelength 40 mm`, `parts 16`, `area 100-400 mm2`. A bare level index is refused outside the explicit `index` chart; a definition declares `unit` and `chart` for each
   such parameter. The run records the stated quantity, the resolved level and the snapped quantity.

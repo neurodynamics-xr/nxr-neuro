@@ -103,11 +103,33 @@ def registered_commands() -> dict[str, list[str]]:
     return out
 
 
+_NINJA_PHONY: set[str] | None = None
+
+
+def ninja_targets() -> set[str]:
+    """the top-level targets the build declares (`build NAME: phony ...` in build.ninja): an executable's target by its name"""
+    global _NINJA_PHONY
+    if _NINJA_PHONY is None:
+        f = BUILD / "build.ninja"
+        _NINJA_PHONY = set(re.findall(r"^build ([A-Za-z0-9_.+-]+): phony ", f.read_text(errors="ignore"), re.M)) if f.exists() else set()
+    return _NINJA_PHONY
+
+
+def untargeted(ts: list[dict]) -> list[str]:
+    """the tests whose build target is not known: no command (ctest omits it for an executable not built, and the registration did not give it) and no
+    build target of the test's name. A job that builds only the targets of its tests would leave these unbuilt and ctest would report them `Not Run`."""
+    return [t["name"] for t in ts if not (t.get("command") or []) and t["name"] not in ninja_targets()]
+
+
 def targets_for(ts: list[dict]) -> list[str]:
-    """the build targets of the given ctest tests: each test's executable, and the command line for a test that calls it"""
+    """the build targets of the given ctest tests: each test's executable, and the command line for a test that calls it; a test with no command
+    (its executable not built, and not in the registration) by the build target of its name, when the build declares one"""
     out: set[str] = set()
     for t in ts:
         cmd = t.get("command") or []
+        if not cmd and t["name"] in ninja_targets():
+            out.add(t["name"])
+            out.add("nxr-neuro")                       # whether it calls the command line is not known without its command: build it too
         if cmd and "-P" not in cmd and not re.match(r"python[\d.]*$|cmake$|sh$|bash$", Path(cmd[0]).name):   # an interpreter is never a target
             out.add(Path(cmd[0]).name)
         for a in cmd:                                  # a script test's targets are the executables it is handed (-DCLI=, -DSCENARIO=)

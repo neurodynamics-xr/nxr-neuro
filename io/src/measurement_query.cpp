@@ -103,7 +103,7 @@ struct Built {
 };
 
 Built build(const Database& db, const std::string& measure, const Query& q, const std::vector<std::string>& ids, const Store* store, const std::vector<std::int64_t>& radices) {
-  const MergeRule rule = measure_merge(measure);
+  const MergeRule rule = measure_read_rule(db, measure).rule;   // a measure neither declared nor registered is read as stored (`none`) and refused when members merge (below)
   const std::string agg = aggregate(rule);
   const std::string grp = code_expression(q.roll, radices);
   Built b;
@@ -236,13 +236,15 @@ Json members(const Database& db, const Query& q, const Store* store) {
   std::vector<Got> first_rows;
   for (std::size_t i = 0; i < from.size(); ++i) {
     const Built b = build(db, from[i], q, ids, store, radices);
-    const MergeRule rule = measure_merge(from[i]);
+    const ReadRule read = measure_read_rule(db, from[i]);
+    const MergeRule rule = read.rule;
     std::map<std::string, Got> m;
     for (const Row& r : db.all(b.sql, b.params)) {
       Got g;
       g.subject = r.count("subject_id") ? json_of(r.at("subject_id")) : Json(nullptr);
       g.selection = r.count("selection_id") ? json_of(r.at("selection_id")) : Json(nullptr);
       g.grp = integer(r, "grp"); g.value = number(r.at("value")); g.weight = number(r.at("weight")); g.members = integer(r, "members");
+      if (!read.known && g.members > 1) throw Error(code::unsupported, undeclared_refusal(from[i]));
       if (rule == MergeRule::none && g.members > 1)
         throw Error(code::unsupported, "measure " + from[i] + " does not roll up: its value is a member's own (a median of two members together is no combination of their medians), so members cannot be merged");
       m[key_of(g)] = g;
@@ -317,7 +319,7 @@ MeasurementValues merged_stored(SubjectWriter& sub, const std::string& selection
   const Database& db = sub.db();
   MeasurementValues v = measurement_values(sub, selection_id, of_field_id, of_statistic_id, of_index, measure);
   if (!roll.shift && !roll.whole && !roll.factor) return v;
-  const MergeRule rule = measure_merge(measure);
+  const MergeRule rule = measure_merge(db, measure);   // the subject's declaration, else the registry's; neither: refused (never summed by default)
   if (rule == MergeRule::none) throw Error(code::unsupported, "measure " + measure + " does not roll up: its value is a member's own");
   std::int64_t groups = 0;
   if (rule == MergeRule::mean) {
@@ -334,7 +336,7 @@ MeasurementValues merged_stored(SubjectWriter& sub, const std::string& selection
     return out;
   }
   MeasurementValues out = v;
-  out.values = roll_array(db, selection_id, v.values, v.rows, v.members, roll, rollup::merge_of(measure), &groups);
+  out.values = roll_array(db, selection_id, v.values, v.rows, v.members, roll, rollup::merge_of(rule, measure), &groups);
   out.members = groups;
   return out;
 }
@@ -373,7 +375,10 @@ MeasurementValues rolled_values_across(const std::vector<SubjectArray>& subjects
   }
   std::vector<MeasurementValues> merged;
   for (std::size_t i = 0; i < from.size(); ++i) {
-    const MergeRule rule = measure_merge(from[i]);
+    // each subject's declaration, else the registry's: they must agree (one name, one meaning across the group)
+    const MergeRule rule = measure_merge(subjects[0].subject->db(), from[i]);
+    for (const SubjectArray& s : subjects)
+      if (measure_merge(s.subject->db(), from[i]) != rule) refuse("across subjects: the subjects declare '" + from[i] + "' with different merge rules");
     if (rule == MergeRule::none) throw Error(code::unsupported, "measure " + from[i] + " does not roll up across subjects: its value is a member's own");
     MeasurementValues out = per_ingredient[i][0];
     for (const auto& p : per_ingredient[i]) if (p.rows != out.rows || p.members != out.members) refuse("across subjects: the same selection differs in shape between subjects (not on one group tree)");
@@ -397,7 +402,7 @@ MeasurementValues rolled_values_across(const std::vector<SubjectArray>& subjects
       for (std::size_t k = 0; k < num.size(); ++k) out.values[k] = den[k] > 0 ? num[k] / den[k] : kNaN;
     } else {
       for (const auto& p : per_ingredient[i]) stack.push_back(&p.values);
-      out.values = rollup::across(stack, rollup::merge_of(from[i]));
+      out.values = rollup::across(stack, rollup::merge_of(rule, from[i]));
     }
     merged.push_back(std::move(out));
   }

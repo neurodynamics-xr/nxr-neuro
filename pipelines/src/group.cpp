@@ -53,7 +53,11 @@ GroupTemplate read_group_template(DatasetWriter& ds, SubjectWriter& sub, const s
   const SurfaceInput S = read_surface(sub, sname, true);
   const int nV = static_cast<int>(S.n_vertices());
   SubjectWriter tsub = SubjectWriter::open(*tds, text(*tpl, "name"));
-  const SurfaceInput T = read_surface(tsub, std::nullopt, true);
+  // the template's surface of the SAME name as the subject's (the caller's --surface): a template holds several surfaces (at least the surface and its registered sphere), so none is picked for the caller
+  std::optional<SurfaceInput> Tfound;
+  try { Tfound = read_surface(tsub, sname, true); }
+  catch (const Error& e) { if (e.code() == code::no_such_row) missing(text(*tpl, "name") + ": no surface '" + sname + "' (the group tree is carried from the template's surface of the same name)"); throw; }
+  const SurfaceInput T = std::move(*Tfound);
   const auto tsphere = sphere_of(tsub, T.name), ssphere = sphere_of(sub, sname);
   if (!tsphere) missing(text(*tpl, "name") + ": no registered sphere (" + T.name + "_sphere)");
   if (!ssphere) missing(sub.name() + ": no registered sphere (" + sname + "_sphere): the group tree is assigned through it");

@@ -42,6 +42,8 @@ std::optional<Row> manifold_with_geometry_named(const Database& db, const std::s
 std::optional<Row> surface_with_geometry(const Database& db, const std::string& subject_id, const std::optional<std::string>& name);
 /** the path of a topology's faces (its rank-2 cells) */
 std::optional<std::string> topology_faces_path(const Database& db, const std::string& topology_id);
+// the path of a topology's STORED cells of one rank (a graph's edges: rank 1), or nothing
+std::optional<std::string> topology_cells_path(const Database& db, const std::string& topology_id, int rank);
 /** the length unit of a manifold's coordinate system ("" when it records none) */
 std::string manifold_coordinate_unit(const Database& db, const std::string& manifold_id);
 /** the coordinate system a manifold's geometry is in ("" when it records none) */

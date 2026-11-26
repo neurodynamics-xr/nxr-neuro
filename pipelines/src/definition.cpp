@@ -34,7 +34,7 @@ const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifo
                                            "name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors",
                                            "from_selection", "to_selection", "of_statistic", "inverts", "inverse_kind", "acquisition_of", "of_operator", "within", "by_operator",
                                            "codes", "carry_origin", "optional", "get_or_create", "value_type", "components", "level", "detected_over",
-                                           "geometry_of", "layout"};   // geometry_of: the manifold whose positions a complex shares · layout: analytic (an operator with no bytes, D93: found or made with the manifold it lies on)   // detected_over: the grid input an irregular selection was detected over (provenance)
+                                           "geometry_of", "layout", "rows"};   // rows: the manifold a measurement's rows lie on (a link; part of its key, issue #264)   // geometry_of: the manifold whose positions a complex shares · layout: analytic (an operator with no bytes, D93: found or made with the manifold it lies on)   // detected_over: the grid input an irregular selection was detected over (provenance)
   //    // get_or_create: a maker's selection stored by its maker key (found when there)  // codes: 2 = two codes a row (a sparse matrix over a selection's members) · carry_origin: the input whose origin and licence the result carries  // optional: the node makes it only when the data asks for it; a link may name alternatives `a|b`
 const std::regex kPresetName("^[a-z][a-z0-9_-]*$");
 const std::regex kName("^[a-z][a-z0-9_]*$");
@@ -550,7 +550,7 @@ Definition parse(const Json& written, const std::string& source, const std::stri
     if (kind.empty()) err(w, "kind: a name");
     const bool declared_kind = kind == "operator" || kind == "manifold" || (kind == "selection") || (kind == "statistic" && (spec.contains("axes") || spec.contains("of")));
     for (const auto& kk : keys(spec))                // the declaration's keys belong to the declared kinds only
-      if (!declared_kind && kind != "field" && kind != "measurement" && kind != "recording" && std::set<std::string>{"name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors", "from_selection", "to_selection", "of_statistic", "inverts", "inverse_kind", "acquisition_of", "of_operator", "within", "by_operator", "codes", "carry_origin"}.count(kk))
+      if (!declared_kind && kind != "field" && kind != "measurement" && kind != "recording" && std::set<std::string>{"name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors", "from_selection", "to_selection", "of_statistic", "inverts", "inverse_kind", "acquisition_of", "of_operator", "within", "by_operator", "codes", "carry_origin", "rows"}.count(kk))
         err(w, kk + ": belongs to the declared kinds (statistic with axes, operator, selection, manifold, field)");
     if (kind == "operator" && (!spec.contains("operator_kind") || !spec.contains("from") || !spec.contains("to"))) err(w, "an operator output names operator_kind, from and to (links to found manifolds)");
     if (kind == "selection" && !spec.contains("type")) err(w, "a selection output names its type: partition, spans, set, tiling, ladder or grid");

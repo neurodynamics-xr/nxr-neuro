@@ -2,12 +2,14 @@
 //   fiberLengths: a straight fibre and a right angle;
 //   tileCodesAtLevel: the finest codes of a two-piece grid shifted to coarser levels (piece = code >> level);
 //   tilePairs: counts, numpy medians (odd and even counts), the gate, ends outside and in one tile, centroids, distances, across the pieces;
-//   laplacianEigenmodes: a path of four tiles (eigenvalues 2 - 2 cos(k pi / 4)), the null modes of a network in two components;
-//   networkFlow: the potential against a direct (pseudo-inverse) solve of L phi = Bᵀ W F on a weighted random network; a pure gradient flow has gradient share 1 and its
-//     potential back up to a constant; a pure circulation has share 0 and divergence 0.
+//   graphHodgeDirac: a path of four tiles (eigenvalues 2 - 2 cos(k pi / 4)), the constants of a network in two components, the cycle space's size (E - V + components),
+//     the mixed forms orthonormal under diag(⋆0, ⋆1) on a weighted random network with node weights;
+//   networkFlow: the potential against a direct (pseudo-inverse) solve of Bᵀ⋆1 B phi = Bᵀ⋆1 F; the coefficients synthesise the flow back (exact + cycle parts); a pure gradient
+//     flow has gradient share 1 and its potential back up to a constant; a pure circulation is all cycle: no divergence, no gradient part.
 #include <cmath>
 #include <cstdio>
 #include <random>
+#include <stdexcept>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -54,50 +56,64 @@ int main() {
     const TileNetwork odd = tilePairs(codes, X, 1, std::vector<std::int32_t>{0, 0, 0, 1, 1, 1}, {}, std::vector<double>{5, 1, 3});
     CHECK(odd.count(0) == 3 && std::abs(odd.medianLength(0) - 3) < 1e-12);
   }
-  // ── the Laplacian of a path 0-1-2-3 (unit weights) and of two components ──
+  // ── the graph Hodge–Dirac modes of a path 0-1-2-3 (unit weights) and of two components ──
   {
-    Eigen::VectorXd w = Eigen::VectorXd::Zero(6);
-    w(pairIndex(0, 1, 4)) = 1; w(pairIndex(1, 2, 4)) = 1; w(pairIndex(2, 3, 4)) = 1;
-    const LaplacianModes m = laplacianEigenmodes(w, 4, 1e-10);
-    for (int k = 0; k < 4; ++k) CHECK(std::abs(m.eigenvalues(k) - (2 - 2 * std::cos(k * M_PI / 4))) < 1e-12);
-    CHECK(m.nullModes == 1);
-    CHECK((m.eigenvectors.transpose() * m.eigenvectors - Eigen::MatrixXd::Identity(4, 4)).norm() < 1e-12);
-    Eigen::VectorXd two = Eigen::VectorXd::Zero(6);
-    two(pairIndex(0, 1, 4)) = 3; two(pairIndex(2, 3, 4)) = 2;
-    CHECK(laplacianEigenmodes(two, 4, 1e-10).nullModes == 2);
+    const std::vector<std::int32_t> path = {0, 1, 1, 2, 2, 3};
+    const GraphModes m = graphHodgeDirac(path, 4, Eigen::VectorXd::Ones(4), Eigen::VectorXd::Ones(3), 1e-10);
+    CHECK(m.components == 1 && m.cycles == 0 && m.mu.size() == 3);
+    for (int k = 1; k < 4; ++k) CHECK(std::abs(m.mu(k - 1) * m.mu(k - 1) - (2 - 2 * std::cos(k * M_PI / 4))) < 1e-12);
+    CHECK((m.forms.transpose() * m.forms - Eigen::MatrixXd::Identity(3, 3)).norm() < 1e-12);
+    const GraphModes two = graphHodgeDirac(std::vector<std::int32_t>{0, 1, 2, 3}, 4, Eigen::VectorXd::Ones(4), Eigen::Vector2d(3, 2), 1e-10);
+    CHECK(two.components == 2 && two.cycles == 0 && two.mu.size() == 2);
+    bool refusedWeight = false;
+    try { graphHodgeDirac(path, 4, Eigen::VectorXd::Ones(4), Eigen::Vector3d(1, 0, 1), 1e-10); } catch (const std::invalid_argument&) { refusedWeight = true; }
+    CHECK(refusedWeight);
   }
-  // ── the potential: the eigenmode filter against a direct solve; a gradient flow; a circulation ──
+  // ── a weighted random network: the modes orthonormal under the stars; the potential against a direct solve; the coefficients synthesise the flow; a gradient; a circulation ──
   {
-    const int T = 12, P = T * (T - 1) / 2;
+    const int T = 12;
     std::mt19937 rng(7);
     std::uniform_real_distribution<double> u(0, 1);
-    Eigen::VectorXd w = Eigen::VectorXd::Zero(P), F(P);
-    for (int q = 0; q < P; ++q) { if (u(rng) < 0.4) w(q) = std::floor(1 + 20 * u(rng)); F(q) = u(rng) - 0.5; }
-    for (int i = 0; i + 1 < T; ++i) if (w(pairIndex(i, i + 1, T)) == 0) w(pairIndex(i, i + 1, T)) = 1;   // connected
-    const LaplacianModes m = laplacianEigenmodes(w, T, 1e-10);
-    CHECK(m.nullModes == 1);
-    const NetworkFlow nf = networkFlow(F, w, m);
-    // the direct solve: L phi = Bᵀ W F, the minimum-norm solution (complete orthogonal decomposition)
-    Eigen::VectorXd rhs = Eigen::VectorXd::Zero(T);
-    for (int i = 0; i < T; ++i) for (int j = i + 1; j < T; ++j) { const int q = static_cast<int>(pairIndex(i, j, T)); if (w(q) > 0) { rhs(i) -= w(q) * F(q); rhs(j) += w(q) * F(q); } }
-    const Eigen::VectorXd direct = m.laplacian.completeOrthogonalDecomposition().solve(rhs);
-    CHECK((nf.potential - direct).norm() < 1e-10 * std::max(1.0, direct.norm()));
-    CHECK(std::abs(nf.potential.sum()) < 1e-10);
-    CHECK((m.eigenvectors.transpose() * nf.potential - nf.coefficients).norm() < 1e-10);
-    // a pure gradient: F = phi0_j - phi0_i on the edges
+    std::vector<std::int32_t> edges;
+    std::vector<double> wv;
+    for (int i = 0; i < T; ++i)
+      for (int j = i + 1; j < T; ++j)
+        if (j == i + 1 || u(rng) < 0.4) { edges.push_back(i); edges.push_back(j); wv.push_back(0.5 + 20 * u(rng)); }   // connected (the path), then random chords
+    const int E = static_cast<int>(wv.size());
+    const Eigen::VectorXd w = Eigen::Map<const Eigen::VectorXd>(wv.data(), E);
+    Eigen::VectorXd area(T);
+    for (int i = 0; i < T; ++i) area(i) = 1e-4 * (1 + u(rng));
+    const GraphModes m = graphHodgeDirac(edges, T, area, w, 1e-10);
+    CHECK(m.components == 1 && m.cycles == E - T + 1 && m.mu.size() == E);                // (T - 1) exact + (E - T + 1) cycles
+    Eigen::VectorXd stars(T + E);
+    stars << area, w;
+    CHECK((m.forms.transpose() * stars.asDiagonal() * m.forms - Eigen::MatrixXd::Identity(E, E)).norm() < 1e-9);
+    Eigen::MatrixXd B = Eigen::MatrixXd::Zero(E, T);
+    for (int e = 0; e < E; ++e) { B(e, edges[static_cast<std::size_t>(2 * e)]) = -1; B(e, edges[static_cast<std::size_t>(2 * e + 1)]) = 1; }
+    Eigen::VectorXd F(E);
+    for (int e = 0; e < E; ++e) F(e) = u(rng) - 0.5;
+    const NetworkFlow nf = networkFlow(F, edges, w, m);
+    // the direct solve: Bᵀ⋆1 B phi = Bᵀ⋆1 F, the constant fixed by ⋆0 (Σ ⋆0 phi = 0, as the modes are ⋆0-orthogonal to the constants)
+    const Eigen::MatrixXd L = B.transpose() * w.asDiagonal() * B;
+    Eigen::VectorXd direct = L.completeOrthogonalDecomposition().solve(B.transpose() * w.cwiseProduct(F));
+    direct.array() -= area.dot(direct) / area.sum();
+    CHECK((nf.potential - direct).norm() < 1e-9 * std::max(1.0, direct.norm()));
+    CHECK(std::abs(area.dot(nf.potential)) < 1e-12);
+    CHECK((m.forms.bottomRows(E) * nf.coefficients - F).norm() < 1e-9);                  // complete: the exact and cycle parts synthesise the flow back
+    CHECK(std::abs(nf.weightedGradientSquares + nf.weightedCycleSquares - nf.weightedFlowSquares) < 1e-9 * nf.weightedFlowSquares);
+    CHECK((nf.divergence - B.transpose() * F).norm() < 1e-12);
+    // a pure gradient: F = B phi0
     Eigen::VectorXd phi0(T);
     for (int i = 0; i < T; ++i) phi0(i) = std::sin(1.3 * i) + 0.2 * i;
-    Eigen::VectorXd G(P);
-    for (int i = 0; i < T; ++i) for (int j = i + 1; j < T; ++j) G(pairIndex(i, j, T)) = phi0(j) - phi0(i);
-    const NetworkFlow g = networkFlow(G, w, m);
-    CHECK(std::abs(g.weightedGradientSquares / g.weightedFlowSquares - 1) < 1e-10);
-    CHECK((g.potential - (phi0.array() - phi0.mean()).matrix()).norm() < 1e-9);
-    // a circulation around the triangle 0 → 1 → 2 → 0 with equal weights: no divergence, no gradient part
-    Eigen::VectorXd tw = Eigen::VectorXd::Zero(3), C(3);
-    tw.setOnes();
-    C(pairIndex(0, 1, 3)) = 1; C(pairIndex(1, 2, 3)) = 1; C(pairIndex(0, 2, 3)) = -1;
-    const NetworkFlow c = networkFlow(C, tw, laplacianEigenmodes(tw, 3, 1e-10));
-    CHECK(c.divergence.norm() < 1e-12 && c.weightedGradientSquares < 1e-20 && std::abs(c.weightedFlowSquares - 3) < 1e-12);
+    const NetworkFlow g = networkFlow(B * phi0, edges, w, m);
+    CHECK(std::abs(g.weightedGradientSquares / g.weightedFlowSquares - 1) < 1e-10 && g.weightedCycleSquares < 1e-18 * g.weightedFlowSquares);
+    CHECK((g.potential - (phi0.array() - area.dot(phi0) / area.sum()).matrix()).norm() < 1e-9);
+    // a circulation around the triangle 0 → 1 → 2 → 0 with equal weights: no divergence, no gradient part, all cycle
+    const std::vector<std::int32_t> tri = {0, 1, 0, 2, 1, 2};
+    const GraphModes tm = graphHodgeDirac(tri, 3, Eigen::VectorXd::Ones(3), Eigen::VectorXd::Ones(3), 1e-10);
+    CHECK(tm.cycles == 1 && tm.kind[0] == 1 && tm.mu(0) == 0);
+    const NetworkFlow c = networkFlow(Eigen::Vector3d(1, -1, 1), tri, Eigen::VectorXd::Ones(3), tm);
+    CHECK(c.divergence.norm() < 1e-12 && c.weightedGradientSquares < 1e-20 && std::abs(c.weightedCycleSquares - 3) < 1e-12 && std::abs(c.weightedFlowSquares - 3) < 1e-12);
   }
   return nxrtest::finish("test_tile_network");
 }

@@ -6,11 +6,13 @@
 //   tileCodesAtLevel        a dyadic grid's finest code per vertex shifted to a coarser level (code >> (depth - level)); -1 stays -1
 //   tilePairs               the tiles (the codes some vertex holds, ascending), each tile's centroid and piece, and every pair of tiles (i < j): the count of streamlines
 //                           whose two ends lie in the two tiles, their median length, the centroids' distance, whether the tiles lie on different pieces
-//   laplacianEigenmodes     the graph Laplacian L = D - W of a weighted network on the tiles (W symmetric, from the pairs' weights) and ALL its eigenmodes (one dense
-//                           symmetric eigensolve: the tile graph is small), eigenvalues ascending; the null modes (eigenvalue below a stated fraction of the largest) counted
-//   networkFlow             an edge flow F on the network's edges (pairs i < j, i → j): the divergence d = Bᵀ F (B the incidence, -1 at i, +1 at j), the graph potential
-//                           phi solving L phi = Bᵀ W F as the 1/eigenvalue gain on the eigenmodes (the minimum-norm solution: the null modes left out), its
-//                           coefficients on the eigenmodes, and the sums Σ w (B phi)² and Σ w F² (the gradient share is their ratio, derived at read)
+//   graphHodgeDirac         the Hodge–Dirac modes of a GRAPH (a 1-complex: d0 = B the incidence, -1 at the tail, +1 at the tip; ⋆0 = diag(node weights), ⋆1 = diag(edge
+//                           weights); no 2-cells): the exact (gradient) modes of Bᵀ⋆1 B ψ = λ ⋆0 ψ, λ > 0 (one dense generalized symmetric eigensolve: the graph is small;
+//                           the constants, one per connected component, out), each as its MIXED FORM [ψ/√2 ; Bψ/(μ√2)], and the harmonic (cycle) modes, the kernel of
+//                           Bᵀ⋆1 (E - V + components of them), each [0 ; h], ⋆1-orthonormal; all orthonormal under diag(⋆0, ⋆1). The surfaces' convention (eigen_steps)
+//   networkFlow             an edge flow F on the graph's edges: the divergence d = Bᵀ F, the flow's coefficient on every mode (its projection on the mode's 1-form part: 2 ⟨F,
+//                           φ_k⟩⋆1 on an exact mode, ⟨F, h_k⟩⋆1 on a cycle mode), the graph potential phi = Σ_exact c_k ψ_k / μ_k (the weighted least-squares potential:
+//                           Bᵀ⋆1 B phi = Bᵀ⋆1 F, the constants out), and the sums Σ ⋆1 (B phi)² and Σ ⋆1 F² (the gradient share is their ratio, derived at read)
 #pragma once
 #include <Eigen/Dense>
 #include <cstdint>
@@ -46,23 +48,26 @@ TileNetwork tilePairs(const std::vector<std::int64_t>& tileCodes, const Eigen::M
 /** the index of pair (i, j), i < j, of T tiles in tilePairs' order */
 inline std::int64_t pairIndex(std::int64_t i, std::int64_t j, std::int64_t T) { return i * T - i * (i + 1) / 2 + (j - i - 1); }
 
-struct LaplacianModes {
-  Eigen::VectorXd eigenvalues;   // [T] ascending
-  Eigen::MatrixXd eigenvectors;  // [T x T] columns orthonormal
-  Eigen::MatrixXd laplacian;     // [T x T]
-  std::int64_t nullModes = 0;    // eigenvalues below nullTolerance x the largest: one per connected component of the network
+/** a graph's Hodge–Dirac modes (graphHodgeDirac): K = cycle modes + exact modes, ascending μ (the cycle modes at μ = 0 first) */
+struct GraphModes {
+  std::int64_t nodes = 0, edges = 0, components = 0, cycles = 0;   // V, E, the connected components (the null 0-forms left out), the cycle modes (E - V + components)
+  Eigen::VectorXd mu;            // [K] ascending; 0 on a cycle mode
+  std::vector<int> kind;         // [K] 0 exact, 1 harmonic (a cycle)
+  Eigen::MatrixXd forms;         // [(V + E) x K] each mode's mixed form: rows 0-forms [0, V) · 1-forms [V, V + E)
 };
-/** the weights [P] of the pairs (0 where no edge) of T tiles in tilePairs' order → L = D - W and its eigenmodes. */
-LaplacianModes laplacianEigenmodes(const Eigen::VectorXd& pairWeights, std::int64_t tiles, double nullTolerance);
+/** edges [E x 2] (tail, tip; tail != tip) of a graph of `nodes` vertices, node weights [V] > 0 (⋆0), edge weights [E] > 0 (⋆1); an eigenvalue at most `nullTolerance` x the
+ *  largest is a constant (one per connected component). std::invalid_argument on a weight that is not positive, an edge outside the vertices or a loop. */
+GraphModes graphHodgeDirac(const std::vector<std::int32_t>& edges, std::int64_t nodes, const Eigen::VectorXd& nodeWeights, const Eigen::VectorXd& edgeWeights, double nullTolerance);
 
 struct NetworkFlow {
-  Eigen::VectorXd divergence;    // [T] Bᵀ F
-  Eigen::VectorXd potential;     // [T] phi
-  Eigen::VectorXd coefficients;  // [T] u_kᵀ phi per eigenmode (0 on the null modes)
-  double weightedGradientSquares = 0;   // Σ_e w_e (B phi)_e²
-  double weightedFlowSquares = 0;       // Σ_e w_e F_e²
+  Eigen::VectorXd divergence;    // [V] Bᵀ F
+  Eigen::VectorXd potential;     // [V] phi
+  Eigen::VectorXd coefficients;  // [K] the flow's coefficient on each mode (the modes' order)
+  double weightedGradientSquares = 0;   // Σ_e ⋆1_e (B phi)_e²  (= Σ_exact c_k² / 2)
+  double weightedCycleSquares = 0;      // Σ_cycles c_k²: the cycle part's ⋆1 energy
+  double weightedFlowSquares = 0;       // Σ_e ⋆1_e F_e²
 };
-/** edge flow [P] and weights [P] of the pairs (an edge: weight > 0; the flow of a non-edge is not read), the network's eigenmodes. */
-NetworkFlow networkFlow(const Eigen::VectorXd& pairFlow, const Eigen::VectorXd& pairWeights, const LaplacianModes& modes);
+/** an edge flow [E] (tail → tip) on the graph the modes were solved on (its edges [E x 2] and edge weights [E], ⋆1) → its divergence, coefficients, potential and sums. */
+NetworkFlow networkFlow(const Eigen::VectorXd& edgeFlow, const std::vector<std::int32_t>& edges, const Eigen::VectorXd& edgeWeights, const GraphModes& modes);
 
 }  // namespace nxr::meeg

@@ -152,6 +152,15 @@ export interface JoinDatasetOptions {
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
+export interface CopyNodesOptions {
+  dataset: string | number;
+  dry_run?: boolean;
+  from: string | number;
+  manifold: string[] | string;
+  subject: string | number;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
 export interface VerifyPackageOptions {
   package: string | number;
   /** receives each progress line the command prints, as an object */
@@ -531,7 +540,9 @@ export interface ImportConditionOptions {
   include_imported?: boolean;
   no_gain?: boolean;
   no_raw?: boolean;
+  note?: string | number;
   recording?: string | number;
+  replace_recording?: boolean;
   resample?: string | number;
   subject: string | number;
   surface?: string | number;
@@ -712,6 +723,7 @@ export interface ReadSelectionOptions {
   name: string | number;
   out?: string | number;
   region?: string | number;
+  rows_on?: string | number;
   subject: string | number;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
@@ -781,6 +793,7 @@ export interface AddStatisticOptions {
   by?: string | number;
   commit?: boolean;
   dataset: string | number;
+  declare?: string | number;
   description?: string | number;
   dtype?: string | number;
   measure?: Record<string, ArrayInput | string> | string[];
@@ -788,6 +801,7 @@ export interface AddStatisticOptions {
   name?: string | number;
   of_field?: string | number;
   partition?: string | number;
+  producer?: string | number;
   region?: Array<[number, number]> | string[] | string;
   replace?: boolean;
   shape?: number[] | string;
@@ -800,14 +814,25 @@ export interface AddStatisticOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddMeasurementsOptions {
+  append?: boolean;
+  begin?: boolean;
   by?: string | number;
+  commit?: boolean;
   dataset: string | number;
+  declare?: string[] | string;
+  dtype?: string | number;
   field?: string | number;
-  measure: Record<string, ArrayInput | string> | string[];
+  measure?: Record<string, ArrayInput | string> | string[];
+  producer?: string | number;
+  region?: Array<[number, number]> | string[] | string;
   replace?: boolean;
-  selection: string | number;
-  subject: string | number;
+  rows_on?: string | number;
+  selection?: string | number;
+  shape?: number[] | string;
+  subject?: string | number;
   unit?: string | number;
+  values?: string | number;
+  write?: string | number;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
@@ -1122,6 +1147,9 @@ export interface Verbs {
   };
   join: {
     dataset: (options: JoinDatasetOptions) => Promise<Result>;
+  };
+  copy: {
+    nodes: (options: CopyNodesOptions) => Promise<Result>;
   };
   verify: {
     package: (options: VerifyPackageOptions) => Promise<Result>;

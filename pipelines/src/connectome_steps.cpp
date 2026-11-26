@@ -163,9 +163,9 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   }
   // ── end_gate ──
   {
-    StepSpec s = simple("meeg.end_gate", {"end_distance"}, {}, {"keep"}, Json{{"max_end_distance_mm", 5}},
+    StepSpec s = simple("meeg.end_gate", {"end_distance"}, {}, {"keep"}, Json{{"max_end_distance_mm", nullptr}},   // no default in the node (a number or "none": the definition's; connectome: 5)
                         "the spec's distance gate (decided 2026-11-16); `none` reproduces tess_connectome",
-                        "The distance gate: end_distance [2nF] (metres, block order) → keep [nF], 1 for a fiber with both ends within max_end_distance_mm (millimetres; default 5; \"none\" keeps every fiber, as "
+                        "The distance gate: end_distance [2nF] (metres, block order) → keep [nF], 1 for a fiber with both ends within max_end_distance_mm (millimetres, the definition's; \"none\" keeps every fiber, as "
                         "the reference does), 0 for a fiber left out. The number left out is in keep's meta (`n_left_out`, `n_fibers`, `max_end_distance_mm`) for the report and the provenance.",
                         "each fiber is gated on its own two distances");
     s.plan = plan_arrays("meeg.end_gate", {"end_distance"}, {"keep"});

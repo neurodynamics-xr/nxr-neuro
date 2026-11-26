@@ -118,8 +118,8 @@ int mri_command(const std::vector<std::string>& rest) {
 // nxr convert convert <protocol> --subject S --condition C --dataset D [...]: one condition as a session (the subject made if absent)
 int convert_condition_command(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro convert convert";
-  const Args a = parse(prog, rest, {"--subject", "--condition", "--dataset", "--surface", "--recording", "--channel-file", "--resample"},
-                       {"--no-gain", "--all-surfaces", "--include-imported", "--no-raw"}, {"--subject", "--condition", "--dataset"}, 1, {"--extra-surface"}, "root");
+  const Args a = parse(prog, rest, {"--subject", "--condition", "--dataset", "--surface", "--recording", "--channel-file", "--resample", "--note"},
+                       {"--no-gain", "--all-surfaces", "--include-imported", "--no-raw", "--replace-recording"}, {"--subject", "--condition", "--dataset"}, 1, {"--extra-surface"}, "root");
   task::ImportConditionRequest rq;
   rq.protocol = a.pos[0];
   rq.subject = a.get("--subject");
@@ -134,6 +134,8 @@ int convert_condition_command(const std::vector<std::string>& rest) {
   rq.include_imported = a.flag.count("--include-imported") > 0;
   rq.no_raw = a.flag.count("--no-raw") > 0;
   rq.extra_surface = maybe_values(a, "--extra-surface");
+  rq.replace_recording = a.flag.count("--replace-recording") > 0;
+  rq.note = a.maybe("--note");
   rq.created_by = stamp();
   emit_result(call(prog, [&] { return task::import_condition(rq, progress()); }).result);
   return 0;

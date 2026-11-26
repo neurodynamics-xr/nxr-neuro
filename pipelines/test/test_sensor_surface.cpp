@@ -163,6 +163,24 @@ int main() {
   for (int v = 0; v < G; ++v) for (int d = 0; d < 3; ++d) err = std::max(err, std::abs(S.vertices[static_cast<std::size_t>(3 * v + d)] - centre[static_cast<std::size_t>(3 * pick[static_cast<std::size_t>(v)] + d)]));
   std::printf("  helmet: %lld vertices, %lld triangles; vertices vs the pickup coils' centres: max |difference| %.1e m\n", (long long)S.n_vertices(), (long long)S.n_faces(), err);
   CHECK(err < 1e-6);
+  // the coil shapes (Brainstorm's PlotCoils): one quadrilateral (two triangles) per picked gradiometer, its centre the channel position, each vertex mapped to its channel
+  {
+    nxrtest::run_definition(ds, sub, "sensor_coils", Json{{"channels", "sensors"}, {"pick", "sensors_meg"}, {"name", "coils_surface"}});
+    const nxr::pipelines::SurfaceInput K = nxr::pipelines::read_surface(sub, "coils_surface", true);
+    CHECK_EQ(K.n_vertices(), static_cast<std::int64_t>(4 * G));
+    CHECK_EQ(K.n_faces(), static_cast<std::int64_t>(2 * G));
+    const auto map = read_as<int>(sub, text(*sub.find("field", nxr::io::task::Subject::of(sub).node_path(K.id, "coils_surface_map")), "path"));
+    double cerr = 0;
+    for (int v = 0; v < 4 * G; ++v) CHECK_EQ(map[static_cast<std::size_t>(v)], pick[static_cast<std::size_t>(v / 4)]);
+    for (int g = 0; g < G; ++g)
+      for (int d = 0; d < 3; ++d) {
+        double m = 0;
+        for (int q = 0; q < 4; ++q) m += K.vertices[static_cast<std::size_t>(3 * (4 * g + q) + d)] / 4;
+        cerr = std::max(cerr, std::abs(m - centre[static_cast<std::size_t>(3 * pick[static_cast<std::size_t>(g)] + d)]));
+      }
+    std::printf("  coils: %lld vertices, %lld triangles; shape centres vs channel positions: max |difference| %.1e m\n", (long long)K.n_vertices(), (long long)K.n_faces(), cerr);
+    CHECK(cerr < 1e-6);
+  }
   // the faces: the mesher's on those positions (the same triangles, the same turn); a disc
   {
     std::vector<double> pos(S.vertices.begin(), S.vertices.end());
@@ -260,8 +278,15 @@ int main() {
     CHECK(!nxrtest::run_definition(ds, sub, "select_kernel_product", Json{{"factors", 3}, {"first", "atoms"}, {"second", "bands"}, {"third", "bands"}, {"name", "atom_band_pairs"}}).empty());
     std::printf("  [flow] run select_kernel_product\n");
     CHECK(!nxrtest::run_definition(ds, sub, "select_kernel_product", Json{{"factors", 2}, {"first", "atoms"}, {"second", "bands"}, {"name", "atom_bands"}}).empty());
+    // the time cells' stored grid (G7): tiles of 0.125 s (32 samples at 256 Hz: no coarser than the 12 Hz atom's own window) and its product with the atoms and bands
+    std::printf("  [flow] run select_time_grid\n");
+    CHECK(!nxrtest::run_definition(ds, sub, "select_time_grid", Json{{"recording", "rest"}, {"rule", "tiles"}, {"duration", "0.125 s"}, {"name", "rest tiles"}}).empty());
+    std::printf("  [flow] run select_product\n");
+    CHECK(!nxrtest::run_definition(ds, sub, "select_product", Json{{"recording", "rest"}, {"time_grid", "rest tiles"}, {"kernels", "atoms_scales"}, {"atoms", "atoms"}, {"scales", "bands"}, {"name", "rest cells"}}).empty());
     Json flow = serve;
     flow["atoms"] = "atoms"; flow["bands"] = "bands"; flow["pairs"] = "atom_band_pairs"; flow["atom_bands"] = "atom_bands"; flow["patterns"] = 50; flow["name"] = "flow";
+    flow["time_grid"] = "rest tiles"; flow["time_atom_bands"] = "rest cells";
+    flow["aperiodic"] = true; flow["aperiodic_knee"] = true; flow["aperiodic_range"] = Json::array({4.0, 40.0});   // both aperiodic models in one run
     std::printf("  [flow] run sensor_flow\n");
     CHECK(!nxrtest::run_definition(ds, sub, "sensor_flow", flow).empty());
     std::printf("  [flow] reading the stored measurements\n");
@@ -269,8 +294,17 @@ int main() {
     auto selection_id = [&](const std::string& name) { const auto r = probe.rows("selection", {{"name", V(name)}}); return r.empty() ? std::string() : text(r.front(), "id"); };
     auto measured = [&](const std::string& over, const std::string& measure) { return probe.rows("selection_measurement", {{"selection_id", V(selection_id(over))}, {"measure", V(measure)}}).size(); };
     CHECK(measured("atoms", "phase_current") == 1 && measured("atoms", "power") == 1 && measured("atoms", "flow_coefficient") == 1);         // the whole field, per atom
+    // the measures the registry does not know are DECLARED by the nodes that write them: a coefficient sums, a consistency and a p value never do
+    auto declared = [&](const std::string& measure) { const auto r = probe.rows("measure_declaration", {{"name", V(measure)}}); return r.empty() ? std::string() : text(r.front(), "merge"); };
+    CHECK(declared("flow_coefficient") == "sum" && declared("consistency") == "none" && declared("familywise_p") == "none" && declared("cells") == "sum");
+    CHECK(declared("phase_current").empty());                                                                                                // registered: its entry is the registry's
+    // both aperiodic models from the one stored power, each its own statistic
+    CHECK(probe.rows("statistic", {{"name", V("flow_aperiodic")}}).size() == 1 && probe.rows("statistic", {{"name", V("flow_aperiodic_knee")}}).size() == 1);
     CHECK(measured("atom_band_pairs", "phase_current") == 1 && measured("atom_band_pairs", "power") == 1);                                   // every band pair, per atom
     CHECK(measured("atom_bands", "consistency") == 1 && measured("atom_bands", "threshold") == 1);                                         // the sign-flip test, per atom and band
+    // the time cells STORED (G7): sums over the grid's tiles, over grid x atoms x bands, declared sum (a coarser level is a roll-up at read)
+    CHECK(measured("rest cells", "phase_current") == 1 && measured("rest cells", "power_sum") == 1 && measured("rest cells", "vertex_phase_current_x") == 1);
+    CHECK(declared("vertex_phase_current_x") == "sum");
     // the member axis of each stored measurement is its selection's members, in the product's code order (the first factor fastest: atom + A (band p + Q band q))
     auto members_of = [&](const std::string& over, const std::string& measure) {
       const auto rows = probe.rows("selection_measurement", {{"selection_id", V(selection_id(over))}, {"measure", V(measure)}});
@@ -280,7 +314,8 @@ int main() {
     auto n_members = [&](const std::string& name) { return integer(probe.rows("selection", {{"name", V(name)}}).front(), "n_members"); };
     CHECK(n_members("atom_band_pairs") == n_members("atoms") * n_members("bands") * n_members("bands"));
     CHECK(members_of("atoms", "phase_current") == n_members("atoms") && members_of("atom_band_pairs", "phase_current") == n_members("atom_band_pairs") &&
-          members_of("atom_bands", "consistency") == n_members("atom_bands"));
+          members_of("atom_bands", "consistency") == n_members("atom_bands") && members_of("rest cells", "phase_current") == n_members("rest cells"));
+    CHECK(n_members("rest cells") == n_members("rest tiles") * n_members("atom_bands"));                                                   // the grid's tiles x atoms x bands
     // a later run reads the stored flow measurements: the speed and direction across frequencies
     std::printf("  [flow] run sensor_flow_across_frequencies\n");
     CHECK(!nxrtest::run_definition(ds, sub, "sensor_flow_across_frequencies", Json{{"recording", "rest"}, {"package", "hodgeDirac__helmet"}, {"atoms", "atoms"}}).empty());

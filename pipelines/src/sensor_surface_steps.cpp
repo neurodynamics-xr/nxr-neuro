@@ -9,6 +9,7 @@
 //
 // ARRAY CONVENTIONS (an `Array` is [rows x cols] doubles with a `meta`): positions and vertices [n x 3] in the channels' unit and coordinate system (meta.cs, meta.unit);
 // faces [F x 3] 0-based indices stored as doubles; channel_index [n] the channel of the channels manifold each row is.
+#include <array>
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -127,6 +128,103 @@ void add_sensor_surface_steps(std::vector<StepSpec>& r) {
     };
     r.push_back(std::move(s));
   }
+
+  // ── meeg.coil_shapes ──
+  {
+    StepSpec s = setup_step("meeg.coil_shapes", {"channels", "pick"}, {"vertices", "faces", "channel_index", "shape_index"}, Json{{"system", "auto"}, {"details", false}},
+                            "The coil shapes of the picked channels as Brainstorm draws them (figure_3d PlotCoils): channels (a points manifold with its coils) and pick -> vertices [V x 3], "
+                            "faces [F x 3] (each quadrilateral patch [1 2 3 4] as the triangles 1 2 3 and 1 3 4), channel_index [V] (the channel each vertex's shape belongs to) and shape_index [V] "
+                            "(the shape, in drawing order). system ctf (CTF, KIT, 4D, Ricoh: the quadrilateral of a channel's first four integration points, for an axial gradiometer (8 points) its pickup "
+                            "coil, for a 4-point magnetometer its coil; MEG REF channels only with details) or vectorview306 (a magnetometer: the points reordered 1 2 4 3 and the square scaled "
+                            "x2 about its centre, Brainstorm's coilScaleF 0.5; planar gradiometers, with details only: two patches each, scaled by 1.01 (..2) or 1.02 (..3) about the origin); "
+                            "auto is vectorview306 when a MEG GRAD channel has four points, else ctf.",
+                            "no time axis: runs once on the channels' geometry", true);
+    s.matches = "Brainstorm figure_3d PlotCoils (patch Faces [1 2 3 4 1] of Loc(:,1:4))";
+    s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
+      need(ins.count("channels") != 0, "coil_shapes: the input `channels` is missing");
+      const std::string sys = p.value("system", std::string("auto"));
+      need(sys == "auto" || sys == "ctf" || sys == "vectorview306", "coil_shapes: system is auto, ctf or vectorview306, not '" + sys + "'");
+      Values out;
+      for (const char* k : {"vertices", "faces", "channel_index", "shape_index"}) out[k] = array_value("meeg.coil_shapes", k);
+      for (const char* k : {"channel_index", "shape_index"}) { out[k].cls = "field"; out[k].value_type = "integer"; }
+      return out;
+    };
+    s.run = [](const std::any& st, const Arrays& ins, ExecContext& ctx) {
+      const Json& p = std::any_cast<const Json&>(st);
+      const Array& C = ins.at("channels");
+      const std::string name = C.meta.value("name", std::string());
+      need(C.meta.contains("coils"), "coil_shapes: " + name + " stores no coils (its `_coils` manifold and `_coil_weights`): the shapes are drawn from the integration points");
+      const Json& k = C.meta["coils"];
+      const auto Q = k.at("positions").get<std::vector<double>>();
+      const auto indptr = int_list(k.at("indptr")), indices = int_list(k.at("indices"));
+      std::vector<std::string> types, names;
+      if (C.meta.contains("types")) types = C.meta["types"].get<std::vector<std::string>>();
+      if (C.meta.contains("names")) names = C.meta["names"].get<std::vector<std::string>>();
+      const std::int64_t M = C.rows;
+      need(static_cast<std::int64_t>(indptr.size()) == M + 1 && static_cast<std::int64_t>(types.size()) == M, "coil_shapes: " + name + "'s coils or types are not per channel");
+      std::vector<std::int32_t> pick;
+      if (ins.count("pick")) for (const double x : ins.at("pick").data) pick.push_back(static_cast<std::int32_t>(std::llround(x)));
+      else for (std::int64_t i = 0; i < M; ++i) pick.push_back(static_cast<std::int32_t>(i));
+      std::string sys = p.value("system", std::string("auto"));
+      const bool details = p.value("details", false);
+      auto nPts = [&](std::int32_t c) { return indptr[static_cast<std::size_t>(c) + 1] - indptr[static_cast<std::size_t>(c)]; };
+      if (sys == "auto") {
+        sys = "ctf";
+        for (const auto c : pick) if (types[static_cast<std::size_t>(c)] == "MEG GRAD" && nPts(c) == 4) sys = "vectorview306";
+      }
+      auto loc = [&](std::int32_t c, int j) { std::array<double, 3> v; const auto q = static_cast<std::size_t>(indices[static_cast<std::size_t>(indptr[static_cast<std::size_t>(c)] + j)]);
+                                              for (int a = 0; a < 3; ++a) v[static_cast<std::size_t>(a)] = Q[3 * q + static_cast<std::size_t>(a)]; return v; };
+      using P3 = std::array<double, 3>;
+      Array V, F, CI, SI;
+      V.cols = 3; F.cols = 3; CI.cols = 1; SI.cols = 1;
+      std::int64_t shapes = 0;
+      auto add = [&](const std::array<P3, 4>& q, std::int32_t c) {
+        const auto b = static_cast<double>(V.rows);
+        for (const auto& v : q) { V.data.insert(V.data.end(), v.begin(), v.end()); CI.data.push_back(c); SI.data.push_back(static_cast<double>(shapes)); ++V.rows; }
+        for (const double f : {0., 1., 2., 0., 2., 3.}) F.data.push_back(b + f);
+        F.rows += 2; ++shapes;
+      };
+      // Brainstorm's square scaling about the square's own points: p_i' = (1+2s) p_i - s (the two neighbours)
+      auto grow = [](const std::array<P3, 4>& c, double s) {
+        std::array<P3, 4> o;
+        for (int i = 0; i < 4; ++i) for (int a = 0; a < 3; ++a)
+          o[static_cast<std::size_t>(i)][static_cast<std::size_t>(a)] = (1 + 2 * s) * c[static_cast<std::size_t>(i)][static_cast<std::size_t>(a)] - s * c[static_cast<std::size_t>((i + 1) % 4)][static_cast<std::size_t>(a)] - s * c[static_cast<std::size_t>((i + 3) % 4)][static_cast<std::size_t>(a)];
+        return o;
+      };
+      for (const auto c : pick) {
+        need(c >= 0 && c < M, "coil_shapes: the pick names channel " + std::to_string(c) + ", outside " + name + "'s " + std::to_string(M) + " channels");
+        const std::string& ty = types[static_cast<std::size_t>(c)];
+        const int n = static_cast<int>(nPts(c));
+        if (sys == "ctf") {
+          if (ty == "MEG REF" ? !details || n < 4 : !(n == 8 || n == 4)) continue;   // Brainstorm: references only in the detailed view; other point counts are not drawn
+          add({loc(c, 0), loc(c, 1), loc(c, 2), loc(c, 3)}, c);
+        } else if (ty == "MEG MAG" && n == 4) {
+          add(grow({loc(c, 0), loc(c, 1), loc(c, 3), loc(c, 2)}, 0.5), c);
+        } else if (details && ty == "MEG GRAD" && n == 4) {
+          const std::string& nm = c < static_cast<std::int64_t>(names.size()) ? names[static_cast<std::size_t>(c)] : std::string();
+          need(!nm.empty() && (nm.back() == '2' || nm.back() == '3'), "coil_shapes: planar gradiometer '" + nm + "' does not end in 2 or 3");
+          const double f = nm.back() == '2' ? 1.01 : 1.02;
+          auto q = grow({loc(c, 0), loc(c, 1), loc(c, 3), loc(c, 2)}, 0.278);
+          for (auto& v : q) for (auto& x : v) x *= f;
+          auto mix = [](const P3& a, const P3& b, double wa, double wb) { return P3{wa * a[0] + wb * b[0], wa * a[1] + wb * b[1], wa * a[2] + wb * b[2]}; };
+          add({q[0], q[1], mix(q[1], q[2], .6, .4), mix(q[0], q[3], .6, .4)}, c);
+          add({mix(q[0], q[3], .4, .6), mix(q[1], q[2], .4, .6), q[2], q[3]}, c);
+        }
+      }
+      need(shapes > 0, "coil_shapes: no channel of the pick has a coil shape under system " + sys);
+      V.meta = Json{{"precision", "float64"}, {"name", name}, {"cs", ctx.bound.coordinate_system_key(C.meta.value("id", std::string()))},
+                    {"sensor_positions", Json{{"channels", name}, {"positions", "coil shapes as Brainstorm draws them (figure_3d PlotCoils), system " + sys + (details ? ", details" : "")}}}};
+      F.meta = Json{{"mesh", Json{{"method", "one quadrilateral patch per coil, split in two triangles (1 2 3, 1 3 4)"}, {"system", sys}, {"details", details}, {"shapes", shapes}}}};
+      for (Array* a : {&CI, &SI}) a->meta = Json{{"describe", Json{{"dtype", "i32"}, {"value_type", "integer"}, {"shape", Json::array({a->rows ? a->rows : V.rows})},
+                                      {"description", a == &CI ? "per vertex: the channel of " + name + " its coil shape belongs to" : "per vertex: its coil shape, in drawing order"}}}};
+      CI.rows = SI.rows = V.rows;
+      Arrays o;
+      o["vertices"] = std::move(V); o["faces"] = std::move(F); o["channel_index"] = std::move(CI); o["shape_index"] = std::move(SI);
+      return o;
+    };
+    r.push_back(std::move(s));
+  }
+
   // ── meeg.good_channels_of_type ──
   {
     StepSpec s = setup_step("meeg.good_channels_of_type", {"type", "quality"}, {"pick"}, Json{{"sensor_type", "required"}},
@@ -252,6 +350,8 @@ void add_sensor_surface_steps(std::vector<StepSpec>& r) {
       if (producer.contains("sensor_surface"))
         description = "the sensors of " + producer["sensor_surface"].value("channels", std::string()) + " as a surface: vertex i is the channel `_map`[i] (" +
                       producer["sensor_surface"]["positions"].get<std::string>() + "), triangulated by the point-set mesher";
+      if (producer.contains("sensor_surface") && producer["sensor_surface"]["positions"].get<std::string>().rfind("coil shapes", 0) == 0)
+        description = "the coil shapes of " + producer["sensor_surface"].value("channels", std::string()) + ", " + std::to_string(F.rows) + " triangles, one patch per coil as Brainstorm draws them";
       Array S;
       S.rows = V.rows; S.cols = 3; S.data = V.data;
       S.meta = Json{{"describe", Json{{"faces", faces}, {"cs", V.meta.is_object() ? V.meta.value("cs", std::string()) : std::string()}, {"description", description}, {"producer", producer}}}};

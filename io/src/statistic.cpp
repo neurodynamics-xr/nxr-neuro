@@ -6,6 +6,7 @@
 #include "nxr/io/array_reader.h"
 #include "nxr/io/errors.h"
 #include "nxr/io/layout.h"
+#include "nxr/io/measures.h"
 #include "nxr/io/surface.h"
 #include "nxr/io/writer.h"
 
@@ -133,6 +134,30 @@ bool known(const char* list, const std::string& name) {
 }  // namespace
 bool statistic_measure_known(const std::string& name) { return known("measures", name); }
 bool statistic_method_known(const std::string& name) { return known("methods", name); }
+
+void check_statistic_declaration(const Database& db, const std::string& measure, const std::string& method, const Json& declared, const std::string& who) {
+  auto part = [&](const char* k) { return declared.is_object() && declared.contains(k) && declared[k].is_object() ? declared[k] : Json(); };
+  auto text_of = [](const Json& j, const char* k) { return j.is_object() && j.contains(k) && j[k].is_string() ? std::optional<std::string>(j[k].get<std::string>()) : std::nullopt; };
+  const Json dm = part("measure"), dt = part("method");
+  auto entry = [&](const char* list, const std::string& name) -> Json {
+    for (const auto& e : statistic_registry()[list]) if (e["name"] == name) return e;
+    return Json();
+  };
+  const Json rm = entry("measures", measure);
+  const bool measure_known = !rm.is_null() || measure_spec(measure).has_value();
+  if (!measure_known && !text_of(dm, "description"))
+    throw Error(code::invalid_argument, who + ": measure '" + measure + "' is in neither registry: declare what it is (declared.measure.description, and its unit_rule)");
+  if (const auto u = text_of(dm, "unit_rule"); u && rm.is_object() && rm.contains("unit_rule") && rm["unit_rule"].is_string() && rm["unit_rule"].get<std::string>() != *u)
+    throw Error(code::invalid_argument, who + ": the declaration gives measure '" + measure + "' the unit rule '" + *u + "', the registry '" + rm["unit_rule"].get<std::string>() + "' (one name keeps one meaning: use another name)");
+  if (!statistic_method_known(method) && !text_of(dt, "description"))
+    throw Error(code::invalid_argument, who + ": method '" + method + "' is not in the statistics registry: declare how the values were estimated (declared.method.description)");
+  // the subject's other statistics of the same measure: a unit rule declared there differs from this one's
+  if (const auto u = text_of(dm, "unit_rule"); u && has_table(db, "statistic"))
+    for (const Row& r : db.all("SELECT name, json_extract(producer_json, '$.declared.measure.unit_rule') AS rule FROM statistic WHERE measure = ? AND json_valid(producer_json) AND "
+                               "json_extract(producer_json, '$.declared.measure.unit_rule') IS NOT NULL", {V(measure)}))
+      if (text(r, "rule") != *u)
+        throw Error(code::invalid_argument, who + ": the statistic '" + text(r, "name") + "' declares measure '" + measure + "' with the unit rule '" + text(r, "rule") + "', this one '" + *u + "' (one name keeps one meaning)");
+}
 
 std::vector<Row> statistics_of(const Database& db, const std::string& subject_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure) {
   if (!has_table(db, "statistic")) return {};

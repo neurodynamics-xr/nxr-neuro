@@ -61,6 +61,12 @@ std::optional<std::string> topology_faces_path(const Database& db, const std::st
   return text(*r, "path");
 }
 
+std::optional<std::string> topology_cells_path(const Database& db, const std::string& topology_id, int rank) {
+  const auto r = db.one("SELECT path FROM topology_cell WHERE topology_id = ? AND rank = ?", {V(topology_id), V(static_cast<std::int64_t>(rank))});
+  if (!r) return std::nullopt;
+  return text(*r, "path");
+}
+
 std::string manifold_coordinate_unit(const Database& db, const std::string& manifold_id) {
   const auto r = db.one("SELECT cs.unit AS unit FROM manifold m JOIN geometry g ON g.id = m.geometry_id JOIN coordinate_system cs ON cs.id = g.coordinate_system_id WHERE m.id = ?", {V(manifold_id)});
   return r ? opt_text(*r, "unit").value_or("") : std::string();

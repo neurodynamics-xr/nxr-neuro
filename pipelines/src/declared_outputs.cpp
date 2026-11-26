@@ -3,7 +3,9 @@
 
 #include <cmath>
 
+#include "nxr/bst/frequency.h"
 #include "nxr/io/errors.h"
+#include "nxr/io/spatial_bands.h"
 #include "nxr/selection/selection.h"
 #include "nxr/io/fibers.h"
 #include "nxr/io/finder.h"
@@ -129,7 +131,7 @@ std::string on_named(const Plan& P, const std::string& o, std::string t) {
       for (std::size_t at; (at = t.find("{" + k + "}")) != std::string::npos;) t.replace(at, k.size() + 2, v.get<std::string>());
   return t;
 }
-std::string default_manifold_id(nxr::io::SubjectWriter& sub, const std::string& ref) {
+std::optional<std::string> find_default_manifold(nxr::io::SubjectWriter& sub, const std::string& ref) {
   const std::string name = ref.substr(8);
   if (const auto tpl = sub.dataset().template_()) {
     task::Want w{.cls = task::Cls::manifold};
@@ -141,7 +143,27 @@ std::string default_manifold_id(nxr::io::SubjectWriter& sub, const std::string& 
     w.name = name;
     if (const auto m = task::Subject::of(sub.dataset(), sub.id()).find(w)) return m->id;
   }
-  throw nxr::io::Error(nxr::io::code::no_such_row, sub.name() + ": no manifold '" + name + "' in the dataset's template or in the subject (the shared line a band set lies on)");
+  return std::nullopt;
+}
+std::string default_manifold_id(nxr::io::SubjectWriter& sub, const std::string& ref) {
+  if (const auto id = find_default_manifold(sub, ref)) return *id;
+  throw nxr::io::Error(nxr::io::code::no_such_row, sub.name() + ": no manifold '" + ref.substr(8) + "' in the dataset's template or in the subject (the shared line a band set lies on)");
+}
+// the shared line found, or, when neither the template nor the subject holds it (a dataset made before any band set, a package whose template has none), MADE in the subject
+// (format 56: the line is the subject's own, a closed-form line the same in every subject): the Frequency line (bst::ensure_frequency's grid) and the Eigenvalue line (io::ensure_eigenvalue's)
+std::string default_manifold_made(task::Unit& unit, nxr::io::SubjectWriter& sub, const std::string& ref) {
+  if (const auto id = find_default_manifold(sub, ref)) return *id;
+  const std::string name = ref.substr(8);
+  task::LineOut l;
+  l.name = name;
+  if (name == nxr::bst::kFrequencyName) {
+    l.n = nxr::bst::kFrequencySamples; l.spacing = nxr::bst::kFrequencySpacingHz; l.unit = "Hz"; l.dimension = "frequency"; l.folder = "spectral"; l.cs_key = "frequency:line";
+  } else if (name == nxr::io::kEigenvalueName) {
+    l.n = nxr::io::kEigenvalueSamples; l.spacing = nxr::io::kEigenvalueSpacing; l.unit = "1/m\xc2\xb2"; l.dimension = "eigenvalue"; l.folder = "eigen"; l.cs_key = "eigenvalue:Laplace-Beltrami";
+  } else {
+    return default_manifold_id(sub, ref);                                     // not a shared line io knows how to make: refused with the reason
+  }
+  return unit.line(l);
 }
 std::string link(const Plan& P, const std::string& ref, const MadeIds* made, const std::string& where) {
   if (ref.find('|') != std::string::npos) return link_first(P, ref, made, where);
@@ -516,12 +538,12 @@ void check_declared(const Plan& P, const std::string& o) {
     }
   } else {
     const std::string t = spec.value("type", std::string());
-    if (t != "line" && t != "surface" && t != "product" && t != "points" && t != "complex") bad(o, "type: line, surface, product, points or complex");
+    if (t != "line" && t != "surface" && t != "product" && t != "points" && t != "complex" && t != "graph") bad(o, "type: line, surface, product, points, complex or graph");
     if (t == "product") {
       if (!spec.contains("factors") || !spec["factors"].is_array() || spec["factors"].size() < 2) bad(o, "a product's factors: a list of two or more links or outputs");
       for (const auto& f : spec["factors"]) link(P, f.get<std::string>(), nullptr, o);
     }
-    if ((t == "surface" || t == "points" || t == "complex") && spec.contains("derived_from")) link_of(P, spec, "derived_from", nullptr, o);
+    if ((t == "surface" || t == "points" || t == "complex" || t == "graph") && spec.contains("derived_from")) link_of(P, spec, "derived_from", nullptr, o);
     if (t == "complex" && spec.contains("geometry_of")) link_of(P, spec, "geometry_of", nullptr, o);   // the manifold whose positions it shares (an intrinsic triangulation: the surface's)
   }
 }
@@ -585,8 +607,10 @@ std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, co
     // on a manifold this run makes (a frequency line made with it): it has no place before that manifold is stored, and the store order puts the
     // manifold first, so it is checked there (a new manifold has no node to collide with)
     const bool on_made_here = spec.contains("on") && spec["on"].is_string() && P.definition.outputs.contains(spec["on"].get<std::string>());
-    if (spec.contains("on") && spec["on"].is_string() && is_default_link(spec["on"].get<std::string>())) out.emplace_back(task::Cls::selection, ts.node_path(default_manifold_id(sub, on_named(P, o, spec["on"].get<std::string>())), name));
-    else if (!on_made_here) out.emplace_back(task::Cls::selection, ts.node_path(link_of(P, spec, "on", nullptr, o), name));
+    if (spec.contains("on") && spec["on"].is_string() && is_default_link(spec["on"].get<std::string>())) {
+      // the shared line not stored yet: it is made when the output is stored (a new line has no node to collide with)
+      if (const auto mid = find_default_manifold(sub, on_named(P, o, spec["on"].get<std::string>()))) out.emplace_back(task::Cls::selection, ts.node_path(*mid, name));
+    } else if (!on_made_here) out.emplace_back(task::Cls::selection, ts.node_path(link_of(P, spec, "on", nullptr, o), name));
     else if (const auto id = ts.manifold_named(declared_name(P, spec["on"].get<std::string>()))) out.emplace_back(task::Cls::selection, ts.node_path(*id, name));   // the manifold is stored already (a re-run): its place is known, so a re-run is a hit
   }
   return out;
@@ -620,7 +644,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   };
   Json report = Json{{"output", o}, {"kind", k}, {"name", name}};
   if (spec.contains("on") && spec["on"].is_string() && is_default_link(spec["on"].get<std::string>()) && !made.count(spec["on"].get<std::string>()))
-    made[spec["on"].get<std::string>()] = default_manifold_id(sub, on_named(P, o, spec["on"].get<std::string>()));
+    made[spec["on"].get<std::string>()] = default_manifold_made(unit, sub, on_named(P, o, spec["on"].get<std::string>()));
 
   if (k == "manifold") {
     const std::string t = spec["type"].get<std::string>();
@@ -671,6 +695,21 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       else p.positions = values_of(a, {a.rows * a.cols}, false, o);
       if (replace) clear(task::Cls::manifold, unit.path_of(p));
       id = unit.points(p);
+    } else if (t == "graph") {
+      // a GRAPH (the fibre network on a surface's tiles): its vertices [n x 3] are the node's array, its edges [nE x 2] (stored rank-1 cells) and its components its description
+      task::GraphOut g;
+      g.name = name; g.output = o;
+      g.cs_key = spec.contains("cs") ? fill(P, spec["cs"].get<std::string>()) : d.value("cs", std::string("scs"));
+      if (g.cs_key.empty()) g.cs_key = "scs";
+      if (spec.contains("derived_from")) g.derived_from_id = link_of(P, spec, "derived_from", &made, o);
+      if (d.contains("description") && d["description"].is_string()) g.description = d["description"].get<std::string>();
+      if (d.contains("producer") && d["producer"].is_object()) g.producer = d["producer"];
+      if (a.cols != 3) bad(o, "a graph's vertices are [n x 3]");
+      g.vertices = values_of(a, {a.rows, a.cols}, false, o);
+      for (const auto& e : d.value("edges", Json::array())) g.edges.push_back(e.get<std::int32_t>());
+      g.components = d.value("components", 1);
+      if (replace) clear(task::Cls::manifold, unit.path_of(g));
+      id = unit.graph(g);
     } else if (t == "complex") {
       // a CELL COMPLEX: vertices [n x 3] are the node's array, its edges [nE x 2] and faces [nF x 3] its description
       task::ComplexOut c;
@@ -840,6 +879,9 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       own = true;
       m.path = "measurements/" + nxr::io::safe_name(over_name) + "_members";
     }
+    // THE MANIFOLD THE ROWS LIE ON (`rows: LINK`, issue #264): part of the measurement's key and of its arrays' path, so one measure of one field over one selection on two
+    // manifolds (the two hemispheres) is two measurements, with no suffix on the measure's name
+    if (spec.contains("rows")) m.rows_manifold_id = link_of(P, spec, "rows", &made, o);
     const Json measures = d.value("measures", Json::array());
     // a node may also give [rows x members x measures] (`describe.shape`): each measure's values are [rows x members]
     const bool cube = d.contains("shape") && d["shape"].is_array() && d["shape"].size() == 3;
@@ -866,9 +908,9 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       const std::optional<std::string> ofid = m.of_field_id.empty() ? std::nullopt : std::optional<std::string>(m.of_field_id);
       for (const auto& mj : measures) {
         const std::string nm = mj["measure"].get<std::string>();
-        if (!ts.has_measure(m.selection_id, nm, ofid, statid)) continue;
+        if (!ts.has_measure(m.selection_id, nm, ofid, statid, m.rows_manifold_id)) continue;
         if (!replace && (ofid || statid)) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + P.definition.name + " output " + o + ": the measure '" + nm + "' of this " + (statid ? "statistic" : "field") + " over " + over_name + " already exists; pass --replace");
-        unit.remove_measurements(m.selection_id, ofid, nm, statid);
+        unit.remove_measurements(m.selection_id, ofid, nm, statid, m.rows_manifold_id);
         if (ofid || statid) replaced = true;
       }
     }
@@ -876,6 +918,11 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       task::MeasurementOut::Measure x;
       x.measure = measures[c]["measure"].get<std::string>();
       x.unit = measures[c].value("unit", std::string());
+      if (measures[c].contains("merge")) {                                   // the node DECLARES the measure (measures.h): its merge rule, form and description, stored with the subject
+        x.declaration = Json::object();
+        for (const char* k : {"merge", "form", "weight", "description"})
+          if (measures[c].contains(k) && measures[c][k].is_string()) x.declaration[k] = measures[c][k];
+      }
       x.values.shape = vshape;
       for (std::int64_t r = 0; r < crow; ++r)
         for (std::int64_t part = 0; part < (complex_values ? 2 : 1); ++part) {
@@ -1144,8 +1191,11 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   // link into a member's package; the members and each one's inputs are in its provenance, `group`)
   const bool of_members = P.found.count(of) && P.found.at(of).facts.is_object() && P.found.at(of).facts.contains("stack");
   const bool of_field = !P.found.count(of) || P.found.at(of).cls == "field";
+  // OF A MANIFOLD (a fibre bundle: `tile_network`'s tiles and pairs): a statistic is of a field or a statistic, so one of a manifold is detached, the manifold named in its options
+  const bool of_manifold = !of_members && P.found.count(of) && P.found.at(of).cls == "manifold";
   const std::string of_id = of_members ? std::string() : link(P, of, &made, o);
-  if (of_members) st.detached = true;
+  if (of_manifold) { st.detached = true; st.options = Json{{"of_manifold", Json{{"id", of_id}, {"name", P.found.at(of).row ? text(*P.found.at(of).row, "name") : std::string()}}}}; }
+  else if (of_members) st.detached = true;
   else if (of_field) st.of_field_id = of_id;
   else st.of_statistic_id = of_id;
   const std::string acq = of_members ? std::string() : acquisition_of(P, of);
@@ -1253,7 +1303,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   if (d.contains("components")) st.components = d["components"];
   if (d.contains("scaling")) st.scaling = d["scaling"];
   if (d.contains("dof") && d["dof"].is_number()) st.dof = d["dof"].get<double>();
-  st.options = d.value("options", Json::object());
+  { const Json ofm = st.options.is_object() ? st.options.value("of_manifold", Json()) : Json(); st.options = d.value("options", Json::object()); if (!ofm.is_null()) st.options["of_manifold"] = ofm; }
   if (d.contains("unit") && d["unit"].is_string()) st.unit = d["unit"].get<std::string>();
   if (d.contains("description")) st.description = d["description"].get<std::string>();
   st.label = d.value("label", st.method);

@@ -64,6 +64,7 @@ std::string folder_of(const Database& db, const std::string& manifold_id) {
   }
   if (t == "points") return !is_null(*m, "operator") && !text(*m, "operator").empty() ? "eigenvalue" : "sensor";
   if (t == "curve") return "fibre";
+  if (t == "graph") return "fibre";                                       // a graph: the fibre network on a surface's tiles, beside the bundles it is made from
   nofolder(text(*m, "name"), t);
 }
 
@@ -80,6 +81,7 @@ std::string folder_for(const std::string& type, const std::string& name, const s
   }
   if (type == "points") return op && !op->empty() ? "eigenvalue" : "sensor";
   if (type == "curve") return "fibre";
+  if (type == "graph") return "fibre";
   nofolder(name, type);
 }
 
