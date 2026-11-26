@@ -204,6 +204,7 @@ In the verb-first grammar, each with its own `--help`; they parse, call the func
 | `create subject --dataset D --name S` | on a catalogue: a new package `D/S.nxr.zarr`, registered |
 | `create package --package P --name S --home-dataset N [--kind subject\|template\|group]` | a subject package |
 | `verify package --package P`, `show package --package P` | recompute every digest and the content hash; show the record |
+| `copy nodes --dataset D --subject S --from PACKAGE --manifold NAME [--manifold NAME ...] [--dry-run]` | copy a subject's stored solves (a manifold with what lies on it and was made from it) from another package of the same subject, nothing solved again (`### copy` below) |
 | `register package --dataset D (--package P ... \| --scan) --registered-by WHO [--replace]` | register (idempotent; each outcome and refusal reported) |
 | `list members --dataset D` | the packages with their state (registered, missing, stale) |
 | `list subjects --dataset D [--subjects A,B \| --where FILTER]` | on a catalogue: the members, or those selected (the matched subjects, their hashes and the filter text with its language version are printed); on a one-database dataset as before |
@@ -759,6 +760,36 @@ condition's channel file, the surface its kernels index, a template's only corte
 | `nxr-neuro add line` | A closed-form line: `--n`, `--spacing`, `--origin`, `--unit`; `--dimension time` (seconds) makes a time line fields can be time-resolved on. With `--coordinates C.npy --dimension eigenvalue [--kinds K.npy]`, a line whose points are not evenly spaced. | |
 | `nxr-neuro add product` | The product manifold of stored factors (`--name N --factors A,B`: a line over time, a surface over time). | |
 | `nxr-neuro add dictionary` | A dictionary of codes of the dataset or a subject (`--name N --scope dataset\|subject --entries E.json`). | |
+
+### `copy`: Copy a subject's stored nodes from another package of the same subject
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro copy nodes` | Copy each `--manifold` of the package `--from`, with what lies on it and was made from it, into the subject's package of `--dataset`; nothing solved; `--dry-run` reports the plan. | |
+
+**`copy nodes --dataset D --subject S --from PACKAGE --manifold NAME [--manifold NAME ...] [--dry-run]`** (`io/include/nxr/io/copy_nodes.h`; the maintainers' decision of 2026-11-26, register
+D171). A re-imported subject takes the solves of its earlier package instead of solving them again: eigenmodes are solved once per manifold and stored, and this is how a stored solve moves to
+another package of the same subject. Nothing is computed; rows and bytes are copied.
+- **What goes:** each named manifold and, until nothing is added, every node that lies on or was made from one that goes: the manifolds derived from it (an intrinsic triangulation, an
+  eigensolve's eigenvalue line, a glued surface) or its components, the fields and selections on it, the operators from or to it, the selections that are members of one that goes, the
+  statistics of a field that goes, and every node the same run made (the same cache key in its provenance: a run's outputs go together, so a sensor mesh takes its map and its channels pick,
+  an eigensolve its eigenvalues, kinds and eigenvectors). A product (a manifold times a time line) is not followed. With a manifold go its topology and geometry rows, with a selection its
+  members, extents, spans, factors and measurements, with a dictionary its entries. Name the solved surface (the glued cortex, a sensor mesh), not its parent: everything on the parent goes
+  with it (an inverse kernel to a cortex included).
+- **What it finds in the target:** every other row a copied row names must be in the target and the same: a node by its path (its counts, and the size and SHA-256 of every chunk under its
+  folder and of the arrays its geometry and cells name), an acquisition by its label, a space and a coordinate system by name, a dictionary by name and scope (its entries equal); the
+  subject is the target's. A space, coordinate system or dictionary the target lacks is copied; a node or an acquisition it lacks refuses the copy, naming it. A node that goes and that the
+  target already holds, the same, is **kept** (the target's row is used and nothing is written: a second copy is a no-op); one it holds that differs refuses the copy (delete it there first).
+- **The target's own rows:** every copied row has a new id; every id in its columns and its JSON is the target's (the cache keys in its provenance included), so a run asked again in the
+  target finds the copy as its own result (a cache hit, nothing solved, with the same build). Each copied node's `producer_json` gains `copied` {from_package (the folder's name),
+  from_subject, from_id, from_content_hash, utc, by}. A copy of the source's primary surface is not primary in a target that has one.
+- **Checked:** the source is a subject package whose recorded content hash equals the hash of its rows and digests (nothing changed since its writer closed it), at this schema version, of a
+  subject of the target's name; the target is a subject package; every chunk copied has, in the target, the size and SHA-256 the source recorded (a zarr.json document is rewritten with the
+  target's ids, and the drain writes its attributes from the target's row). The readers' own checks hold on the copy: the eigensolve's options (`mollify`, `flip_eps`, `star1_floor`) are the
+  source's, and the vertex reader checks the triangulation against the target's surface. Bytes first, the rows last in one transaction; a failure removes what was written.
+- **Result:** `from` {package, subject, content_hash}, `copied` [{class, name, path, id, from_id}], `kept`, `found` (the target's rows the copies name), `keys`, `bytes`, `dry_run`. A copy leaves
+  a job row `copy:nodes`. Test: `test_copy_nodes` (a closed surface's and a sensor mesh's solves copied into a re-import, read, a cache hit on the same runs, a second copy keeps everything,
+  refusals for a surface that differs and for missing channels).
 
 ### `edit`: Edit what a subject holds without touching its arrays
 

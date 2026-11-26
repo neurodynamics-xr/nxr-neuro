@@ -22,6 +22,7 @@ export const COMMANDS = [
   ["migrate", "eigensolve", "", "dataset* name subject*"],
   ["migrate", "glue", "", "dataset* hemispheres left name right subject*"],
   ["join", "dataset", "", "dataset*"],
+  ["copy", "nodes", "", "dataset* dry_run! from* manifold*+ subject*"],
   ["verify", "package", "", "package*"],
   ["show", "package", "", "package*"],
   ["release", "template", "", "into* name* package* released_by* template_version*"],

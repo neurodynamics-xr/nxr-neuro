@@ -790,6 +790,15 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
   } else if (c == "import templates") {
     task::ImportTemplatesRequest q{o.str("templates_dir"), o.str("dataset"), o.maybe("subject"), o.maybe("trk"), o.maybe("surface"), created_by};
     call([&] { return task::import_templates(q); });
+  } else if (c == "copy nodes") {
+    task::CopyNodesRequest q;
+    q.dataset = o.str("dataset");
+    q.subject = o.str("subject");
+    q.from = o.str("from");
+    q.manifold = o.list("manifold");
+    q.dry_run = o.flag("dry_run");
+    q.created_by = created_by;
+    call([&] { return task::copy_nodes(q, progress); });
   } else if (c == "import condition") {
     task::ImportConditionRequest q;
     q.protocol = o.str("protocol");

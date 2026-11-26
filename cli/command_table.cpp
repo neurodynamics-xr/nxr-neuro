@@ -35,6 +35,7 @@ verb join	Join subject packages back into a one-database dataset
 verb release	Release a template or registration as a frozen, versioned package
 verb verify	Verify a subject package against the hashes it records
 verb migrate	Migrate a dataset's stored layout in place
+verb copy	Copy a subject's stored nodes from another package of the same subject: a manifold with what lies on it and was made from it (a triangulation and its eigensolve, a sensor mesh), never solved again
 )TBL",
 R"TBL(--atlas-finest	QUANTITY	The finest tile of the default subject's group tree (the dataset's atlas leaves), as a quantity: parts per hemisphere ("parts 256"), a tile diameter ("14 mm") or a tile area ("area 150 mm2"); needs --templates.	parts 256 (2^8 tiles a hemisphere)	parts
 --lc-scales	QUANTITY,...	The tile scales, as quantities, at which the Levi-Civita connection between neighbouring tiles is measured (a measurement over a level's product with itself); needs --templates.	parts 16, parts 64	parts
@@ -832,6 +833,13 @@ alias: no
 summary: Join a catalogue's subject packages back into a one-database dataset (the reverse of split); everything replaced is kept aside.
 opts: --dataset*
 )TBL",
+R"TBL(@ copy nodes
+old: package copy-nodes
+alias: no
+summary: Copy a subject's stored nodes from another package of the same subject: each named manifold with what lies on it and was made from it (its intrinsic triangulation and Hodge-Dirac eigensolve, a glue's labelling, a sensor mesh's map and pick) and the arrays they name; every row a copy names is found the same in the target; every chunk checked against the source's digests; nothing solved.
+opts: --dataset* --dry-run --from* --manifold+* --subject*
+example: nxr-neuro copy nodes --dataset /data/study --subject sub-01 --from /data/old/sub-01.nxr.zarr --manifold cortex_pial_low_glued
+)TBL",
 R"TBL(@ verify package
 old: package verify
 alias: no
@@ -1482,6 +1490,9 @@ R"TBL(--begin@add field		Write the field in pieces, step 1: take its shape (--sh
 --name@edit operator	NAME	The projector operator to change, by name or id; another kind of operator is refused.	required	-
 --status@edit operator	0|1	The projector's status: 1 active (applied by --projectors active, the default of read field, run and run inverse), 0 inactive (not applied unless named); recorded in the operator's provenance.	required	-
 --note@edit operator	TEXT	Why the status is changed, kept in the edit entry of the operator's provenance.	none	-
+--from@copy nodes	PACKAGE	The subject package (a .nxr.zarr folder) to copy from: a package of the same subject, closed by its writer (its recorded content hash is checked).	required	-
+--manifold@copy nodes	NAME	A manifold of the source to copy (by name or path), with everything that lies on it or was made from it; repeat the option for several. Name the solved surface (a glued cortex, a sensor mesh), not its parent.	required	-
+--dry-run@copy nodes		Report what would be copied, kept (the target holds it, the same) and found in the target, without writing anything.	off	-
 --note@import condition	TEXT	With --replace-recording: why the samples are replaced, kept in the recording's provenance (replaced_samples).	required with --replace-recording	-
 --replace-recording@import condition		Replace, in place, the samples of the condition's raw recording already imported into the subject: read again from its BST-BIN file (with the same --resample), the samples and envelope rewritten, the old ones moved aside; its row, id, events, flags, projectors and every other node kept. Refused for other channels, another shape or rate. Nothing else of the condition is read or written.	off	-
 --by@edit operator	TEXT	Who changes it, kept in the edit entry of the operator's provenance.	none	-

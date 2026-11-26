@@ -24,6 +24,7 @@
 #include "nxr/convert/nifti_import.h"
 #include "nxr/convert/recording.h"
 #include "nxr/convert/synthetic.h"
+#include "nxr/io/copy_nodes.h"
 #include "nxr/io/errors.h"
 #include "nxr/io/layout.h"
 #include "nxr/io/participants.h"
@@ -622,6 +623,25 @@ CommandResult import_bids(const ImportBidsRequest& rq, const Progress& progress)
   for (const auto& s : rq.subject) opt.subjects.push_back(s.rfind("sub-", 0) == 0 ? s.substr(4) : s);
   opt.progress = said(progress);
   return result_of(nxr::convert::import_bids(rq.from, rq.dataset, opt));
+}
+
+// ---- nodes copied from another package of the subject ----
+
+static CommandResult copy_nodes_work(const CopyNodesRequest& rq, const Progress& progress) {
+  DatasetWriter ds = open_dataset(rq.dataset, rq.subject, OpenOptions{}, progress);
+  OpenSubjectOptions oo;
+  oo.created_by = rq.created_by;
+  SubjectWriter sub = SubjectWriter::open(ds, rq.subject, oo);
+  CopyNodesOptions o;
+  o.manifolds = rq.manifold;
+  o.dry_run = rq.dry_run;
+  o.by = rq.created_by;
+  return result_of(nxr::io::copy_nodes(rq.from, sub, o, said(progress)));
+}
+CommandResult copy_nodes(const CopyNodesRequest& rq, const Progress& progress) {
+  if (rq.dry_run) return copy_nodes_work(rq, progress);   // a dry run wrote nothing: no job row
+  return recorded("copy:nodes", JobTarget{rq.dataset, "", rq.subject}, Json{{"from", fs::path(rq.from).filename().string()}, {"manifold", rq.manifold}}, rq.created_by,
+                  [&] { return copy_nodes_work(rq, progress); });
 }
 
 // ---- the participants ----

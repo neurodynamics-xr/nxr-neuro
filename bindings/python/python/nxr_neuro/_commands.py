@@ -51,6 +51,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("create", "index", "", "dataset* force!"),
     ("register", "package", "", "dataset* package+ registered_by* replace! scan!"),
     ("list", "members", "", "dataset*"),
+    ("copy", "nodes", "", "dataset* dry_run! from* manifold*+ subject*"),
     ("verify", "package", "", "package*"),
     ("show", "package", "", "package*"),
     ("release", "template", "", "into* name* package* released_by* template_version*"),

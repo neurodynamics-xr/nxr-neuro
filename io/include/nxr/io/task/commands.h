@@ -594,6 +594,16 @@ struct ImportBidsRequest {
 };
 CommandResult import_bids(const ImportBidsRequest& request, const Progress& progress = {});
 
+/** `copy nodes`: a subject's stored nodes from another package of the same subject (nxr/io/copy_nodes.h): each `manifold` of `from` and what goes with it, into the subject's
+ *  package of `dataset`; nothing solved, every chunk checked against the source's digests; `dry_run` reports the plan */
+struct CopyNodesRequest {
+  std::string dataset, subject, from;
+  std::vector<std::string> manifold;
+  bool dry_run = false;
+  std::string created_by;
+};
+CommandResult copy_nodes(const CopyNodesRequest& request, const Progress& progress = {});
+
 /** `import participants` · `export participants`: the participant variables of a catalogue dataset from or to a TSV (and its JSON sidecar) */
 struct ParticipantsRequest { std::string dataset, tsv; std::optional<std::string> sidecar; };
 CommandResult import_participants(const ParticipantsRequest& request);

@@ -150,6 +150,7 @@ test_groups	unit
 test_hat	golden
 test_headmodel	integration
 test_sensor_surface	integration
+test_copy_nodes	integration
 test_histogram	golden
 test_hodge_dirac	unit
 test_hodge_power	integration
