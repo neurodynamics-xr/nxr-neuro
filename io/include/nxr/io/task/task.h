@@ -321,6 +321,19 @@ struct ComplexOut {
   std::optional<std::string> geometry_of;
   Json producer;
 };
+// a GRAPH: a manifold of type `graph` whose vertices are points in space ([n x 3]) and whose STORED rank-1 cells are its edges ([nE x 2] tail, tip; topology kind `graph`,
+// rank 1, its connected components counted by the caller). Its weights (a node's area, an edge's conductance) are fields on its cells, written beside it. Found by path and
+// kept when it holds the same vertices and edges; another one's is replaced by `replace` first
+struct GraphOut {
+  std::string name, output;
+  std::optional<std::string> path;                 // default: `fibre/<name>` (io's folder for curves and graphs)
+  std::string cs_key = "scs";
+  std::optional<std::string> derived_from_id, description, acquisition_id;
+  Values vertices;                                 // [n x 3], float64
+  std::vector<std::int32_t> edges;                 // [nE x 2]
+  int components = 1;
+  Json producer;
+};
 // a product of MANIFOLDS (a sensor × time line, a surface × frequency): its factors in axis order, existing or made in the same unit. (A product of SELECTIONS, with factor levels, is `SelectionOut` type "product".)
 struct ProductOut {
   std::vector<std::string> factors;
@@ -515,6 +528,7 @@ class Unit {
   std::string product(const ProductOut&);
   std::string points(const PointsOut&);            // found by path and kept when it holds the same coordinates; another one's is replaced by `replace` first
   std::string cell_complex(const ComplexOut&);     // found by path and kept when it holds the same cells; another one's is replaced by `replace` first
+  std::string graph(const GraphOut&);              // found by path and kept when it holds the same vertices and edges; another one's is replaced by `replace` first
   std::string dictionary(const DictionaryOut&);    // refused (already_exists) when a dictionary of that name and scope exists
   // EDITS of what is stored (each inside the unit, a node's description only, never its arrays): a manifold's label, description and primary flag (making a surface primary clears the one before it,
   // in the same unit); a dictionary's entry or its whole entry list
@@ -538,6 +552,7 @@ class Unit {
   std::string path_of(const SelectionOut&) const;
   std::string path_of(const PointsOut&) const;
   std::string path_of(const ComplexOut&) const;
+  std::string path_of(const GraphOut&) const;
   // a node of class `cls` already at `path`: refused (code already_exists, naming `what`) unless `replace`, then moved aside (its arrays to a dated
   // `_replaced-*` folder, never deleted) and its row removed; returns where its arrays went (empty: nothing was there, or it had none)
   std::string replace(Cls cls, const std::string& path, bool replace, const std::string& what);
