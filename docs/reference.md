@@ -1237,8 +1237,9 @@ J = Im(conj(z_tail) z_tip) (travel tail to tip gives J < 0), phase current per v
 per chunk (the synthesis composed on the atom's bins, one inverse transform) and sums the same quantities over cells of the atom's own width (the power of two of
 samples nearest `--cell-width` time standard deviations); `stats.sign_flip_consistency` tests the direction's consistency over those cells (nxr's flow analysis's R1 with
 numpy's `default_rng(--seed)`, `--patterns`, a family-wise maximum, `--cells-per-flip`; the measured correlation of neighbouring cells is stored as the check).
-With `--aperiodic true`: `signal.sensor_power` (each sensor's power per bin, the mean over chunks) and `stats.aperiodic_fit` (nxr's specparam port, `--aperiodic-knee`,
-`--aperiodic-range`). Derived at read, never stored: travel and rotation shares (squared flow coefficients by kind), band-pair shares, the apparent speed
+With `--aperiodic true`: `signal.sensor_power` (each sensor's power per bin, the mean over chunks, stored as `<name>_sensor_power`) and `stats.aperiodic_fit` (nxr's specparam
+port, `--aperiodic-range`), once for each model asked, from the one power: `--aperiodic-fixed` (default true; no knee, `<name>_aperiodic`) and `--aperiodic-knee` (default false;
+with a knee, `<name>_aperiodic_knee`), so both models are one run (2026-11-26; `--aperiodic-knee true` used to replace the fixed model under `<name>_aperiodic`). Derived at read, never stored: travel and rotation shares (squared flow coefficients by kind), band-pair shares, the apparent speed
 2 pi f power / |vertex phase current| (an upper bound), the power-weighted phase gradient, the periodic share 1 - background / power. Every value is a stated
 parameter of the definition; the nodes default none. What it cannot resolve: the field on the helmet only (no source, no field spread); patterns shorter than about
 two sensor spacings; a whole-run cross-spectrum keeps the net quadrature only; an incomplete eigensolve leaves coordinates and flow modes out (issue #219); the

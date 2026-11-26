@@ -48,7 +48,8 @@ parameters:
   seed: {default: 0, meaning: "the seed of numpy's default_rng for the sign patterns (nxr's flow analysis: 0)", unit: "-"}
   cells_per_flip: {default: 1, meaning: "consecutive time cells one sign flips together (1: each cell its own; the measured correlation of neighbouring cells is stored with the result as the check)", unit: cells}
   aperiodic: {default: false, meaning: "also fit each sensor's aperiodic background (a control)", unit: "-"}
-  aperiodic_knee: {default: false, meaning: "the aperiodic model with a knee (nxr's flow analysis ran both: run once each)", unit: "-"}
+  aperiodic_fixed: {default: true, meaning: "with aperiodic: fit the model without a knee (offset - exponent log10 f), stored as {name}_aperiodic", unit: "-"}
+  aperiodic_knee: {default: false, meaning: "with aperiodic: also fit the model with a knee (offset - log10(knee + f^exponent)), stored as {name}_aperiodic_knee: both models in one run, from the one stored power (nxr's flow analysis ran both)", unit: "-"}
   aperiodic_range: {default: [1, 45], meaning: "[low, high] the frequencies the aperiodic fit reads (nxr's flow analysis')", unit: Hz}
   name: {default: "{recording}_{package}", meaning: "the stem of the stored names", unit: "-"}
 
@@ -65,7 +66,8 @@ steps:
     - {node: signal.atom_time_cells, in: {spectra: spectra, package: package, frequency: atoms, scale: bands}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cell_width: $cell_width}, out: cells}
     - {node: stats.sign_flip_consistency, in: {cells: cells}, with: {elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip}, out: [consistency, consistency_summary, whole_consistency, whole_consistency_summary]}
     - {node: signal.sensor_power, in: {spectra: spectra, package: package}, out: power, when: $aperiodic}
-    - {node: stats.aperiodic_fit, in: {power: power}, with: {knee: $aperiodic_knee, fit_range: $aperiodic_range, iterations: 3, threshold: 2.0}, out: aperiodic_fit, when: $aperiodic}
+    - {node: stats.aperiodic_fit, in: {power: power}, with: {knee: false, fit_range: $aperiodic_range, iterations: 3, threshold: 2.0}, out: aperiodic_fit, when: {aperiodic: true, aperiodic_fixed: true}}
+    - {node: stats.aperiodic_fit, in: {power: power}, with: {knee: true, fit_range: $aperiodic_range, iterations: 3, threshold: 2.0}, out: aperiodic_fit_knee, when: {aperiodic: true, aperiodic_knee: true}}
 
 outputs:
   spectra:        {kind: statistic, name: "{name}_chunk_spectra", of: recording, axes: [{name: chunk, on: recording.time}, {name: frequency, line: "{recording}_freq_overlapped", of_time: recording.time}, {name: coordinate, on: package.from}]}
@@ -79,4 +81,5 @@ outputs:
   consistency_summary: {kind: measurement, over: atom_bands, of: recording}
   # (whole_consistency, whole_consistency_summary: the sensor chain's time cells are per band only, so the node makes them absent; not stored)
   power:          {kind: statistic, name: "{name}_sensor_power", of: recording, when: $aperiodic}
-  aperiodic_fit:  {kind: statistic, name: "{name}_aperiodic", of: recording, when: $aperiodic}
+  aperiodic_fit:  {kind: statistic, name: "{name}_aperiodic", of: recording, when: {aperiodic: true, aperiodic_fixed: true}}
+  aperiodic_fit_knee: {kind: statistic, name: "{name}_aperiodic_knee", of: recording, when: {aperiodic: true, aperiodic_knee: true}}
