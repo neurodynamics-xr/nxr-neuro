@@ -200,6 +200,7 @@ ng::NodeSpec source_mode_operator() {
       Json members = Json::array();
       for (std::size_t i = 0; i < kernelChannels.size(); ++i) members.push_back(static_cast<std::int64_t>(i));
       serving.meta["modes"] = members;
+      serving.meta["coordinate_members"] = kernelChannels;   // the chunk spectra's coordinate axis: the kernel's channels on the recording's channels (#292)
       serving.meta["mu"] = std::vector<double>(kernelChannels.size(), 0.0);
       serving.meta["rows"] = Json{{"order", "the kernel's channels in its column order (the identity: option B reads the channels)"}, {"normalisation", "as_stored"}};
       serving.meta["name"] = pr.kernel.meta.value("name", std::string()) + "_channels";
@@ -214,6 +215,12 @@ ng::NodeSpec source_mode_operator() {
     op.meta["kernel_selection"] = selection.description;
     if (!difference.is_null()) op.meta["option_a_left_out"] = difference;
     op.meta["unit"] = "mode coefficient (the kernel's unit) per column unit";
+    // what a declared output stores (the definition's mode operator, storage plan G9; it gave none, so the run was refused: #292)
+    op.meta["describe"] = Json{{"description", std::string("the kernel ") + pr.kernel.meta.value("name", std::string()) + " in the eigenmode coordinates of " + pr.package.meta.value("name", std::string()) +
+                                                   ": [3 K x columns], the three Cartesian components' blocks of K rows (component-major), option " + (pr.option_a ? "A (the sensor coordinates)" : "B (the channels)")},
+                               {"from_value_type", "scalar"}, {"to_value_type", "scalar"},
+                               {"params", Json{{"option", pr.option_a ? "A" : "B"}, {"rows", "component-major: the x, y, z blocks of the K kept modes"}, {"columns", columns}, {"rank", rank},
+                                               {"kernel_selection", selection.description}}}};
     ng::Array kc = array_of(kernelColumns);
     kc.meta = Json{{"columns", columns}, {"rows", "vertex-major: 3 v + component (x y z) of the cortex package's vertices"}, {"kernel_selection", selection.description},
                    {"bridge_vertices", selection.bridge_vertices}, {"name", pr.kernel.meta.value("name", std::string())}};

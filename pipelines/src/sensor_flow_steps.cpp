@@ -246,7 +246,7 @@ ng::NodeSpec chunk_spectra() {
                               {"axes", Json::array({Json{{"name", "chunk"}, {"size", T}, {"values", chunks}},
                                                     Json{{"name", "frequency"}, {"size", pr.bins}, {"members", bin_members}, {"line", Json{{"spacing", df}, {"origin", static_cast<double>(pr.first) * df}, {"unit", "Hz"}, {"dimension", "frequency"},
                                                                                                              {"fft", Json{{"n", pr.transform}, {"fs", pr.sfreq}}}}}},
-                                                    Json{{"name", "coordinate"}, {"size", R}, {"members", pr.op_meta.value("modes", Json::array())}}})},
+                                                    Json{{"name", "coordinate"}, {"size", R}, {"members", pr.op_meta.contains("coordinate_members") ? pr.op_meta["coordinate_members"] : pr.op_meta.value("modes", Json::array())}}})},
                               {"options", Json{{"overlap_samples", pr.overlap}, {"transform_samples", pr.transform}, {"operator", pr.op_meta},
                                                {"transform", "one-sided, unscaled, no window, no taper, no zero padding; reflected at the recording's ends"}}},
                               {"producer", producer},

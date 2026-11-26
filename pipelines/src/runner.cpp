@@ -1689,7 +1689,8 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         const auto orig = sub.db().read("manifold", glue->original_id);
         if (!orig) refuse("outputs." + o + ": the original surface of the glued one it lies on is not among the subject's rows");
         back = data.at(o);
-        back.data = restrict_to_original(data.at(o).data, components(v), *glue, nxr::io::integer(*orig, "n_vertices"));
+        back.data = restrict_to_original(data.at(o).values(), components(v), *glue, nxr::io::integer(*orig, "n_vertices"));   // a single-precision node's values too (#292)
+        back.single.clear();
         back.rows = nxr::io::integer(*orig, "n_vertices"); back.cols = components(v);
         mid = glue->original_id;
       } else {

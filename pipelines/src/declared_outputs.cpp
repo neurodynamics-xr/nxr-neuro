@@ -106,20 +106,26 @@ std::string fill(const Plan& P, const std::string& t) { return fill_once(P, fill
 // the id a link names: an output made already in this unit, a found input (its row's id), or one of its manifolds (`X.manifold.N`, `X.time`, `X.from`, `X.to`)
 std::string link(const Plan& P, const std::string& ref, const MadeIds* made, const std::string& where);
 // ALTERNATIVES `a|b`: the first one made in this unit or found (an output the node made only when the data asks for it: the glued surface of a cortex of two pieces, else the surface itself)
+bool is_default_link(const std::string& ref);
 std::string link_first(const Plan& P, const std::string& ref, const MadeIds* made, const std::string& where) {
   std::size_t from = 0;
+  // an alternative on an input that was not found (an input its `when` leaves out: source_flow's sensor package under --columns channels; the plan holds only the inputs
+  // found) is skipped, at plan time too; at least one alternative must remain (#292)
+  bool any = false;
   while (from <= ref.size()) {
     std::size_t bar = ref.find('|', from);
     if (bar == std::string::npos) bar = ref.size();
     const std::string part = ref.substr(from, bar - from);
     from = bar + 1;
     if (part.empty()) bad(where, "the link '" + ref + "' has an empty alternative");
-    if (!made) { link(P, part, nullptr, where); continue; }                    // at plan time every alternative must be a valid link
+    if (const std::string base = part.substr(0, part.find('.')); base != part && !P.found.count(base) && !P.definition.outputs.contains(base) && !is_default_link(part)) continue;
+    any = true;
+    if (!made) { link(P, part, nullptr, where); continue; }                    // at plan time every other alternative must be a valid link
     if (made->count(part)) return made->at(part);
     if (P.definition.outputs.contains(part) && !P.found.count(part)) continue;   // an output not made (optional): the next alternative
     return link(P, part, made, where);
   }
-  if (made) bad(where, "none of the alternatives '" + ref + "' is made or found");
+  if (made || !any) bad(where, "none of the alternatives '" + ref + "' is made or found");
   return "";
 }
 // a manifold of the dataset's DEFAULT subject by name (`default.Frequency`, `default.Eigenvalue`): the shared lines (as nxr). A band set lies on the dataset's line, in the subject that owns it.
@@ -214,11 +220,11 @@ task::Values stored_values_of(const ng::Array& a, const std::vector<std::int64_t
   if (dtype.empty()) return values_of(a, shape, single, o);
   std::int64_t n = 1;
   for (const auto x : shape) n *= x;
-  if (n != static_cast<std::int64_t>(a.data.size())) bad(o, std::to_string(a.data.size()) + " values for the shape the node describes (" + std::to_string(n) + ")");
+  if (n != static_cast<std::int64_t>(a.size())) bad(o, std::to_string(a.size()) + " values for the shape the node describes (" + std::to_string(n) + ")");
   task::Values v;
   v.shape = shape;
-  if (dtype == "i32") for (const double x : a.data) v.i32.push_back(static_cast<std::int32_t>(x));
-  else if (dtype == "u8") for (const double x : a.data) v.u8.push_back(static_cast<std::uint8_t>(x));
+  if (dtype == "i32") for (const double x : a.values()) v.i32.push_back(static_cast<std::int32_t>(x));
+  else if (dtype == "u8") for (const double x : a.values()) v.u8.push_back(static_cast<std::uint8_t>(x));
   else bad(o, "describe.dtype is i32 or u8, not " + dtype);
   return v;
 }
@@ -779,7 +785,8 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
         if (!orig || !orig->n_vertices) bad(o, "the original surface of the glued one it lies on (" + g->original_id + ") has no vertex count");
         std::int64_t rest = 1;
         for (std::size_t i = 1; i < shape.size(); ++i) rest *= shape[i];
-        stored.data = restrict_to_original(a.data, rest, *g, *orig->n_vertices);
+        stored.data = restrict_to_original(a.values(), rest, *g, *orig->n_vertices);   // a single-precision node's values too (#292)
+        stored.single.clear();
         stored.rows = *orig->n_vertices; stored.cols = rest;
         shape[0] = *orig->n_vertices;
         f.producer = f.producer.is_object() ? f.producer : Json::object();
@@ -890,7 +897,8 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     const bool complex_values = d.value("complex", false);
     if (complex_values && ccol % 2 != 0) bad(o, "its node says complex but gives " + std::to_string(ccol) + " columns (re, im of each measure)");
     if (!measures.is_array() || static_cast<std::int64_t>(measures.size()) != (complex_values ? ccol / 2 : ccol)) bad(o, "its node names " + std::to_string(measures.size()) + " measures for " + std::to_string(ccol) + " columns");
-    if (static_cast<std::int64_t>(a.data.size()) != crow * ccol) bad(o, "its node gives " + std::to_string(a.data.size()) + " values for " + std::to_string(crow) + " rows x " + std::to_string(ccol) + " measures");
+    // a node may hold its values in single precision (precision follows the input: source_flow's cortical_flow, #292): counted and read whichever it holds
+    if (static_cast<std::int64_t>(a.size()) != crow * ccol) bad(o, "its node gives " + std::to_string(a.size()) + " values for " + std::to_string(crow) + " rows x " + std::to_string(ccol) + " measures");
     std::vector<std::int64_t> vshape = cube ? std::vector<std::int64_t>{d["shape"][0].get<std::int64_t>(), d["shape"][1].get<std::int64_t>()} : std::vector<std::int64_t>{a.rows};
     if (d.contains("values_shape")) {
       vshape = ints(d["values_shape"]);
@@ -926,7 +934,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       x.values.shape = vshape;
       for (std::int64_t r = 0; r < crow; ++r)
         for (std::int64_t part = 0; part < (complex_values ? 2 : 1); ++part) {
-          const double v = a.data[static_cast<std::size_t>(r * ccol) + (complex_values ? 2 * c + part : c)];
+          const double v = a.at(static_cast<std::size_t>(r * ccol) + (complex_values ? 2 * c + part : c));
           if (f32) x.values.f32.push_back(static_cast<float>(v)); else x.values.f64.push_back(v);
         }
       m.measures.push_back(std::move(x));
@@ -1027,7 +1035,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       for (const auto& v : sp.value("indptr", Json::array())) x.indptr.push_back(v.get<std::int64_t>());
       for (const auto& v : sp.value("indices", Json::array())) x.indices.push_back(v.get<std::int32_t>());
       op.sparse = std::move(x);
-      op.data = values_of(a, {static_cast<std::int64_t>(a.data.size())}, single_of(d), o);
+      op.data = values_of(a, {static_cast<std::int64_t>(a.size())}, single_of(d), o);
     } else {
       op.data = values_of(a, {a.rows, a.cols}, single_of(d), o);
     }

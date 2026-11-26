@@ -116,7 +116,9 @@ outputs:
   # each cortex's measurements name the manifold their rows lie on (rows: the cortex solve's triangulation for vertices, edges and the sign-flip test; its eigen line for the
   # modes): the sensor flow's measures of the same recording over the same atoms, and the other hemisphere's, are other measurements of the store's key, with the same measure
   # names (issue #264; the measure_suffix of the nodes is no longer used here)
-  spectra: {kind: statistic, name: "{name}_chunk_spectra", of: recording, when: "!$spectra"}   # stored by the run that reads the recording; a run given --spectra stores none
+  # the axes as the sensor flow's (#292): the chunks on the recording's time line, the bins on its overlapped transform's frequency line, the coordinates the serving operator's
+  # (option A: the sensor surface's modes on its eigen line; option B: the kernel's channels on the recording's channels)
+  spectra: {kind: statistic, name: "{name}_chunk_spectra", of: recording, axes: [{name: chunk, on: recording.time}, {name: frequency, line: "{recording}_freq_overlapped", of_time: recording.time}, {name: coordinate, on: "sensor_package.from|recording.manifold.0"}], when: "!$spectra"}   # stored by the run that reads the recording; a run given --spectra stores none
   left_whole_vertices: {kind: measurement, rows: left.to, over: atoms, of: recording, when: {cortex: per_hemisphere}}
   left_whole_edges: {kind: measurement, rows: left.to, over: atoms, of: recording, when: {cortex: per_hemisphere}}
   left_whole_modes: {kind: measurement, rows: left.from, over: atoms, of: recording, when: {cortex: per_hemisphere}}

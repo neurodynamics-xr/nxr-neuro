@@ -1373,7 +1373,9 @@ the channels to the cortex's eigen line, derived from the kernel), one per hemis
 synthesis (not stored). The run still composes it from the stored kernel and modes (a product, no solve); a later run does not look it up by key yet (issue). Tests:
 `test_source_flow` (compute: the bands add back to the kernel), `test_flow_readout` (compute: `pairFlow`, `timeCellPairFlow`, `takeWholeCells`, `flowSplit` against their definitions written out, the remainder split) and
 `test_source_flow_nodes` (two spheres as hemispheres and a 42-channel sheet: hemisphere selection, a glued package's zero bridge, option A = option B with a complete
-sensor basis, a travelling source mapped to an exact flow, the band pairs adding back, the time cells' sign-flip test).
+sensor basis, a travelling source mapped to an exact flow, the band pairs adding back, the time cells' sign-flip test) and `test_source_flow_store` (the definition end to end on a tiny
+synthetic subject: the chunk spectra stored with their axes, the coordinates on the sensor modes (A) or the kernel's channels (B), the float32 measurements stored per hemisphere, then
+the same from the stored spectra).
 
 ## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 
@@ -2387,7 +2389,8 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
 - **The manifold its rows lie on (2026-11-26, issue #264).** An array-backed measurement may name the manifold its rows are the elements of (`selection_measurement.rows_manifold_id`,
   part of the store's key and a folder of its arrays' path): one measure of one field over one selection on two manifolds (two hemispheres) is two measurements, with no suffix on
   the measure's name. A definition's measurement output says it with `rows: LINK` (`left.to`, `package.from`); `add measurements --rows-on NAME` in the command; `read selection
-  --measure M --rows-on NAME` reads one (without it, a measure stored on several manifolds is refused, naming them). A database made before it gets the column and the key in place.
+  --measure M --rows-on NAME` reads one (without it, a measure stored on several manifolds is refused, naming them; one stored without `--rows-on` counts as one more, unnamed, so an
+  old and a new run's arrays are never read silently in place of each other). The read's `producers` are those of the measurement read, never of the measure's other ones. A database made before it gets the column and the key in place.
 - **The producer of a measurement (2026-11-26).** Every row a measurement writes through a unit keeps how it was made in `selection_measurement.producer_json` (the command or the
   pipeline's record with the output's name; `add measurements --producer JSON` adds the maker's own facts, as `add field --producer` does). A database made before it gets the column in
   place, user_version unchanged. `add statistic --producer JSON` adds the maker's facts to a statistic's producer record (a group statistic's members, their ids and hashes, as `run

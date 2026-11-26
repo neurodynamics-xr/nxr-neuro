@@ -78,7 +78,7 @@ steps:
 outputs:
   # with groups, each cortex's measurements name the manifold their rows lie on (rows: the solve's triangulation, its eigen line for the modes), so the sensor flow's and the
   # other hemisphere's are other measurements with the same measure names (issue #264)
-  spectra: {kind: statistic, name: "{name}_chunk_spectra", of: recording}
+  spectra: {kind: statistic, name: "{name}_chunk_spectra", of: recording, axes: [{name: chunk, on: recording.time}, {name: frequency, line: "{recording}_freq_overlapped", of_time: recording.time}, {name: coordinate, on: "sensor_package.from|recording.manifold.0"}]}   # the axes as source_flow's (#292)
   left_whole_vertices: {kind: statistic, name: "{name}_left_flow_vertices", of: recording, when: {cortex: per_hemisphere, grouped: false}}
   left_group_vertices: {kind: measurement, rows: left.to, over: groups, of: recording, when: {cortex: per_hemisphere, grouped: true}}
   left_whole_edges: {kind: statistic, name: "{name}_left_flow_edges", of: recording, when: {cortex: per_hemisphere, grouped: false}}
