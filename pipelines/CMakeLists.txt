@@ -442,6 +442,10 @@ add_executable(test_sensor_flow test/test_sensor_flow.cpp)   # the sensor-space 
   target_link_libraries(test_sensor_flow PRIVATE nxr_pipelines)
   target_include_directories(test_sensor_flow PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_sensor_flow COMMAND test_sensor_flow)
+add_executable(test_graph_network test/test_graph_network.cpp)   # the fibre network as a graph manifold, its metric and its Hodge-Dirac modes (eigenmodes --graph, store on miss); synthetic
+  target_link_libraries(test_graph_network PRIVATE nxr_pipelines)
+  target_include_directories(test_graph_network PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_graph_network COMMAND test_graph_network)
 add_executable(test_connectome_flow test/test_connectome_flow.cpp)   # the fibre network and connectome flow nodes on a small surface with planted lags; synthetic
   target_link_libraries(test_connectome_flow PRIVATE nxr_pipelines)
   target_include_directories(test_connectome_flow PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)

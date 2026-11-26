@@ -4,18 +4,21 @@
 // are read in the connectome's eigenmodes.
 //
 // THE GRAPH (tile_network). before: fibres --[meeg.fiber_ends, meeg.nearest_vertex, meeg.end_gate]--> each fibre's end vertices (REUSED); fibres --[meeg.fiber_lengths]--> lengths;
-//         end vertices + lengths + the grid's tiles at the stated level + the surface --[meeg.tile_pairs]--> tiles, pairs (count, median length, distance, across);
-//         pairs --[meeg.laplacian_eigenmodes]--> the connectome Laplacian's complete eigenmodes.
+//         end vertices + lengths + the grid's tiles at the level a stated scale sets + the surface --[meeg.tile_pairs]--> tiles, pairs (count, median length, distance, across) and
+//         the network as a GRAPH manifold (the tiles its vertices at their centroids, the joined pairs its rank-1 cells) with its metric (tile area, edge conductance) as fields.
+// THE GRAPH (eigenmodes --graph). graph + area + conductance --[meeg.graph_hodge_dirac]--> the graph's Hodge-Dirac modes in the surfaces' four-class form (exact and cycle modes).
 // THE GRAPH (connectome_flow). before: the sensor serving operator (signal.mode_analysis, REUSED) + kernel + tiles --[signal.tile_operator]--> ONE operator [3T x K];
 //         stored chunk spectra + operator + atoms --[signal.tile_flow]--> per atom the whole run's tile cross-spectrum (pair sums, tile power);
 //         --[signal.tile_time_cells]--> the same per time cell of each atom --[stats.sign_flip_consistency, REUSED]--> per pair R1 and its p;
-//         pairs + eigenmodes + tile flow --[meeg.network_flow]--> per atom divergence, graph potential, its eigenmode coefficients, the gradient part's sums.
+//         graph + its conductance + its STORED Hodge-Dirac modes + the mean edge flow --[meeg.network_flow]--> per atom divergence, graph potential, the flow's coefficient on every
+//         mode, the gradient and cycle parts' sums (no Laplacian is solved here: the modes are the stored solve's).
 // Every node is a function of arrays: no file, no subject, no loop over a recording.
 #include "nxr/pipelines/connectome_flow_steps.h"
 
 #include <algorithm>
 #include <cmath>
 #include <complex>
+#include <functional>
 #include <limits>
 #include <map>
 #include <tuple>
@@ -28,6 +31,8 @@
 #include "nxr/graph/node.h"
 #include "flow_measures.h"
 #include "nxr/meeg/tile_network.h"
+#include "nxr/quantity/quantity.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/select/grid.h"
 #include "nxr/signal/spectral_flow.h"
 #include "nxr/signal/flow_readout.h"
@@ -118,14 +123,39 @@ std::pair<std::int64_t, std::int64_t> atoms_rows(const ng::Array& a) {
   return {shape[1].get<std::int64_t>(), shape[0].get<std::int64_t>()};
 }
 
-// ── the tiles: the grid's finest codes shifted to the level of the stated tiles per piece ───────────────────────────
-struct Tiles { std::vector<std::int64_t> codes; int level = 0, depth = 0; std::int64_t parts = 0; };
+// ── the tiles: the grid's finest codes shifted to the level a stated SCALE sets (a quantity: "parts 32" per piece, a tile diameter "20 mm", an area "area 400 mm^2") ──
+struct Tiles { std::vector<std::int64_t> codes; int level = 0, depth = 0; std::int64_t parts = 0; Json scale; };
 Tiles tiles_of(const ng::Array& grid, const Json& p, const char* who) {
   if (!grid.meta.contains("depth")) ng::refuse(std::string(who) + ": tiles is not a dyadic grid with levels (`nxr-neuro run select_dyadic_surface` first)");
   Tiles t;
   t.depth = grid.meta["depth"].get<int>();
-  t.parts = static_cast<std::int64_t>(number_param(p, "tiles_per_piece", who));
-  try { t.level = nxr::select::level_of_parts(static_cast<double>(t.parts), t.depth).level; } catch (const std::exception& e) { ng::refuse(std::string(who) + ": tiles_per_piece: " + e.what()); }
+  if (!p.contains("scale") || !p["scale"].is_string()) ng::refuse(std::string(who) + ": scale has no default: name the tiles' level as a quantity (\"parts 32\", \"20 mm\", \"area 400 mm^2\")");
+  nxr::quantity::Quantity q;
+  try { q = nxr::quantity::parse(p["scale"].get<std::string>()); } catch (const std::exception& e) { ng::refuse(std::string(who) + ": scale: " + e.what()); }
+  nxr::select::LevelOf lo;
+  try {
+    if (q.chart == "parts") lo = nxr::select::level_of_parts(q.hi, t.depth);
+    else if (q.chart == "area" || q.chart == "diameter") {
+      const Json params = grid.meta.value("params", Json::object());
+      const Json g = params.value("grid", Json::object());
+      if (q.chart == "area") {                                                    // each level's mean tile area: a piece's area halved per level (the grid's record: its area and pieces)
+        const double area = params.contains("area_m2") ? params["area_m2"].get<double>() : g.value("area_m2", 0.0);
+        const std::int64_t pieces = g.value("pieces", grid.meta.value("slots", std::int64_t(1)));
+        if (!(area > 0)) ng::refuse(std::string(who) + ": the grid records no area: name the scale in parts (\"parts 32\") or as a diameter");
+        std::vector<double> areas;
+        for (int l = 0; l <= t.depth; ++l) areas.push_back(area / static_cast<double>(std::max<std::int64_t>(1, pieces)) / std::ldexp(1.0, l) * 1e6);   // mm^2
+        lo = nxr::select::level_of_area(areas, q.hi * nxr::quantity::unit_factor(q.unit, "mm^2"), "mm");
+      } else {                                                                    // the level dictionary's measured mean tile diameter (mm)
+        std::vector<double> diameters;
+        for (const auto& l : grid.meta.value("levels", Json::array())) diameters.push_back(l.value("diameter", std::nan("")));
+        if (static_cast<int>(diameters.size()) != t.depth + 1) ng::refuse(std::string(who) + ": the grid's level dictionary records no tile diameters: name the scale in parts");
+        lo = nxr::select::level_of_diameter(diameters, q.hi * nxr::quantity::unit_factor(q.unit, "mm"), "mm");
+      }
+    } else ng::refuse(std::string(who) + ": scale " + p["scale"].dump() + " is in the chart " + q.chart + ": parts, a tile diameter (mm) or an area (mm^2)");
+  } catch (const std::invalid_argument& e) { ng::refuse(std::string(who) + ": scale: " + e.what()); }
+  t.level = lo.level;
+  t.parts = std::int64_t(1) << t.level;
+  t.scale = Json{{"stated", p["scale"]}, {"level", t.level}, {"snapped", lo.snapped}, {"unit", lo.unit}, {"parts_per_piece", t.parts}};
   std::vector<std::int64_t> finest(static_cast<std::size_t>(grid.size()));
   for (std::size_t v = 0; v < finest.size(); ++v) finest[v] = static_cast<std::int64_t>(std::llround(grid.at(v)));
   t.codes = nxr::meeg::tileCodesAtLevel(finest, t.depth, t.level);
@@ -220,6 +250,17 @@ ng::NodeSpec fiber_lengths() {
 }
 
 // ── meeg.tile_pairs ────────────────────────────────────────────────────────────────────────────────────────
+// connected components of a graph of `n` vertices (union-find over the edges)
+int components_of(std::int64_t n, const std::vector<std::int32_t>& edges) {
+  std::vector<std::int64_t> parent(static_cast<std::size_t>(n));
+  for (std::int64_t i = 0; i < n; ++i) parent[static_cast<std::size_t>(i)] = i;
+  std::function<std::int64_t(std::int64_t)> root = [&](std::int64_t i) { while (parent[static_cast<std::size_t>(i)] != i) i = parent[static_cast<std::size_t>(i)] = parent[static_cast<std::size_t>(parent[static_cast<std::size_t>(i)])]; return i; };
+  int c = static_cast<int>(n);
+  for (std::size_t e = 0; e + 1 < edges.size(); e += 2) { const auto a = root(edges[e]), b = root(edges[e + 1]); if (a != b) { parent[static_cast<std::size_t>(a)] = b; --c; } }
+  return c;
+}
+ng::Array one_column(std::vector<double> v, const Json& describe) { ng::Array a; a.rows = static_cast<std::int64_t>(v.size()); a.cols = 1; a.data = std::move(v); a.meta["describe"] = describe; return a; }
+
 const char* const kPairs = "meeg.tile_pairs";
 ng::NodeSpec tile_pairs() {
   ng::NodeSpec n;
@@ -228,18 +269,29 @@ ng::NodeSpec tile_pairs() {
   n.inputs = {{"end_vertex", "each fibre's two end vertices on the surface [2nF], block order (meeg.nearest_vertex)", false},
               {"keep", "the gate: 1 for a fibre kept [nF] (meeg.end_gate)", true},
               {"lengths", "each fibre's length [nF] (meeg.fiber_lengths)", true},
-              {"tiles", "the surface's dyadic grid (a grid selection: its finest code per vertex, its depth)", false},
-              {"surface", "the surface the tiles and the ends are on (its vertices)", false}};
+              {"tiles", "the surface's dyadic grid (a grid selection: its finest code per vertex, its depth, its level dictionary)", false},
+              {"surface", "the surface the tiles and the ends are on (its vertices and faces)", false}};
   n.outputs = {{"tiles_table", "per tile: code, piece, vertices, centroid x y z", false},
-               {"pairs", "per pair of tiles i < j: first, second (tile rows), streamline count, median length, centroid distance, across the pieces", false}};
-  n.parameters = {{"tiles_per_piece", Json(), "the tiles of each piece (hemisphere), a power of two: sets the grid's level (no default; nxr's flow through the fibres: 32, level 5)", "parts", {}, false}};
+               {"pairs", "per pair of tiles i < j: first, second (tile rows), streamline count, median length, centroid distance, across the pieces", false},
+               {"graph", "the network as a GRAPH manifold: the tiles its vertices at their centroids [T x 3], the pairs joined by at least min_streamlines its edges (rank-1 cells, in pair order)", false},
+               {"area", "each tile's area (the sum of its vertices' barycentric areas): the node weight, on the graph's vertices", false},
+               {"conductance", "each edge's streamline count / median length: the edge weight, on the graph's edges", false},
+               {"streamlines", "each edge's streamline count, on the graph's edges", false},
+               {"median_length", "each edge's streamlines' median length, on the graph's edges", false}};
+  n.parameters = {{"scale", Json(), "the tiles' level as a quantity: parts per piece (\"parts 32\", a power of two), a tile diameter (\"20 mm\") or an area (\"area 400 mm^2\") (no default; nxr's flow through the fibres: parts 32)", "-", {}, false},
+                  {"min_streamlines", Json(), "a pair of tiles is an edge of the graph when at least this many streamlines join it (no default; nxr: 10)", "streamlines", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "no time axis: runs once; the fibres are summed in any order");
-  n.matches = "nxr flownet's network (tiles of surface_ladder at --level; CNT and LEN over the tile pairs, centroid distances, across the hemispheres); compute nxr::meeg::tilePairs";
-  n.description = "the fibre network on the tiles: per pair of tiles the streamlines joining them, their median length, the tiles' distance and whether they lie on different pieces";
+  n.matches = "nxr flownet's network (tiles of surface_ladder at --level; CNT and LEN over the tile pairs, centroid distances, across the hemispheres); compute nxr::meeg::tilePairs, nxr::select::bisection::vertexAreas";
+  n.description = "the fibre network on the tiles: per pair of tiles the streamlines joining them, their median length, the tiles' distance and whether they lie on different pieces; the joined pairs as a graph with its metric";
   n.plan = [](const ng::Types& in, const Json& p) {
     for (const char* k : {"end_vertex", "tiles", "surface"}) if (!in.count(k)) ng::refuse(std::string(kPairs) + ": " + k + " is not given");
-    number_param(p, "tiles_per_piece", kPairs);
-    ng::Planned out; out.out["tiles_table"] = statistic_port(); out.out["pairs"] = statistic_port(); return out;
+    if (!p.contains("scale") || !p["scale"].is_string()) ng::refuse(std::string(kPairs) + ": scale has no default: name it (a quantity, \"parts 32\")");
+    number_param(p, "min_streamlines", kPairs);
+    ng::Planned out;
+    out.out["tiles_table"] = statistic_port(); out.out["pairs"] = statistic_port();
+    ng::PortType g; g.cls = ng::PortClass::constant; g.facts["cls"] = "manifold"; out.out["graph"] = g;
+    for (const char* f : {"area", "conductance", "streamlines", "median_length"}) { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = "field"; out.out[f] = t; }
+    return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(std::make_pair(c, p)); };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
@@ -267,25 +319,69 @@ ng::NodeSpec tile_pairs() {
       pc[0][static_cast<std::size_t>(q)] = net.first[static_cast<std::size_t>(q)]; pc[1][static_cast<std::size_t>(q)] = net.second[static_cast<std::size_t>(q)];
       pc[2][static_cast<std::size_t>(q)] = net.count(q); pc[3][static_cast<std::size_t>(q)] = net.medianLength(q); pc[4][static_cast<std::size_t>(q)] = net.distance(q); pc[5][static_cast<std::size_t>(q)] = net.across(q);
     }
+    // THE GRAPH: the joined pairs (count >= min_streamlines) its edges, in pair order; its metric: each tile's area (the barycentric areas of its vertices), each edge's conductance
+    const double minStreamlines = p["min_streamlines"].get<double>();
+    std::vector<std::int32_t> edges;
+    std::vector<double> conductance, streamlines, medians;
+    for (std::int64_t q = 0; q < P; ++q)
+      if (net.count(q) >= minStreamlines && net.count(q) > 0) {
+        if (!(net.medianLength(q) > 0)) ng::refuse(std::string(kPairs) + ": a joined pair's median length is not positive (the fibres' lengths were not handed over)");
+        edges.push_back(net.first[static_cast<std::size_t>(q)]); edges.push_back(net.second[static_cast<std::size_t>(q)]);
+        streamlines.push_back(net.count(q)); medians.push_back(net.medianLength(q)); conductance.push_back(net.count(q) / net.medianLength(q));
+      }
+    nxr::select::bisection::Mesh mesh;
+    mesh.positions = S.values(); mesh.n = static_cast<int>(S.rows);
+    for (const auto& f : S.meta.value("faces", Json::array())) mesh.faces.push_back(f.get<std::int32_t>());
+    if (mesh.faces.empty()) ng::refuse(std::string(kPairs) + ": the surface has no faces (its tiles' areas need them)");
+    const std::vector<double> vertexArea = nxr::select::bisection::vertexAreas(mesh);
+    std::map<std::int64_t, std::int64_t> row;
+    for (std::int64_t i = 0; i < T; ++i) row[net.codes[static_cast<std::size_t>(i)]] = i;
+    std::vector<double> tileArea(static_cast<std::size_t>(T), 0.0);
+    for (std::size_t v = 0; v < t.codes.size(); ++v) if (t.codes[v] >= 0) { const auto it = row.find(t.codes[v]); if (it != row.end()) tileArea[static_cast<std::size_t>(it->second)] += vertexArea[v]; }
+    const int components = components_of(T, edges);
+    const std::int64_t E = static_cast<std::int64_t>(conductance.size());
     Json codes = Json::array();
     for (const auto code : net.codes) codes.push_back(code);
-    const Json producer = Json{{"tiles_per_piece", t.parts}, {"level", t.level}, {"grid_depth", t.depth}, {"tiles", T}, {"pairs", P}, {"codes", codes},
+    const std::string unit = S.meta.value("unit", std::string("m"));
+    const Json producer = Json{{"scale", t.scale}, {"level", t.level}, {"grid_depth", t.depth}, {"tiles", T}, {"pairs", P}, {"codes", codes}, {"min_streamlines", minStreamlines},
+                               {"edges", E}, {"components", components},
+                               {"metric", Json{{"node_weight", "each tile's area (the sum of its vertices' barycentric areas), " + unit + "^2: the graph's star0"},
+                                               {"edge_weight", "each edge's conductance, streamline count / median length (1/" + unit + "): the graph's star1"}}},
                                {"fibres_left_out", Json{{"an_end_on_no_tile", net.endsOutside}, {"both_ends_in_one_tile", net.sameTile}, {"gated_out", net.gatedOut}}},
                                {"length_unit", "the fibres' points' unit (SCS metres)"}, {"distance_unit", "the surface's positions' unit"}, {"warnings", warnings()}};
+    // the statistics' measures and method are not in the statistics registry: DECLARED by their writer (the producer's `declared`, D172)
+    const Json method = Json{{"description", "the fibre network on a surface's dyadic tiles: each fibre's two ends on the nearest vertices, counted per pair of tiles (nxr's flow through the fibres)"}};
+    Json tilesProducer = producer, pairsProducer = producer;
+    tilesProducer["declared"] = Json{{"measure", Json{{"description", "a tile of the network: its code, piece, vertex count and centroid (columns)"}, {"unit_rule", "per column: none, none, vertices, the surface's unit"}}}, {"method", method}};
+    pairsProducer["declared"] = Json{{"measure", Json{{"description", "a pair of tiles: its streamline count, their median length, the centroids' distance and whether the tiles lie on different pieces (columns)"},
+                                                     {"unit_rule", "per column: none, none, streamlines, the fibres' unit, the surface's unit, none"}}}, {"method", method}};
     ng::Array tiles = table(tc, T);
-    tiles.meta["shape"] = Json::array({T, 6}); tiles.meta["producer"] = producer;
+    tiles.meta["shape"] = Json::array({T, 6}); tiles.meta["producer"] = tilesProducer;
     tiles.meta["describe"] = Json{{"method", "tile_pairs"}, {"measure", "tile"}, {"shape", Json::array({T, 6})},
                                   {"axes", Json::array({indexed_axis("tile", T, codes), indexed_axis("column", 6, Json::array({"code", "piece", "vertices", "centroid_x", "centroid_y", "centroid_z"}))})},
-                                  {"producer", producer}, {"description", "the tiles at the stated level: code (2^level x piece + tile), piece, vertex count, centroid (the mean of the vertices' positions)"}};
+                                  {"producer", tilesProducer}, {"description", "the tiles at the stated level: code (2^level x piece + tile), piece, vertex count, centroid (the mean of the vertices' positions)"}};
     ng::Array pairs = table(pc, P);
-    pairs.meta["shape"] = Json::array({P, 6}); pairs.meta["producer"] = producer;
+    pairs.meta["shape"] = Json::array({P, 6}); pairs.meta["producer"] = pairsProducer;
     pairs.meta["describe"] = Json{{"method", "tile_pairs"}, {"measure", "fiber_count"}, {"shape", Json::array({P, 6})},
                                   {"axes", Json::array({indexed_axis("pair", P), indexed_axis("column", 6, Json::array({"first", "second", "fiber_count", "median_length", "distance", "across"}))})},
-                                  {"producer", producer},
+                                  {"producer", pairsProducer},
                                   {"description", "every pair of tiles i < j (rows of the tiles' table, in the order (0,1), (0,2), ..., (1,2), ...): the streamlines with one end in each, their median length (NaN: none), the centroids' distance, 1 when on different pieces"}};
-    return ng::Arrays{{"tiles_table", std::move(tiles)}, {"pairs", std::move(pairs)}};
+    ng::Array graph;
+    graph.rows = T; graph.cols = 3;
+    for (std::int64_t i = 0; i < T; ++i) for (int k = 0; k < 3; ++k) graph.data.push_back(net.centroids(i, k));
+    graph.meta["describe"] = Json{{"edges", edges}, {"components", components}, {"producer", producer},
+                                  {"description", "the fibre network: the tiles of the surface's grid at level " + std::to_string(t.level) + " (its vertices, at the tiles' centroids) and the pairs joined by at least " +
+                                                      std::to_string(static_cast<std::int64_t>(minStreamlines)) + " streamlines (its edges, tail < tip)"}};
+    auto field = [&](std::vector<double> v, const char* cell, const std::string& u, const std::string& what) {
+      return one_column(std::move(v), Json{{"value_type", "scalar"}, {"cell", cell}, {"unit", u}, {"description", what}, {"producer", producer}});
+    };
+    return ng::Arrays{{"tiles_table", std::move(tiles)}, {"pairs", std::move(pairs)}, {"graph", std::move(graph)},
+                      {"area", field(tileArea, "0", unit + "^2", "each tile's area, the sum of its vertices' barycentric areas: the graph's node weight (star0)")},
+                      {"conductance", field(conductance, "1", "1/" + unit, "each edge's streamline count / median length: the graph's edge weight (star1)")},
+                      {"streamlines", field(streamlines, "1", "streamlines", "each edge's streamline count")},
+                      {"median_length", field(medians, "1", unit, "each edge's streamlines' median length")}};
   };
-  n.record = [](const std::any& prepared) { return Json{{"tiles_per_piece", std::any_cast<const std::pair<ng::Arrays, Json>&>(prepared).second.value("tiles_per_piece", Json())}}; };
+  n.record = [](const std::any& prepared) { const Json& p = std::any_cast<const std::pair<ng::Arrays, Json>&>(prepared).second; return Json{{"scale", p.value("scale", Json())}, {"min_streamlines", p.value("min_streamlines", Json())}}; };
   return n;
 }
 
@@ -302,44 +398,83 @@ PairsRead pairs_read(const ng::Array& pairs, double minStreamlines, const char* 
   return r;
 }
 
-// ── meeg.laplacian_eigenmodes ──────────────────────────────────────────────────────────────────────────────
-const char* const kModes = "meeg.laplacian_eigenmodes";
-ng::NodeSpec laplacian_eigenmodes() {
+// ── meeg.graph_hodge_dirac ──────────────────────────────────────────────────────────────────────────────
+// a graph handed by the runner (its vertices [V x 3], its edges in meta) and a field on its cells, checked against it
+std::vector<std::int32_t> graph_edges(const ng::Array& g, const char* who) {
+  if (g.meta.value("type", std::string()) != "graph" || !g.meta.contains("edges")) ng::refuse(std::string(who) + ": the network is not a graph manifold (`nxr-neuro run tile_network` stores it)");
+  return g.meta["edges"].get<std::vector<std::int32_t>>();
+}
+Eigen::VectorXd cell_values(const ng::Array& f, std::int64_t n, const char* port, const char* who) {
+  if (f.size() != static_cast<std::size_t>(n)) ng::refuse(std::string(who) + ": " + port + " has " + std::to_string(f.size()) + " values, the graph " + std::to_string(n) + " cells of its rank");
+  const std::vector<double> v = f.values();
+  return Eigen::Map<const Eigen::VectorXd>(v.data(), n);
+}
+const char* const kGraphModes = "meeg.graph_hodge_dirac";
+ng::NodeSpec graph_hodge_dirac() {
   ng::NodeSpec n;
-  n.name = kModes;
+  n.name = kGraphModes;
   n.kind = ng::Kind::array;
-  n.inputs = {{"pairs", "the tile pairs (meeg.tile_pairs)", false}};
-  n.outputs = {{"eigenmodes", "the connectome Laplacian's eigenmodes [T x (1 + T)]: row k mode k, column 0 its eigenvalue, columns 1 .. T its value on each tile", false}};
-  n.parameters = {{"min_streamlines", Json(), "a pair is an edge of the network when at least this many streamlines join it (no default; nxr: 10)", "streamlines", {}, false},
-                  {"null_tolerance", Json(), "an eigenvalue at most this fraction of the largest is a null mode (one per connected component) (no default)", "-", {}, false}};
-  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "once: one dense symmetric eigensolve of a T x T matrix");
-  n.matches = "nxr flownet's Lc = diag(Wg.sum(1)) - Wg, Wg the edges' streamline counts, np.linalg.eigh; compute nxr::meeg::laplacianEigenmodes";
-  n.description = "the connectome eigenmodes of the tiles: the graph Laplacian of the network's edges weighted by their streamline counts, all its eigenmodes";
+  n.inputs = {{"graph", "a graph manifold (vertices and stored rank-1 cells)", false},
+              {"area", "the node weights: a field on the graph's vertices (star0)", false},
+              {"conductance", "the edge weights: a field on the graph's edges (star1)", false}};
+  n.outputs = {{"modes", "the eigenvalue line: mu = sqrt(lambda) per mode, ascending (the cycle modes at 0 first)", false},
+               {"eigenvalues", "lambda = mu^2 per mode", false},
+               {"kinds", "a labelling of the line: exact (0) or harmonic, a cycle (1)", false},
+               {"eigenvectors", "ONE operator from the line to the graph's cells 0+1: each mode's mixed form [(V + E) x K], orthonormal under the stars", false}};
+  n.parameters = {{"null_tolerance", Json(), "an eigenvalue at most this fraction of the largest is a constant (one per connected component), left out (no default)", "-", {}, false}};
+  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "once: one dense generalized symmetric eigensolve of V x V and a rank-revealing QR of E x V");
+  n.matches = "the surfaces' Hodge-Dirac solve (operators.hodge_dirac: the mixed forms, rows by rank, orthonormal under the stars) on a 1-complex; nxr flownet's connectome eigenmodes are the unit-weight node part; compute nxr::meeg::graphHodgeDirac";
+  n.description = "the Hodge-Dirac modes of a graph under its node and edge weights: the exact (gradient) modes and the harmonic (cycle) modes, stored as the surfaces' solve is";
   n.plan = [](const ng::Types& in, const Json& p) {
-    if (!in.count("pairs")) ng::refuse(std::string(kModes) + ": pairs is not given");
-    number_param(p, "min_streamlines", kModes); number_param(p, "null_tolerance", kModes);
-    ng::Planned out; out.out["eigenmodes"] = statistic_port(); return out;
+    for (const char* k : {"graph", "area", "conductance"}) if (!in.count(k)) ng::refuse(std::string(kGraphModes) + ": " + k + " is not given");
+    number_param(p, "null_tolerance", kGraphModes);
+    ng::Planned out;
+    for (const auto& [o, cls] : std::vector<std::pair<const char*, const char*>>{{"modes", "manifold"}, {"eigenvalues", "field"}, {"kinds", "selection"}, {"eigenvectors", "operator"}}) {
+      ng::PortType t; t.cls = std::string(cls) == "operator" ? ng::PortClass::operator_ : ng::PortClass::constant; t.facts["cls"] = cls; out.out[o] = t;
+    }
+    return out;
   };
-  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(std::make_pair(handed(c, "pairs", kModes), p)); };
+  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(std::make_pair(c, p)); };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
-    const auto& [pairs, p] = std::any_cast<const std::pair<ng::Array, Json>&>(prepared);
-    const double minStreamlines = p["min_streamlines"].get<double>(), tolerance = p["null_tolerance"].get<double>();
-    const PairsRead r = pairs_read(pairs, minStreamlines, kModes);
-    const nxr::meeg::LaplacianModes m = nxr::meeg::laplacianEigenmodes(r.weight, r.tiles, tolerance);
-    const std::int64_t T = r.tiles;
-    ng::Array a;
-    a.rows = T; a.cols = T + 1;
-    for (std::int64_t k = 0; k < T; ++k) { a.data.push_back(m.eigenvalues(k)); for (std::int64_t i = 0; i < T; ++i) a.data.push_back(m.eigenvectors(i, k)); }
-    std::int64_t edges = 0;
-    for (std::int64_t q = 0; q < r.pairs; ++q) edges += r.weight(q) > 0;
-    const Json producer = Json{{"tiles", T}, {"edges", edges}, {"min_streamlines", minStreamlines}, {"null_tolerance", tolerance}, {"null_modes", m.nullModes}, {"codes", r.codes},
-                               {"weights", "the edges' streamline counts"}, {"complete", true}};
-    a.meta["shape"] = Json::array({T, T + 1}); a.meta["producer"] = producer;
-    a.meta["describe"] = Json{{"method", "laplacian_eigenmodes"}, {"measure", "eigenmode"}, {"shape", Json::array({T, T + 1})},
-                              {"axes", Json::array({indexed_axis("mode", T), indexed_axis("column", T + 1)})}, {"producer", producer},
-                              {"description", "row k: mode k (eigenvalues ascending): column 0 its eigenvalue (streamlines), columns 1 .. T its value on each tile (the tiles' table order); orthonormal"}};
-    return ng::Arrays{{"eigenmodes", std::move(a)}};
+    const auto& [c, p] = std::any_cast<const std::pair<ng::Arrays, Json>&>(prepared);
+    const ng::Array& g = handed(c, "graph", kGraphModes);
+    const std::vector<std::int32_t> edges = graph_edges(g, kGraphModes);
+    const std::int64_t V = g.rows, E = static_cast<std::int64_t>(edges.size() / 2);
+    const Eigen::VectorXd area = cell_values(handed(c, "area", kGraphModes), V, "area", kGraphModes), conductance = cell_values(handed(c, "conductance", kGraphModes), E, "conductance", kGraphModes);
+    const double tolerance = p["null_tolerance"].get<double>();
+    nxr::meeg::GraphModes m;
+    try { m = nxr::meeg::graphHodgeDirac(edges, V, area, conductance, tolerance); } catch (const std::invalid_argument& e) { ng::refuse(std::string(kGraphModes) + ": " + e.what()); }
+    const std::int64_t K = m.mu.size();
+    if (K == 0) ng::refuse(std::string(kGraphModes) + ": the graph has no mode (no edge)");
+    const std::string name = g.meta.value("name", std::string()), stem = "hodgeDirac__" + name;
+    const Json producer = Json{{"graph", name}, {"vertices", V}, {"edges", E}, {"components", m.components}, {"cycles", m.cycles}, {"exact", K - m.cycles}, {"null_tolerance", tolerance},
+                               {"metric", Json{{"star0", c.at("area").meta.value("name", std::string("area"))}, {"star1", c.at("conductance").meta.value("name", std::string("conductance"))}}},
+                               {"solve", "exact: B^T *1 B psi = lambda *0 psi (dense generalized symmetric), the constants out; cycles: the kernel of B^T *1 (rank-revealing QR), *1-orthonormal"}};
+    ng::Array line;
+    line.rows = K; line.cols = 1;
+    line.data.assign(m.mu.data(), m.mu.data() + K);
+    line.meta["describe"] = Json{{"cs", "eigenvalue:" + stem}, {"operator", "hodgeDirac"}, {"producer", producer},
+                                 {"description", "the eigenvalues mu = sqrt(lambda) >= 0 of the Hodge-Dirac operator d + delta on the graph " + name + ", ascending (its cycle modes at 0): the eigenvalue line"}};
+    ng::Array lambda;
+    lambda.rows = K; lambda.cols = 1;
+    for (std::int64_t k = 0; k < K; ++k) lambda.data.push_back(m.mu(k) * m.mu(k));
+    lambda.meta["describe"] = Json{{"value_type", "scalar"}, {"precision", "float64"}, {"description", "per mode: the eigenvalue lambda = mu^2 (0 on a cycle mode)"}};
+    ng::Array kinds;
+    kinds.rows = K; kinds.cols = 1;
+    for (const int k : m.kind) kinds.data.push_back(k);
+    kinds.meta["describe"] = Json{{"entries", Json::array({"exact", "harmonic"})}, {"description", "the kind of each mode: exact (label 0, a gradient: a 0-form potential) or harmonic (label 1, a cycle of the graph; no coexact mode on a graph)"}};
+    ng::Array vectors;
+    vectors.rows = V + E; vectors.cols = K;
+    vectors.data.resize(static_cast<std::size_t>((V + E) * K));
+    Eigen::Map<RowMajor>(vectors.data.data(), V + E, K) = m.forms;
+    vectors.meta["describe"] = Json{{"precision", "float64"}, {"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"from_cell", "0"}, {"to_cell", "0+1"}, {"producer", producer},
+                                    {"params", Json{{"rows", "0-forms [0, " + std::to_string(V) + ") · 1-forms [" + std::to_string(V) + ", " + std::to_string(V + E) + ")"},
+                                                    {"forms", "each mode's mixed form, orthonormal under the stars *0 (the area) and *1 (the conductance): exact [psi/sqrt2 ; B psi/(mu sqrt2)], harmonic [0 ; h]"},
+                                                    {"analysis", "the line <- graph map is this operator's D106 pair (its star-adjoint), not stored"}}},
+                                    {"description", "Hodge-Dirac modes as mixed forms on the graph " + name + ": rows 0-forms (the vertices), 1-forms (the edges), one column a mode"}};
+    return ng::Arrays{{"modes", std::move(line)}, {"eigenvalues", std::move(lambda)}, {"kinds", std::move(kinds)}, {"eigenvectors", std::move(vectors)}};
   };
+  n.record = [](const std::any& prepared) { return Json{{"null_tolerance", std::any_cast<const std::pair<ng::Arrays, Json>&>(prepared).second.value("null_tolerance", Json())}}; };
   return n;
 }
 
@@ -353,14 +488,14 @@ ng::NodeSpec tile_operator() {
               {"tiles", "the surface's dyadic grid (a grid selection)", false},
               {"serving", "the operator the chunk spectra were served with (signal.mode_analysis: rows the field coordinates, columns the recording's channels)", false}};
   n.outputs = {{"operator", "the tile operator [3T x K] (rows 3 t + component of the tiles in code order; columns the served coordinates)", false}};
-  n.parameters = {{"tiles_per_piece", Json(), "the tiles of each piece, a power of two (as meeg.tile_pairs')", "parts", {}, false}};
+  n.parameters = {{"scale", Json(), "the tiles' level as a quantity (the network's: meeg.tile_pairs')", "-", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "made in double, once a run: a change of coordinates composed once");
   n.linear_map = true;
   n.matches = "nxr flownet's Kt (the kernel averaged over each tile's vertices, three components) applied to the channels, here composed with the served coordinates' synthesis; compute nxr::signal::tileOperator, servedSynthesis";
   n.description = "each tile's current from the served coordinates: the kernel averaged over the tile's vertices, composed with the synthesis of the coordinates back to the kernel's channels (one operator)";
   n.plan = [](const ng::Types& in, const Json& p) {
     for (const char* k : {"kernel", "tiles", "serving"}) if (!in.count(k)) ng::refuse(std::string(kOperator) + ": " + k + " is not given");
-    number_param(p, "tiles_per_piece", kOperator);
+    text_param(p, "scale", kOperator);
     ng::Planned out; ng::PortType t; t.cls = ng::PortClass::operator_; t.facts["cls"] = "operator"; out.out["operator"] = t; return out;
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(std::make_pair(c, p)); };
@@ -397,14 +532,14 @@ ng::NodeSpec tile_operator() {
     op.meta["kernel"] = name;
     op.meta["synthesis_rank"] = synthesis.rank;
     op.meta["coordinates"] = serving.rows;
-    op.meta["tiles_per_piece"] = t.parts;
+    op.meta["scale"] = t.scale;
     op.meta["level"] = t.level;
     op.meta["sizes"] = Json{{"kernel", Json::array({kernel.rows, kernel.cols})}, {"averaged", Json::array({composed.rows(), kernel.cols})}, {"synthesis", Json::array({kernel.cols, serving.rows})}, {"operator", Json::array({composed.rows(), composed.cols()})}};
     return ng::Arrays{{"operator", std::move(op)}};
   };
   n.record = [](const std::any& prepared) {
     const auto& [c, p] = std::any_cast<const std::pair<ng::Arrays, Json>&>(prepared);
-    return Json{{"kernel", c.count("kernel") ? c.at("kernel").meta.value("name", std::string()) : std::string()}, {"tiles_per_piece", p.value("tiles_per_piece", Json())}};
+    return Json{{"kernel", c.count("kernel") ? c.at("kernel").meta.value("name", std::string()) : std::string()}, {"scale", p.value("scale", Json())}};
   };
   return n;
 }
@@ -707,76 +842,93 @@ ng::NodeSpec run_replication() {
 }
 
 // ── meeg.network_flow ──────────────────────────────────────────────────────────────────────────────────────
+// the graph's STORED Hodge-Dirac modes (meeg.graph_hodge_dirac, read back as a plain operator [(V + E) x K] and its eigenvalues [K]) as compute's GraphModes
+nxr::meeg::GraphModes stored_graph_modes(const ng::Array& vectors, const ng::Array& eigenvalues, std::int64_t V, std::int64_t E, const char* who) {
+  const std::int64_t K = vectors.cols;
+  if (vectors.rows != V + E) ng::refuse(std::string(who) + ": the modes are not the graph's ([(V + E) x K] with V " + std::to_string(V) + " and E " + std::to_string(E) + "; they have " + std::to_string(vectors.rows) + " rows): solved on another graph");
+  if (static_cast<std::int64_t>(eigenvalues.size()) != K) ng::refuse(std::string(who) + ": the eigenvalues are not one per mode");
+  nxr::meeg::GraphModes m;
+  m.nodes = V; m.edges = E;
+  m.forms = matrix_of(vectors);
+  m.mu.resize(K);
+  const std::vector<double> lambda = eigenvalues.values();
+  for (std::int64_t k = 0; k < K; ++k) {
+    const double l = lambda[static_cast<std::size_t>(k)];
+    m.mu(k) = l > 0 ? std::sqrt(l) : 0.0;
+    m.kind.push_back(l > 0 ? 0 : 1);
+    m.cycles += l > 0 ? 0 : 1;
+  }
+  return m;
+}
 const char* const kNetwork = "meeg.network_flow";
 ng::NodeSpec network_flow() {
   ng::NodeSpec n;
   n.name = kNetwork;
   n.kind = ng::Kind::array;
-  n.inputs = {{"pairs", "the tile pairs (meeg.tile_pairs)", false},
-              {"eigenmodes", "the connectome eigenmodes (meeg.laplacian_eigenmodes), made with the same min_streamlines", false},
+  n.inputs = {{"pairs", "the tile pairs (meeg.tile_pairs): the codes the flow is on", false},
+              {"network", "the network: a graph manifold (meeg.tile_pairs' graph): its edges are the joined pairs", false},
+              {"conductance", "the graph's edge weights (star1), the field its modes were solved with", false},
+              {"modes", "the graph's STORED Hodge-Dirac modes: the eigenvectors operator (`nxr-neuro run eigenmodes --graph`)", false},
+              {"eigenvalues", "their eigenvalues (lambda; 0 on a cycle mode)", false},
               {"flow", "the edge flow per atom: stats.network_sign_flip's consistency (its first measure mean_edge_flow: the mean over the cells, the reference's), a measurement over the atoms", false}};
   n.outputs = {{"network_tiles", "a MEASUREMENT over the atoms: per tile its divergence and graph potential", false},
-               {"network_modes", "a MEASUREMENT over the atoms: the potential's coefficient per connectome eigenmode", false},
-               {"network_totals", "a MEASUREMENT over the atoms, one row: Σ w (B phi)², Σ w F²", false}};
-  n.parameters = {{"min_streamlines", Json(), "a pair is an edge when at least this many streamlines join it (the eigenmodes' own; no default)", "streamlines", {}, false}};
-  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "once: linear algebra on the T tiles, from the stored edge flows");
-  n.matches = "nxr flownet's div = Beᵀ Fj, phi = lstsq(sqrt(w) Be, sqrt(w) Fj), gshare, spec_ = (Uᵀ (phi - mean))²; here phi as the 1/eigenvalue gain on the complete eigenmodes; compute nxr::meeg::networkFlow";
-  n.description = "the network's view of the edge flow per atom: the net flow into each tile, the graph potential whose gradient fits the flow best (a filter on the connectome eigenmodes) and its coefficients";
-  n.plan = [](const ng::Types& in, const Json& p) {
-    for (const char* k : {"pairs", "eigenmodes", "flow"}) if (!in.count(k)) ng::refuse(std::string(kNetwork) + ": " + k + " is not given");
-    number_param(p, "min_streamlines", kNetwork);
+               {"network_modes", "a MEASUREMENT over the atoms: the flow's coefficient on each of the graph's modes", false},
+               {"network_totals", "a MEASUREMENT over the atoms, one row: the gradient part's, the cycle part's and the flow's star1 energies", false}};
+  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "once: inner products with the stored modes, from the stored edge flows (no solve)");
+  n.matches = "nxr flownet's div = Beᵀ Fj, phi = lstsq(sqrt(w) Be, sqrt(w) Fj), gshare; here the flow's coefficients on the graph's stored Hodge-Dirac modes (the surfaces' flowSplit on a graph), the weights the graph's conductance; compute nxr::meeg::networkFlow";
+  n.description = "the network's view of the edge flow per atom: the net flow into each tile, the flow's coefficient on every mode of the graph (gradient and cycle parts), the graph potential and the parts' energies";
+  n.plan = [](const ng::Types& in, const Json&) {
+    for (const char* k : {"pairs", "network", "conductance", "modes", "eigenvalues", "flow"}) if (!in.count(k)) ng::refuse(std::string(kNetwork) + ": " + k + " is not given");
     ng::Planned out; for (const char* o : {"network_tiles", "network_modes", "network_totals"}) out.out[o] = measurement_port(); return out;
   };
-  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) {
-    return std::any(std::make_tuple(handed(c, "pairs", kNetwork), handed(c, "eigenmodes", kNetwork), handed(c, "flow", kNetwork), p));
-  };
+  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(std::make_pair(c, p)); };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
-    const auto& [pairs, eigen, flow, p] = std::any_cast<const std::tuple<ng::Array, ng::Array, ng::Array, Json>&>(prepared);
-    const double minStreamlines = p["min_streamlines"].get<double>();
-    const PairsRead r = pairs_read(pairs, minStreamlines, kNetwork);
-    const Json ep = producer_of(eigen), fp = producer_of(flow);
-    if (ep.value("min_streamlines", -1.0) != minStreamlines) ng::refuse(std::string(kNetwork) + ": the eigenmodes were made with min_streamlines " + ep.value("min_streamlines", Json()).dump() + ", not " + std::to_string(minStreamlines));
-    if (ep.value("codes", Json()) != r.codes || fp.value("codes", Json()) != r.codes) ng::refuse(std::string(kNetwork) + ": the pairs, the eigenmodes and the flow are not on the same tiles");
-    const std::int64_t T = r.tiles, P = r.pairs;
+    const auto& [c, p] = std::any_cast<const std::pair<ng::Arrays, Json>&>(prepared);
+    const ng::Array& pairs = handed(c, "pairs", kNetwork);
+    const ng::Array& graph = handed(c, "network", kNetwork);
+    const ng::Array& flow = handed(c, "flow", kNetwork);
+    const Json pp = producer_of(pairs), gp = graph.meta.value("producer", Json::object()), fp = producer_of(flow);
+    const std::vector<std::int32_t> edges = graph_edges(graph, kNetwork);
+    const std::int64_t T = graph.rows, E = static_cast<std::int64_t>(edges.size() / 2);
+    if (pp.value("codes", Json()) != gp.value("codes", Json()) || fp.value("codes", Json()) != gp.value("codes", Json())) ng::refuse(std::string(kNetwork) + ": the pairs, the network and the flow are not on the same tiles");
+    if (pp.value("tiles", std::int64_t(-1)) != T) ng::refuse(std::string(kNetwork) + ": the pairs are not on the network's tiles");
+    const Eigen::VectorXd conductance = cell_values(handed(c, "conductance", kNetwork), E, "conductance", kNetwork);
+    const nxr::meeg::GraphModes modes = stored_graph_modes(handed(c, "modes", kNetwork), handed(c, "eigenvalues", kNetwork), T, E, kNetwork);
+    const std::int64_t K = modes.mu.size(), P = T * (T - 1) / 2;
     const std::pair<std::int64_t, std::int64_t> flowShape = atoms_rows(flow);
     const std::int64_t A = flowShape.first, flowRows = flowShape.second;                                                // stats.network_sign_flip's measurement: the mean edge flow per pair and atom
-    if (eigen.rows != T || eigen.cols != T + 1 || flowRows != P) ng::refuse(std::string(kNetwork) + ": the eigenmodes or the flow do not fit the pairs' tiles");
+    if (flowRows != P) ng::refuse(std::string(kNetwork) + ": the flow is not on the network's tile pairs");
     if (first_measure(flow) != "mean_edge_flow") ng::refuse(std::string(kNetwork) + ": flow is not the mean edge flow (stats.network_sign_flip's consistency): its first measure is '" + first_measure(flow) + "'");
-    nxr::meeg::LaplacianModes modes;
-    modes.eigenvalues.resize(T); modes.eigenvectors.resize(T, T);
-    for (std::int64_t k = 0; k < T; ++k) { modes.eigenvalues(k) = cell(eigen, k, 0); for (std::int64_t i = 0; i < T; ++i) modes.eigenvectors(i, k) = cell(eigen, k, 1 + i); }
-    modes.nullModes = ep.value("null_modes", std::int64_t(0));
     ng::Array out;
-    out.rows = A; out.cols = 3 * T + 2;
+    out.rows = A; out.cols = 2 * T + K + 3;
     for (std::int64_t a = 0; a < A; ++a) {
-      Eigen::VectorXd edgeFlow = Eigen::VectorXd::Zero(P);
-      for (std::int64_t i = 0; i < T; ++i)
-        for (std::int64_t j = i + 1; j < T; ++j) {
-          const std::int64_t q = nxr::meeg::pairIndex(i, j, T);
-          edgeFlow(q) = measured(flow, q, a, 0);
-        }
-      const nxr::meeg::NetworkFlow nf = nxr::meeg::networkFlow(edgeFlow, r.weight, modes);
+      Eigen::VectorXd edgeFlow(E);                                                    // the pairs' flow read on the graph's edges (tail < tip: the pair's i -> j)
+      for (std::int64_t e = 0; e < E; ++e) edgeFlow(e) = measured(flow, nxr::meeg::pairIndex(edges[static_cast<std::size_t>(2 * e)], edges[static_cast<std::size_t>(2 * e + 1)], T), a, 0);
+      const nxr::meeg::NetworkFlow nf = nxr::meeg::networkFlow(edgeFlow, edges, conductance, modes);
       for (std::int64_t i = 0; i < T; ++i) out.data.push_back(nf.divergence(i));
       for (std::int64_t i = 0; i < T; ++i) out.data.push_back(nf.potential(i));
-      for (std::int64_t k = 0; k < T; ++k) out.data.push_back(nf.coefficients(k));
-      out.data.push_back(nf.weightedGradientSquares); out.data.push_back(nf.weightedFlowSquares);
+      for (std::int64_t k = 0; k < K; ++k) out.data.push_back(nf.coefficients(k));
+      out.data.push_back(nf.weightedGradientSquares); out.data.push_back(nf.weightedCycleSquares); out.data.push_back(nf.weightedFlowSquares);
     }
-    const Json producer = Json{{"tiles", T}, {"atoms", A}, {"min_streamlines", minStreamlines}, {"null_modes", modes.nullModes}, {"codes", r.codes}, {"frequencies_hz", fp.value("frequencies_hz", Json::array())},
-                               {"edge_flow", "the mean over the cells of Im C_ij / sqrt(C_ii C_jj) (stats.network_sign_flip: the reference's)"},
-                               {"weights", "the edges' streamline counts"},
-                               {"derived_at_read", Json{{"gradient_share", "Σ w (B phi)² / Σ w F²"}, {"potential_energy_per_mode", "coefficient²"}}}, {"warnings", warnings()}};
-    out.meta["shape"] = Json::array({A, 3 * T + 2}); out.meta["producer"] = producer;
-    out.meta["describe"] = Json{{"method", "network_flow"}, {"measure", "network_flow"}, {"shape", Json::array({A, 3 * T + 2})},
-                                {"axes", Json::array({indexed_axis("atom", A, fp.value("frequencies_hz", Json())), indexed_axis("column", 3 * T + 2)})},
+    const Json producer = Json{{"tiles", T}, {"edges", E}, {"modes", K}, {"cycles", modes.cycles}, {"atoms", A}, {"codes", gp.value("codes", Json())}, {"frequencies_hz", fp.value("frequencies_hz", Json::array())},
+                               {"network", graph.meta.value("name", std::string())}, {"modes_read", c.at("modes").meta.value("name", std::string())},
+                               {"edge_flow", "the mean over the cells of Im C_ij / sqrt(C_ii C_jj) (stats.network_sign_flip: the reference's), read on the graph's edges"},
+                               {"weights", "the graph's metric: its conductance (streamline count / median length) on the edges, its tiles' areas on the vertices (the stored modes')"},
+                               {"derived_at_read", Json{{"gradient_share", "weighted_gradient_squares / weighted_flow_squares"}, {"cycle_share", "weighted_cycle_squares / weighted_flow_squares"}, {"energy_per_mode", "flow_coefficient^2 x |phi_k|^2 (1/2 exact, 1 cycle)"}}},
+                               {"warnings", warnings()}};
+    out.meta["shape"] = Json::array({A, 2 * T + K + 3}); out.meta["producer"] = producer;
+    out.meta["describe"] = Json{{"method", "network_flow"}, {"measure", "network_flow"}, {"shape", Json::array({A, 2 * T + K + 3})},
+                                {"axes", Json::array({indexed_axis("atom", A, fp.value("frequencies_hz", Json())), indexed_axis("column", 2 * T + K + 3)})},
                                 {"measures", Json::array({Json{{"measure", "divergence"}, {"columns", Json::array({0, T})}}, Json{{"measure", "potential"}, {"columns", Json::array({T, 2 * T})}},
-                                                          Json{{"measure", "potential_coefficient"}, {"columns", Json::array({2 * T, 3 * T})}}, Json{{"measure", "weighted_gradient_squares"}, {"columns", Json::array({3 * T, 3 * T + 1})}},
-                                                          Json{{"measure", "weighted_flow_squares"}, {"columns", Json::array({3 * T + 1, 3 * T + 2})}}})},
+                                                          Json{{"measure", "flow_coefficient"}, {"columns", Json::array({2 * T, 2 * T + K})}}, Json{{"measure", "weighted_gradient_squares"}, {"columns", Json::array({2 * T + K, 2 * T + K + 1})}},
+                                                          Json{{"measure", "weighted_cycle_squares"}, {"columns", Json::array({2 * T + K + 1, 2 * T + K + 2})}},
+                                                          Json{{"measure", "weighted_flow_squares"}, {"columns", Json::array({2 * T + K + 2, 2 * T + K + 3})}}})},
                                 {"producer", producer},
-                                {"description", "per atom on the network's edges: divergence Bᵀ F per tile, the graph potential phi (L phi = Bᵀ W F, the 1/eigenvalue gain on the connectome eigenmodes, the null modes left out), its coefficients, the gradient part's and the flow's weighted sums of squares"}};
+                                {"description", "per atom on the network's edges: divergence Bᵀ F per tile, the graph potential (the exact part's: Σ c_k psi_k / mu_k), the flow's coefficient on every stored mode, the gradient part's, the cycle part's and the flow's star1 energies"}};
     declare_flow_measures(out.meta["describe"]["measures"]);   // the flow measures it writes, declared (flow_measures.h)
     return ng::Arrays{{"network_tiles", measurement_of_blocks(out, 0, T, {"divergence", "potential"}, "the tiles")},
-                      {"network_modes", measurement_of_blocks(out, 2 * T, T, {"potential_coefficient"}, "the connectome eigenmodes")},
-                      {"network_totals", measurement_of_blocks(out, 3 * T, 1, {"weighted_gradient_squares", "weighted_flow_squares"}, "one row: the atom's totals")}};
+                      {"network_modes", measurement_of_blocks(out, 2 * T, K, {"flow_coefficient"}, "the graph's Hodge-Dirac modes (its eigenvalue line)")},
+                      {"network_totals", measurement_of_blocks(out, 2 * T + K, 1, {"weighted_gradient_squares", "weighted_cycle_squares", "weighted_flow_squares"}, "one row: the atom's totals")}};
   };
   return n;
 }
@@ -785,7 +937,7 @@ ng::NodeSpec network_flow() {
 
 void register_connectome_flow_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {fiber_lengths(), tile_pairs(), laplacian_eigenmodes(), tile_operator(), tile_flow(), tile_time_cells(), network_sign_flip(), run_replication(), network_flow()})
+  for (ng::NodeSpec n : {fiber_lengths(), tile_pairs(), graph_hodge_dirac(), tile_operator(), tile_flow(), tile_time_cells(), network_sign_flip(), run_replication(), network_flow()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 

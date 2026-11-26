@@ -23,7 +23,7 @@ node	measurement.estimate	-	composite
 node	meeg.fiber_ends	-	composite
 node	meeg.fiber_lengths	-	composite
 node	meeg.tile_pairs	-	composite
-node	meeg.laplacian_eigenmodes	-	composite
+node	meeg.graph_hodge_dirac	-	composite
 node	meeg.network_flow	-	composite
 node	signal.field_form	-	composite
 node	signal.form	-	composite

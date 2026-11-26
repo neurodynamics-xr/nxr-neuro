@@ -1,5 +1,7 @@
 # The flow through the fibre network and its connectome eigenmodes (2026-11-24): the graphs
 
+> **The network as a graph manifold (2026-11-26):** the network is stored as a manifold of type `graph` with its metric (tile area, conductance), and its eigenmodes are the graph's Hodge-Dirac modes made by `run eigenmodes --graph` (no Laplacian of its own, no `<name>_eigenmodes` statistic, no `meeg.laplacian_eigenmodes`): `docs/specs/2026-11-26-graph-manifold-and-time-cells.md`, G1.
+
 > **Storage, since the flow consolidation (2026-11-24):** the per-member flow results named below as statistics are stored as MEASUREMENTS over the atoms and their products, and the time cells are not stored; see `docs/reference.md`, "How the flow results are stored".
 
 

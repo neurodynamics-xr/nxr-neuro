@@ -48,10 +48,10 @@ Graph: `graph (vertices, rank-1 cells) + area + conductance --[meeg.graph_hodge_
 `connectome_flow` names the network (`--network NAME`: the graph and its pairs) and reads the stored graph, its conductance and its modes (made first when missing).
 `meeg.network_flow` no longer reads a Laplacian's modes: per atom, the mean edge flow F on the graph's edges gives
 - the divergence Bᵀ F per tile (as before);
-- the edge flow's Hodge–Dirac coefficients `c_k = <F, e_k>_⋆1` on every mode (e_k the mode's 1-form part, normalised to ⋆1-norm 1): exact coefficients
-  (`potential_coefficient`) and harmonic ones (`cycle_coefficient`);
-- the graph potential φ = Σ_exact c_k ψ_k / μ_k (the weighted least-squares potential: Bᵀ⋆1 B φ = Bᵀ ⋆1 F, minimum ⋆0-norm);
-- Σ ⋆1 (Bφ)² = Σ c_k² (`weighted_gradient_squares`) and Σ ⋆1 F² (`weighted_flow_squares`).
+- the edge flow's coefficient on every mode, its projection on the mode's 1-form part φ_k: c_k = ⟨F, φ_k⟩⋆1 / ⟨φ_k, φ_k⟩⋆1 (2 ⟨F, φ_k⟩⋆1 on an exact mode, as the
+  surfaces' `projectOneForm`; ⟨F, h_k⟩⋆1 on a cycle mode), so F = Σ c_k φ_k: the measure `flow_coefficient` (the surfaces' name), rows the graph's eigen line;
+- the graph potential φ = Σ_exact c_k (ψ_k/√2) / μ_k (the surfaces' `exactPotential`: the weighted least-squares potential, Bᵀ⋆1 B φ = Bᵀ ⋆1 F, ⋆0-orthogonal to the constants);
+- the ⋆1 energies of the gradient part (`weighted_gradient_squares`), the cycle part (`weighted_cycle_squares`, new, declared `sum`) and the flow (`weighted_flow_squares`).
 
 The weights change from the reference's streamline counts to the stated conductance (count / median length); every flow is the same measurement as the surfaces'.
 

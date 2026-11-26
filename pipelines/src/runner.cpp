@@ -39,6 +39,13 @@
 namespace nxr::pipelines::graph {
 
 namespace {
+// a Hodge-Dirac solve of a GRAPH (its eigenvectors go to a manifold of type `graph`): handed as a plain operator (its mixed forms [(V + E) x K]), not as a surface's package
+bool graph_modes(nxr::io::SubjectWriter& sub, const nxr::io::Row& op) {
+  const auto to = nxr::io::opt_text(op, "to_manifold_id");
+  if (!to || to->empty()) return false;
+  const auto m = sub.db().read("manifold", *to);
+  return m && nxr::io::text(*m, "type") == "graph";
+}
 // a `with:` value with its `$name`s replaced by the pipeline's parameters
 Json with_value(const Json& v, const Json& params) {
   if (v.is_string()) {
@@ -1366,6 +1373,20 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         if (g.orientation) a.meta["orientation"] = *g.orientation;
         if (g.coils) a.meta["coils"] = Json{{"positions", g.coil_positions}, {"orientation", g.coil_orientation}, {"indptr", g.indptr}, {"indices", g.indices}, {"weights", g.weights}};
         constants[name] = std::move(a);
+      } else if (v.cls == "manifold" && text(row, "type") == "graph") {     // a GRAPH (the fibre network): its vertices [n x 3], its edges (its stored rank-1 cells, [E x 2]) and components in meta
+        const auto m = nxr::io::manifold_with_geometry(sub.db(), text(row, "id"));
+        if (!m || nxr::io::is_null(*m, "positions_path")) refuse(text(row, "name") + ": the graph has no stored vertices");
+        std::vector<std::int64_t> shape;
+        nxr::graph::Array a;
+        a.data = bound.array_double(text(*m, "positions_path"), &shape);
+        a.rows = shape.empty() ? 0 : shape[0]; a.cols = 3;
+        std::vector<std::int32_t> edges;
+        if (const auto ep = nxr::io::topology_cells_path(sub.db(), text(row, "topology_id"), 1)) edges = bound.array_int32(*ep);
+        a.meta["edges"] = edges;
+        if (const auto t = sub.db().read("topology", text(row, "topology_id"))) a.meta["components"] = nxr::io::integer(*t, "n_components");
+        a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["type"] = "graph";
+        a.meta["producer"] = Json::parse(nxr::io::opt_text(row, "producer_json").value_or("{}"), nullptr, false);
+        constants[name] = std::move(a);
       } else if (v.cls == "manifold") {                                     // a surface: its vertices [n x 3] as stored, its faces in meta
         const nxr::pipelines::SurfaceInput S = nxr::pipelines::read_surface(sub, text(row, "name"), true);
         nxr::graph::Array a;
@@ -1381,7 +1402,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     }
     for (const auto& [port, name] : n.in)                                   // A HODGE-DIRAC PACKAGE (its eigenvectors' operator): its basis, mass and meshes, read by pipelines
       if (constants.count(name) && P.values.count(name) && P.values.at(name).cls == "operator" && P.found.count(name) && P.found.at(name).row &&
-          nxr::io::opt_text(*P.found.at(name).row, "kind") == std::optional<std::string>("eigenvectors")) {
+          nxr::io::opt_text(*P.found.at(name).row, "kind") == std::optional<std::string>("eigenvectors") && !graph_modes(sub, *P.found.at(name).row)) {
         const nxr::pipelines::HodgePackageData h = nxr::pipelines::hodge_package_data(sub, text(*P.found.at(name).row, "name"), std::nullopt);
         nxr::graph::Array a;
         a.rows = h.basis.P.rows(); a.cols = h.basis.P.cols();
@@ -1783,10 +1804,13 @@ std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, c
   // AN INPUT MADE FIRST (`made_by`: the eigensolve's intrinsic triangulation, made by its own definition on the surface): when nothing matches, the runner runs that shipped definition as its OWN
   // run (its own provenance and cache key), says what it made and why, and finds again. Nothing is made hidden inside this run.
   Json made_first_inputs = Json::array();
-  if (!dry_run && d.inputs.is_object())
-    for (const auto& [port, spec] : d.inputs.items()) {
+  // (the inputs as THIS run writes them out: an input under `when:` is made only when the run's parameters keep it, e.g. eigenmodes' triangulation for a surface, not for a graph)
+  const Json made_params = parameters_of(d, set, opt.preset);
+  const Json run_inputs = d.inputs.is_object() ? expand(d, made_params).inputs : Json::object();
+  if (!dry_run && run_inputs.is_object())
+    for (const auto& [port, spec] : run_inputs.items()) {
       if (!spec.is_object() || !spec.contains("made_by")) continue;
-      const Json params = parameters_of(d, set, opt.preset);
+      const Json& params = made_params;
       Json one = Json::object();
       one[port] = spec;
       bool found = true;
