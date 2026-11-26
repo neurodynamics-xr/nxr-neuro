@@ -103,56 +103,93 @@ TileNetwork tilePairs(const std::vector<std::int64_t>& tileCodes, const Eigen::M
   return out;
 }
 
-LaplacianModes laplacianEigenmodes(const Eigen::VectorXd& pairWeights, std::int64_t tiles, double nullTolerance) {
-  if (tiles < 2 || pairWeights.size() != tiles * (tiles - 1) / 2) bad("laplacianEigenmodes: the weights are one per pair i < j of the tiles");
-  if (!(nullTolerance >= 0)) bad("laplacianEigenmodes: the null tolerance is >= 0");
-  LaplacianModes out;
-  Eigen::MatrixXd W = Eigen::MatrixXd::Zero(tiles, tiles);
-  for (std::int64_t i = 0; i < tiles; ++i)
-    for (std::int64_t j = i + 1; j < tiles; ++j) {
-      const double w = pairWeights(pairIndex(i, j, tiles));
-      if (w < 0) bad("laplacianEigenmodes: a negative weight");
-      W(i, j) = w; W(j, i) = w;
-    }
-  out.laplacian = Eigen::MatrixXd(W.rowwise().sum().asDiagonal()) - W;
-  const Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> solver(out.laplacian);
-  if (solver.info() != Eigen::Success) bad("laplacianEigenmodes: the eigensolve did not converge");
-  out.eigenvalues = solver.eigenvalues();
-  out.eigenvectors = solver.eigenvectors();
-  const double top = out.eigenvalues.cwiseAbs().maxCoeff();
-  for (Eigen::Index k = 0; k < out.eigenvalues.size(); ++k) out.nullModes += out.eigenvalues(k) <= nullTolerance * top;
+GraphModes graphHodgeDirac(const std::vector<std::int32_t>& edges, std::int64_t nodes, const Eigen::VectorXd& nodeWeights, const Eigen::VectorXd& edgeWeights, double nullTolerance) {
+  const std::int64_t V = nodes, E = static_cast<std::int64_t>(edges.size() / 2);
+  if (V < 1 || edges.size() % 2) bad("graphHodgeDirac: edges are [E x 2] on a graph of at least one vertex");
+  if (nodeWeights.size() != V || edgeWeights.size() != E) bad("graphHodgeDirac: one weight per vertex (⋆0) and one per edge (⋆1)");
+  if (!(nullTolerance >= 0)) bad("graphHodgeDirac: the null tolerance is >= 0");
+  for (std::int64_t v = 0; v < V; ++v) if (!(nodeWeights(v) > 0) || !std::isfinite(nodeWeights(v))) bad("graphHodgeDirac: a vertex weight (⋆0) is not positive");
+  for (std::int64_t e = 0; e < E; ++e) if (!(edgeWeights(e) > 0) || !std::isfinite(edgeWeights(e))) bad("graphHodgeDirac: an edge weight (⋆1) is not positive");
+  Eigen::MatrixXd B = Eigen::MatrixXd::Zero(E, V);                              // d0: -1 at the tail, +1 at the tip
+  for (std::int64_t e = 0; e < E; ++e) {
+    const std::int32_t a = edges[static_cast<std::size_t>(2 * e)], b = edges[static_cast<std::size_t>(2 * e + 1)];
+    if (a < 0 || a >= V || b < 0 || b >= V) bad("graphHodgeDirac: an edge names a vertex outside the graph");
+    if (a == b) bad("graphHodgeDirac: an edge is a loop");
+    B(e, a) -= 1; B(e, b) += 1;
+  }
+  GraphModes out;
+  out.nodes = V; out.edges = E;
+  // the exact modes: the generalized symmetric problem Bᵀ⋆1 B ψ = λ ⋆0 ψ (ψᵀ⋆0ψ = 1), λ ascending; the null ones (one per component) out
+  const Eigen::MatrixXd L = B.transpose() * edgeWeights.asDiagonal() * B;
+  const Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> solver(L, Eigen::MatrixXd(nodeWeights.asDiagonal()));
+  if (solver.info() != Eigen::Success) bad("graphHodgeDirac: the eigensolve did not converge");
+  const Eigen::VectorXd lambda = solver.eigenvalues();
+  const double top = lambda.size() ? lambda.cwiseAbs().maxCoeff() : 0.0;
+  std::vector<Eigen::Index> exact;
+  for (Eigen::Index k = 0; k < lambda.size(); ++k) { if (lambda(k) <= nullTolerance * top) ++out.components; else exact.push_back(k); }
+  // the cycle modes: the kernel of Bᵀ⋆1, in ⋆1^½ coordinates the orthogonal complement of the range of ⋆1^½ B (a rank-revealing QR), back to h = ⋆1^-½ y (hᵀ⋆1h = 1)
+  Eigen::MatrixXd cycles(E, 0);
+  if (E > 0) {
+    const Eigen::VectorXd root = edgeWeights.array().sqrt();
+    const Eigen::MatrixXd M = root.asDiagonal() * B;
+    Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(M);
+    const Eigen::Index rank = qr.rank();
+    if (rank != V - out.components) bad("graphHodgeDirac: the incidence's rank (" + std::to_string(rank) + ") is not the vertices less the components (" + std::to_string(V - out.components) + "): raise or lower the null tolerance");
+    const Eigen::MatrixXd Q = qr.householderQ() * Eigen::MatrixXd::Identity(E, E);
+    cycles = root.cwiseInverse().asDiagonal() * Q.rightCols(E - rank);
+  }
+  out.cycles = cycles.cols();
+  const std::int64_t K = out.cycles + static_cast<std::int64_t>(exact.size());
+  out.mu = Eigen::VectorXd::Zero(K);
+  out.forms = Eigen::MatrixXd::Zero(V + E, K);
+  out.kind.assign(static_cast<std::size_t>(K), 1);
+  const double half = std::sqrt(0.5);
+  for (std::int64_t c = 0; c < out.cycles; ++c) out.forms.block(V, c, E, 1) = cycles.col(c);
+  for (std::size_t i = 0; i < exact.size(); ++i) {
+    const std::int64_t k = out.cycles + static_cast<std::int64_t>(i);
+    Eigen::VectorXd psi = solver.eigenvectors().col(exact[i]);
+    Eigen::Index at = 0;
+    psi.cwiseAbs().maxCoeff(&at);
+    if (psi(at) < 0) psi = -psi;                                                // one sign: the largest entry positive
+    const double mu = std::sqrt(lambda(exact[i]));
+    out.mu(k) = mu;
+    out.kind[static_cast<std::size_t>(k)] = 0;
+    out.forms.block(0, k, V, 1) = half * psi;
+    if (E > 0) out.forms.block(V, k, E, 1) = (half / mu) * (B * psi);
+  }
   return out;
 }
 
-NetworkFlow networkFlow(const Eigen::VectorXd& pairFlow, const Eigen::VectorXd& pairWeights, const LaplacianModes& modes) {
-  const std::int64_t T = modes.eigenvalues.size();
-  if (pairFlow.size() != T * (T - 1) / 2 || pairWeights.size() != pairFlow.size()) bad("networkFlow: one flow and one weight per pair i < j of the network's tiles");
+NetworkFlow networkFlow(const Eigen::VectorXd& edgeFlow, const std::vector<std::int32_t>& edges, const Eigen::VectorXd& edgeWeights, const GraphModes& modes) {
+  const std::int64_t V = modes.nodes, E = modes.edges, K = modes.mu.size();
+  if (static_cast<std::int64_t>(edges.size()) != 2 * E || edgeFlow.size() != E || edgeWeights.size() != E) bad("networkFlow: one flow and one weight per edge of the graph the modes were solved on");
+  if (modes.forms.rows() != V + E || modes.forms.cols() != K) bad("networkFlow: the modes' forms are not [(V + E) x K]");
   NetworkFlow out;
-  out.divergence = Eigen::VectorXd::Zero(T);
-  Eigen::VectorXd weightedDivergence = Eigen::VectorXd::Zero(T);               // Bᵀ W F
-  for (std::int64_t i = 0; i < T; ++i)
-    for (std::int64_t j = i + 1; j < T; ++j) {
-      const std::int64_t p = pairIndex(i, j, T);
-      const double w = pairWeights(p);
-      if (!(w > 0)) continue;
-      const double f = pairFlow(p);
-      if (!std::isfinite(f)) bad("networkFlow: an edge's flow is not finite");
-      out.divergence(i) -= f; out.divergence(j) += f;
-      weightedDivergence(i) -= w * f; weightedDivergence(j) += w * f;
-      out.weightedFlowSquares += w * f * f;
+  out.divergence = Eigen::VectorXd::Zero(V);
+  for (std::int64_t e = 0; e < E; ++e) {
+    const double f = edgeFlow(e);
+    if (!std::isfinite(f)) bad("networkFlow: an edge's flow is not finite");
+    out.divergence(edges[static_cast<std::size_t>(2 * e)]) -= f;
+    out.divergence(edges[static_cast<std::size_t>(2 * e + 1)]) += f;
+    out.weightedFlowSquares += edgeWeights(e) * f * f;
+  }
+  // the coefficients: the projection on each mode's 1-form part φ_k (⋆1-norm² 1/2 on an exact mode, 1 on a cycle mode): c_k = ⟨F, φ_k⟩⋆1 / ⟨φ_k, φ_k⟩⋆1; inner products, no solve
+  const Eigen::VectorXd weighted = edgeWeights.cwiseProduct(edgeFlow);
+  out.coefficients = Eigen::VectorXd::Zero(K);
+  out.potential = Eigen::VectorXd::Zero(V);
+  for (std::int64_t k = 0; k < K; ++k) {
+    const auto phi = modes.forms.block(V, k, E, 1);
+    const double norm = phi.col(0).dot(edgeWeights.cwiseProduct(phi.col(0)));
+    if (!(norm > 0)) continue;
+    const double c = phi.col(0).dot(weighted) / norm;
+    out.coefficients(k) = c;
+    if (modes.kind[static_cast<std::size_t>(k)] == 0) {
+      out.potential += (c / modes.mu(k)) * modes.forms.block(0, k, V, 1);          // Σ c_k (ψ_k/√2) / μ_k: its d0 is the exact part Σ c_k φ_k (intrinsic_forms' exactPotential)
+      out.weightedGradientSquares += c * c * norm;
+    } else {
+      out.weightedCycleSquares += c * c * norm;
     }
-  // the Poisson solve as a filter: the 1/eigenvalue gain on the complete eigenmodes, the null modes (one constant per connected component) left out
-  const Eigen::VectorXd projected = modes.eigenvectors.transpose() * weightedDivergence;
-  out.coefficients = Eigen::VectorXd::Zero(T);
-  for (std::int64_t k = modes.nullModes; k < T; ++k) out.coefficients(k) = projected(k) / modes.eigenvalues(k);
-  out.potential = modes.eigenvectors * out.coefficients;
-  for (std::int64_t i = 0; i < T; ++i)
-    for (std::int64_t j = i + 1; j < T; ++j) {
-      const double w = pairWeights(pairIndex(i, j, T));
-      if (!(w > 0)) continue;
-      const double g = out.potential(j) - out.potential(i);
-      out.weightedGradientSquares += w * g * g;
-    }
+  }
   return out;
 }
 
