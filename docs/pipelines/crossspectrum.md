@@ -10,7 +10,7 @@ Version 1, scope `subject`. Run it with `nxr-neuro run crossspectrum --dataset <
 Examples:
 
 ```
-nxr-neuro run crossspectrum --dataset <folder> --subject sub-01 --recording rest --all [--channels-of KERNEL] [--bands '[{name: alpha, lo: 8, hi: 12}]'] [--resolve bins]
+nxr-neuro run crossspectrum --dataset <folder> --subject sub-01 --recording rest --all [--channels-of KERNEL] --bands '[{"name": "alpha", "lo": 8, "hi": 12}]' [--resolve bins]
 ```
 
 ## Inputs
@@ -31,7 +31,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `channels_of` | `--channels-of` | none | - |  | an operator (a kernel) whose channels are the ones covered, in order; null: the good channels of channel_types |
 | `channel_types` | `--channel-types` | `["MEG", "MEG MAG", "MEG GRAD", "EEG", "SEEG", "ECOG"]` | - |  | the channel types covered when channels_of is null (good channels only) |
 | `name` | `--name` | `{recording}_crossspectrum` | - |  | the stored statistic's name; beside it <name>_channels, <name>_segments, and with resolve bins <name>_bins |
-| `bands` | `--bands` | `[{"name": "delta", "lo": 2, "hi": 4}, {"name": "theta", "lo": 5, "hi": 7}, {"name": "alpha", "lo": 8, "hi": 12}, {"name": "beta", "lo": 15, "hi": 29}, {"name": "gamma1", "lo": 30, "hi": 59}, {"name": "gamma2", "lo": 60, "hi": 90}]` | Hz |  | the bands: {name, lo, hi}; a band holds the bins from lo to hi inclusive |
+| `bands` | `--bands` | `required` | Hz |  | the bands, the caller's choice (no default): a list of {name, lo, hi}, e.g. --bands '[{"name": "alpha", "lo": 8, "hi": 12}]'; a band holds the bins from lo to hi inclusive |
 | `resolve` | `--resolve` | `band` | - | band, bins | band = each band one member (its bins averaged) \| bins = also every bin of each band |
 | `segment_seconds` | `--segment-seconds` | `4.0` | s |  | the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples) |
 | `segment_samples` | `--segment-samples` | none | samples |  | the segment's length in samples (wins over segment_seconds); null: from segment_seconds |
@@ -78,6 +78,7 @@ source estimate makes of it is the kernel's. With resolve bins, also every bin o
 Stored: the statistic `<name>` (band x channel x channel, complex; a band k is read by its old name `<name>_<band>`), its channels `<name>_channels`, its segment partition
 `<name>_segments`, and with resolve bins `<name>_bins` (frequency x channel x channel).
 
-  nxr-neuro run crossspectrum --dataset <folder> --subject sub-01 --recording rest --all [--channels-of KERNEL] [--bands '[{name: alpha, lo: 8, hi: 12}]'] [--resolve bins]
+  nxr-neuro run crossspectrum --dataset <folder> --subject sub-01 --recording rest --all [--channels-of KERNEL] --bands '[{"name": "alpha", "lo": 8, "hi": 12}]' [--resolve bins]
+The bands are required: no band set is assumed (a refused run names how to pass them).
 ```
 

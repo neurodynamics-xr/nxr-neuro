@@ -3,9 +3,9 @@
 
 # `eigenmodes`
 
-the Hodge-Dirac eigenmodes of a stored surface, with the intrinsic complex and the modes' full forms.
+the Hodge-Dirac eigenmodes of a stored surface on its intrinsic triangulation, each mode's mixed form one column of one operator.
 
-Version 1, scope `subject`. Run it with `nxr-neuro run eigenmodes --dataset <folder> --subject <id> ...`; `nxr-neuro run eigenmodes --help` prints the same options.
+Version 2, scope `subject`. Run it with `nxr-neuro run eigenmodes --dataset <folder> --subject <id> ...`; `nxr-neuro run eigenmodes --help` prints the same options.
 
 Examples:
 
@@ -18,6 +18,7 @@ nxr-neuro run eigenmodes --dataset <folder> --subject sub-01 --surface cortex_pi
 | input | what it is | required |
 |---|---|---|
 | `surface` | manifold surface, where {"name": "$surface"} (name the surface (--surface)) | yes |
+| `intrinsic` | manifold surface, where {"name": "${surface}_intrinsic"}, made_by {"pipeline": "intrinsic", "with": {"surface": "$surface"}} (the surface's intrinsic triangulation (`run intrinsic`; made first when missing)) | yes |
 
 ## Parameters
 
@@ -31,15 +32,14 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `sigma` | `--sigma` | none | 1/m^2 |  | the absolute shift (only with shift absolute); null: the reference method's -1e-3 |
 | `slice` | `--slice` | `0` | modes |  | spectrum slicing: solve in windows of this many modes, each with its own shift; 0: one solve per ladder |
 | `normalize` | `--normalize` | false | - |  | make the modes orthonormal under the mass matrix after the solve (Cholesky whitening); the reference method does not |
+| `dense_limit` | `--dense-limit` | `3000` | vertices and faces |  | the complete solve of a small mesh: when the surface has at most this many vertices and faces and modes asks for every mode (at least vertices + faces - 2), both ladders are solved dense and whole (every exact and coexact mode, no lambda cut; about 5 x dense_limit^2 doubles, 360 MB at 3000); larger surfaces, or fewer modes asked, the iterative solve; 0: never |
 | `star1_floor` | `--star1-floor` | none | - |  | raise the edge cotan weights (the 1-form Hodge star) that fall below this up to it; null: no floor (nxr's; Rheome used 1e-6) |
-| `mollify` | `--mollify` | `1e-6` | fraction |  | the intrinsic Delaunay construction's mollification margin, as a fraction of the mean edge length (0: none) |
-| `flip_eps` | `--flip-eps` | `1e-6` | - |  | an edge is flipped to Delaunay while its cotan weight is below minus this |
 
 ## The chain of nodes
 
 | phase | node | in | with | out |
 |---|---|---|---|---|
-| before | [`operators.hodge_dirac`](../nodes.md) | surface=surface | modes=$modes, shift=$shift, sigma=$sigma, slice=$slice, normalize=$normalize, star1_floor=$star1_floor, mollify=$mollify, flip_eps=$flip_eps | modes, kind, eigenvalues, support, eigenvectors, forms2, complex, d0, d1, length, star0, star1, star2, angle_tail, angle_tip, angle_sum, reference |
+| before | [`operators.hodge_dirac`](../nodes.md) | surface=surface, intrinsic=intrinsic | modes=$modes, shift=$shift, sigma=$sigma, slice=$slice, normalize=$normalize, star1_floor=$star1_floor, dense_limit=$dense_limit | modes, eigenvalues, kinds, eigenvectors |
 
 `before` steps run once, `chunks` steps run on every chunk of the recording, `after` steps run once on what the chunks accumulated.
 
@@ -48,49 +48,34 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | output | stored as |
 |---|---|
 | `modes` | kind manifold, type points, name {stem}, derived_from surface.manifold.0 |
-| `kind` | kind field, kind_name form degree, name {stem}_kind, on modes, of_operator eigenvectors |
 | `eigenvalues` | kind field, kind_name eigenvalue, name {stem}_eigenvalues, on modes, of_operator eigenvectors, unit 1/m^2 |
-| `support` | kind selection, type indices, name {stem}_support, on surface.manifold.0 |
-| `complex` | kind manifold, type complex, name {surface}_intrinsic, derived_from surface.manifold.0 |
-| `eigenvectors` | kind operator, operator_kind eigenvectors, name {stem}_eigenvectors, from modes, to surface.manifold.0 |
-| `forms2` | kind operator, operator_kind eigenvectors, name {stem}_forms2, from modes, to complex |
-| `d0` | kind operator, operator_kind exterior derivative, name {surface}_intrinsic_d0, from complex, to complex |
-| `d1` | kind operator, operator_kind exterior derivative, name {surface}_intrinsic_d1, from complex, to complex |
-| `length` | kind field, kind_name intrinsic complex, name {surface}_intrinsic_length, on complex |
-| `star0` | kind field, kind_name intrinsic complex, name {surface}_intrinsic_star0, on complex |
-| `star1` | kind field, kind_name intrinsic complex, name {surface}_intrinsic_star1, on complex |
-| `star2` | kind field, kind_name intrinsic complex, name {surface}_intrinsic_star2, on complex |
-| `angle_tail` | kind field, kind_name intrinsic complex, name {surface}_intrinsic_angle_tail, on complex |
-| `angle_tip` | kind field, kind_name intrinsic complex, name {surface}_intrinsic_angle_tip, on complex |
-| `angle_sum` | kind field, kind_name intrinsic complex, name {surface}_intrinsic_angle_sum, on complex |
-| `reference` | kind field, kind_name intrinsic complex, name {surface}_intrinsic_reference, on complex |
+| `kinds` | kind selection, type partition, name {stem}_kinds, on modes |
+| `eigenvectors` | kind operator, operator_kind eigenvectors, name {stem}_eigenvectors, from modes, to intrinsic.manifold.0 |
 
 ## Notes from the definition
 
 ```text
 THE HODGE-DIRAC EIGENMODES OF A SURFACE: the patterns the cortex's own geometry allows, the basis every spatial band, flow and cycle pattern is read in (the instrument's spatial resolution: a
-mode is resolved only as far as the mesh and the solve go). Solved on the surface's intrinsic Delaunay complex by the split solve (the Laplace-Beltrami ladder d0^T *1 d0 with *0: exact modes; the
-2-form ladder *2 d1 *1^-1 d1^T *2 with *2: coexact modes), cut at ONE lambda, the constants out. By default the REFERENCE method of nxr (`nxr.eigen.hodge_dirac.solve_hodge`) and Rheome
-(`rheome.eigen.hodge_dirac`); the methods used before are named options (shift, slice, normalize, the *1 floor), every option is in the provenance and the cache key.
+mode is resolved only as far as the mesh and the solve go). Solved on the surface's INTRINSIC TRIANGULATION (made by its own definition `intrinsic`; the runner makes it first when it is not stored)
+by the split solve (the Laplace-Beltrami ladder d0^T *1 d0 with *0: exact modes; the 2-form ladder *2 d1 *1^-1 d1^T *2 with *2: coexact modes), cut at ONE lambda, the constants out. By default the
+REFERENCE method of nxr (`nxr.eigen.hodge_dirac.solve_hodge`) and Rheome (`rheome.eigen.hodge_dirac`); the methods used before are named options (shift, slice, normalize, the *1 floor), every
+option is in the provenance and the cache key. The triangulation's construction options (mollify, flip_eps) are the triangulation's own (`run intrinsic`).
 
-THE GRAPH (docs/specs/2026-11-17-eigenmodes-as-definition.md; the Studio's chain glueMesh -> intrinsicDelaunay -> the two ladders -> the package):
-  surface (one closed piece, or the glued surface made by `run glue`) --[hodge_dirac: intrinsic Delaunay, split solve]--> the mode axis (the eigenvalues mu: points), each mode's kind, the eigenvectors
-  (the 0-form parts, axis -> the solved surface), the 2-form parts (axis -> the complex's faces), the intrinsic complex (a cell complex) with d0 and d1 (sparse operators between its cells) and the
-  stars and signposts as fields on its cells ('0' vertices, '1' edges, '2' faces).
+THE GRAPH (docs/specs/2026-11-17-eigenmodes-as-definition.md; the Studio's chain glueMesh -> intrinsicDelaunay -> hodgeDirac dec -> the two ladders):
+  surface + its intrinsic triangulation --[hodge_dirac: split solve]--> the eigenvalue line (mu: points), the eigenvalues, the kinds (a labelling of the line) and ONE eigenvectors
+  operator from the line to the triangulation's cells 0, 1 and 2 (each mode's mixed form).
 Stored (stem = `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not the primary one):
-  <stem>                      the mode axis: points, one per mode, coordinate mu = sqrt(lambda) > 0 ascending (the operator's eigenvalues)
-  <stem>_kind                 field on the axis: 0 exact, 2 coexact
-  <stem>_eigenvectors         operator, axis -> the solved surface [V x K]: per mode ONE vertex potential (psi/sqrt2, or <chi/sqrt2, w_v>)
-  <stem>_forms2               operator, axis -> the complex's faces (cell 2) [nF x K]: each mode's 2-form part chi/sqrt2 (0 on an exact mode)
-  <stem>_support              the surface's vertices the solve covers (all of them for one piece)
-  <solved>_intrinsic          the intrinsic complex (the same vertices; its own edges and faces), <solved> = the surface solved on (a one-piece surface, or the glued surface made by `run glue`)
-  <solved>_intrinsic_d0, _d1  sparse operators: d0 vertices -> edges (cell 0 -> 1), d1 edges -> faces (cell 1 -> 2)
-  <solved>_intrinsic_length, _star0, _star1, _star2, _angle_tail, _angle_tip, _angle_sum, _reference   fields on the complex's cells
+  <stem>                      the eigenvalue line: points, one per mode, coordinate mu = sqrt(lambda) > 0 ascending (the operator's eigenvalues)
+  <stem>_eigenvalues          field on the line: lambda = mu^2 (of_operator: the eigenvectors)
+  <stem>_kinds                selection (partition) of the line: exact (label 0) or coexact (label 2)
+  <stem>_eigenvectors         operator, the line (cell 0) -> the intrinsic triangulation (cell key 0+1+2) [(V + E + F) x K], float32: each mode's mixed form, rows 0-forms [0, V) (psi/sqrt2;
+                              0 for a coexact mode) · 1-forms [V, V+E) (d psi/(mu sqrt2) or *1^-1 d1^T *2 chi/(mu sqrt2)) · 2-forms [V+E, V+E+F) (chi/sqrt2; 0 for an exact mode), orthonormal under
+                              the stars *0, *1, *2; synthesis (the line -> the triangulation); the analysis is its D106 pair, not stored. A coexact mode's stream function at the vertices is not
+                              stored: a vertex reader derives it from the 2-form part (each vertex the mean over its faces of *2 chi/sqrt2, the reference's face-to-vertex operator)
 
 EIGENMODE FIRST (the maintainers' rule): the spatial bands read these modes; when a band needs eigenmodes that are not stored, the runner makes them first, as this run, with a message.
-A surface of TWO pieces (a cortex's hemispheres) is solved on its GLUED surface, a manifold made by its own definition (`run glue`: each medial wall, the Desikan-Killiany `unassigned`, cut and a
-bridge grown) and NAMED here as the input: a flag that only chooses the input (`--glued`) is gone. A two-piece surface given as it is, and three or more pieces, are refused.
-EIGENVALUES: the eigenvalues are also stored as a field of the operator (`of_operator_id` = the eigenvectors), besides the mode axis's coordinates.
+A surface of TWO pieces (a cortex's hemispheres) is solved on its GLUED surface, a manifold made by its own definition (`run glue`) and NAMED here as the input. A two-piece surface given as it is,
+and three or more pieces, are refused. A solve stored in the earlier form (three operators _eigenvectors, _forms1, _forms2) is converted in place by `nxr-neuro migrate eigensolve`.
 
 What it cannot resolve: the modes are the discrete operator's on the mollified, Delaunay-flipped intrinsic triangulation; a mode above the mesh's resolution is not a property of the cortex, and
 the bridge of a glued surface is not cortex.

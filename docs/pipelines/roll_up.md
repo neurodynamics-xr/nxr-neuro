@@ -29,7 +29,6 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `over` | `--over` | none | - |  | the grid the measurement is over, by name in each subject (the same over the group tree's codes); null: the one that holds the measure |
 | `subjects` | `--subjects` | none | - |  | the group's subjects, by name (or a stored group selection by name); no default |
 | `rolled_to` | `--rolled-to` | `whole` | mm |  | the coarser level as a quantity: a tile diameter (mm), a duration (s), pieces (one member per connected piece) or whole (one member); for the group, the level the subjects are summed at is the measurement's own |
-| `into` | `--into` | none | - |  | catalogue datasets: the group package the output is written to |
 | `name` | `--name` | `{over} {measure} group` | - |  | the rolled measurement's name in the default subject |
 
 ## The chain of nodes
@@ -55,8 +54,8 @@ registry (sum, max, min, mean via sum and count, ratios derived at read), applie
 SUBJECT scope: a measurement over a GRID at level a rolled to a coarser level b (the target stated as a quantity: a tile diameter, a duration, `pieces`, `whole`). Refused over an irregular selection (the checker keys on
 the selection's family mark).
 GROUP scope (`scope: group`): the same measurement in EACH member subject (`per_subject`) over the group tree's codes (`select_dyadic_surface` rule transfer), summed code for code and merged by measure, stored in the
-group's default subject (the template). The group is stated by the caller (`--subjects A,B,C` or a stored group selection by name): no default. In a catalogue dataset the inputs are read from each member package and the
-output written to the group package named by `--into`. Provenance lists each subject's measurement id and cache key. Replaces `pyramid reduce`.
+group's default subject (the template). The group is stated by the caller (`--subjects A,B,C` or a stored group selection by name): no default. In a catalogue dataset the inputs are read from each member's package and the
+output written into the dataset's template (format 56: the template holds the cohort). Provenance lists each subject's measurement id and cache key. Replaces `pyramid reduce`.
 
   nxr-neuro run roll_up --dataset <folder> --subjects A,B,C --over "rest cortex_band_pyramid" --measure power --rolled-to "whole"
 ```

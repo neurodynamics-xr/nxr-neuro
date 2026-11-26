@@ -19,7 +19,7 @@ nxr-neuro run patches --dataset <folder> --subject sub-01 --map rest_alpha_power
 |---|---|---|
 | `map` | field any, where {"name": "$map"} | yes |
 | `surface` | manifold surface, is map.manifold.0 | yes |
-| `tiles` | selection set, manifold map.manifold.0 (the surface's grid (`nxr-neuro run select_dyadic_surface` first)) | yes |
+| `tiles` | selection ladder, manifold map.manifold.0 (the surface's grid (`nxr-neuro run select_dyadic_surface` first)) | yes |
 
 ## Parameters
 
@@ -57,7 +57,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `baseline` | kind statistic, name {map}_band_${spatial_scale}_baseline, of band, over tiles, axes [{"name": "row"}, {"name": "summary"}] |
 | `patches` | kind selection, type set, name {map} patches ${spatial_scale} ${sign}, on map.manifold.0 |
 | `patch_measures` | kind measurement, over patches, of band |
-| `patch_own` | kind measurement, name {map}_patches_${spatial_scale}_${sign}_own, over patches |
+| `patch_own` | kind measurement, name {map}_patches_${spatial_scale}_${sign}_own, over patches, of band |
 | `area` | kind statistic, name {map}_patches_${spatial_scale}_${sign}_area, of band, over patches, axes [{"name": "row"}, {"name": "summary"}] |
 | `n_tiles` | kind statistic, name {map}_patches_${spatial_scale}_${sign}_n_tiles, of band, over patches, axes [{"name": "row"}, {"name": "summary"}] |
 | `mean` | kind statistic, name {map}_patches_${spatial_scale}_${sign}_mean, of band, over patches, axes [{"name": "row"}, {"name": "summary"}] |

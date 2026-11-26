@@ -29,7 +29,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 |---|---|---|---|---|---|
 | `rule` | `--rule` | `frequency` | - | frequency, eigenvalue, wavelength, parts, levels | frequency \| eigenvalue \| wavelength \| parts \| levels |
 | `surface` | `--surface` | none | - |  | rules wavelength, parts, levels: the surface (its subject owns the spatial band set) |
-| `bands` | `--bands` | `["1-2 Hz", "2-4 Hz", "4-8 Hz", "8-16 Hz", "16-32 Hz", "32-64 Hz"]` | Hz |  | the bands as quantities, each half open [lo, hi): Hz (chart linear or log10) for rule frequency, 1/m2 or mm for rule eigenvalue; optionally named {name, band} |
+| `bands` | `--bands` | none | Hz |  | the bands as quantities, each half open [lo, hi): Hz (chart linear or log10) for rule frequency, 1/m2 or mm for rule eigenvalue; optionally named {name, band}; required for the rules frequency, eigenvalue (no default band set), e.g. --bands '["8-12 Hz"]' |
 | `scales` | `--scales` | none | mm |  | rules wavelength and parts: the named scales (hemisphere, lobe, region, gyrus) or quantities (wavelength 40 mm, parts 16) |
 | `name` | `--name` | `{rule} bands` | - |  | the band set's name |
 
@@ -54,7 +54,7 @@ A BAND SET on a line: ONE maker (the node `select.bands`), spans on the dataset'
 band stated as a QUANTITY in a chart of that line, never an index. A single band SELECTS (it is no frequency axis); several bands are one band SET whose members include the bands. A consumer takes the set
 through its `bands` edge, never re-making it from parameters.
 
-  rule frequency   a list of bands in Hz (or log10 Hz), named; the default is nxr's DEFAULT_BANDS, the octaves 1-2 ... 32-64 Hz
+  rule frequency   a list of bands in Hz (or log10 Hz), named; no default band set: `--bands` is required
   rule eigenvalue  spans in the eigenvalue chart (1/m2) or the wavelength chart (mm)
   rule wavelength  named scales by wavelength (the named scales of `scales.h`: hemisphere, lobe, region, gyrus)
   rule parts       named scales by parts per hemisphere

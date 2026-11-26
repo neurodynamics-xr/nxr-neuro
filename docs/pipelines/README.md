@@ -13,20 +13,29 @@ Every pipeline `nxr-neuro run <name>` knows, one page each: what it measures, it
 | [`bandstop`](bandstop.md) | a zero-phase band-stop filter (IIR by default), written as a new recording |
 | [`cellquadrature`](cellquadrature.md) | the quadrature ingredients per spatial tile (and tile pair), per time tile and per burst, from an analytic cross-spectrum |
 | [`connectome`](connectome.md) | the fiber counts between the regions of a partition of the end surface (a measurement over the partition), from a fiber bundle's ends |
+| [`connectome_flow`](connectome_flow.md) | the flow through the fibre network - the tiles' cross-spectrum per atom from the stored chunk spectra, its time cells and sign-flip test, the network's divergence and graph potential in the connectome eigenmodes |
+| [`connectome_flow_replication`](connectome_flow_replication.md) | the run-to-run replication of the flow through the fibre network - per atom the correlation of two runs' edge flows over the joined and the not-joined pairs |
 | [`connectome_vertices`](connectome_vertices.md) | the connection weights between the vertices of the end surface, from a fiber bundle's ends, with the largest connected component |
 | [`cortical_band`](cortical_band.md) | a recording's band read on the cortex through the inverse kernel with the spatial band folded in, a pointwise complex field cortex x bands x time |
 | [`crossspectrum`](crossspectrum.md) | the sensor cross-spectral density per band (Welch), on a kernel's channels or the good imaging channels |
-| [`eigenmodes`](eigenmodes.md) | the Hodge-Dirac eigenmodes of a stored surface, with the intrinsic complex and the modes' full forms |
-| [`flow_modes`](flow_modes.md) | the Hodge-Dirac flow weights of the apparent motion of one filter-bank member's source map, per step at the member's own rate |
+| [`eigenmodes`](eigenmodes.md) | the Hodge-Dirac eigenmodes of a stored surface on its intrinsic triangulation, each mode's mixed form one column of one operator |
+| [`fingerprint`](fingerprint.md) | the identification of individuals across a cohort from two stored measurements each (brain fingerprinting), with the correlation, accuracy, self-identifiability, edgewise reliability and the PCA reconstruction curve |
+| [`fingerprint_band`](fingerprint_band.md) | one band's features of a person over a span (MEG fingerprinting, steps 17 and 19), the region spectrum and the amplitude envelope correlation of its region signals |
+| [`fingerprint_features`](fingerprint_features.md) | a person's spectral and connectome features over a span (MEG fingerprinting, steps 18 and 19), assembled from the bands' stored spectra and envelope correlations |
+| [`flow_modes`](flow_modes.md) | the Hodge-Dirac flow weights of the apparent motion of one filter-bank member's source map, per step at the frames of a frame grid |
+| [`gabor_bursts`](gabor_bursts.md) | the bursts of each channel matched by unit-energy Gabor atoms of free width (centre, frequency, width, cycles, amplitude, phase, R², onset and offset), and the global windows where any channel bursts |
 | [`global_bursts`](global_bursts.md) | the global bursts of a band from the cortex (the largest \|z\| over the spatial tiles per time tile) and the extents of each burst on the cells |
-| [`glue`](glue.md) | the two hemispheres of a cortex glued by a bridge, a derived manifold stored with its map to the original and its bridge selection |
+| [`glue`](glue.md) | the two hemispheres of a cortex glued by a bridge after exactly their medial walls are cut, a derived manifold stored with its hemispheres labelling (left, right, bridge) |
 | [`headmodel`](headmodel.md) | the gain of a spherical head model (MEG by Sarvas, three-shell EEG) on a source surface |
 | [`highpass`](highpass.md) | a zero-phase high-pass filter, written as a new recording |
 | [`hodgepower`](hodgepower.md) | the band power of the Hodge-Dirac mode weights (normal-current and flow parts) of a recording's sources |
+| [`intrinsic`](intrinsic.md) | the intrinsic Delaunay triangulation of a stored surface (its own cells on the surface's positions), with d0, d1 and the Hodge stars as analytic operators |
 | [`inverse`](inverse.md) | the free-orientation minimum-norm kernel of a head model and a noise covariance |
+| [`lcmv`](lcmv.md) | the LCMV beamformer of a head model, a data covariance and a noise covariance (Brainstorm 2016 or MNE-Python make_lcmv conventions) |
 | [`lowpass`](lowpass.md) | a zero-phase low-pass filter, written as a new recording |
 | [`measure`](measure.md) | a field (stored, or a field chain composed in) reduced over the members of a selection (stored, or made by a maker), by registry measures, into one measurement |
-| [`member_activation`](member_activation.md) | one filter-bank member's source activation on the cortex, at the member's own rate (the optical flow's input) |
+| [`member_activation`](member_activation.md) | one filter-bank member's source activation on the cortex, at the frames of a frame grid (the optical flow's input) |
+| [`montage`](montage.md) | the standard 10-05 electrode montage on a template's scalp, with its names and its 10-20 / 10-10 / 10-05 system partition |
 | [`noisecov`](noisecov.md) | the noise covariance of a recording's good imaging channels over a span |
 | [`notch`](notch.md) | a zero-phase notch filter (line noise and its harmonics; IIR by default), written as a new recording |
 | [`patches`](patches.md) | the patches of a scalar map at one spatial scale of the surface's grid, with their measurements and summaries |
@@ -36,14 +45,26 @@ Every pipeline `nxr-neuro run <name>` knows, one page each: what it measures, it
 | [`positions_transition`](positions_transition.md) | a surface's positions brought into another coordinate system of its space by its transition operator |
 | [`psd`](psd.md) | the Welch power spectral density of a recording's channels, the bad segments left out |
 | [`quadrature`](quadrature.md) | the quadrature spectrum of the sources per band (the quadrature fraction, the energy per source, the strongest quadrature pairs) |
+| [`region_pca`](region_pca.md) | each region's signal as the first principal component of its sources over a span (a linear map of the channels), signed as the reference signs it |
 | [`roll_up`](roll_up.md) | a measurement rolled up through its grid's hierarchy, or across the subjects of a group, merged by each measure's rule |
 | [`rotary_psd`](rotary_psd.md) | the two-sided Welch power spectral density of a recording's rotary pair through a stored rotation plane |
 | [`run_repeat`](run_repeat.md) | the dot product and cosine of two runs' crossing directions per tile of one level |
 | [`scaleselection`](scaleselection.md) | each event's own size and rhythm, the best spatial and temporal level of the stored pairs by standardised response |
 | [`select_bands`](select_bands.md) | a band set as spans on the dataset's Frequency or Eigenvalue line, each band a quantity in a chart of the line |
 | [`select_dyadic_surface`](select_dyadic_surface.md) | the dyadic equal-area tiles of a surface as one grid with closed-form levels, from a stated finest tile (subject, group tree, or transfer onto the group tree) |
+| [`select_kernel_product`](select_kernel_product.md) | the product of two or three stored kernel sets, mixed radix with the first factor fastest (the members a flow measurement is over) |
+| [`select_kernels`](select_kernels.md) | a kernel set on a stored line (a frequency line or a mode axis) - one selection whose members are kernels (anchor, profile, chart, gain) |
 | [`select_product`](select_product.md) | the product of grids and band sets on a product manifold (a box, a grid of cells, or the joint partition), with levels coupled to bands in closed form |
 | [`select_time_grid`](select_time_grid.md) | the dyadic time grid of a recording's line, one rule family (tiles, band, frames, constant-Q, segments, windows, chunks), with the frame density and the origin as options |
+| [`sensor_bispectrum`](sensor_bispectrum.md) | the bispectrum of the stored chunk spectra in eigenmode coordinates, weighted by the flow's frequency atoms - phase-amplitude coupling and harmonics, with the bicoherence's sums |
+| [`sensor_coils`](sensor_coils.md) | the coil shapes of the picked channels as a surface manifold (Brainstorm's coil display), with the vertex-to-channel and vertex-to-shape maps |
+| [`sensor_flow`](sensor_flow.md) | the flow of the field on the sensor surface per atom of the joint frequency x eigenvalue level - chunk spectra with overlap, power, phase currents, Hodge-Dirac flow, band pairs, time cells and their sign-flip test |
+| [`sensor_flow_across_frequencies`](sensor_flow_across_frequencies.md) | whether the sensor flow moves at the same speed and direction across frequencies - the cosines of the atoms' flows, direction consistency and the slope of speed against frequency |
+| [`sensor_flow_bins`](sensor_flow_bins.md) | the whole-recording flow of the field on the sensor surface per frequency bin (or per sharp group of bins) - power, phase currents, Hodge-Dirac flow, optionally band pairs; no wavelets |
+| [`sensor_mesh`](sensor_mesh.md) | the good channels of one sensor type (MEG or EEG) as a surface whose vertices are those channels, chosen from the channels' type and quality labellings |
+| [`sensor_surface`](sensor_surface.md) | the channels as a surface, a triangulated helmet whose vertices are the picked channels, a manifold derived from the channels with its vertex-to-channel map |
+| [`source_flow`](source_flow.md) | the flow of the cortical current per atom of the joint frequency x cortical eigenvalue level - a minimum-norm kernel projected onto the cortex's eigenmodes (options A and B, per hemisphere or glued), power, phase currents, Hodge-Dirac flow, band pairs, time cells and their sign-flip test |
+| [`source_flow_bins`](source_flow_bins.md) | the whole-recording flow of the cortical current per frequency bin (or per sharp group of bins) - a minimum-norm kernel projected onto the cortex's eigenmodes, power, phase currents, Hodge-Dirac flow, optionally cortical band pairs; no wavelets |
 | [`sourcepsd`](sourcepsd.md) | the band power of a recording's sources through an inverse kernel, per band |
 | [`sourcepsd_bins`](sourcepsd_bins.md) | the power of a recording's sources at every Welch bin of a band, through an inverse kernel |
 | [`sourcetensor`](sourcetensor.md) | the band cross-spectral tensor of the current at every source, its Stokes parameters, its normal power and normal share |
@@ -57,5 +78,6 @@ Every pipeline `nxr-neuro run <name>` knows, one page each: what it measures, it
 | [`surrogate_lagfree_pairs`](surrogate_lagfree_pairs.md) | per burst, the lagged share of its sensors' second moment against lag-free Wishart draws of its own zero-lag second moment |
 | [`surrogate_lagfree_spatial_events`](surrogate_lagfree_spatial_events.md) | one draw of the lag-free surrogate of the spatial events (the same graph on a lag-free surrogate of the recording), its home map and patch summary as statistics |
 | [`surrogate_lagfree_vortex`](surrogate_lagfree_vortex.md) | one draw of the lag-free surrogate of the vortex chain (the same graph on a lag-free surrogate of the recording), its tile crossings over the level's tiles as a statistic |
+| [`tile_network`](tile_network.md) | the fibre network on the tiles of a surface's dyadic grid - streamline counts, median lengths and distances per pair of tiles, and the connectome Laplacian's eigenmodes |
 | [`vortex_core_threshold`](vortex_core_threshold.md) | the distribution of \|hatted curl\| over the burst frames (4096 log bins), a statistic from which the cores' threshold is read |
 | [`vortex_cores`](vortex_cores.md) | the vortex cores of a band's hatted curl over the burst frames, from the stored threshold, stored as point events |

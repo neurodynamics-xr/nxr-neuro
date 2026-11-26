@@ -43,7 +43,7 @@ Export it to look at it:
 Whatever the inverse produces, spatial patterns on this cortex can only be resolved as far as the surface and its mesh go. The Hodge-Dirac eigenmodes are the patterns the geometry
 allows; the pipelines that measure spatial bands and flow read in this basis.
 
-    nxr-neuro run eigenmodes --dataset study --subject sub-01 --surface cortex --modes 40 --all
+    nxr-neuro run eigenmodes --dataset study --subject sub-01 --surface cortex --modes 40
 
     [normalize] M-orthonormality verified: ||U'MU - I||_F = 2.03733e-15
     {"stage": "solved", "exact": 21, "coexact": 15, "seconds": 0.0}
@@ -59,7 +59,7 @@ cannot hold that many. See [the eigenmodes page](../pipelines/eigenmodes.md) and
 The next steps are these, in this order, with the options their pages describe ([headmodel](../pipelines/headmodel.md), [inverse](../pipelines/inverse.md),
 [sourcepsd](../pipelines/sourcepsd.md)):
 
-    nxr-neuro run headmodel --dataset study --subject sub-01 --channels task-rest_channels --sources cortex --eeg-surface scalp --name headmodel --all
+    nxr-neuro run headmodel --dataset study --subject sub-01 --channels task-rest_channels --sources cortex --eeg-surface scalp --name headmodel
     nxr-neuro run inverse   --dataset study --subject sub-01 --forward headmodel --noise-cov task-rest_noise_cov
     nxr-neuro run sourcepsd --dataset study --subject sub-01 --recording task-rest --all
 

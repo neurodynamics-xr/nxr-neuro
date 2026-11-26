@@ -31,7 +31,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `source` | `--source` | `global_bursts` | - |  | the pipeline whose stored labellings, cells and baselines are read (a labelling made by another is not used) |
 | `response` | `--response` | `peak` | - | peak, mean | peak = the largest standardized cell amplitude of an event (blob-detection scale selection) \| mean = their mean |
 | `min_link` | `--min-link` | `1` | pairs |  | events of two pairs are the same cross-pair event when at least this many pairs of their cells nest in space and overlap in time |
-| `surface` | `--surface` | none | - |  | the subject's surface; null: the joint partitions' |
+| `surface` | `--surface` | none | - |  | the subject's surface by name (the cortex the pairs' products lie on); null: the subject's only surface |
 | `name` | `--name` | `{recording}_scale_selection` | - |  | the cross-pair events' Selection; its statistic is <name>.links |
 
 ## The chain of nodes
@@ -54,7 +54,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 
 ```text
 EACH EVENT'S OWN SIZE AND RHYTHM across a declared set of (spatial level, time level) pairs (spec docs/specs/2026-11-13-cortical-events.md, "Phase 2e"). From STORED rows only, no recording pass: what
-`run global_bursts` stored for every pair of the product `spatial_scales` x `bands` (the cells' amplitude on the pair's joint Selection, the cells' per-tile baseline, the labelling of the pair's events on
+`run global_bursts` stored for every pair of the product `spatial_scales` x `bands` (the cells' amplitude on the pair's product selection, the cells' per-tile baseline, the labelling of the pair's events on
 the cells). Events of different pairs are linked by the ladders' exact nesting in space and overlap in time; the connected components are the cross-pair events; each one's response at every pair (its footprint),
 best pair, the response there. Every missing pair is named, with the command that makes it.
 

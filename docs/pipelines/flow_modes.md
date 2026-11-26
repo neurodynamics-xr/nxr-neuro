@@ -3,7 +3,7 @@
 
 # `flow_modes`
 
-the Hodge-Dirac flow weights of the apparent motion of one filter-bank member's source map, per step at the member's own rate.
+the Hodge-Dirac flow weights of the apparent motion of one filter-bank member's source map, per step at the frames of a frame grid.
 
 Version 1, scope `subject`. Run it with `nxr-neuro run flow_modes --dataset <folder> --subject <id> ...`; `nxr-neuro run flow_modes --help` prints the same options.
 
@@ -20,6 +20,7 @@ nxr-neuro run flow_modes     --dataset <folder> --subject sub-01 --recording res
 |---|---|---|
 | `recording` | field recording, each true, where {"name": "$recording"} | yes |
 | `kernel` | operator inverse kernel, from recording.manifold.0, where {"name": "$kernel"} | yes |
+| `grid` | selection any, manifold recording.time, where {"name": "$grid"} (the frame grid of the member's band (`nxr-neuro run select_time_grid --rule frames --band 8-12Hz` first)) | yes |
 | `surface` | manifold surface, is kernel.to | yes |
 | `package` | operator eigenvectors, where {"name": "${package}_eigenvectors"} (a Hodge-Dirac package of the kernel's surface (`nxr-neuro eigen solve` first)) | yes |
 | `scale` | measurement envelope_max, of recording, where {"name": "$amplitude_over"} (the window's maximum amplitude (`nxr-neuro run measure --set flow_max_amplitude` first, over the same span)) | yes |
@@ -32,6 +33,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 |---|---|---|---|---|---|
 | `recording` | `--recording` | `none` | - |  | the recording's name, or none: every recording of the subject, one run each |
 | `kernel` | `--kernel` | `none` | - |  | the inverse kernel's name, or none: the subject's one inverse kernel on the recording's channels |
+| `grid` | `--grid` | `none` | - |  | the frame grid's name (made by `select_time_grid --rule frames`), or none: the one frame grid of the recording's time line |
 | `family` | `--family` | none | - |  | the time filter bank: itersine \| meyer \| morlet \| morse \| amor \| bump (no default) |
 | `gain` | `--gain` | none | - |  | the peak in-band response of each member (no default; 2 makes \|c\| the physical amplitude of a real recording) |
 | `freq` | `--freq` | none | Hz |  | the frequency whose nearest filter-bank member is analysed |
@@ -44,8 +46,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `gamma` | `--gamma` | `3.0` | - |  | Morse: gamma |
 | `time_bandwidth` | `--time-bandwidth` | `60.0` | - |  | Morse: the time-bandwidth product |
 | `resolution` | `--resolution` | `0.5` | Hz |  | the frequency resolution of the grid the filter bank is designed on |
-| `oversample` | `--oversample` | `2.0` | - |  | the member's own rate is oversample x the rate its bins need |
-| `tolerance` | `--tolerance` | none | - |  | the impulse response's tail the margin may leave out, relative to its norm; null: 1e-7 (float32 blocks); name 1e-12 for float64 |
+| `tolerance` | `--tolerance` | `1e-06` | - |  | the member's impulse response the halo leaves out, relative to its L1 norm (a chunk's frames are the whole record's to that tail) |
 | `package` | `--package` | `hodgeDirac` | - |  | the Hodge-Dirac package's stem |
 | `input` | `--input` | `amplitude` | - | amplitude, signed | amplitude = \|J\| \| signed = the real part (fixed-orientation kernels only) |
 | `amplitude_over` | `--amplitude-over` | none | - |  | the selection the unit amplitude (the measurement of preset flow_max_amplitude) was measured over, by name; null: the one that holds it |
@@ -53,7 +54,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `method` | `--method` | `pcg` | - | pcg, direct | the solver: pcg (preconditioned conjugate gradients) \| direct (exact solve) |
 | `regulariser` | `--regulariser` | `connection` | - | connection, ambient | connection (the connection Laplacian on the signpost gauge) \| ambient (the Dirichlet energy of the ambient 3-vector field, Lefevre and Baillet 2008) |
 | `datafit` | `--datafit` | `auto` | - |  | auto (gauge for connection, triangle for ambient) \| gauge \| triangle |
-| `alpha` | `--alpha` | none | - |  | the smoothness weight; null: the regulariser's own (connection 0.01, ambient 1); vary it and report the range |
+| `alpha` | `--alpha` | `required` | - |  | the smoothness weight (> 0), the caller's choice (no default: it depends on the regulariser): the references use 0.01 with the connection regulariser and 1 with the ambient one; vary it and report the range |
 | `flow_tolerance` | `--flow-tolerance` | `1e-08` | - |  | the relative residual at which the iterative solver stops |
 | `max_iterations` | `--max-iterations` | `500` | - |  | the most iterations of the iterative solver for one frame |
 | `preconditioner` | `--preconditioner` | `ldlt` | - | ldlt, ic | ldlt \| ic |
@@ -62,7 +63,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 
 | phase | node | in | with | out |
 |---|---|---|---|---|
-| chunks over `recording` | [`signal.member_analytic`](../nodes.md) | x=recording, channels_of=kernel | family=$family, gain=$gain, freq=$freq, centres=$centres, cycles=$cycles, voices=$voices, anchor=$anchor, limits=$limits, half_width=$half_width, gamma=$gamma, time_bandwidth=$time_bandwidth, resolution=$resolution, oversample=$oversample, tolerance=$tolerance | z |
+| chunks over `recording` | [`signal.member_analytic`](../nodes.md) | x=recording, channels_of=kernel, tiling=grid | family=$family, gain=$gain, freq=$freq, centres=$centres, cycles=$cycles, voices=$voices, anchor=$anchor, limits=$limits, half_width=$half_width, gamma=$gamma, time_bandwidth=$time_bandwidth, resolution=$resolution, tolerance=$tolerance | z |
 | chunks over `recording` | [`signal.flow_activation`](../nodes.md) | z=z, kernel=kernel | input=$input | a |
 | chunks over `recording` | [`signal.flow_velocity`](../nodes.md) | a=a, surface=surface, scale=scale | method=$method, regulariser=$regulariser, datafit=$datafit, alpha=$alpha, flow_tolerance=$flow_tolerance, max_iterations=$max_iterations, preconditioner=$preconditioner | v |
 | chunks over `recording` | [`signal.flow_hodge_modes`](../nodes.md) | v=v, package=package |  | b |
@@ -80,17 +81,17 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 ## Notes from the definition
 
 ```text
-THE APPARENT MOTION OF A SOURCE MAP, in the Hodge-Dirac modes of the cortex (a field of flow weights per step): one filter-bank member of the recording at its own rate, the kernel applied to its
+THE APPARENT MOTION OF A SOURCE MAP, in the Hodge-Dirac modes of the cortex (a field of flow weights per step): one filter-bank member's full-rate analytic signal of the recording read at the frames of a frame grid, the kernel applied to its
 complex coefficients (the linear map before the non-linear step) and the amplitude |J| per source, the Horn-Schunck optical flow between consecutive frames on the cortical manifold, and the velocity
 carried to the package's glued surface and read in its modes (an exact mode: divergence potential, sources and sinks; a coexact mode: stream function, rotation). The amplitude scale is the stored
 measurement stored by `run measure --set flow_max_amplitude` (the window's maximum, read by name); run both over the same span.
 
-THE GRAPH. recording --[signal.member_analytic, retiming, halo = the filter's margin]--> z --[signal.flow_activation]--> a --[signal.flow_velocity, stateful]--> v --[signal.flow_hodge_modes]--> b --[signal.flow_series]--> the
+THE GRAPH. recording --[signal.member_analytic, retiming at the grid's frames, halo = the member's impulse response to `tolerance`]--> z --[signal.flow_activation]--> a --[signal.flow_velocity, stateful]--> v --[signal.flow_hodge_modes]--> b --[signal.flow_series]--> the
 weights [K x steps] on (eigen axis x the made time line). The divergence, curl and speed of a leaf and a frame are measurements over the grid (cortex x time): they are NOT part of this definition
 (the grids are being redesigned as plain selections; the measurement follows them).
 
 What it cannot resolve: kinematic, not physical (where activity is created or destroyed the residual appears as divergence); aperture-limited (alpha sets how much of v is data: vary it and report the
-range); per frame, not per second; the recording's bad segments are not excluded (choose a window free of them); the filter's margin at a recording's ends is zero padding.
+range); per frame, not per second; the recording's bad segments are not excluded (choose a window free of them); the member's taps at a recording's ends are zero padded. The frames are a time selection made first: `nxr-neuro run select_time_grid --rule frames --band 8-12Hz ...`.
 
   nxr-neuro run measure --set flow_max_amplitude --dataset <folder> --subject sub-01 --recording rest --kernel KERNEL --family morlet --gain 2 --freq "10 Hz" --all
   nxr-neuro run flow_modes     --dataset <folder> --subject sub-01 --recording rest --kernel KERNEL --family morlet --gain 2 --freq 10 --all

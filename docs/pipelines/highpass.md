@@ -33,6 +33,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `method` | `--method` | none | - |  | fir \| iir; null: the reference's (FIR, but IIR for bandstop and notch) |
 | `ripple` | `--ripple` | none | - |  | FIR: the passband and stopband deviation (linear); null: 1e-3 |
 | `transition` | `--transition` | none | Hz |  | FIR: each transition band; null: the reference's rule |
+| `design` | `--design` | `brainstorm` | - | brainstorm, brainstorm_2018 | FIR: the reference's rule for the transition bands: brainstorm (the current release) \| brainstorm_2018 (the release of 2018-10-12, the MEG fingerprinting paper's: its transition bands, the record's ends padded with zeros) |
 | `edge` | `--edge` | none | - |  | FIR: the record's ends padded with the mean of the transient (mean_of_transient) or zeros; null: mean_of_transient |
 | `transient_samples` | `--transient-samples` | none | samples |  | FIR: the transient's length stated; null: the energy rule |
 | `remove_mean` | `--remove-mean` | none | - |  | FIR: subtract the record's channel means first; null: true |
@@ -44,7 +45,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 
 | phase | node | in | with | out |
 |---|---|---|---|---|
-| chunks over `recording` | [`signal.filter`](../nodes.md) | x=recording, mean=mean | kind=highpass, lower=$lower, method=$method, ripple=$ripple, transition=$transition, edge=$edge, transient_samples=$transient_samples, remove_mean=$remove_mean, notch_bandwidth=$notch_bandwidth, bandstop_order=$bandstop_order, tolerance=$tolerance | y |
+| chunks over `recording` | [`signal.filter`](../nodes.md) | x=recording, mean=mean | kind=highpass, lower=$lower, method=$method, ripple=$ripple, transition=$transition, design=$design, edge=$edge, transient_samples=$transient_samples, remove_mean=$remove_mean, notch_bandwidth=$notch_bandwidth, bandstop_order=$bandstop_order, tolerance=$tolerance | y |
 
 `before` steps run once, `chunks` steps run on every chunk of the recording, `after` steps run once on what the chunks accumulated.
 

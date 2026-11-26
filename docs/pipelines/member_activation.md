@@ -3,14 +3,14 @@
 
 # `member_activation`
 
-one filter-bank member's source activation on the cortex, at the member's own rate (the optical flow's input).
+one filter-bank member's source activation on the cortex, at the frames of a frame grid (the optical flow's input).
 
 Version 1, scope `subject`. Run it with `nxr-neuro run member_activation --dataset <folder> --subject <id> ...`; `nxr-neuro run member_activation --help` prints the same options.
 
 Examples:
 
 ```
-nxr-neuro run member_activation --dataset <folder> --subject sub-01 --recording rest --family morlet --gain 2 --freq "10 Hz"
+nxr-neuro run member_activation --dataset <folder> --subject sub-01 --recording rest --family morlet --gain 2 --freq "10 Hz" --grid "<the frame grid>"
 ```
 
 ## Inputs
@@ -19,6 +19,7 @@ nxr-neuro run member_activation --dataset <folder> --subject sub-01 --recording 
 |---|---|---|
 | `recording` | field recording, each true, where {"name": "$recording"} | yes |
 | `kernel` | operator inverse kernel, from recording.manifold.0, where {"name": "$kernel"} | yes |
+| `grid` | selection any, manifold recording.time, where {"name": "$grid"} (the frame grid of the member's band (`nxr-neuro run select_time_grid --rule frames --band 8-12Hz` first)) | yes |
 
 ## Parameters
 
@@ -28,6 +29,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 |---|---|---|---|---|---|
 | `recording` | `--recording` | `none` | - |  | the recording's name, or none: every recording of the subject, one run each |
 | `kernel` | `--kernel` | `none` | - |  | the inverse kernel's name, or none: the subject's one inverse kernel on the recording's channels |
+| `grid` | `--grid` | `none` | - |  | the frame grid's name (made by `select_time_grid --rule frames`), or none: the one frame grid of the recording's time line |
 | `family` | `--family` | none | - |  | the time filter bank: itersine \| meyer \| morlet \| morse \| amor \| bump (no default) |
 | `gain` | `--gain` | none | - |  | the peak in-band response of each member (no default; 2 makes \|c\| the physical amplitude of a real recording) |
 | `freq` | `--freq` | none | Hz |  | the frequency whose nearest filter-bank member is analysed |
@@ -40,15 +42,14 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `gamma` | `--gamma` | `3.0` | - |  | Morse: gamma |
 | `time_bandwidth` | `--time-bandwidth` | `60.0` | - |  | Morse: the time-bandwidth product |
 | `resolution` | `--resolution` | `0.5 Hz` | Hz |  | the frequency resolution of the grid the filter bank is designed on |
-| `oversample` | `--oversample` | `2.0` | - |  | the member's own rate is oversample x the rate its bins need |
-| `tolerance` | `--tolerance` | none | - |  | the impulse response's tail the margin may leave out, relative to its norm; null: 1e-7 (float32 blocks); name 1e-12 for float64 |
+| `tolerance` | `--tolerance` | `1e-06` | - |  | the member's impulse response the halo leaves out, relative to its L1 norm (a chunk's frames are the whole record's to that tail) |
 | `input` | `--input` | `amplitude` | - | amplitude, signed | amplitude = \|J\| \| signed = the real part (fixed-orientation kernels only) |
 
 ## The chain of nodes
 
 | phase | node | in | with | out |
 |---|---|---|---|---|
-| chunks over `recording` | [`signal.member_analytic`](../nodes.md) | x=recording, channels_of=kernel | family=$family, gain=$gain, freq=$freq, centres=$centres, cycles=$cycles, voices=$voices, anchor=$anchor, limits=$limits, half_width=$half_width, gamma=$gamma, time_bandwidth=$time_bandwidth, resolution=$resolution, oversample=$oversample, tolerance=$tolerance | z |
+| chunks over `recording` | [`signal.member_analytic`](../nodes.md) | x=recording, channels_of=kernel, tiling=grid | family=$family, gain=$gain, freq=$freq, centres=$centres, cycles=$cycles, voices=$voices, anchor=$anchor, limits=$limits, half_width=$half_width, gamma=$gamma, time_bandwidth=$time_bandwidth, resolution=$resolution, tolerance=$tolerance | z |
 | chunks over `recording` | [`signal.flow_activation`](../nodes.md) | z=z, kernel=kernel | input=$input | a |
 
 `before` steps run once, `chunks` steps run on every chunk of the recording, `after` steps run once on what the chunks accumulated.
@@ -62,9 +63,9 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 ## Notes from the definition
 
 ```text
-A FIELD CHAIN (`kind: chain`): the activation of ONE filter-bank member on the cortex, the input of optical flow: the recording through one member of a time filter bank (Itersine, Meyer, Morlet, Morse, Amor, Bump) at the
-member's own rate, then the kernel: field<cortex x frames(member rate)>. Pointwise; no reduction. Composed into `measure` (preset flow_max_amplitude) or run alone; `flow_modes` reads it.
+A FIELD CHAIN (`kind: chain`): the activation of ONE filter-bank member on the cortex, the input of optical flow: the recording through one member of a time filter bank (Itersine, Meyer, Morlet, Morse, Amor, Bump), its full-rate analytic signal read at the
+frames of a frame grid, then the kernel: field<cortex x frames(the grid's)>. Pointwise; no reduction. Composed into `measure` (preset flow_max_amplitude) or run alone; `flow_modes` reads it.
 
-  nxr-neuro run member_activation --dataset <folder> --subject sub-01 --recording rest --family morlet --gain 2 --freq "10 Hz"
+  nxr-neuro run member_activation --dataset <folder> --subject sub-01 --recording rest --family morlet --gain 2 --freq "10 Hz" --grid "<the frame grid>"
 ```
 

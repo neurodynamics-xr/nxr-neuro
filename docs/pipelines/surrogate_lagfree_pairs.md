@@ -33,6 +33,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `psd` | `--psd` | none | - |  | the recording's Welch PSD (its bandwidth through the band's gain gives the dof) |
 | `band` | `--band` | none | Hz |  | the band [lo, hi] |
 | `shape` | `--shape` | `morlet` | - | morlet, meyer | the band's analytic gain: morlet \| meyer |
+| `half_width` | `--half-width` | `0.3333333333333333` | octave |  | a meyer band's transition half-width (read for shape meyer) |
 | `draws` | `--draws` | `1000` | - |  | the lag-free Wishart draws a burst (at least 20) |
 | `seed` | `--seed` | `0` | - |  | the draws' seed |
 | `name` | `--name` | `surrogate_lagfree_pairs.{bursts}` | - |  | the per-burst measurement's name; the run's statistic is <name>.run |
@@ -41,7 +42,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 
 | phase | node | in | with | out |
 |---|---|---|---|---|
-| before | [`synthesis.lagfree_pairs`](../nodes.md) | recording=recording, bursts=bursts, psd=psd | windows=$windows, band=$band, shape=$shape, draws=$draws, seed=$seed | per_burst, run |
+| before | [`synthesis.lagfree_pairs`](../nodes.md) | recording=recording, bursts=bursts, psd=psd | windows=$windows, band=$band, shape=$shape, half_width=$half_width, draws=$draws, seed=$seed | per_burst, run |
 
 `before` steps run once, `chunks` steps run on every chunk of the recording, `after` steps run once on what the chunks accumulated.
 

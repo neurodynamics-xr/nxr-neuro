@@ -61,7 +61,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 
 | output | stored as |
 |---|---|
-| `psd` | kind statistic, name $name, of recording, axes [{"name": "channel", "on": "recording.manifold.0"}, {"name": "frequency", "line": "{recording}_freq"}], partition {"tiling": "$name_segments", "on": "recording.time"} |
+| `psd` | kind statistic, name $name, of recording, axes [{"name": "channel", "on": "recording.manifold.0"}, {"name": "frequency", "line": "{recording}_freq", "of_time": "recording.time"}], partition {"tiling": "$name_segments", "on": "recording.time"} |
 
 ## Notes from the definition
 
@@ -69,8 +69,8 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 THE SENSOR PSD of a recording (a statistic): the Welch power spectral density of every channel, streamed chunk by chunk with the segments carried across chunk edges, the recording's bad segments left out.
 A segment is a TILE of the recording's line (2^k samples, the default `tiles`, k = round(log2(segment_seconds x fs)), the span snapping to level k so that segments start on the line's grid); the presets
 `brainstorm` (Brainstorm's bst_psd), `scipy` (scipy.signal.welch) and `nxr-chain` (nxr's spectral chain) keep their reference's segment, window, detrend and scaling, to the bit.
-Stored: the statistic `<recording>_psd_welch` (measure power_density by method welch, OF the recording; axes channel x frequency), its frequency line `<recording>_freq` (shared by every spectrum of this
-resolution) and its segment partition `<name>_segments` (a closed-form spans Selection on the time line; its members the segments), with the scaling record a reader converts with.
+Stored: the statistic `<recording>_psd_welch` (measure power_density by method welch, OF the recording; axes channel x frequency), its frequency line, the one-sided line of a span of n samples at the rate (found by the time line, n and the rate through its analytic fft operator row, named `<recording>_freq_L<k>` for n = 2^k, else
+`_freq_n<n>`; a line an older run stored as `<recording>_freq` with the same grid is still found) and its segment partition `<name>_segments` (a closed-form spans Selection on the time line; its members the segments), with the scaling record a reader converts with.
 
   nxr-neuro run psd --dataset <folder> --subject sub-01 --recording rest --all [--set brainstorm] [--segment-seconds 2]
 ```

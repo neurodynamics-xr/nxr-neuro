@@ -17,7 +17,7 @@ nxr-neuro run cellquadrature --dataset <folder> --subject sub-01 --recording res
 
 | input | what it is | required |
 |---|---|---|
-| `cross_spectrum` | statistic any, where {"name": "$cross_spectrum"} | yes |
+| `cross_spectrum` | selection any, where {"name": "$cross_spectrum"} (the band's time grid holding the analytic cross-spectrum (`nxr-neuro run measure --set analytic_cross_spectrum_tiles` first)) | yes |
 | `recording` | field recording, where {"name": "$recording"} | yes |
 | `kernel` | operator inverse kernel, where {"name": "$kernel"} | yes |
 | `joint` | selection set, where {"name": "$joint"} (the joint cells of the surface's level and the cross-spectrum's tile level (`nxr-neuro run select_product` first, or composed by `run measure`)) | yes |
@@ -29,7 +29,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 
 | parameter | option | default | unit | choices | meaning |
 |---|---|---|---|---|---|
-| `cross_spectrum` | `--cross-spectrum` | none | - |  | the analytic cross-spectrum's name (<name>_<band>_windows) |
+| `cross_spectrum` | `--cross-spectrum` | none | - |  | the analytic cross-spectrum's time grid by name ("<recording> time grid band 8-16 Hz"), whose members carry the complex measurement `sum` |
 | `recording` | `--recording` | none | - |  | the recording the cross-spectrum is of (the measurements are of it) |
 | `kernel` | `--kernel` | `none` | - |  | the inverse kernel's name (free or fixed orientation), or none: the subject's one inverse kernel |
 | `joint` | `--joint` | none | - |  | the joint cells' name (its time level is the cross-spectrum's tile level) |
@@ -55,9 +55,9 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | output | stored as |
 |---|---|
 | `cells` | kind measurement, name cellquadrature.{cross_spectrum}.{joint}, over joint, of recording |
-| `cell_pairs` | kind measurement, name tilepairs.{cross_spectrum}.{joint}, over joint, of recording |
-| `bursts_q` | kind measurement, name cellquadrature.{cross_spectrum}.{bursts}, over bursts, of recording |
-| `burst_pairs` | kind measurement, name tilepairs.{cross_spectrum}.{bursts}, over bursts, of recording |
+| `cell_pairs` | kind measurement, optional true, name tilepairs.{cross_spectrum}.{joint}, over joint, of recording |
+| `bursts_q` | kind measurement, optional true, name cellquadrature.{cross_spectrum}.{bursts}, over bursts, of recording |
+| `burst_pairs` | kind measurement, optional true, name tilepairs.{cross_spectrum}.{bursts}, over bursts, of recording |
 
 ## Notes from the definition
 
