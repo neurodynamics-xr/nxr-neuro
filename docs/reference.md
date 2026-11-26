@@ -684,6 +684,15 @@ subjects (as `list` returns them); for a catalogue it opens each package read-on
 | `nxr-neuro import badsegments` | Import a recording's bad segments from a file. | `convert badsegments` |
 | `nxr-neuro import events` | Import a recording's events from a file. | `convert events` |
 
+**The BST-BIN binary of a raw link** (`nxr::bst::BstReader`, `io/src/bst_recording.cpp`; issue #276; register D169). Brainstorm writes and reads every epoch of a `.bst`, the last one included, with each
+channel's block `epochsize` samples apart (`out_fwrite_bst.m`, `in_fread_bst.m`; the reference): when `nsamples` ends inside the last epoch, its channels are still `epochsize` apart, the
+file ends after the last channel's declared samples (or holds the last epoch whole), and only the declared samples are kept. The reader takes the layout from the file's size: that one,
+the last epoch whole, or the last epoch re-laid with its channels their declared length apart (what an earlier re-lay script writes); a size that fits none of them is refused, naming the
+three sizes. A file shorter than all of them is a copy cut short, read in Brainstorm's layout: the samples every channel holds in full are imported and reported (`truncated`), fewer than half
+refused. Up to 0.4.3 the reader took a partial last epoch's channels to be their declared length apart, so every channel but the first read its last epoch from the wrong place, with no
+error. Tests: `test_bst_binary` (issue #276's file, Brainstorm's layout, the last epoch whole, the
+re-laid layout, cut short, a size that fits none).
+
 **MATLAB v7.3 files in the WebAssembly build.** A `.mat` saved with `-v7.3` is an HDF5 file. The native builds read it (matio over HDF5), as before. The WebAssembly build has no HDF5
 (and is 32-bit, with 4 GB at most), so there `import subject`, `import condition`, `import template` and `import group` **skip each v7.3 file and import the rest**, instead of
 rolling the whole subject back: a fibres file, a non-primary surface, a subject image, a recording, a time-frequency file, a kernel (or its head model) or a map. Each skipped file is

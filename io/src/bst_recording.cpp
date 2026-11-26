@@ -269,16 +269,31 @@ BstReader::BstReader(const Value& sfile, const fs::path& path) : path_(path) {
   epoch_ = num("epochsize");
   hdr_ = num("hdrsize");
   n_total_ = declared_ = num("nsamples");
-  // A file SHORTER than its header declares (an interrupted copy or write): keep the largest sample count every channel has in full, and say so (truncated()).
-  // An epoch is [n_chan x its length] channel after channel, so in a cut epoch the last channel is the one that runs out first.
+  last_stride_ = epoch_;
+  if (n_chan_ < 1 || epoch_ < 1 || hdr_ < 0 || declared_ < 0)
+    value_error("BST-BIN file " + py_path(path_.string()) + ": a header with nchannels " + i2s(n_chan_) + ", epochsize " + i2s(epoch_) + ", hdrsize " + i2s(hdr_) + ", nsamples " + i2s(declared_) + ": not a header the BST-BIN layout can be read with");
   std::error_code ec;
   const auto bytes = fs::file_size(path_, ec);
-  if (ec) return;   // a missing file is reported by the first read
-  const std::int64_t avail = std::max<std::int64_t>(0, (static_cast<std::int64_t>(bytes) - hdr_) / 4);
-  const std::int64_t full = std::min(avail / (n_chan_ * epoch_), declared_ / epoch_);
-  if (full * epoch_ >= declared_) return;
-  const std::int64_t len = std::min(epoch_, declared_ - full * epoch_), rem = avail - full * n_chan_ * epoch_;
-  n_total_ = std::min(declared_, full * epoch_ + std::clamp<std::int64_t>(rem - (n_chan_ - 1) * len, 0, len));
+  if (ec || declared_ == 0) return;   // a missing file is reported by the first read
+  // THE LAYOUT (in_fread_bst.m and out_fwrite_bst.m): every epoch, the LAST one included, holds each channel's block `epochsize` samples apart; the file ends after the last channel's
+  // declared samples (`epoch stride`), or holds the last epoch whole (`whole epochs`). A file whose last epoch was re-laid with its channels its declared length apart (`cut`) is read too.
+  const std::int64_t n_ep = (declared_ + epoch_ - 1) / epoch_, rem = declared_ - (n_ep - 1) * epoch_, before = (n_ep - 1) * n_chan_ * epoch_;
+  const std::int64_t whole = before + n_chan_ * epoch_, stride = before + (n_chan_ - 1) * epoch_ + rem, cut = before + n_chan_ * rem;
+  const std::int64_t size = static_cast<std::int64_t>(bytes);
+  auto at = [&](std::int64_t floats) { return hdr_ + floats * 4; };
+  if (size == at(whole) || size == at(stride)) { layout_ = size == at(whole) ? "whole epochs" : "epoch stride"; return; }
+  if (size == at(cut)) { layout_ = "cut"; last_stride_ = rem; return; }
+  if (size > at(stride))
+    value_error("BST-BIN file " + py_path(path_.string()) + " is " + i2s(size) + " bytes, which fits neither layout of its header (" + i2s(n_chan_) + " channels, " + i2s(declared_) +
+                " samples, epochs of " + i2s(epoch_) + ", a " + i2s(hdr_) + "-byte header): " + i2s(at(stride)) + " bytes with the last channel ending at its declared samples, " +
+                i2s(at(whole)) + " with the last epoch whole" + (rem < epoch_ ? ", or " + i2s(at(cut)) + " with the last epoch cut to its declared samples" : std::string()) + ": refused");
+  // A file SHORTER than its header declares (an interrupted copy or write), read in Brainstorm's layout: keep the largest sample count every channel has in full, and say so (truncated()).
+  // Each channel's block is `epochsize` samples apart in every epoch, so in a cut epoch the last channel is the one that runs out first.
+  layout_ = "epoch stride, cut short";
+  const std::int64_t avail = std::max<std::int64_t>(0, (size - hdr_) / 4);
+  const std::int64_t full = std::min(avail / (n_chan_ * epoch_), n_ep - 1);
+  const std::int64_t len = std::min(epoch_, declared_ - full * epoch_), left = avail - full * n_chan_ * epoch_;
+  n_total_ = std::min(declared_, full * epoch_ + std::clamp<std::int64_t>(left - (n_chan_ - 1) * epoch_, 0, len));
   if (n_total_ == declared_) return;
   if (n_total_ * 2 < declared_)
     throw nxr::io::Error(code::invalid_argument, "BST-BIN file " + py_path(path_.string()) + " holds " + i2s(n_total_) + " of the " + i2s(declared_) +
@@ -293,19 +308,20 @@ void BstReader::read(std::int64_t s0, std::int64_t n, std::int64_t c0, std::int6
   if (!f) throw nxr::io::Error(code::not_found, "[Errno 2] No such file or directory: " + str_repr(py_path(path_.string())));
   std::vector<float> block;
   std::int64_t got = 0;
-  const std::int64_t e0 = s0 / epoch_, e1 = (s0 + n - 1) / epoch_;
+  const std::int64_t e0 = s0 / epoch_, e1 = (s0 + n - 1) / epoch_, last = (declared_ - 1) / epoch_;
   for (std::int64_t e = e0; e <= e1; ++e) {
-    const std::int64_t len = std::min(epoch_, declared_ - e * epoch_);   // the last epoch is partial: its channels are `len` apart, not `epoch_`
+    // a channel's block is `epoch_` samples apart in every epoch (Brainstorm's layout), the last one's `last_stride_` (its declared length in the `cut` layout)
+    const std::int64_t stride = e == last ? last_stride_ : epoch_;
     const std::int64_t lo = std::max(e * epoch_, s0), hi = std::min((e + 1) * epoch_, s0 + n), count = hi - lo;
-    block.assign(static_cast<std::size_t>(len * nc), 0.0f);
+    block.assign(static_cast<std::size_t>(stride * nc), 0.0f);
     f.clear();
-    f.seekg(static_cast<std::streamoff>(hdr_ + (e * n_chan_ * epoch_ + c0 * len) * 4));
+    f.seekg(static_cast<std::streamoff>(hdr_ + (e * n_chan_ * epoch_ + c0 * stride) * 4));
     f.read(reinterpret_cast<char*>(block.data()), static_cast<std::streamsize>(block.size() * 4));
     const std::int64_t have = static_cast<std::int64_t>(f.gcount()) / 4;
-    // a cut file: every channel of the samples kept is read in full (n_total_), the rest of the epoch need not be there
-    if (have < (nc - 1) * len + (hi - e * epoch_)) value_error("cannot reshape array of size " + i2s(have) + " into shape (" + i2s(nc) + "," + i2s(len) + ")");
+    // the last channel may end at its declared (or, cut short, its kept) samples: every channel of the samples read must be there in full
+    if (have < (nc - 1) * stride + (hi - e * epoch_)) value_error("cannot reshape array of size " + i2s(have) + " into shape (" + i2s(nc) + "," + i2s(stride) + ")");
     for (std::int64_t c = 0; c < nc; ++c)
-      std::copy(block.begin() + c * len + (lo - e * epoch_), block.begin() + c * len + (hi - e * epoch_), out.begin() + c * n + got);
+      std::copy(block.begin() + c * stride + (lo - e * epoch_), block.begin() + c * stride + (hi - e * epoch_), out.begin() + c * n + got);
     got += count;
   }
 }

@@ -20,7 +20,10 @@
 namespace nxr::bst {
 
 // ── the BST-BIN binary (nxr.convert.raw) ──
-// Brainstorm's own format: a hdrsize header, then EPOCHS of [nchannels x epochsize] float32, each channel contiguous within its epoch (in_fread_bst.m).
+// Brainstorm's own format: a hdrsize header, then EPOCHS of [nchannels x epochsize] float32, each channel contiguous within its epoch and `epochsize` samples
+// apart in every epoch, the last one included (in_fread_bst.m, out_fwrite_bst.m): the file ends after the last channel's declared samples ("epoch stride") or
+// holds the last epoch whole ("whole epochs"). A last epoch re-laid with its channels their declared length apart ("cut") is read too; a file shorter than its
+// header declares is read in Brainstorm's layout (truncated()); a size that fits none of them is refused.
 class BstReader {
  public:
   BstReader(const Value& sfile, const std::filesystem::path& path);
@@ -30,10 +33,13 @@ class BstReader {
   std::int64_t n_samples() const { return n_total_; }   // the samples the file holds in full (< declared_samples() when it is cut short)
   std::int64_t declared_samples() const { return declared_; }
   bool truncated() const { return n_total_ < declared_; }
+  // the layout found from the file's size: "epoch stride", "whole epochs", "cut" or "epoch stride, cut short" (empty when the file was not there to measure)
+  const std::string& layout() const { return layout_; }
 
  private:
   std::filesystem::path path_;
-  std::int64_t n_chan_, epoch_, hdr_, n_total_, declared_;
+  std::int64_t n_chan_, epoch_, hdr_, n_total_, declared_, last_stride_;
+  std::string layout_;
 };
 
 // the binary a raw link reads (D122); emits `relinked` when it is beside the link
