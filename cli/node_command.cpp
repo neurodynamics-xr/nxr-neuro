@@ -157,7 +157,7 @@ int read_node_main(const std::vector<std::string>& argv) {
   std::set<std::string> valued = {"--dataset", "--subject", "--name", "--out", "--region", "--budget"}, flags;
   if (what == "field") { valued.insert({"--from", "--to", "--rows", "--projectors", "--onto"}); flags = {"--all", "--shape-only", "--projection-only"}; }
   else if (what == "operator") valued.insert("--onto");
-  else if (what == "selection") valued.insert({"--measure", "--field"});
+  else if (what == "selection") valued.insert({"--measure", "--field", "--rows-on"});
   else if (what == "manifold") valued.insert("--family");
   else if (what != "statistic" && what != "operator") throw Usage("nxr-neuro read: error: argument what: invalid choice: '" + what + "'");
   const Args a = parse(prog, rest, valued, flags, {"--dataset", "--subject", "--name"});
@@ -178,6 +178,7 @@ int read_node_main(const std::vector<std::string>& argv) {
   }
   rq.measure = a.maybe("--measure");
   rq.field = a.maybe("--field");
+  rq.rows_on = a.maybe("--rows-on");
   rq.family = a.maybe("--family");
   rq.onto = a.maybe("--onto");
   rq.out = a.maybe("--out");
@@ -279,7 +280,7 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.declare = a.maybe("--declare");
     r = call(prog, [&] { return task::add_statistic(rq, progress()); });
   } else if (what == "measurements") {
-    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--selection", "--field", "--unit", "--producer", "--values", "--write", "--shape", "--dtype", "--region"},
+    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--selection", "--field", "--unit", "--producer", "--values", "--write", "--shape", "--dtype", "--region", "--rows-on"},
                          {"--replace", "--begin", "--append", "--commit"}, {"--dataset"}, 0, {"--measure", "--declare"});
     task::AddMeasurementsRequest rq;
     rq.dataset = a.get("--dataset");
@@ -294,6 +295,7 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.measure = values_of(a, "--measure");
     rq.declare = values_of(a, "--declare");
     rq.producer = a.maybe("--producer");
+    rq.rows_on = a.maybe("--rows-on");
     if (const auto v = a.maybe("--values")) rq.measure_arrays.emplace_back("", task::ArrayInput(*v));   // a write in pieces: the region's values of its one measure
     if (rq.measure.empty() && rq.measure_arrays.empty() && !rq.piece.active()) throw Usage(prog + ": error: the following arguments are required: --measure");
     r = call(prog, [&] { return task::add_measurements(rq, progress()); });

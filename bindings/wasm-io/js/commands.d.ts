@@ -723,6 +723,7 @@ export interface ReadSelectionOptions {
   name: string | number;
   out?: string | number;
   region?: string | number;
+  rows_on?: string | number;
   subject: string | number;
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
@@ -813,10 +814,10 @@ export interface AddStatisticOptions {
   progress?: (line: Record<string, unknown>) => void;
 }
 export interface AddMeasurementsOptions {
-  append?: string | number;
-  begin?: string | number;
+  append?: boolean;
+  begin?: boolean;
   by?: string | number;
-  commit?: string | number;
+  commit?: boolean;
   dataset: string | number;
   declare?: string[] | string;
   dtype?: string | number;
@@ -825,6 +826,7 @@ export interface AddMeasurementsOptions {
   producer?: string | number;
   region?: Array<[number, number]> | string[] | string;
   replace?: boolean;
+  rows_on?: string | number;
   selection?: string | number;
   shape?: number[] | string;
   subject?: string | number;

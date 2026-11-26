@@ -149,7 +149,7 @@ Json json_of(const AddStatisticRequest& r) {
 }
 Json json_of(const AddMeasurementsRequest& r) {
   Json j = Json{{"dataset", r.dataset}, {"subject", r.subject}, {"selection", r.selection}, {"measure", r.measure}, {"declare", r.declare}, {"replace", r.replace}, {"created_by", r.created_by}};
-  for (const auto& [k, v] : std::vector<std::pair<const char*, const std::optional<std::string>*>>{{"field", &r.field}, {"unit", &r.unit}, {"producer", &r.producer}, {"by", &r.by}})
+  for (const auto& [k, v] : std::vector<std::pair<const char*, const std::optional<std::string>*>>{{"field", &r.field}, {"unit", &r.unit}, {"producer", &r.producer}, {"by", &r.by}, {"rows_on", &r.rows_on}})
     if (*v) j[k] = **v;
   return j;
 }
@@ -178,7 +178,7 @@ AddMeasurementsRequest measurements_of(const Json& j) {
   AddMeasurementsRequest r;
   r.dataset = j["dataset"]; r.subject = j["subject"]; r.selection = j["selection"]; r.replace = j["replace"]; r.created_by = j["created_by"];
   r.measure = list(j, "measure"); r.declare = list(j, "declare");
-  r.field = opt(j, "field"); r.unit = opt(j, "unit"); r.producer = opt(j, "producer"); r.by = opt(j, "by");
+  r.field = opt(j, "field"); r.unit = opt(j, "unit"); r.producer = opt(j, "producer"); r.by = opt(j, "by"); r.rows_on = opt(j, "rows_on");
   return r;
 }
 

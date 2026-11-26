@@ -459,6 +459,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.measure = o.list("measure");
     q.declare = o.json_texts("declare");
     q.producer = o.json_text("producer");
+    q.rows_on = o.maybe("rows_on");
     q.replace = o.flag("replace");
     q.by = o.maybe("by");
     q.created_by = created_by;
@@ -730,6 +731,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     face::ReadNodeRequest q = node();
     q.measure = o.maybe("measure");
     q.field = o.maybe("field");
+    q.rows_on = o.maybe("rows_on");
     call([&] { return face::read_selection(q); });
   } else if (c == "read manifold") {
     face::ReadNodeRequest q = node();

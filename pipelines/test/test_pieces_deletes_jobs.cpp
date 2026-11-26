@@ -399,6 +399,27 @@ int main() {
     const task::CommandResult y = face::read_selection(rd);
     CHECK(x.result["declaration"]["merge"] == "sum" && x.arrays.size() == y.arrays.size());
     if (x.arrays.size() == 2 && y.arrays.size() == 2) CHECK(x.arrays[1].bytes == y.arrays[1].bytes);
+    // ONE MEASURE ON TWO MANIFOLDS (issue #264): the manifold the rows lie on is part of the key; read without it, the two are named; with it, each its own
+    task::AddMeasurementsRequest on_a = whole, on_b = whole;
+    on_a.measure_arrays = {{"flow_on", mem("float64", {3, 4}, coefficients)}};
+    on_a.declare = {R"J({"name": "flow_on", "merge": "sum"})J"};
+    on_a.rows_on = "sensors";
+    std::vector<double> other(coefficients.size(), 7.0);
+    on_b.measure_arrays = {{"flow_on", mem("float64", {3, 4}, other)}};
+    on_b.declare.clear();
+    on_b.rows_on = "epoch_time";
+    task::add_measurements(on_a);
+    task::add_measurements(on_b);
+    CHECK(has(thrown([&] { task::add_measurements(on_b); }), "on epoch_time: pass --replace"));
+    face::ReadNodeRequest ro = reading("channel_groups", false);
+    ro.measure = "flow_on"; ro.field = "rest";
+    CHECK(has(thrown([&] { face::read_selection(ro); }), "stored on several manifolds"));
+    ro.rows_on = "sensors";
+    const task::CommandResult ra = face::read_selection(ro);
+    ro.rows_on = "epoch_time";
+    const task::CommandResult rb = face::read_selection(ro);
+    CHECK(ra.arrays.size() == 2 && rb.arrays.size() == 2);
+    if (ra.arrays.size() == 2 && rb.arrays.size() == 2 && y.arrays.size() == 2) CHECK(ra.arrays[1].bytes == y.arrays[1].bytes && rb.arrays[1].bytes != ra.arrays[1].bytes);
     // a begin of two measures, or of a shape that is not [members ...], is refused
     task::AddMeasurementsRequest two = b;
     two.measure = {"x1", "x2"};

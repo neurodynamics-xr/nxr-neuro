@@ -187,6 +187,7 @@ struct MeasurementOut {
   };
   std::vector<Measure> measures;
   Json producer;                                   // the maker's own facts, added to the unit's producer record in each row's producer_json (null: the unit's record alone)
+  std::optional<std::string> rows_manifold_id;     // the manifold the arrays' rows lie on (a hemisphere, an eigen line): part of the store's key and of the arrays' path (issue #264); none: not named
   Json attributes;                                 // what each measure's array says of its own axes (the zarr attributes: rows = ..., columns = ...); null: none
   Json band;                                       // {name, lo_hz, hi_hz} or null: the band of the dataset's standard bank
   std::optional<std::string> within_selection_id;  // the Selection a measure is WITHIN (a bank of bands whose code is the band's index: the pyramid's `atlas bands`) and the member of it: wins over `band`
@@ -448,7 +449,8 @@ class Subject {
   // the selections that carry `measure` measured on `of_field_id` (ids, ascending)
   std::vector<std::string> measured_selections(const std::string& of_field_id, const std::string& measure) const;
   bool has_measures(const std::string& selection_id, const std::string& of_field_id) const;   // any measure of that field on the selection
-  bool has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt) const;
+  bool has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt,
+                   const std::optional<std::string>& rows_manifold_id = std::nullopt) const;   // rows_manifold_id: only the rows on that manifold (issue #264)
 
   // ---- read measurements: io's read-time query (nxr/io/measures.h, query_measurements): a stored measure as stored, a derived one from its ingredients, a pyramid's
   // array-backed measurement rolled up at read to the levels `q` names (that needs the subject's store: a Subject made from a writer)
@@ -491,7 +493,8 @@ class Unit {
   // the measurement rows of the unit, recorded as computed by `by().tool` unless a row names its own `computed_by`; returns the number written
   std::int64_t write_measurements(const Json& rows);
   std::int64_t remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id = std::nullopt,
-                                   const std::optional<std::string>& measure = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt);
+                                   const std::optional<std::string>& measure = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt,
+                                   const std::optional<std::string>& rows_manifold_id = std::nullopt);   // rows_manifold_id: only the rows on that manifold
   void set_params(const std::string& selection_id, const Json& params);
   // ---- typed writes, each returning the new node's id (call `replace` on its `path_of` first: a node already there is refused or moved aside)
   std::string field(const FieldOut&);

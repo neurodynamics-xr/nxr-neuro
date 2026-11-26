@@ -1114,9 +1114,10 @@ struct SelectionMeasurementRow {
   std::optional<std::string> of_statistic_id;
   std::optional<std::int64_t> of_index;
   Json producer_json;
+  std::optional<std::string> rows_manifold_id;
   static constexpr const char* kTable = "selection_measurement";
   static const std::vector<std::string>& columns() {
-    static const std::vector<std::string> c = {"selection_id", "code", "of_field_id", "measure", "value", "weight", "within_selection_id", "within_code", "unit", "computed_utc", "computed_by", "array_path", "component", "of_statistic_id", "of_index", "producer_json"};
+    static const std::vector<std::string> c = {"selection_id", "code", "of_field_id", "measure", "value", "weight", "within_selection_id", "within_code", "unit", "computed_utc", "computed_by", "array_path", "component", "of_statistic_id", "of_index", "producer_json", "rows_manifold_id"};
     return c;
   }
   static SelectionMeasurementRow from_row(const Row& r) {
@@ -1137,6 +1138,7 @@ struct SelectionMeasurementRow {
     x.of_statistic_id = detail::take_opt<std::string>(r, "of_statistic_id");
     x.of_index = detail::take_opt<std::int64_t>(r, "of_index");
     x.producer_json = detail::take_json(r, "producer_json");
+    x.rows_manifold_id = detail::take_opt<std::string>(r, "rows_manifold_id");
     return x;
   }
   static SelectionMeasurementRow from_json(const Json& j) {
@@ -1157,6 +1159,7 @@ struct SelectionMeasurementRow {
     x.of_statistic_id = detail::get_opt<std::string>(j, "of_statistic_id");
     x.of_index = detail::get_opt<std::int64_t>(j, "of_index");
     x.producer_json = detail::get_json(j, "producer_json");
+    x.rows_manifold_id = detail::get_opt<std::string>(j, "rows_manifold_id");
     return x;
   }
   Json to_json() const {
@@ -1177,6 +1180,7 @@ struct SelectionMeasurementRow {
     detail::put(j, "of_statistic_id", of_statistic_id);
     detail::put(j, "of_index", of_index);
     detail::put_json(j, "producer_json", producer_json);
+    detail::put(j, "rows_manifold_id", rows_manifold_id);
     return j;
   }
 };

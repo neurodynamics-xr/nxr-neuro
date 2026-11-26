@@ -232,6 +232,7 @@ std::int64_t delete_measurements(Database& db, const Json& w) {
     }
   }
   if (w.contains("measure")) { sql += " AND measure = ?"; args.push_back(v(w["measure"])); }
+  if (w.contains("rowsManifoldId") && !w["rowsManifoldId"].is_null()) { sql += " AND rows_manifold_id = ?"; args.push_back(v(w["rowsManifoldId"])); }   // only the rows on that manifold (issue #264)
   // the rows the statement itself deleted (SQLite's changes(), as the Studio's `.run().changes`): not the sync jobs its trigger queues
   std::int64_t n = 0;
   db.tx([&] {
@@ -242,7 +243,8 @@ std::int64_t delete_measurements(Database& db, const Json& w) {
 }
 
 MeasurementValues measurement_values(SubjectWriter& sub, const std::string& selection_id, const std::optional<std::string>& of_field_id,
-                                     const std::optional<std::string>& of_statistic_id, const std::optional<std::int64_t>& of_index, const std::string& measure) {
+                                     const std::optional<std::string>& of_statistic_id, const std::optional<std::int64_t>& of_index, const std::string& measure,
+                                     const std::optional<std::string>& rows_manifold_id) {
   if (measure_is_derived(measure)) throw Error(code::invalid_argument, "measurements: '" + measure + "' is derived at read, never stored; summarize its ingredients");
   const Database& db = sub.db();
   std::string w = "selection_id = ? AND measure = ? AND within_selection_id IS NULL";
@@ -255,6 +257,23 @@ MeasurementValues measurement_values(SubjectWriter& sub, const std::string& sele
     w += of_field_id ? " AND of_field_id = ?" : " AND of_field_id IS NULL";
     if (of_field_id) a.push_back(Value(*of_field_id));
     if (stat_cols) w += " AND of_statistic_id IS NULL";
+  }
+  // THE MANIFOLD THE ROWS LIE ON (issue #264): named, only its array; not named, one array of the measure, or a refusal naming the manifolds
+  if (has_column(db, "selection_measurement", "rows_manifold_id")) {
+    if (rows_manifold_id) { w += " AND rows_manifold_id = ?"; a.push_back(Value(*rows_manifold_id)); }
+    else {
+      const auto on = db.all("SELECT DISTINCT rows_manifold_id FROM selection_measurement WHERE " + w + " AND array_path IS NOT NULL AND rows_manifold_id IS NOT NULL", a);
+      if (on.size() > 1) {
+        std::string names;
+        for (const Row& r : on) {
+          const auto n = db.one("SELECT name FROM manifold WHERE id = ?", {Value(text(r, "rows_manifold_id"))});
+          names += (names.empty() ? "" : ", ") + (n ? text(*n, "name") : text(r, "rows_manifold_id"));
+        }
+        throw Error(code::invalid_argument, "measurements: '" + measure + "' is stored on several manifolds (" + names + "): name the one its rows lie on");
+      }
+    }
+  } else if (rows_manifold_id) {
+    throw Error(code::no_such_row, "measurements: no stored '" + measure + "' on that manifold (the dataset names no manifold of a measurement's rows)");
   }
   MeasurementValues out;
   std::set<std::string> by;

@@ -46,6 +46,9 @@ int main() {
     const np::Definition b = np::expand(d0, params);
     for (const char* o : {"left_operator", "right_operator"})
       if (!b.outputs.contains(o) || b.outputs[o].value("kind", std::string()) != "operator" || b.outputs[o].value("derived_from", std::string()) != "kernel") { std::printf("  source_flow: %s is not stored\n", o); ++failures; }
+    // each hemisphere's measurements name the manifold their rows lie on, with no suffix on the measures (issue #264)
+    if (b.outputs["left_whole_vertices"].value("rows", std::string()) != "left.to" || b.outputs["right_whole_modes"].value("rows", std::string()) != "right.from") { std::printf("  source_flow: the rows' manifold is not named\n"); ++failures; }
+    for (const auto& u : b.after) if (u.with.contains("measure_suffix")) { std::printf("  source_flow: %s still suffixes its measures\n", u.step.c_str()); ++failures; }
     if (b.outputs.contains("glued_operator")) { std::printf("  source_flow per hemisphere stores a glued operator\n"); ++failures; }
   } catch (const std::exception& ex) {
     std::printf("  source_flow --spectra: %s\n", ex.what());

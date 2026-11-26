@@ -840,6 +840,9 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       own = true;
       m.path = "measurements/" + nxr::io::safe_name(over_name) + "_members";
     }
+    // THE MANIFOLD THE ROWS LIE ON (`rows: LINK`, issue #264): part of the measurement's key and of its arrays' path, so one measure of one field over one selection on two
+    // manifolds (the two hemispheres) is two measurements, with no suffix on the measure's name
+    if (spec.contains("rows")) m.rows_manifold_id = link_of(P, spec, "rows", &made, o);
     const Json measures = d.value("measures", Json::array());
     // a node may also give [rows x members x measures] (`describe.shape`): each measure's values are [rows x members]
     const bool cube = d.contains("shape") && d["shape"].is_array() && d["shape"].size() == 3;
@@ -866,9 +869,9 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       const std::optional<std::string> ofid = m.of_field_id.empty() ? std::nullopt : std::optional<std::string>(m.of_field_id);
       for (const auto& mj : measures) {
         const std::string nm = mj["measure"].get<std::string>();
-        if (!ts.has_measure(m.selection_id, nm, ofid, statid)) continue;
+        if (!ts.has_measure(m.selection_id, nm, ofid, statid, m.rows_manifold_id)) continue;
         if (!replace && (ofid || statid)) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + P.definition.name + " output " + o + ": the measure '" + nm + "' of this " + (statid ? "statistic" : "field") + " over " + over_name + " already exists; pass --replace");
-        unit.remove_measurements(m.selection_id, ofid, nm, statid);
+        unit.remove_measurements(m.selection_id, ofid, nm, statid, m.rows_manifold_id);
         if (ofid || statid) replaced = true;
       }
     }

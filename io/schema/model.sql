@@ -648,11 +648,15 @@ CREATE TABLE selection_measurement (
   -- THE PRODUCER (2026-11-26): how the values were made, as a node's producer_json records it (the command or pipeline, the program, the maker's own facts: the parameters,
   -- the inputs and their hashes). Null for a row written before it, or by a writer that records none. A dataset made before it gets the column in place (ensure_measurement_producer).
   producer_json TEXT,
+  -- THE MANIFOLD ITS ROWS LIE ON (2026-11-26, issue #264): an array-backed measurement's rows are the elements of a manifold (a hemisphere's vertices or edges, an eigen line's
+  -- modes, the sensor surface's vertices); two measurements of one field over one selection with the same measure on two manifolds are two rows of the key. Null: not named (every
+  -- row written before it, and the scalar rows). A dataset made before it gets the column and the key in place (ensure_measurement_rows_manifold).
+  rows_manifold_id TEXT REFERENCES manifold (id) ON DELETE CASCADE,
   CHECK ((within_code IS NULL) >= (within_selection_id IS NULL)),   -- a code needs a selection to read it
   CHECK ((value IS NULL) = (array_path IS NOT NULL)),              -- a value here, or an array of them
   CHECK (array_path IS NULL OR (code IS NULL AND (of_field_id IS NOT NULL OR of_statistic_id IS NOT NULL)))   -- an array is per member, of a field or (schema 54) of a statistic
 ) STRICT;
-CREATE UNIQUE INDEX selection_measurement_key ON selection_measurement (selection_id, coalesce(code, -1), coalesce(of_field_id, ''), coalesce(of_statistic_id, ''), coalesce(of_index, -1), coalesce(within_selection_id, ''), coalesce(within_code, -1), measure);
+CREATE UNIQUE INDEX selection_measurement_key ON selection_measurement (selection_id, coalesce(code, -1), coalesce(of_field_id, ''), coalesce(of_statistic_id, ''), coalesce(of_index, -1), coalesce(within_selection_id, ''), coalesce(within_code, -1), measure, coalesce(rows_manifold_id, ''));
 CREATE INDEX selection_measurement_statistic ON selection_measurement (of_statistic_id, of_index, measure);
 CREATE INDEX selection_measurement_measure ON selection_measurement (measure, value);
 CREATE INDEX selection_measurement_field ON selection_measurement (of_field_id, measure, value);

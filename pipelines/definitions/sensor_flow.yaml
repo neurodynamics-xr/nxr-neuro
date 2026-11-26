@@ -71,14 +71,14 @@ steps:
 
 outputs:
   spectra:        {kind: statistic, name: "{name}_chunk_spectra", of: recording, axes: [{name: chunk, on: recording.time}, {name: frequency, line: "{recording}_freq_overlapped", of_time: recording.time}, {name: coordinate, on: package.from}]}
-  whole_vertices: {kind: measurement, over: atoms, of: recording}
-  whole_edges:    {kind: measurement, over: atoms, of: recording}
-  whole_modes:    {kind: measurement, over: atoms, of: recording}
-  pair_vertices:  {kind: measurement, over: pairs, of: recording}
-  pair_edges:     {kind: measurement, over: pairs, of: recording}
-  pair_modes:     {kind: measurement, over: pairs, of: recording}
-  consistency:    {kind: measurement, over: atom_bands, of: recording}
-  consistency_summary: {kind: measurement, over: atom_bands, of: recording}
+  whole_vertices: {kind: measurement, rows: package.to, over: atoms, of: recording}
+  whole_edges:    {kind: measurement, rows: package.to, over: atoms, of: recording}
+  whole_modes:    {kind: measurement, rows: package.from, over: atoms, of: recording}
+  pair_vertices:  {kind: measurement, rows: package.to, over: pairs, of: recording}
+  pair_edges:     {kind: measurement, rows: package.to, over: pairs, of: recording}
+  pair_modes:     {kind: measurement, rows: package.from, over: pairs, of: recording}
+  consistency:    {kind: measurement, rows: package.to, over: atom_bands, of: recording}
+  consistency_summary: {kind: measurement, rows: package.to, over: atom_bands, of: recording}
   # (whole_consistency, whole_consistency_summary: the sensor chain's time cells are per band only, so the node makes them absent; not stored)
   power:          {kind: statistic, name: "{name}_sensor_power", of: recording, when: $aperiodic}
   aperiodic_fit:  {kind: statistic, name: "{name}_aperiodic", of: recording, when: {aperiodic: true, aperiodic_fixed: true}}

@@ -1170,6 +1170,7 @@ R"TBL(--name@read operator	NAME	The stored operator to read, by name or id.	requ
 )TBL",
 R"TBL(--name@read selection	NAME	The stored selection to read, by name or id.	required	-
 --out@read selection	FILE.npy	Write its arrays as .npy files: one array to FILE itself; several (spans' start, stop and code; a measurement table's code, value, weight and members) as <stem>.<array>.npy.	none (the result only, as JSON)	-
+--rows-on@read selection	NAME	With --measure: the manifold the measurement's rows lie on (a hemisphere, an eigen line), when the measure is stored on several (two hemispheres' arrays of one measure).	none (the one manifold it is stored on)	-
 --measure@read selection	NAME	Read the selection's measurement table of this measure (code, value, weight, members a member) instead of its array or spans.	none (its array or spans)	-
 --field@read selection	NAME	With --measure: the field the measurement is of, when several are measured over the selection.	the only field measured	-
 )TBL",
@@ -1218,6 +1219,7 @@ R"TBL(--templates@add measurements	DIR	A folder of released templates to look in
 --unit@add measurements	TEXT	The unit of the measures' values.	none	-
 --declare@add measurements	JSON	What a measure the registry does not know IS, one JSON object a measure: {"name", "merge" (sum, max, min, mean or none: how its values merge when members are rolled up), "form", "unit", "weight", "description"}; kept by the subject, so one name keeps one meaning (a declaration that contradicts the registry or the subject's earlier one is refused). A measure neither declared nor registered is stored but never rolled up. Repeatable.	none	-
 --producer@add measurements	JSON	What the maker says of how the values were made (the parameters, the inputs and their hashes), a JSON object kept in each row's producer record (not under the keys the command records itself: command, program, inputs, output, cache).	none	-
+--rows-on@add measurements	NAME	An array a member: the manifold its rows lie on (a hemisphere's vertices or edges, an eigen line's modes), by name; part of the measurement's key, so the same measure of one field over one selection on two manifolds is two measurements.	none	-
 --begin@add measurements		Write ONE measure in pieces, step 1: take its name (--measure NAME), its full shape (--shape: [members], [members x N] or [members x N x C]) and stored dtype (--dtype) with --selection, --field and its --declare, check them, and print a write id. Nothing is in the subject until --commit.	off	-
 --append@add measurements		Write in pieces, step 2: write the --values of one --region of the write named by --write. A region outside the shape, one written already or one that overlaps a written region is refused.	off	-
 --commit@add measurements		Write in pieces, step 3: store the measure of the write named by --write, as the one-shot command does, once every value of its shape was written (the regions missing are named).	off	-
@@ -1277,7 +1279,7 @@ R"TBL(@ read selection
 old: __read selection
 summary: Read a stored selection by name: its per-element array, or its spans and dictionary, or its measurement table of a measure.
 example: nxr-neuro read selection --dataset /data/study --subject sub-01 --name rest_bad_segments --out bad.npy
-opts: --budget --dataset* --field --measure --name* --out --region --subject*
+opts: --budget --dataset* --field --measure --name* --out --region --rows-on --subject*
 )TBL",
 R"TBL(@ read manifold
 old: __read manifold
@@ -1307,7 +1309,7 @@ R"TBL(@ add measurements
 old: __add measurements
 summary: Store measurements computed elsewhere over a selection's members (one array a measure), from .npy files, as one unit, each measure the registry does not know declared (--declare); or one measure in pieces with --begin, --append and --commit.
 example: nxr-neuro add measurements --dataset /data/study --subject sub-01 --selection regions --field thickness --measure p=p.npy --declare '{"name": "p", "merge": "none"}'
-opts: --append --begin --by --commit --dataset* --declare+ --dtype --field --measure+ --producer --region --replace --selection --shape --subject --unit --values --write
+opts: --append --begin --by --commit --dataset* --declare+ --dtype --field --measure+ --producer --region --replace --rows-on --selection --shape --subject --unit --values --write
 )TBL",
 R"TBL(@ add operator
 old: __add operator

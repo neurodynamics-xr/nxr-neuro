@@ -500,6 +500,8 @@ CommandResult add_measurements(const AddMeasurementsRequest& rq, const Progress&
     Json declared = Json::array();
     for (const auto& d : declarations) declared.push_back(u.declare_measure(d));   // in the unit: refused declarations store nothing
     const Json row_producer = u.producer("", maker);
+    std::optional<std::string> rows_on;   // the manifold an array's rows lie on (issue #264)
+    if (rq.rows_on) rows_on = require_manifold(ts, *rq.rows_on, "--rows-on").id;
     const auto sel = ts.by_id_or_name(Cls::selection, rq.selection);
     if (!sel) throw Error(code::no_such_row, "the subject holds no selection named '" + rq.selection + "' (--selection)");
     std::optional<Node> field;
@@ -524,9 +526,10 @@ CommandResult add_measurements(const AddMeasurementsRequest& rq, const Progress&
       if (v.shape.empty() || v.shape[0] != n_members || v.shape.size() > 3)
         throw Refused("--measure " + measure + "=" + file_name(file) + " is " + shape_text(v.shape) + "; the values of '" + sel->name + "' are [" + std::to_string(n_members) +
                       "] (one a member), [" + std::to_string(n_members) + " x N] (an array a member: a value a vertex, an edge, a mode) or [" + std::to_string(n_members) + " x N x C] (C components a value)");
-      if (ts.has_measure(sel->id, measure, field ? std::optional<std::string>(field->id) : std::nullopt)) {
-        if (!rq.replace) throw Error(code::already_exists, "'" + sel->name + "' already holds the measure '" + measure + "'" + (field ? " of " + field->name : std::string()) + ": pass --replace");
-        u.remove_measurements(sel->id, field ? std::optional<std::string>(field->id) : std::nullopt, measure);
+      if (rows_on && v.shape.size() < 2) throw Refused("--rows-on names the manifold an array's rows lie on: --measure " + measure + " is one value a member");
+      if (ts.has_measure(sel->id, measure, field ? std::optional<std::string>(field->id) : std::nullopt, std::nullopt, rows_on)) {
+        if (!rq.replace) throw Error(code::already_exists, "'" + sel->name + "' already holds the measure '" + measure + "'" + (field ? " of " + field->name : std::string()) + (rows_on ? " on " + *rq.rows_on : std::string()) + ": pass --replace");
+        u.remove_measurements(sel->id, field ? std::optional<std::string>(field->id) : std::nullopt, measure, std::nullopt, rows_on);
         replaced.push_back(measure);
       }
       if (v.shape.size() >= 2) {   // AN ARRAY A MEMBER: stored as the pipelines store it, [rows x members x components] (Unit::measurements), one row naming the array
@@ -545,6 +548,7 @@ CommandResult add_measurements(const AddMeasurementsRequest& rq, const Progress&
         mo.path = field->path.value_or(safe_name(field->name)) + "_" + safe_name(sel->name);   // beside the field's arrays, under the selection's name (as the runner lays them)
         mo.measures.push_back(MeasurementOut::Measure{measure, rq.unit.value_or(""), std::move(laid), Json()});
         mo.producer = maker;
+        mo.rows_manifold_id = rows_on;
         if (comps > 1) mo.attributes = Json{{"components", comps}};
         array_rows += u.measurements(mo);
         continue;

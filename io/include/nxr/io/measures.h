@@ -67,6 +67,9 @@ std::string undeclared_refusal(const std::string& name);
 // THE PRODUCER OF A MEASUREMENT (`selection_measurement.producer_json`): the column added in place to a database made before it (additive; user_version unchanged); true when added.
 // write_measurements stores a row's `producer_json` (an object) when the row carries one.
 bool ensure_measurement_producer(Database& db);
+// THE MANIFOLD A MEASUREMENT'S ROWS LIE ON (`selection_measurement.rows_manifold_id`, issue #264): the column added in place and the store's key made again with it (additive; user_version
+// unchanged); true when added. Two measurements of one field over one selection with the same measure on two manifolds (the two hemispheres) are then two rows of the key.
+bool ensure_measurement_rows_manifold(Database& db);
 // What a measurement of a selection IS and how it was made, for a read: {declaration (the subject's, else the registry's entry, else null), declared (true when the
 // subject declares it), producers: [the distinct producer records of its rows]} (`read selection --measure` gives them beside the values)
 Json measurement_provenance(const Database& db, const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure);
@@ -115,8 +118,10 @@ struct MeasurementValues {
   std::optional<std::string> unit;
   std::vector<std::string> computed_by;     // the producers of the rows read (their identity, for a cache key)
 };
+// `rows_manifold_id`: only the array whose rows lie on that manifold (issue #264); without it, arrays of the measure on several manifolds are refused, naming them.
 MeasurementValues measurement_values(SubjectWriter& sub, const std::string& selection_id, const std::optional<std::string>& of_field_id,
-                                     const std::optional<std::string>& of_statistic_id, const std::optional<std::int64_t>& of_index, const std::string& measure);
+                                     const std::optional<std::string>& of_statistic_id, const std::optional<std::int64_t>& of_index, const std::string& measure,
+                                     const std::optional<std::string>& rows_manifold_id = std::nullopt);
 
 // A DERIVED measure of ARRAY-BACKED or scalar-row ingredients, member by member as stored (no roll-up): each ingredient read by `measurement_values` (of the same Field or statistic), then the measure's formula applied
 // elementwise (a ratio of the stored sums, derived at read, never stored); NaN where an ingredient is NaN or the formula is undefined. Refuses a measure that is not derived.

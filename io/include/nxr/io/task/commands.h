@@ -284,6 +284,7 @@ struct AddMeasurementsRequest {
   std::vector<std::pair<std::string, ArrayInput>> measure_arrays;   // MEASURE and its values given as arrays (in memory, or a file): after `measure`
   std::vector<std::string> declare;        // JSON text, one a measure: {name, merge, form?, unit?, weight?, description?} (measures.h MeasureDeclaration); required for a measure the registry does not know
   std::optional<std::string> producer;     // JSON text: what the maker says of how the values were made, added to the producer record each row keeps
+  std::optional<std::string> rows_on;      // an array a member: the manifold its rows lie on, by name (a hemisphere, an eigen line): two manifolds' arrays of one measure stay apart (issue #264)
   bool replace = false;
   PieceOptions piece;                      // a write in pieces of ONE measure: begin (--measure NAME, --shape, --dtype), append (a region of its values), commit
  

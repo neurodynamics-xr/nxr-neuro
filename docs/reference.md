@@ -754,7 +754,7 @@ condition's channel file, the surface its kernels index, a template's only corte
 | `nxr-neuro add field` | Values on a manifold (`--manifold M --values V.npy`), optionally time-resolved on a line (`--time LINE`); its lineage with `--by-operator`, `--contribution SUBJECT:FIELD[:WEIGHT]`, `--producer JSON`. | |
 | `nxr-neuro add selection` | A partition or set (`--members`), a pick (`--indices`) or spans on a line (`--spans`), `--type` naming which; `--of-field`, `--weights V.npy`, `--producer JSON`. | |
 | `nxr-neuro add statistic` | Values on named axes (`--axes NAME:MANIFOLD ...`), with `--measure` and `--method` from the registries or declared (`--declare JSON`), of a field (`--of-field`) or detached; `--producer JSON`. | |
-| `nxr-neuro add measurements` | One value a member of a selection for each measure (`--measure NAME=V.npy ...`), of a field (`--field`) or the members' own; each measure the registry does not know declared (`--declare JSON`, repeatable); `--producer JSON`; one measure in pieces (`--begin --measure NAME --shape --dtype`, `--append --write ID --region --values`, `--commit`). | |
+| `nxr-neuro add measurements` | One value a member of a selection for each measure (`--measure NAME=V.npy ...`), of a field (`--field`) or the members' own; each measure the registry does not know declared (`--declare JSON`, repeatable); `--producer JSON`; one measure in pieces (`--begin --measure NAME --shape --dtype`, `--append --write ID --region --values`, `--commit`); `--rows-on MANIFOLD`: the manifold an array's rows lie on. | |
 | `nxr-neuro add operator` | A map between two manifolds, dense (`--values` [to x from]), sparse CSR (`--data --indices --indptr`) or analytic (`--layout analytic --method NAME --params JSON`, no matrix); `--from-selection`, `--producer JSON`; or a transition between two coordinate systems (`--from-coordinate-system SPACE:NAME --to-coordinate-system SPACE:NAME`, `--values` one affine [3 x 4]). | |
 | `nxr-neuro add points` | A manifold of points: positions [n x 3] or one coordinate each [n]. | |
 | `nxr-neuro add line` | A closed-form line: `--n`, `--spacing`, `--origin`, `--unit`; `--dimension time` (seconds) makes a time line fields can be time-resolved on. With `--coordinates C.npy --dimension eigenvalue [--kinds K.npy]`, a line whose points are not evenly spaced. | |
@@ -1220,7 +1220,10 @@ made first by `run select_kernel_product` (`--factors 3 --first ATOMS --second B
 factor fastest: atom a, then the band q at the tip, then the band p at the tail (the stored member order a + A (q + Q p)). With `frequency_weighting every_bin` the frequency line's bins are an axis, not members: statistics. The time
 cells are made and tested inside the run, never stored. The order on a new recording: `run sensor_flow_bins` (no atoms: its chunk spectra make the frequency line
 `<time line>_freq_L<log2 transform>`), `run select_kernels` (the atoms on that line, the bands on the solve's eigenvalue line), `run select_kernel_product`, `run sensor_flow`.
-Per hemisphere, each side's measures carry a stated suffix (`measure_suffix`: `_left`, `_right`) until a measurement's key names the surface its rows are on.
+Per hemisphere, each side's measurements name the manifold their rows lie on (`rows:` in the definitions: the cortex solve's triangulation for vertices, edges and the
+sign-flip test, its eigen line for the modes; the sensor flow's its own solve's), so both sides and the sensor flow keep the same measure names (2026-11-26, issue #264; the
+nodes' `measure_suffix` is no longer used by the shipped definitions, and results stored before keep their `_left` / `_right` names). Read one side with `read selection
+--measure M --field REC --rows-on <manifold>`.
 
 Why: the cross-spectrum of the MEG channels holds their lags but no spatial meaning; read on the sensor surface with its Hodge-Dirac eigenmodes the lags become a
 phase current on a surface, split into travel (exact) and rotation (coexact). Graph: `signal.mode_analysis` (`modes exact_and_constant`: the constant and the exact
@@ -2345,13 +2348,17 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
     its `describe.measures` entries (`{measure, merge, form, description}`), which the runner stores as the declaration: the flow nodes (`sensor_flow`, `source_flow`, `connectome_flow`,
     `stats.sign_flip_consistency`) declare every measure they write that the registry does not know (`pipelines/src/flow_measures.h`: `flow_coefficient`, `vertex_phase_current_x/y/z`,
     `remainder_*`, `cross_spectrum_real/imaginary`, `potential_coefficient`, `divergence`, `weighted_*_squares` and the counts `cells`, `groups_flipped` sum; `consistency`, `p`,
-    `familywise_p`, the sign-flip summaries, `mean_edge_flow`, `control`, `phase`, `potential` and the remainder maps none). A suffixed name (`_left`) is declared under that name.
+    `familywise_p`, the sign-flip summaries, `mean_edge_flow`, `control`, `phase`, `potential` and the remainder maps none). A suffixed name (`_left`, from results made before the rows' manifold was named) is declared under that name.
   - **Statistics** keep their measure and method in their row; a measure or a method neither statistics registry knows is DECLARED by the writer, `add statistic --declare
     '{"measure": {"description": "...", "unit_rule": "..."}, "method": {"description": "..."}}'` (kept in the statistic's `producer.declared`), else refused. A declared `unit_rule`
     that contradicts the registry's, or another statistic's declaration of the same measure in the subject, is refused.
   - **Read back:** `read selection --name SEL --measure M [--field F]` gives `declaration` (the subject's, else the registry's entry), `declared` and `producers` beside the values.
   Test: `test_measure_declarations` (a new measure rolled up by its declared rule; a p value declared `none` refused at roll-up; an undeclared unknown measure refused; the
   contradictions), `test_pieces_deletes_jobs` (the commands).
+- **The manifold its rows lie on (2026-11-26, issue #264).** An array-backed measurement may name the manifold its rows are the elements of (`selection_measurement.rows_manifold_id`,
+  part of the store's key and a folder of its arrays' path): one measure of one field over one selection on two manifolds (two hemispheres) is two measurements, with no suffix on
+  the measure's name. A definition's measurement output says it with `rows: LINK` (`left.to`, `package.from`); `add measurements --rows-on NAME` in the command; `read selection
+  --measure M --rows-on NAME` reads one (without it, a measure stored on several manifolds is refused, naming them). A database made before it gets the column and the key in place.
 - **The producer of a measurement (2026-11-26).** Every row a measurement writes through a unit keeps how it was made in `selection_measurement.producer_json` (the command or the
   pipeline's record with the output's name; `add measurements --producer JSON` adds the maker's own facts, as `add field --producer` does). A database made before it gets the column in
   place, user_version unchanged. `add statistic --producer JSON` adds the maker's facts to a statistic's producer record (a group statistic's members, their ids and hashes, as `run

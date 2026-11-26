@@ -197,6 +197,19 @@ bool ensure_measurement_producer(Database& db) {
   return true;
 }
 
+bool ensure_measurement_rows_manifold(Database& db) {
+  if (has_column(db, "selection_measurement", "rows_manifold_id")) return false;
+  ensure_measurement_producer(db);   // the columns in the model's order
+  db.tx([&] {
+    db.execute("ALTER TABLE selection_measurement ADD COLUMN rows_manifold_id TEXT REFERENCES manifold (id) ON DELETE CASCADE");
+    db.execute("DROP INDEX IF EXISTS selection_measurement_key");
+    db.execute("CREATE UNIQUE INDEX selection_measurement_key ON selection_measurement (selection_id, coalesce(code, -1), coalesce(of_field_id, ''), coalesce(of_statistic_id, ''), coalesce(of_index, -1), "
+               "coalesce(within_selection_id, ''), coalesce(within_code, -1), measure, coalesce(rows_manifold_id, ''))");
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", {Value(std::string("columns:selection_measurement.rows_manifold_id")), Value(now_utc() + " added in place, the key made again with it (additive; user_version unchanged)")});
+  });
+  return true;
+}
+
 std::optional<Json> declared_measure(const Database& db, const std::string& name) {
   if (!table_exists(db, "measure_declaration")) return std::nullopt;
   const auto r = db.one("SELECT * FROM measure_declaration WHERE name = ?", {Value(name)});
