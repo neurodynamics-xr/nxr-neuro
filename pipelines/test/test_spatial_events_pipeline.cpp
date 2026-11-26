@@ -17,6 +17,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "hemispheres.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
 #include "nxr/signal/graphfilterbank.h"
@@ -73,6 +74,7 @@ int main() {
       std::vector<std::int32_t> dk(static_cast<std::size_t>(b.n), 1);
       for (int i = 0; i < b.n; ++i) { const double y = b.P[static_cast<std::size_t>(3 * i + 1)]; if ((i < b.nHalf && y < 0.7) || (i >= b.nHalf && y > -0.7)) dk[static_cast<std::size_t>(i)] = 0; }
       so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
+      so.atlases.push_back(nxrtest::structures_of(b.P, b.F));   // the hemispheres, as Brainstorm's Structures (the glue reads them)
       surf = add_surface(sub, so, b.P, b.F).id;
       const std::string cid = uuid7();
       std::vector<float> pos(static_cast<std::size_t>(M) * 3, 0.1f);

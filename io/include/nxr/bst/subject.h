@@ -25,6 +25,11 @@ namespace nxr::bst {
 
 using Emit = std::function<void(const Json&)>;   // one progress line (`stage` keyed)
 
+// ONE FILE of an import, run by `body`: when it meets a MATLAB v7.3 file this build cannot read (mat.h UnreadableV73: the WebAssembly build), what `body` wrote is rolled back,
+// the file is named with its reason (kUnreadableV73) to the import's SkippedFiles and as a `skipped` progress line, and false is returned; the import goes on with the rest.
+// Any other error goes on as before.
+bool or_skip_unreadable_v73(nxr::io::SubjectWriter& sub, const Emit& emit, const std::function<void()>& body);
+
 // One Brainstorm tess_*.mat as a `surface` manifold and what describes it: its hemispheres, its registration sphere (`Reg.Sphere`) and its parcellations.
 // `primary`: the surface the kernel indexes (refused when its mesh is unhealthy only under NXR_STRICT_MESH=1; a display surface only warns); only a primary is
 // marked `is_primary`. `bst_root`: the protocol root, which makes the manifold's `source` the file's path under `anat/`. `atlases`: only these parcellations (an empty list: none; unset: every one).
@@ -62,7 +67,14 @@ std::string subject_cortex(const std::filesystem::path& root, const std::string&
 // Every part of the Brainstorm subject into the SubjectWriter `sub` (rows pending; the caller completes). Returns {subject, sessions, volumes, maps, fibers, connectomes, skipped}.
 Json compose_subject(nxr::io::SubjectWriter& sub, const std::filesystem::path& root, const std::string& subject, const Emit& emit, std::optional<double> resample = std::nullopt);
 
-// The whole subject as ONE composition: created pending, completed once (one drain), or removed whole. Returns nxr's result object (the summary, id, rows).
+// THE SUBJECT ROW AN IMPORT MAKES (its kind, source and creator): what convert_subject, convert_template create in a one-database dataset, and what a
+// catalogue's new member package is made with (its subject row is then the one they fill). The template is the subject `template`; the group results go into it (format 56: the template holds the cohort).
+nxr::io::SubjectOptions subject_options(const std::filesystem::path& root, const std::string& subject, const std::string& created_by);
+nxr::io::SubjectOptions template_options(const std::filesystem::path& root, const std::string& created_by);
+constexpr const char* kTemplateSubject = "template";
+
+// The whole subject as ONE composition: created pending, completed once (one drain), or removed whole. In a package (a catalogue's member made for the import, its subject
+// row `subject_options`') the package's own subject is filled. Returns nxr's result object (the summary, id, rows).
 Json convert_subject(nxr::io::DatasetWriter& ds, const std::filesystem::path& root, const std::string& subject, const Emit& emit, const std::string& created_by,
                      std::optional<double> resample = std::nullopt);
 

@@ -180,7 +180,7 @@ nxr.manifold
 │             mass, stiffness, laplacian, connectionLaplacian}
 ├── query.{vertex, isoline, center}
 ├── measure.{distance, signedDistance, curvature, normal, frame}
-├── uv.{bff, logMap, stripe, stripeFreq}
+├── uv.{bff, logMap}
 └── interpolate.{transport, extend, directionField,
                  smoothFaceField, smoothVertexField}
 ```

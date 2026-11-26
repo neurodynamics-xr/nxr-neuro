@@ -69,3 +69,23 @@ def test_options_are_named_and_checked():
         filt.bandpass(x, 20, 10, FS)        # lower edge above the upper
     with pytest.raises(ValueError):
         filt.lowpass(x, 600, FS)            # above Nyquist
+
+
+def test_decimate_chunk_by_chunk_is_the_whole_signal_decimated():
+    fs, q, n = 1200.0, 4, 5000
+    t = np.arange(n) / fs
+    x = np.vstack([np.sin(2 * np.pi * 5 * t) + 0.5 * np.sin(2 * np.pi * 200 * t), np.cos(2 * np.pi * 12 * t)])
+    whole = nn.compute.signal.decimate(x, q)
+    assert whole.shape == (2, -(-n // q)) and whole.dtype == np.float64
+    halo = nn.compute.signal.decimationHalo(q)
+    parts = []
+    for first in range(0, n, 1300):
+        w = min(1300, n - first)
+        a, b = max(0, first - halo), min(n, first + w + halo)
+        parts.append(nn.compute.signal.decimate(x[:, a:b], q, left=first - a, width=w, offset=(-first) % q))
+    np.testing.assert_allclose(np.hstack(parts), whole, rtol=0, atol=1e-12)
+    inner = slice(halo, whole.shape[1] - halo)
+    np.testing.assert_allclose(whole[0, inner], np.sin(2 * np.pi * 5 * t[::q])[inner], atol=5e-3)   # 200 Hz removed, no delay
+    assert nn.compute.signal.decimate(x.astype(np.float32), q).dtype == np.float32
+    scipy_signal = pytest.importorskip("scipy.signal")
+    np.testing.assert_allclose(whole, scipy_signal.decimate(x, q, ftype="fir", zero_phase=True), atol=1e-10)   # the reference

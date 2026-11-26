@@ -1,5 +1,7 @@
 # The pipeline type system: the data model's classes as port types, checked before any data flows (spec, 2026-11-17)
 
+**Amended 2026-11-20** by [2026-11-20-time-as-a-mesh.md](2026-11-20-time-as-a-mesh.md): a line has no role. It is a 1-D mesh (a path or a cycle) with a coordinate, and the tile levels belong to the selection system (sections 3.1, 4 and 8 below).
+
 Status: **design, for the maintainers' review before code.** It completes `ARCHITECTURE.md` part 2 ("type-check everything before any data flows")
 and `2026-11-17-compute-and-run.md` §3.1 and §3.3 (`PortType`, `check`). It builds on `2026-11-17-definition-outputs.md` (the six output kinds),
 `docs/audits/2026-11-17-format-mapping-and-coordinates.md` (covariance a statistic, the whitener an operator, transforms as transition operators, the
@@ -95,7 +97,7 @@ namespace nxr::graph {
 
 enum class ManifoldKind { points, line, surface, volume, curve, graph, members };
 /** what a line or member set is FOR, as far as the checker cares: the factor a stream walks, and what a measurement's member set came from */
-enum class Role { none, time, frames, time_tiles, frequency, modes, levels };
+enum class Topology { none, path, cycle };   // a line is a 1-D mesh; no role (amended 2026-11-20)
 
 /** a chart on a space, with a unit (the schema's coordinate_system): {"head", "scs", "m"} · {"time", "clock", "s"} · {"frequency", "hz", "Hz"} ·
  *  {"spectrum:laplaceBeltrami", "eigenvalue", "1/m^2"}. Two manifolds are comparable in position only when their systems are of one space. */
@@ -116,7 +118,8 @@ struct Manifold {
   Form form;
   std::string key;                         // the id · the anonymous number · the variable's name · "<use>.<output>" · the relation's name
   ManifoldKind kind = ManifoldKind::points;
-  Role role = Role::none;
+  Topology topology = Topology::none;      // a line: path or cycle; a variable: the one it accepts (none: any)
+  std::optional<MadeFrom> made_from;       // a line made from another: relation (tiled | transform) and the line
   std::optional<CoordinateSystem> cs;      // the system its positions are in; none for a manifold without geometry (members, an index line)
   std::int64_t n = 0;                      // its vertices (0: not known before data, as a stream's time line)
   std::optional<double> spacing;           // a closed-form line's spacing (1 / the sample rate on a time line; the frame rate on a frame line)
@@ -134,7 +137,7 @@ using ManifoldRef = std::shared_ptr<const Manifold>;
 struct Domain {
   std::vector<ManifoldRef> factors;
   std::string cells = "0";
-  /** the factor a stream walks: the last, when its role is time or frames; none for an array */
+  /** the factor a stream walks: the last, when it is a line in seconds; none for an array */
   const Manifold* streamed() const;
 };
 }
@@ -223,7 +226,7 @@ function, which receives the unified inputs and the parameters and may only narr
 ```cpp
 // C++ builder: checked by the compiler, printed by the printer
 NodeSpec n = node("band.analytic", Kind::chunk);
-auto M = var("M"); auto T = time_var("T");                         // T: role time (a stream's samples)
+auto M = var("M"); auto T = time_var("T");                         // T: a line in seconds, raw samples, a path (a stream's samples)
 n.signature = sig(Move::pointwise_linear)
   .in("x", field({M, T}).value(real))
   .out("y", like("x").value(complex));                               // like(x): x's type with the changes listed
@@ -245,7 +248,7 @@ the output of `kernel.apply` is known to lie on the kernel's target before any d
 partition's surface on that term, not on a label.
 
 **Unification rules** (the only ones):
-- a variable binds to any term of its kind constraint (a `time_var` only to a factor whose role is time; `frames_var` to time or frames);
+- a variable binds to any term of its kind constraint (a `time_var` only to a line in seconds that is not tiled from another line, a path; `frames_var` to any line in seconds);
 - `id` = `id` when the ids are equal; `anonymous` = `anonymous` only when the same number (or declared the same, §10);
 - `members(P)` = `members(Q)` when P and Q are the same selection; `restricted(M, S)` = `restricted(N, U)` when M = N and S = U;
 - `derived(rel, M)` = `derived(rel, N)` when M = N (in `run`, both resolve to the stored id first);
@@ -253,8 +256,8 @@ partition's surface on that term, not on a label.
   recording: today's padding to every member of the field's first factor) and a field on `restricted(M, S)`; a field on `restricted(M, U)` with
   U ≠ S is refused (the channels of a cross-spectrum that are not the kernel's).
 
-**Nodes that make manifolds** declare them as outputs or as parts of outputs: `made(line, Role::frequency, cs{"frequency","hz","Hz"})` (Welch's
-frequency line), `made(points, Role::modes, cs{"spectrum:<op>","eigenvalue",…})` (a mode axis), `members(sel)` (a frame line, a set of time
+**Nodes that make manifolds** declare them as outputs or as parts of outputs: `made_line(frequency, unit Hz, made_from transform of the time line)` (Welch's
+frequency line), `made(points, cs{"spectrum:<op>","eigenvalue",…})` (a mode axis), `members(sel)` (a frame line, a set of time
 tiles). A made manifold is a fresh term keyed by the use and the output: two outputs of one use share it, two uses make two. That the runner later
 finds an identical stored line and reuses it (`Unit::line`, `2026-11-17-definition-outputs.md`) is storage, not typing. A node that makes a
 selection (`spans.detect`, `cores.detect`, `tiles.make`, `joint.make`) gives it an identity `"<use>.<output>"`, so the measurements over its
@@ -377,7 +380,7 @@ The runner turns each found row into a `PortType` through io's task API (`descri
 
 | class | from the row (and its links) |
 |---|---|
-| field | the manifold's factors (`geometry_dimension.manifold_id` of a product), each factor's kind, n, role (`time` for a line in `time/clock`), coordinate system (`geometry.coordinate_system_id` → space, name, unit), spacing; `cell`, `value_type`, `n_components`, `unit`, `kind` → quantity; the producer record's `type` (below) for resolution and linearity; the gauge record (G5) |
+| field | the manifold's factors (`geometry_dimension.manifold_id` of a product), each factor's kind, n, topology (`lattice` of rank 1 and `path` are a path, `circle` a cycle), coordinate system (`time/clock`, s), coordinate system (`geometry.coordinate_system_id` → space, name, unit), spacing; `cell`, `value_type`, `n_components`, `unit`, `kind` → quantity; the producer record's `type` (below) for resolution and linearity; the gauge record (G5) |
 | operator | `from_manifold_id`/`to_manifold_id` (and `from_selection_id` → a restriction), cells, value types, `kind`; `from/to_coordinate_system_id` → a transition; the gauge record |
 | selection | `type`, `manifold_id` (or a space), `cell`, a dictionary (a partition), the ladder's members with `resolves_hz` or the Weyl band (the level's resolution), a joint partition's levels and band |
 | statistic | `axes_json` (each axis a manifold, a selection or named entries), `measure`, `of_field_id`/`of_statistic_id`, `partition_selection_id`, the producer record's `type` |
@@ -421,7 +424,7 @@ compared over.
 and the caller's metadata:
 
 - a field array `[rows × cols × comps]` gets `field<#1 × #2; V>`, `#1`, `#2` fresh anonymous manifolds with `n = rows, cols`; a streamed input's
-  last factor has role time and the caller's sample rate; the value type from the array (`complex` when it has an imaginary part) or the metadata;
+  last factor is a line in seconds and the caller's sample rate; the value type from the array (`complex` when it has an imaginary part) or the metadata;
 - **labels** (today's `on` / `to` strings) become the names of anonymous manifolds: two arrays labelled `on=["sensors", "time"]` lie on the **same**
   anonymous sensors and time line; an operator labelled `from="sensors", to="cortex"` reads them. Unlabelled arrays never unify with each other
   except through a node's variables (a chain `analytic → magnitude` needs no label: both are the variable `M`);

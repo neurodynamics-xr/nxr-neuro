@@ -7,8 +7,8 @@
 //   <channels>_ica_unmixing      kind `ica unmixing`, dense [components x M]: x -> W S x (EEGLAB's icaweights times icasphere), the columns of the channels the ICA was run on
 //   <channels>_ica_mixing        kind `ica mixing`, dense [M x components]: components -> x (EEGLAB's icawinv), the rows of those channels; neither is applied
 //
-// The ACTIVE projectors are applied to the samples as they are copied (in the file's order), and the recording's provenance says which. An orthogonal projector is
-// idempotent, so applying one to samples that already carry it changes nothing. The compensation is NOT applied: it belongs to the forward model (G - C G_ref).
+// The samples are stored AS RECORDED: no projector is applied by the import. The chunk service applies the ACTIVE projectors to every block it loads (nxr/io/chunk_loop.h),
+// and the recording's provenance lists each with its status. The compensation is NOT applied: it belongs to the forward model (G - C G_ref).
 #pragma once
 #include <cstdint>
 #include <optional>
@@ -41,8 +41,6 @@ struct RecordingOperators {
 // What the file holds. Throws when a projector or a compensation cannot be mapped onto the recording's channels (an uncalibrated compensation is refused).
 RecordingOperators operators_of(const nxr::formats::RecordingReader& reader);
 
-// The product of the active projectors in the file's order, [M x M] row-major; empty when none is active.
-std::vector<double> applied_projection(const RecordingOperators& ops);
 
 // Writes the operators on the sensor manifold `channels_id` (inside the compose that writes it) and fills `ops.record`.
 void write_operators(nxr::io::SubjectWriter& sub, RecordingOperators& ops, const std::string& channels_name, const std::string& channels_id, const std::string& acquisition);

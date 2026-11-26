@@ -19,6 +19,8 @@ std::vector<std::string> surface_names(SubjectWriter& sub) {
 std::vector<Row> statistics_of(SubjectWriter& sub, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure) { return statistics_of(sub.db(), sub.id(), of_field_id, measure); }
 std::optional<OriginRecord> origin_of(SubjectWriter& sub, const std::string& table, const std::string& id) { return origin_of(sub.db(), table, id); }
 void set_origin(DatasetWriter& ds, const std::string& table, const std::string& id, const OriginRecord& origin) { set_origin(ds.db(), table, id, origin); }
+void set_origin(SubjectWriter& sub, const std::string& table, const std::string& id, const OriginRecord& origin) { set_origin(sub.db(), table, id, origin); }
+std::vector<PackageItem> items_without_origin(SubjectWriter& sub) { return items_without_origin(sub.db()); }
 std::optional<Row> manifold_row_named(SubjectWriter& sub, const std::string& name) {
   return sub.db().one("SELECT m.id AS id, m.producer_json AS pj, g.positions_path AS pp FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.subject_id = ? AND m.name = ?", {V(sub.id()), V(name)});
 }

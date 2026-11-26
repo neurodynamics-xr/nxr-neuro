@@ -84,6 +84,10 @@ bool when_holds(const Json& when, const Json& params);
  *  `make:` input made by a before-step (exactly one of the stored name and the chain/maker is given: both, or neither, are refused with the reason);
  *  a flat definition is returned as it is. Checked as any definition (structure, names defined before use). */
 Definition expand(const Definition& d, const Json& params);
+/** whether a run of `d` is over a recording, so its caller states the time range (--from/--to, --all): it has a chunk loop, takes a recording as an input, or its
+ *  template (a repeat, a condition, a composition) does or composes a field chain. A definition that reads no recording (an eigensolve on a surface, a selection maker)
+ *  takes no time range. */
+bool streams_recording(const Definition& d);
 /** a definition by path (`*.yaml`) or by name among nxr-neuro's own (pipelines/definitions/, compiled in) */
 Definition load(const std::string& name_or_path);
 /** the names of nxr-neuro's own definitions */

@@ -1,6 +1,7 @@
 // The registered steps as the executor's nodes (include/nxr/pipelines/step_nodes.h). A node here is a thin shell: its functions are the step's own, called with the
 // description of the inputs a step plans on and the runner's `Bound`. The executor calls these shells through ITS dispatch point; no step is called from anywhere else.
 #include "nxr/pipelines/step_nodes.h"
+#include "nxr/graph/type_json.h"
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/pipelines/welch_steps.h"
 #include "nxr/pipelines/meeg_steps.h"
@@ -51,6 +52,7 @@ ng::PortClass class_of(const std::string& c) {
   if (c == "field") return ng::PortClass::field;
   if (c == "operator") return ng::PortClass::operator_;
   if (c == "selection") return ng::PortClass::selection;
+  if (c == "manifold") return ng::PortClass::manifold;   // a stored manifold is itself (type system section 8): `manifold<name(id)>`, never a constant
   return ng::PortClass::constant;     // a statistic, a measurement, a span set, a labelling: stored constants and results
 }
 
@@ -111,8 +113,9 @@ ng::NodeSpec node_of(const StepSpec& st, const std::shared_ptr<Binding>& binding
                      "is applied (give it to the first linear map as `pre_operator`, e.g. apply_kernel's)");
     ng::Planned out;
     for (const auto& [port, v] : made) out.out[port] = port_of(v);
-    // the halo a chunk step needs is known from its prepared state (the taps designed, the frame tiling read); prepared here on the records alone, as the plan reads nothing stored
-    if (s->kind == "chunk" && s->halo) {
+    // the halo a chunk step needs is known from its prepared state (the taps designed, the frame tiling read); prepared here on the records alone, as the plan reads nothing stored.
+    // An ACCUMULATING step may declare one too (the executor hands it the block with the loop's halo, as it does a Welch segment family's): its own columns are folded, the halo only read
+    if ((s->kind == "chunk" || s->kind == "accumulate") && s->halo) {
       if (s->halo_at_plan) out.halo = s->halo_at_plan(ins, params);
       else {
         ExecContext ec{*binding->bound, nullptr, {}};
@@ -167,15 +170,17 @@ ng::ManifoldKind kind_of_manifold(const std::string& t) {
   return t == "line" ? ng::ManifoldKind::line : t == "surface" ? ng::ManifoldKind::surface : t == "curve" ? ng::ManifoldKind::curve
          : (t == "volume" || t == "image" || t == "tetrahedral") ? ng::ManifoldKind::volume : ng::ManifoldKind::points;
 }
-ng::Role role_of_line(const std::string& r) {
-  return r == "time" ? ng::Role::time : r == "frequency" ? ng::Role::frequency : r == "modes" ? ng::Role::modes : r == "levels" ? ng::Role::levels : ng::Role::none;
-}
 std::optional<ng::ManifoldRef> stored_manifold(const Value& v, const std::string& id) {
   if (id.empty() || !v.manifold_facts.contains(id)) return std::nullopt;
   const Json& f = v.manifold_facts[id];
   std::optional<ng::CoordinateSystem> cs;
   if (f.contains("cs")) cs = ng::CoordinateSystem{f["cs"].value("space", std::string()), f["cs"].value("name", std::string()), f["cs"].value("unit", std::string())};
-  return ng::manifold_id(f.value("name", std::string()), id, kind_of_manifold(f.value("type", std::string())), role_of_line(f.value("role", std::string())), cs, f.value("n", std::int64_t(0)));
+  // a line's topology comes from the stored topology's kind (io's facts): a rank-1 lattice is a regular path, a path is a path, a circle is a cycle
+  const std::string tk = f.value("topology", std::string());
+  const ng::Topology topology = f.value("type", std::string()) != "line" ? ng::Topology::none : tk == "circle" ? ng::Topology::cycle : (tk == "lattice" || tk == "path") ? ng::Topology::path : ng::Topology::none;
+  // io describes a time line by its role (the coordinate system `clock`, or a unit of seconds): its coordinate is in seconds
+  if (f.value("role", std::string()) == "time") { if (!cs) cs = ng::CoordinateSystem{"time", "clock", "s"}; if (cs->unit.empty()) cs->unit = "s"; }
+  return ng::manifold_id(f.value("name", std::string()), id, kind_of_manifold(f.value("type", std::string())), cs, f.value("n", std::int64_t(0)), topology);
 }
 }  // namespace
 void typed_from_rows(ng::PortType& t, const Value& v) {
@@ -208,6 +213,8 @@ void typed_from_rows(ng::PortType& t, const Value& v) {
     const auto from = domain({v.manifolds.at(0)}), to = domain({v.manifolds.at(1)});
     if (!from || !to) return;
     t.domain = *from; t.target = *to;
+    t.domain.cells = nxr::io::opt_text(r, "from_cell").value_or("0");   // the cells at each end (D92): d0 maps '0' -> '1'; the Hodge-Dirac eigenvectors the line's '0' -> the triangulation's '0+1+2'
+    t.target.cells = nxr::io::opt_text(r, "to_cell").value_or("0");
     t.quantity = nxr::io::opt_text(r, "kind").value_or("");
     if (v.facts.contains("transition") && v.facts["transition"].contains("from") && v.facts["transition"].contains("to")) {   // T5: a transition's two systems
       auto cs_of = [](const Json& c) { return ng::CoordinateSystem{c.value("space", std::string()), c.value("name", std::string()), c.value("unit", std::string())}; };
@@ -219,7 +226,11 @@ void typed_from_rows(ng::PortType& t, const Value& v) {
     const auto d = domain(v.manifolds);
     if (!d) return;
     t.domain = *d;
-    if (v.cls == "field") t.quantity = nxr::io::opt_text(r, "kind").value_or("");
+    if (v.cls == "field") {
+      t.quantity = nxr::io::opt_text(r, "kind").value_or("");
+      t.domain.cells = nxr::io::opt_text(r, "cell").value_or("0");           // which cells of its manifold the values lie on (D92)
+      if (!nxr::io::is_null(r, "n_components")) t.components = static_cast<int>(nxr::io::integer(r, "n_components"));   // a vertex's components, as stored (a stack of levels included)
+    }
     if (v.cls == "selection" || v.cls == "spans" || v.cls == "labelling") {
       std::string ty = nxr::io::opt_text(r, "type").value_or("");
       if (ty == "spans") {                                                  // a stored closed-form tiling of a line (a frame grid, a band's tiles) is read back as spans: its record (params.grid of kind time with a width) says it is one
@@ -233,7 +244,9 @@ void typed_from_rows(ng::PortType& t, const Value& v) {
       t.sel = sh;
     }
   }
-  if (!t.quantity.empty() && !ng::is_quantity(t.quantity)) { t.quantity.clear(); return; }   // a kind outside the closed vocabulary: left to the node's plan
+  // a kind outside the closed vocabulary (an imported map's `PET <tracer>_suvr`): only the QUANTITY is left unset; the value keeps the type its record gives (its manifolds, cell,
+  // value type, components, unit, time line), so a node that reads any quantity takes it and one that reads a named quantity refuses it as "of no declared quantity"
+  if (!t.quantity.empty() && !ng::is_quantity(t.quantity)) t.quantity.clear();
   t.typed = true;
 }
 
@@ -241,6 +254,7 @@ ng::PortType port_of(const Value& v) {
   ng::PortType t;
   t.cls = class_of(v.cls);
   t.value = value_type_of(v);
+  t.components = t.value == ng::ValueType::vector3 ? 3 : t.value == ng::ValueType::quaternion ? 4 : t.value == ng::ValueType::hermitian3 ? 6 : 1;   // a vertex's components, as the signatures count them
   if (v.chunked) {
     t.axis = v.facts.value("axis", std::string()) == "frames" ? ng::Axis::frames : ng::Axis::samples;
     if (v.rate > 0) t.sfreq = v.rate;
@@ -268,13 +282,20 @@ Value value_of(const ng::PortType& t) {
   if (!t.facts.contains("value")) {                                       // what a native node (grouped names) made: described by its port type alone; `facts.cls` names a statistic, a manifold, ...
     Value v;
     v.cls = t.facts.contains("cls") && t.facts["cls"].is_string() ? t.facts["cls"].get<std::string>()
-            : t.cls == ng::PortClass::field ? "field" : t.cls == ng::PortClass::operator_ ? "operator" : t.cls == ng::PortClass::constant ? "statistic" : "selection";
-    v.complex = t.value == ng::ValueType::complex;
+            : t.cls == ng::PortClass::field ? "field" : t.cls == ng::PortClass::operator_ ? "operator" : t.cls == ng::PortClass::constant ? "statistic"
+            : t.cls == ng::PortClass::manifold ? "manifold" : "selection";
+    v.complex = t.value == ng::ValueType::complex || t.complex_parts;
     v.value_type = t.value == ng::ValueType::vector3 ? "vector3" : t.value == ng::ValueType::quaternion ? "quaternion" : t.value == ng::ValueType::hermitian3 ? "hermitian3" : "scalar";
     v.chunked = t.streamed();
     v.rate = t.sfreq.value_or(0.0);
     if (!t.unit.empty()) v.unit = t.unit;
     v.facts = t.facts;
+    // THE AXES a typed node declared (NodeTraits::typed_axes): its domain (an operator's target too) rides with the value, so the runner checks it at preparation and writes its links at the store
+    if (t.typed && !t.domain.empty()) {
+      v.facts["domain"] = ng::to_json(t.domain);
+      if (!t.target.empty()) v.facts["target"] = ng::to_json(t.target);
+      v.facts["components"] = t.components;
+    }
     return v;
   }
   const Json& d = t.facts.at("value");
@@ -290,6 +311,7 @@ Value value_of(const ng::PortType& t) {
   if (!d["row"].is_null()) v.row = json_row(d["row"]);
   if (!d["unit"].is_null()) v.unit = d["unit"].get<std::string>();
   v.facts = d["facts"];
+  if (d.contains("manifold_facts") && d["manifold_facts"].is_object()) v.manifold_facts = d["manifold_facts"];   // what io described of its manifolds (their sizes), as value_json wrote it
   return v;
 }
 
@@ -300,6 +322,8 @@ ng::Registry node_registry(const std::shared_ptr<Binding>& binding) {
   register_partition_nodes();
   for (const auto& st : registry()) if (!st.native) r.add(node_of(st, binding));
   for (const auto& name : nxr::graph::registry().names()) r.add(nxr::graph::registry().at(name));   // the native nodes (grouped names): pure, run as they are
+  if (const ExternalNodes* x = ExternalNodes::current())                        // the nodes a caller declared by signature (compile only): checked as the others, never run
+    for (const auto& n : x->nodes()) r.add(n);
   return r;
 }
 

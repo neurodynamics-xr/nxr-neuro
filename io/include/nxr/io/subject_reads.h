@@ -50,6 +50,10 @@ std::string manifold_coordinate_system(const Database& db, const std::string& ma
 std::string manifold_coordinate_system_name(const Database& db, const std::string& manifold_id);
 /** the name of a geometry's coordinate system */
 std::optional<std::string> coordinate_system_name_of_geometry(const Database& db, const std::string& geometry_id);
+/** a coordinate system as `SPACE:NAME` (`head:scs`; the name is unique within its space), "" when there is none by that id */
+std::string coordinate_system_key(const Database& db, const std::string& coordinate_system_id);
+/** every coordinate system of a subject's spaces: (id, `SPACE:NAME`), by key */
+std::vector<std::pair<std::string, std::string>> subject_coordinate_systems(const Database& db, const std::string& subject_id);
 /** the manifolds a product manifold's geometry is made of, by factor */
 std::vector<std::string> factor_manifolds(const Database& db, const std::string& manifold_id);
 /** a closed-form line's first factor as stored: its spacing, origin (seconds) and sample count */

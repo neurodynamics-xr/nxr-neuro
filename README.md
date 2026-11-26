@@ -77,6 +77,19 @@ One wheel per platform serves every Python 3.12 or newer. Only NumPy is required
 
 The functions, their options and the readers are listed in [docs/reference.md](docs/reference.md), section "The Python face".
 
+## JavaScript (WebAssembly, Node)
+
+Every command of the command line is a function too, `nxr.<verb>.<noun>({ option: value })`, returning a Promise; arrays go in and come back as typed arrays with `shape` and
+`dtype`, a refusal is an `NxrError` with the library's `.code`, and `nxr.open(dataset, mode)` gives a handle that keeps the dataset open. Built from the same C++ library as the
+command (`bindings/wasm-io`; nothing is published to npm yet).
+
+    import { nxrNeuro } from '@nxr/neuro'
+    const nxr = await nxrNeuro()
+    await nxr.create.dataset({ dataset: 'study/demo' })
+    const psd = await nxr.read.statistic({ dataset: 'study/demo', subject: 'sub-01', name: 'rest_psd_welch' })   // psd.arrays.values: a Float32Array with .shape and .dtype
+
+See [docs/reference.md](docs/reference.md), section "The JavaScript face".
+
 ## The command
 
 One command, verb first: `nxr-neuro <verb> <what> [options]`.
@@ -88,13 +101,15 @@ One command, verb first: `nxr-neuro <verb> <what> [options]`.
 
 | verb | what it does |
 |---|---|
-| `run <pipeline>` | every pipeline on a subject: the built-in computations (psd, crossspectrum, phasegradient, nulls, ...), the selection makers (`select_dyadic_surface`, `select_time_grid`, `select_bands`, `select_product`, `glue`), the one measuring definition `measure` with its presets, and the shipped definitions (`run global_bursts --band "8-16 Hz" --all`) and your own definition file (`run my.yaml ...`); a definition's parameters are options, each with its meaning, default and unit in `--help` |
+| `run <pipeline>` | every pipeline on a subject: the built-in computations (psd, crossspectrum, phasegradient, nulls, ...), the selection makers (`select_dyadic_surface`, `select_time_grid`, `select_bands`, `select_product`, `glue`), the one measuring definition `measure` with its presets, and the shipped definitions (`run global_bursts --band "8-16 Hz" --all`, `run gabor_bursts --band "8-35 Hz" --all`: bursts per channel matched by Gabor atoms of free width) and your own definition file (`run my.yaml ...`); a definition's parameters are options, each with its meaning, default and unit in `--help` |
 | `compute <node>` | reserved for applying a node or a graph to arrays and files (not available yet) |
 | `list datasets\|subjects\|recordings\|kernels\|results\|pipelines` | what exists |
-| `show dataset\|subject`, `read`, `query`, `export` | one thing in detail, stored arrays, measurements, a table for statistics |
+| `list manifolds\|fields\|selections\|operators\|statistics\|dictionaries\|spaces\|acquisitions\|jobs` | the nodes of a subject, one description each, filtered and paged (`--name`, `--kind`, `--on`, `--limit`, `--after`, `--columns`) |
+| `show dataset\|subject`, `read`, `query`, `export` | one thing in detail (`show dataset` counts each class of node; `read subject` describes every node of a subject, no arrays), stored arrays, measurements, a table for statistics |
 | `import <what>` | from a Brainstorm protocol |
 | `migrate measurements` | bring a dataset made before schema 53 to one measurement table (in place, resumable, `--dry-run`; the old statistics are kept) |
-| `create`, `delete`, `compact`, `recover`, `add` | a dataset's and a subject's housekeeping (a group's reduce is `run roll_up`) |
+| `create`, `delete`, `compact`, `recover`, `add` | a dataset's and a subject's housekeeping (`delete subject --node CLASS:NAME` removes one node with what it owns and refuses one others depend on; `add field\|statistic --begin\|--append\|--commit` writes large values in pieces as one unit; `run` and `import` leave a job row, read by `list jobs`) (a group's reduce is `run roll_up`); `add` stores what was computed elsewhere (a field, selection, operator, line, product, dictionary, ...) |
+| `edit manifold\|dictionary` | change a manifold's label, description and primary flag, or a dictionary's entries, without touching any array |
 
 A dataset is a folder, named by its path with `--dataset <folder>`, and subjects `--subject <id>`. Results are written into the dataset with their provenance and a cache key, so a repeated
 run with the same options is a cache hit. **A computation over a recording states its time range**: `--from <s> --to <s>` (seconds or `m:ss`) or `--all`; without one it refuses.
@@ -110,7 +125,7 @@ unchanged. `--quiet` prints only the result line; colour only in a terminal and 
 - Tutorials, on synthetic data: [the power spectrum of a recording](docs/tutorials/01-psd.md), [from a recording to the cortex](docs/tutorials/02-source-map.md), [bursts of a band](docs/tutorials/03-bursts.md).
 - [docs/pipelines/](docs/pipelines/README.md): every pipeline, one page each (inputs, parameters with meaning, default and unit, presets, the chain of nodes, outputs), generated from the definitions by `tools/gen_docs.py`.
 - [docs/nodes.md](docs/nodes.md): every node and its ports, generated from the node registry.
-- [docs/reference.md](docs/reference.md): the methods: why each is measured, the reference it follows, what it stores and what it cannot resolve.
+- [docs/reference.md](docs/reference.md): every verb and method: why each is measured, the reference it follows, what it stores and what it cannot resolve.
 - [ARCHITECTURE.md](ARCHITECTURE.md): the layers and the rules that are never broken; [CONTRIBUTING.md](CONTRIBUTING.md): how to add a method, build, test and contribute; [docs/specs/](docs/specs/): the designs.
 
 ## Contributing

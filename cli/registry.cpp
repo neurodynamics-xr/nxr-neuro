@@ -129,7 +129,7 @@ void add_definition(Table& t, const std::string& noun, const std::string& defini
   c.old = {"run"};
   c.alias = false;
   c.unprobed = true;
-  c.span = true;
+  c.span = nxr::pipelines::graph::streams_recording(d);   // a time range only for a definition that streams a recording (an eigensolve on a surface takes none)
   c.definition = definition;
   c.group = "Pipeline definitions";
   std::string first = d.description.substr(0, d.description.find_first_of(".\n"));
@@ -145,8 +145,9 @@ void add_definition(Table& t, const std::string& noun, const std::string& defini
   };
   std::set<std::string> params;
   for (const auto& [k, _] : d.parameters.items()) params.insert(dashed(k));
-  for (const char* name : {"--dataset", "--subject", "--replace", "--dry-run", "--block-samples", "--block-frames", "--chunks", "--start", "--stop"}) {
+  for (const char* name : {"--dataset", "--subject", "--replace", "--dry-run", "--block-samples", "--block-frames", "--chunks", "--start", "--stop", "--projectors"}) {
     if (params.count(name + 2)) continue;   // a parameter of that name takes the option
+    if (d.scope == "group" && std::string(name) == "--subject") continue;   // a group definition names its members (its parameter `subjects`), never one subject
     OptionUse u;
     u.name = name;
     u.required = std::string(name) == "--dataset" || std::string(name) == "--subject";
@@ -231,7 +232,10 @@ Table read_table() {
         else if (key == "group") cur->group = val;
         else if (key == "summary") cur->summary = val;
         else if (key == "example") cur->example = val;
-        else if (key == "pos") cur->positional = val;
+        else if (key == "pos") {
+          cur->positional = val;
+          if (!val.empty() && val.back() == '?') { cur->positional.pop_back(); cur->positional_optional = true; }
+        }
         else if (key == "span") cur->span = val == "yes";
         else if (key == "seconds") cur->seconds = val != "no";
         else if (key == "alias") { cur->alias = val != "no" && val != "refused"; cur->refused = val == "refused"; }
@@ -384,7 +388,10 @@ void build_leaf(CLI::App* verb_app, const CommandDoc& c, Leaf& l) {
   l.doc = &c;
   a->footer(leaf_footer(c));
   if (!c.group.empty()) a->group(c.group);
-  if (!c.positional.empty()) a->add_option(c.positional, l.pos)->required()->expected(1, 1)->type_name(c.positional);
+  if (!c.positional.empty()) {
+    CLI::Option* p = a->add_option(c.positional, l.pos)->type_name(c.positional);
+    if (c.positional_optional) p->expected(0, 1); else p->required()->expected(1, 1);
+  }
   for (const auto& u : c.options) {
     const OptionDoc& d = option_doc(u.name, c.path());
     l.bound.emplace_back();

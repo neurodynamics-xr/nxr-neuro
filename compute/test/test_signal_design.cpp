@@ -47,12 +47,30 @@ int main() {
     {
         struct C { const char* name; int n; std::vector<double> wn; Band type; };
         const std::vector<C> cases = {{"low", 4, {0.25}, Band::Lowpass}, {"high", 5, {0.4}, Band::Highpass}, {"bandpass", 3, {0.2, 0.45}, Band::Bandpass},
-                                      {"stop", 4, {0.15, 0.5}, Band::Bandstop}, {"low1", 1, {0.1}, Band::Lowpass}, {"low8", 8, {0.3}, Band::Lowpass}};
+                                      {"stop", 4, {0.15, 0.5}, Band::Bandstop}, {"low1", 1, {0.1}, Band::Lowpass}, {"low8", 8, {0.3}, Band::Lowpass},
+                                      {"high1", 1, {0.35}, Band::Highpass}, {"high6", 6, {0.15}, Band::Highpass}, {"bandpass1", 1, {0.2, 0.6}, Band::Bandpass}, {"bandpass6", 6, {0.1, 0.3}, Band::Bandpass},
+                                      {"stop1", 1, {0.3, 0.6}, Band::Bandstop}, {"stop5", 5, {0.25, 0.4}, Band::Bandstop}, {"low7", 7, {0.05}, Band::Lowpass}, {"high9", 9, {0.8}, Band::Highpass}};
         for (const auto& c : cases) {
             const TransferFunction tf = butter(c.n, c.wn, c.type);
             const Eigen::VectorXd b = g.vec(std::string("butter.") + c.name + ".b"), a = g.vec(std::string("butter.") + c.name + ".a");
             const double eb = maxErr(tf.b, b) / b.cwiseAbs().maxCoeff(), ea = maxErr(tf.a, a) / a.cwiseAbs().maxCoeff();
             EXPECT(eb < 1e-11 && ea < 1e-11 && tf.a(0) == 1.0, std::string("butter ") + c.name + " (order " + std::to_string(c.n) + "): relative error b " + sci(eb) + ", a " + sci(ea) + " < 1e-11");
+
+            // the zeros, poles and gain, in scipy's order (output = 'zpk')
+            const ZeroPoleGain zpk = butterZpk(c.n, c.wn, c.type);
+            const Eigen::VectorXcd zg = g.cvec(std::string("butter.") + c.name + ".z"), pg = g.cvec(std::string("butter.") + c.name + ".p");
+            double ez = 0, ep = 0;
+            bool sizes = static_cast<Eigen::Index>(zpk.z.size()) == zg.size() && static_cast<Eigen::Index>(zpk.p.size()) == pg.size();
+            for (Eigen::Index i = 0; sizes && i < zg.size(); ++i) ez = std::max(ez, std::abs(zpk.z[static_cast<std::size_t>(i)] - zg(i)));
+            for (Eigen::Index i = 0; sizes && i < pg.size(); ++i) ep = std::max(ep, std::abs(zpk.p[static_cast<std::size_t>(i)] - pg(i)));
+            const double kg = g.vec(std::string("butter.") + c.name + ".k")(0);
+            EXPECT(sizes && ez < 1e-12 && ep < 1e-12 && std::abs(zpk.k - kg) < 1e-12 * std::abs(kg), std::string("butterZpk ") + c.name + ": zeros " + sci(ez) + ", poles " + sci(ep) + ", gain " + sci(std::abs(zpk.k - kg) / std::abs(kg)) + " vs scipy output='zpk'");
+            // the second-order sections, in scipy's order (output = 'sos', pairing 'nearest')
+            const Eigen::MatrixXd sos = butterSos(c.n, c.wn, c.type);
+            const Eigen::Index ns = static_cast<Eigen::Index>(g.at(std::string("butter.") + c.name + ".sos").size() / 6);
+            const Eigen::MatrixXd sg = g.mat(std::string("butter.") + c.name + ".sos", ns, 6);
+            const double es = sos.rows() == ns ? (sos - sg).cwiseAbs().maxCoeff() : 1e300;
+            EXPECT(sos.rows() == ns && es < 1e-12, std::string("butterSos ") + c.name + ": " + std::to_string(ns) + " sections, max error " + sci(es) + " vs scipy output='sos'");
         }
         EXPECT(throws([] { butter(0, {0.3}, Band::Lowpass); }) && throws([] { butter(2, {0.3}, Band::Bandpass); }) && throws([] { butter(2, {1.0}, Band::Lowpass); }), "butter: bad order and edges refused");
     }

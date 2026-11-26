@@ -103,10 +103,11 @@ struct StepSpec {
   /** the node's declared time behaviour and precision (see NodeTraits); set where the node is registered */
   NodeTraits traits;
   bool reads_arrays = false;                   // a node that takes found inputs as arrays (a fiber bundle as its points, a surface as its vertices and faces, a partition as its member numbers): the runner reads them for it
-  bool native = false;
+  bool native = false;  // a node of `nxr::graph::registry()` (grouped names, pure functions of compute/): this entry only describes it to the definition reader; the executor runs the node itself
+  std::vector<std::string> many;               // the inputs that take a list of values, wired `<port>.0`, `<port>.1`, ... (nxr::graph::PortSpec::many)
   /** true for a chunk step that reads only the SHAPE of its streamed input (its rows, rate, span and good samples), never a sample: the one kind of step that may take a recording declared
    *  `read: shape` in a definition (spec docs/specs/2026-11-17-surrogates.md, section 6). Any other step handed such a value is refused at plan. */
-  bool reads_shape_only = false;                         // a node of `nxr::graph::registry()` (grouped names, pure functions of compute/): this entry only describes it to the definition reader; the executor runs the node itself
+  bool reads_shape_only = false;
   /** the outputs a use makes given its `with` (a step whose parameter chooses a part, each part making its own outputs); null: all of `outputs`. `out` names exactly these, in the order of `outputs`. */
   std::function<std::vector<std::string>(const Json& with)> outputs_for;
   /** true when the node computes in double on float32 input: the maintainers' rule (stored precision follows the input) makes such a node flagged. Blocks inside the loop are float32; arrays outside are double. */
@@ -132,6 +133,26 @@ const std::vector<StepSpec>& registry();
 const StepSpec& step(const std::string& name);
 /** every step as a pipeline's author reads it: name, kind, ports, parameters, what it matches */
 Json catalogue();
+
+/** EXTERNAL NODES (compile only: face::compile). Nodes another program declares by their signatures (nxr/graph/type_json.h `external_nodes`: a renderer's sinks), with no
+ *  implementation here. While an `ExternalNodes` scope lives on this thread, `step(name)` also finds them (after the registered steps; a registered or retired name is refused)
+ *  and `node_registry` adds them, so a definition naming one is read, expanded, planned and checked as any other; running one is refused by the node itself. */
+class ExternalNodes {
+ public:
+  explicit ExternalNodes(std::vector<nxr::graph::NodeSpec> nodes);
+  ~ExternalNodes();
+  ExternalNodes(const ExternalNodes&) = delete;
+  ExternalNodes& operator=(const ExternalNodes&) = delete;
+  const std::vector<nxr::graph::NodeSpec>& nodes() const { return nodes_; }
+  const StepSpec* find_step(const std::string& name) const;
+  const nxr::graph::Signature* signature(const std::string& name) const;
+  /** the scope in force on this thread, or null */
+  static const ExternalNodes* current();
+ private:
+  std::vector<nxr::graph::NodeSpec> nodes_;
+  std::vector<StepSpec> steps_;
+  const ExternalNodes* previous_ = nullptr;
+};
 /** a plan's refusal: an Error (invalid_argument) with the message, raised before any data is read */
 [[noreturn]] void refuse(const std::string& message);
 

@@ -15,6 +15,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "hemispheres.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
 #include "nxr/signal/forms.h"
@@ -24,7 +25,7 @@
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/filters_fir.h"
 #include "make_grids.h"
 
@@ -78,6 +79,7 @@ int main() {
       std::vector<std::int32_t> dk(static_cast<std::size_t>(b.n), 1);
       for (int i = 0; i < b.n; ++i) { const double y = b.P[static_cast<std::size_t>(3 * i + 1)]; if ((i < b.nHalf && y < 0.7) || (i >= b.nHalf && y > -0.7)) dk[static_cast<std::size_t>(i)] = 0; }
       so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
+      so.atlases.push_back(nxrtest::structures_of(b.P, b.F));   // the hemispheres, as Brainstorm's Structures (the glue reads them)
       surf = add_surface(sub, so, b.P, b.F).id;
       const std::string cid = uuid7();
       std::vector<float> pos(static_cast<std::size_t>(M) * 3, 0.1f);
@@ -129,7 +131,7 @@ int main() {
   const SpatialBand sband = make_spatial_band(ds, sub, S, SL, sbo);
   const std::int64_t Vg = sband.glued_vertices;
   CHECK(Vg > N && sband.glued_surface == "cortex_glued");
-  const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 12.0); };
+  const auto gain = [&](double f) { return nxr::signal::timefilterbank::morletBand(f, 8.0, 12.0); };
   const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
   const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
   Eigen::MatrixXd Re(M, T), Im(M, T);

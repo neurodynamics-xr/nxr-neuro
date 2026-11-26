@@ -47,6 +47,8 @@
 #include "nxr/select/events.h"
 #include "nxr/stats/summary.h"
 #include "nxr/signal/phase_gradient.h"
+#include "nxr/signal/intrinsic_forms.h"
+#include "nxr/geometry/surface_arrays.h"
 #include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/wavelet.h"
 #include "nxr/select/risefall.h"
@@ -68,7 +70,9 @@ void add_connectome_steps(std::vector<StepSpec>& r);   // connectome_steps.cpp: 
 void add_tile_steps(std::vector<StepSpec>& r);          // tiles_steps.cpp: tile_grid, group_tile_grid
 void add_eigen_steps(std::vector<StepSpec>& r);         // eigen_steps.cpp: hodge_dirac
 void add_montage_steps(std::vector<StepSpec>& r);       // montage_steps.cpp: eeg_montage_1005
+void add_sensor_surface_steps(std::vector<StepSpec>& r);   // sensor_surface_steps.cpp: channel_positions, point_set_mesh, surface_from_parts
 void add_spatial_events_steps(std::vector<StepSpec>& r);   // spatial_events_steps.cpp: at_level, relative, …
+void add_gabor_steps(std::vector<StepSpec>& r);            // gabor_steps.cpp: signal.gabor, select.events.peaks, select.gabor_fit, select.events.suppress, event_edges, event_union
 
 void refuse(const std::string& message) { throw nxr::io::Error(nxr::io::code::invalid_argument, message); }
 
@@ -198,7 +202,11 @@ void band_check(const Json& p, const Value& x, const std::string& who, bool opti
   if (optional && band.is_null()) return;
   need(band.is_array() && band.size() == 2 && band[0].is_number() && band[1].is_number() && band[0].get<double>() >= 0 && band[0].get<double>() < band[1].get<double>(),
        who + ": band " + band.dump() + ": [lo, hi] in Hz, lo < hi" + (optional ? " (or null: the plain Hilbert, cut at 1024 taps)" : ""));
-  need(p["shape"] == "morlet" || p["shape"] == "meyer", who + ": shape " + p["shape"].dump() + ": morlet (the default: a Gaussian centred on the band, its width the FWHM) or meyer (compact edges, half_width octaves)");
+  const bool ladder = p.contains("voices") && p["shape"] == "morlet_ladder";
+  need(p["shape"] == "morlet" || p["shape"] == "meyer" || ladder, who + ": shape " + p["shape"].dump() + ": morlet (the default: a Gaussian centred on the band, its width the FWHM) or meyer (compact edges, half_width octaves)" +
+                                                               (p.contains("voices") ? std::string(" or morlet_ladder (the squared gains of a Morlet ladder's members in the band: ladder_min, ladder_max, voices)") : std::string()));
+  if (ladder) need(p["ladder_min"].is_number() && p["ladder_max"].is_number() && p["ladder_min"].get<double>() > 0 && p["ladder_max"].get<double>() > p["ladder_min"].get<double>() && p["voices"].is_number_integer() && p["voices"].get<int>() >= 1,
+                   who + ": morlet_ladder: 0 < ladder_min < ladder_max (Hz) and voices a whole number of at least 1");
   need(p["half_width"].is_number() && p["half_width"].get<double>() > 0, who + ": half_width " + p["half_width"].dump() + ": a positive number of octaves (the Meyer edges' half width; unused by morlet)");
   need(band[1].get<double>() < x.rate / 2, who + ": band " + band.dump() + " reaches past Nyquist (" + std::to_string(x.rate / 2) + " Hz)");
 }
@@ -231,10 +239,22 @@ std::vector<std::int32_t> channels_for(const Values& ins, ExecContext& c) {
   }
   return ch;
 }
+// a `where` range of keep_where: [lo, hi] with null for an open end, or a band quantity ("8-35 Hz") for a frequency; refused otherwise, naming the measure
+Json where_range(const Json& range, const std::string& m) {
+  if (range.is_string()) {
+    nxr::quantity::Quantity q;
+    try { q = nxr::quantity::parse(range.get<std::string>()); } catch (const std::invalid_argument& e) { refuse("keep_where: where." + m + ": " + e.what()); }
+    return Json::array({q.lo, q.hi});
+  }
+  need(range.is_array() && range.size() == 2 && (range[0].is_null() || range[0].is_number()) && (range[1].is_null() || range[1].is_number()),
+       "keep_where: where." + m + " is [lo, hi] (a bound null for none) or a quantity, not " + range.dump());
+  need(range[0].is_null() || range[1].is_null() || range[0].get<double>() <= range[1].get<double>(), "keep_where: where." + m + ": lo is at most hi");
+  return range;
+}
 struct BandAnalytic { std::vector<std::int32_t> channels; double sfreq = 0; nxr::signal::timefilterbank::Family shape = nxr::signal::timefilterbank::Family::Morlet; std::vector<std::pair<double, double>> bank; std::int64_t halo = 0; };
 std::vector<StepSpec> build() {
   std::vector<StepSpec> r;
-  r.push_back({"signal.band_filter", "chunk", {"x"}, {}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}},
+  r.push_back({"signal.band_filter", "chunk", {"x"}, {}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}, {"ladder_min", 1.0}, {"ladder_max", 64.0}, {"voices", 8}},
                "Studio engine/gpu/deviceChain.ts gainTaps · convolveRows (a wavelet band of the Signal chain: toolbox/wavelets/dyadicFrame.ts meyerBand; `shape` morlet, the default: kernels.ts morlet, nxr vortex.morlet_gain); nxr.filters.taps; compute nxr::signal",
                "a field on … × time filtered to a band, zero phase: the band's gain taken to taps once, each chunk convolved with them over its halo",
                [](const Values& ins, const Json& p, const PlanContext&) {
@@ -294,7 +314,7 @@ std::vector<StepSpec> build() {
                "nxr vortex.band_at_frames (the band's analytic signal at the frames); here the band's wavelet `wt(bank, member, window, instants)` (nxr::signal, Morlet or Meyer, the Studio's gains) evaluated at the START of each frame, exactly (no interpolation)",
                "the analytic signal of a band of a real field read at the FRAME TILING (a closed-form spans Selection of frames, `select.time_grid` rule frames: a frame's time is its tile's start): ONE step, the band's wavelet transform "
                "of the chunk's block evaluated at each frame's (non-integer) sample position, a sum over the band's bins, never a signal on every sample interpolated. The band is `band` [lo, hi] Hz with its `shape` (morlet | meyer, "
-               "`half_width` octaves for meyer's edges), the analytic signal of gain 2 as `analytic`. The block is the chunk with the halo the band's response needs (its impulse response down to `tolerance` of its L1 norm, default 1e-6 (the agreement of chunked with whole is then the float32 storage, 1e-7 of the peak; the 1e-12 reach is the whole 65536-sample bank, a 1/t tail of the masked band): the margin of the streaming wt), so the result does not depend on the chunk size; a frame "
+               "`half_width` octaves for meyer's edges), the analytic signal of gain 2 as `analytic`. The block is the chunk with the halo the band's response needs (its impulse response down to `tolerance` of its L1 norm, default 1e-6: timefilterbank::haloOf), so the result does not depend on the chunk size; a frame "
                "belongs to the chunk holding the sample at or before it. The output's columns are FRAMES (axis `frames`): the steps after it are pointwise in time (a linear map, a form, |x|², a series kept) and fold frames; a step that reads the "
                "samples' own time refuses it. With `within` (a spans Selection of the recording's time line: the bursts, a stage) only the frames inside a span are GOOD (the steps after it leave the others out); without it every frame is. "
                "Beyond the recording the signal reads 0",
@@ -528,11 +548,15 @@ std::vector<StepSpec> build() {
                  if (x.unit) y.unit = "(" + *x.unit + ")^2";
                  return Values{{"y", y}};
                }});
-  r.push_back({"phase_current", "chunk", {"x"}, {}, {"y"}, Json::object(), "nxr detect/core_phase.py PhaseReader (Im(conj(z) grad z), the GV gradient); compute nxr::signal::phaseCurrent",
-               "the phase current j = Im(z̄ ∇z) = |z|² ∇φ on the tangent plane, per vertex per sample (three numbers a vertex: x y z)",
-               [](const Values& ins, const Json&, const PlanContext& c) {
+  r.push_back({"phase_current", "chunk", {"x"}, {}, {"y"}, Json{{"discretisation", "vertex_gradient"}},
+               "nxr detect/core_phase.py PhaseReader (Im(conj(z) grad z), the GV gradient; the default `discretisation: vertex_gradient`); compute nxr::signal::phaseCurrent",
+               "the phase current j = Im(z̄ ∇z) = |z|² ∇φ on the tangent plane, per vertex per sample (three numbers a vertex: x y z). `discretisation`: vertex_gradient (the reference: the vertex "
+               "gradient of the mesh) or intrinsic_edges (Im(z̄_tail z_tip) on the edges of the surface's intrinsic Delaunay complex, back at the vertices by sharp)",
+               [](const Values& ins, const Json& p, const PlanContext& c) {
                  const Value& z = ins.at("x");
                  phase_input(z, c, "phase_current");
+                 const std::string disc = p.value("discretisation", std::string("vertex_gradient"));
+                 need(disc == "vertex_gradient" || disc == "intrinsic_edges", "phase_current: discretisation is vertex_gradient (the reference) or intrinsic_edges, not '" + disc + "'");
                  Value y = made(z);
                  y.value_type = "vector3";
                  y.complex = false;
@@ -585,17 +609,35 @@ std::vector<StepSpec> build() {
                  }
                  return Values{{"y", y}};
                }});
-  r.push_back({"fit_gate", "after", {"events", "fit_r2"}, {}, {"spans"}, Json{{"min_r2", 0.7}},
-               "nxr vortex.burst_stages (a fit is kept when risefall is ok, not at its bound, and r² ≥ min_r2 = labelalpha's 0.7); compute nxr::select::passesGate",
-               "the events `detect_spans` made, kept when their rise-fall fit is good: ok, r² ≥ min_r2 and neither time at its bound (within 1% of tau_max). Gives a spans Selection of the KEPT events (the fits and the unfiltered spans stay "
-               "as they are; each kept event's ordinal among the detected ones is recorded)",
+  r.push_back({"fit_gate", "after", {"events", "fit_r2", "x"}, {"fit_r2", "x"}, {"spans"}, Json{{"min_r2", 0.7}, {"where", nullptr}},
+               "nxr vortex.burst_stages (a fit is kept when risefall is ok, not at its bound, and r² ≥ min_r2 = labelalpha's 0.7); compute nxr::select::passesGate. With `x` and `where`: the events whose measures lie in their ranges",
+               "the events kept by a rule on their measures. With `fit_r2` (`risefall`'s): the events `detect_spans` made whose rise-fall fit is good: ok, r² ≥ min_r2 and neither time at its bound (within 1% of tau_max). "
+               "With `x` (a measurement over the events) and `where` ({measure: [lo, hi]}, a bound null for none, or a band quantity \"8-35 Hz\"): the events whose every named measure lies in its range (NaN fails). Gives a spans "
+               "Selection of the KEPT events (the measurements and the unfiltered spans stay as they are; each kept event's ordinal among the given ones, and its column in the measurement, is recorded)",
                [](const Values& ins, const Json& p, const PlanContext&) {
-                 const Value &ev = ins.at("events"), &r2 = ins.at("fit_r2");
-                 need(ev.cls == "spans" && ev.facts.contains("detect") && ev.facts.contains("over"), "fit_gate: events must be the spans `detect_spans` made");
-                 need(r2.cls == "measurement" && r2.facts.value("measure", std::string()) == "fit_r2" && r2.facts.contains("over") && r2.facts["over"].value("events", false), "fit_gate: fit_r2 must be `risefall`'s fit_r2 of these events");
-                 need(p["min_r2"].is_number() && p["min_r2"].get<double>() <= 1, "fit_gate: min_r2 is a number up to 1 (labelalpha's, nxr's: 0.7)");
+                 const Value& ev = ins.at("events");
+                 need(ins.count("fit_r2") + ins.count("x") == 1, "fit_gate: one rule: fit_r2 (risefall's fit gate) or x with `where` (the events' measures in ranges)");
                  Value y = made(ev);
-                 y.facts["gate"] = Json{{"min_r2", p["min_r2"]}, {"tau", "not at its bound"}};
+                 if (ins.count("fit_r2")) {
+                   const Value& r2 = ins.at("fit_r2");
+                   need(ev.cls == "spans" && ev.facts.contains("detect") && ev.facts.contains("over"), "fit_gate: events must be the spans `detect_spans` made");
+                   need(r2.cls == "measurement" && r2.facts.value("measure", std::string()) == "fit_r2" && r2.facts.contains("over") && r2.facts["over"].value("events", false), "fit_gate: fit_r2 must be `risefall`'s fit_r2 of these events");
+                   need(p["min_r2"].is_number() && p["min_r2"].get<double>() <= 1, "fit_gate: min_r2 is a number up to 1 (labelalpha's, nxr's: 0.7)");
+                   y.facts["gate"] = Json{{"min_r2", p["min_r2"]}, {"tau", "not at its bound"}};
+                   return Values{{"spans", y}};
+                 }
+                 const Value& x = ins.at("x");
+                 need(ev.cls == "spans", "keep_where: events must be a spans selection of the run");
+                 need(x.cls == "measurement" && x.facts.contains("over") && x.facts["over"].value("events", false), "keep_where: x must be a measurement over the events");
+                 need(p["where"].is_object() && !p["where"].empty(), "keep_where: where is {measure: [lo, hi]} (a bound null for none), e.g. {atom_r2: [0.7, null]}");
+                 Json ranges = Json::object();
+                 for (const auto& [m, range] : p["where"].items()) {
+                   bool found = x.facts.value("measure", std::string()) == m;
+                   for (const auto& e : x.facts.value("measures", Json::array())) found = found || e == m;
+                   need(found, "keep_where: where names " + m + ", not one of x's measures " + x.facts.value("measures", Json::array()).dump());
+                   ranges[m] = where_range(range, m);
+                 }
+                 y.facts["gate"] = Json{{"where", ranges}};
                  return Values{{"spans", y}};
                }});
   r.push_back({"burst_stages", "after", {"events", "t_on", "t_off", "tau_rise", "tau_fall", "kept"}, {"kept"}, {"onset", "within", "offset"}, Json::object(),
@@ -663,9 +705,11 @@ std::vector<StepSpec> build() {
   add_tracks_steps(r);
   add_crossings_steps(r);
   add_spatial_events_steps(r);
+  add_gabor_steps(r);
   add_surrogate_steps(r);
   add_connectome_steps(r);
   add_montage_steps(r);
+  add_sensor_surface_steps(r);
   add_tile_steps(r);
   add_eigen_steps(r);
   bind_execution(r);                                                    // each step's state and its kind's methods, then its declared traits (a combined step takes its parts' afterwards)
@@ -697,9 +741,18 @@ std::vector<float> convolve(const Block& b, const std::vector<float>& taps, std:
 // meyerBand, half_width octaves); band null: all-pass, the plain Hilbert's)
 std::function<double(double)> band_gain(const Json& p) {
   if (p["band"].is_null()) return [](double) { return 1.0; };
-  const double lo = p["band"][0].get<double>(), hi = p["band"][1].get<double>(), hw = p["half_width"].get<double>();
-  if (p["shape"] == "morlet") return [lo, hi](double f) { return nxr::signal::graphfilterbank::morletBand(f, lo, hi); };
-  return [lo, hi, hw](double f) { return nxr::signal::graphfilterbank::meyerBand(f, lo, hi, hw); };
+  namespace tb = nxr::signal::timefilterbank;
+  tb::BandShape shape;
+  shape.family = p["shape"].get<std::string>();
+  shape.lo = p["band"][0].get<double>();
+  shape.hi = p["band"][1].get<double>();
+  if (p.contains("half_width") && p["half_width"].is_number()) shape.halfWidth = p["half_width"].get<double>();
+  if (shape.family == "morlet_ladder") {                                    // the band's members of a Morlet ladder, their squared gains summed (the reference Gabor detector's R² signal)
+    shape.ladderMinimum = p["ladder_min"].get<double>();
+    shape.ladderMaximum = p["ladder_max"].get<double>();
+    shape.voices = p["voices"].get<int>();
+  }
+  return tb::bandGain(shape);
 }
 struct AnalyticTaps { std::vector<float> even, odd; };
 struct KernelState { std::shared_ptr<const Eigen::MatrixXd> K; Json resolved; };
@@ -756,7 +809,18 @@ std::shared_ptr<nxr::signal::FaceGradientOperator> surface_operator(ExecContext&
   std::vector<float> P(S.vertices.begin(), S.vertices.end());
   return std::make_shared<nxr::signal::FaceGradientOperator>(nxr::signal::assembleFaceGradient(P.data(), S.faces.data(), static_cast<int>(S.n_vertices()), static_cast<int>(S.n_faces())));
 }
-struct PhaseState { nxr::signal::Gradient G; Eigen::MatrixXd N; int components = 1; };
+struct PhaseState { nxr::signal::Gradient G; Eigen::MatrixXd N; int components = 1; std::shared_ptr<const nxr::signal::IntrinsicComplex> edges; };
+// the phase current on the EDGES of the surface's intrinsic Delaunay complex (the options `eigen solve` uses by default), bound once: the discretisation `intrinsic_edges`
+std::shared_ptr<PhaseState> phase_state_edges(const Value& z, ExecContext& c) {
+  const auto m = c.bound.manifold(z.manifolds[0]);
+  const auto S = c.bound.surface(m ? std::optional<std::string>(nxr::io::text(*m, "name")) : std::nullopt);
+  const nxr::geometry::SurfaceArrays arrays = nxr::geometry::surfaceArrays(S.vertices.data(), static_cast<int>(S.n_vertices()), S.faces.data(), static_cast<int>(S.n_faces()));
+  auto st = std::make_shared<PhaseState>();
+  st->components = z.value_type == "vector3" ? 3 : 1;
+  st->edges = std::make_shared<const nxr::signal::IntrinsicComplex>(nxr::signal::intrinsicComplex(arrays));
+  if (c.say) c.say(Json{{"phase_current", "intrinsic_edges"}, {"complex", Json{{"vertices", st->edges->nV}, {"edges", st->edges->nE}, {"faces", st->edges->nF}}}});
+  return st;
+}
 std::shared_ptr<PhaseState> phase_state(const Value& z, ExecContext& c) {
   const auto op = surface_operator(c, z.manifolds[0]);
   const int nV = op->nV;
@@ -784,7 +848,7 @@ void bind_traits(std::vector<StepSpec>& r) {
   declare("signal.band_filter", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "a zero-phase FIR band filter; float32 taps, each output sample a float64 sum over the window, stored as float32", "the taps' reach: taps.size() - 1 samples each side (set by the band's width; a recording's end is reflected)"));
   declare("signal.analytic", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's even and odd FIR passes (the analytic signal); float64 sums, float32 result", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
   declare("signal.envelope", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the analytic signal's modulus: the same FIR passes, then |z| in double, stored as float32", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
-  declare("signal.analytic_frames", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's analytic signal at the frame tiling by wt at the frames' instants (a sum over the band's bins of the block's spectrum); float64 throughout, float32 result", "the band's impulse response down to 1e-6 of its L1 norm (the margin of nxr::signal::wtLayout), samples each side of the chunk"));
+  declare("signal.analytic_frames", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's analytic signal at the frame tiling by wt at the frames' instants (a sum over the band's bins of the block's spectrum); float64 throughout, float32 result", "the band's impulse response down to `tolerance` (default 1e-6) of its L1 norm (timefilterbank::haloOf), samples each side of the chunk"));
   declare("meeg.apply_kernel", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "a linear map of the rows (kernel, spatial band) applied to each column independently; the product is formed in double and stored as float32", {}));
   declare("magnitude", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "the norm over an element's components, per sample; sums in double, float32 result", {}));
   declare("measurement.collect", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "appends each block's own columns in time order: the order of the blocks fixes the result", {}));
@@ -852,10 +916,7 @@ void bind_execution(std::vector<StepSpec>& r) {
         // the block's analytic bank (the wavelet filterbank, analytic, gain 2, DC and Nyquist dropped as the band analytic signal always did), one transform of the block shared by all its members
         namespace tb = nxr::signal::timefilterbank;
         if (block.rows() < 2) refuse("analytic: a block holds at least 2 samples");
-        tb::Design design(a.shape, 2.0, tb::Sides::Analytic);
-        design.bands = a.bank;
-        design.edgeBins = tb::EdgeBins::Drop;
-        const tb::Coefficients coefficients = nxr::signal::wt(tb::design(design, static_cast<std::size_t>(block.rows()), a.sfreq), block);   // per band: [samples x channels]
+        const tb::Coefficients coefficients = nxr::signal::bandAnalytic(block, a.sfreq, a.bank, a.shape);   // per band: [samples x channels]
         const std::int64_t kl = std::min(keep, b.left), kr = std::min(keep, b.right), w = b.own() + kl + kr, c0 = b.left - kl;
         Block y{NB * M, w, kl, kr, std::vector<float>(static_cast<std::size_t>(NB * M * w)), std::vector<float>(static_cast<std::size_t>(NB * M * w))};
         for (std::int64_t bi = 0; bi < NB; ++bi) {
@@ -911,13 +972,9 @@ void bind_execution(std::vector<StepSpec>& r) {
       design.bands = {{p["band"][0].get<double>(), p["band"][1].get<double>()}};
       design.halfWidth = p["half_width"].get<double>();
       design.edgeBins = tb::EdgeBins::Drop;
-      s.bank = tb::design(design, std::size_t(1) << 16, x.rate);
-      // THE HALO is the old streaming wt's margin: the length after which the member's |impulse response| (the masked gain on a fine grid, the grid doubled while the tail has not decayed) holds under
-      // 1e-6 of its L1 norm (WtOptions::tolerance; the rule of wtLayout), so the frames of a chunk are the whole record's to that tolerance whatever the chunk size. The band's taps (haloOf) are shorter and left 1e-3.
-      nxr::signal::WtOptions wo;
-      wo.block = 1;
-      wo.tolerance = p.value("tolerance", 1e-6);
-      s.H = std::max(static_cast<std::int64_t>(tb::haloOf(s.bank, 0)), nxr::signal::wtLayout(s.bank, wo).margin);
+      s.bank = tb::timeBank(design, std::size_t(1) << 16, x.rate);
+      // THE HALO is the member's impulse response down to `tolerance` of its L1 norm (timefilterbank::haloOf): the frames of a chunk are the whole record's to the tail the taps leave out, whatever the chunk size
+      s.H = static_cast<std::int64_t>(tb::haloOf(s.bank, 0, p.value("tolerance", 1e-6)));
     }
     if (ins.count("within")) {
       s.has_within = true;
@@ -1262,11 +1319,25 @@ void bind_execution(std::vector<StepSpec>& r) {
   for (const char* n : {"phase_current", "signal.gradient_power"}) {
     StepSpec& s = at(n);
     const bool current = std::string(n) == "phase_current";
-    s.prepare = [](const Values& ins, const Json&, ExecContext& c) { return std::any(phase_state(ins.at("x"), c)); };
+    s.prepare = [current](const Values& ins, const Json& p, ExecContext& c) {
+      if (current && p.value("discretisation", std::string("vertex_gradient")) == "intrinsic_edges") return std::any(phase_state_edges(ins.at("x"), c));
+      return std::any(phase_state(ins.at("x"), c));
+    };
     s.chunk = [current](const std::any& st, const Blocks& ins, std::int64_t keep) {
       const PhaseState& ps = *std::any_cast<const std::shared_ptr<PhaseState>&>(st);
       const Block b = crop(ins.at("x"), keep);
       const Eigen::MatrixXcd Z = complex_of(b);
+      if (ps.edges) {                                                     // Σ over the components of Im(z̄_tail z_tip) on the edges, then sharp: x y z a vertex
+        const nxr::signal::IntrinsicComplex& cx = *ps.edges;
+        if (Z.rows() != static_cast<Eigen::Index>(cx.nV) * ps.components) refuse("phase_current: x has " + std::to_string(Z.rows()) + " rows, the surface " + std::to_string(cx.nV) + " vertices x " + std::to_string(ps.components));
+        Eigen::MatrixXd J = Eigen::MatrixXd::Zero(cx.nE, Z.cols());
+        for (int a = 0; a < ps.components; ++a) {
+          Eigen::MatrixXcd za(cx.nV, Z.cols());
+          for (int v = 0; v < cx.nV; ++v) za.row(v) = Z.row(static_cast<Eigen::Index>(v) * ps.components + a);
+          J += nxr::signal::phaseCurrent(cx, za);
+        }
+        return Blocks{{"y", block_of(nxr::signal::sharp(cx, J), b.left, b.right)}};
+      }
       const Eigen::MatrixXd Y = current ? nxr::signal::phaseCurrent(Z, ps.components, ps.G, ps.N) : nxr::signal::gradientPower(Z, ps.components, ps.G, ps.N);
       return Blocks{{"y", block_of(Y, b.left, b.right)}};
     };
@@ -1310,7 +1381,7 @@ void bind_execution(std::vector<StepSpec>& r) {
       // an event of row -1 (a global event, `combine mean`) is fitted on the MEAN over the series' rows and holds on every row
       Eigen::VectorXd series = Eigen::Map<const Eigen::VectorXd>(x.data.data() + std::max<std::int64_t>(row, 0) * x.cols, x.cols);
       if (row < 0) { series.setZero(); for (std::int64_t q = 0; q < R; ++q) series += Eigen::Map<const Eigen::VectorXd>(x.data.data() + q * x.cols, x.cols); series /= static_cast<double>(R); }
-      const auto F = nxr::select::fit(series, fs, t0, t1, o);
+      const auto F = nxr::select::risefall(series, fs, t0, t1, o);
       const bool keep = F.ok && !(p["min_r2"].is_number() && F.r2 < p["min_r2"].get<double>());
       ok += F.ok; bound += F.ok && F.atBound; below += F.ok && !keep;
       fits.push_back(Json{{"event", e}, {"row", row}, {"ok", F.ok}, {"kept", keep}, {"at_bound", F.atBound}, {"r2", F.ok ? Json(F.r2) : Json()}});
@@ -1351,10 +1422,45 @@ void bind_execution(std::vector<StepSpec>& r) {
     return F;
   };
   StepSpec& fg = at("fit_gate");
-  fg.prepare = [](const Values&, const Json& p, ExecContext&) { return std::any(p); };
+  fg.prepare = [](const Values& ins, const Json& p, ExecContext&) {
+    Json q = p;
+    q["by_measures"] = ins.count("x") > 0;
+    if (ins.count("x")) for (const auto& [m, range] : p["where"].items()) q["where"][m] = where_range(range, m);
+    return std::any(q);
+  };
   fg.run = [event_fit](const std::any& st, const Arrays& ins, ExecContext&) {
     const Json& p = std::any_cast<const Json&>(st);
     const Array& ev = ins.at("events");
+    if (p["by_measures"].get<bool>()) {
+      // THE EVENTS WHOSE MEASURES LIE IN RANGE: a measurement over the events (or over the set they are a subset of: `measured_ordinals` names each one's column)
+      const Array& x = ins.at("x");
+      std::map<std::string, std::int64_t> col;
+      std::int64_t k = 0;
+      for (const auto& m : x.meta.value("measures", Json::array())) { col[m.value("measure", std::string())] = k; k += m.value("components", 1); }
+      const std::int64_t C = std::max<std::int64_t>(1, x.comps);
+      Array out{0, 4, {}};
+      Json ordinals = Json::array(), measured = Json::array(), refused = Json::object();
+      for (std::int64_t e = 0; e < ev.rows; ++e) {
+        const std::int64_t row = std::max<std::int64_t>(0, static_cast<std::int64_t>(ev.data[static_cast<std::size_t>(e * 4 + 2)]));
+        const std::int64_t c = x.cols == ev.rows || !ev.meta.contains("measured_ordinals") ? e : ev.meta["measured_ordinals"][static_cast<std::size_t>(e)].get<std::int64_t>();
+        bool keep = true;
+        for (const auto& [m, range] : p["where"].items()) {
+          need(col.count(m) != 0, "keep_where: x holds no measure " + m);
+          const double v = x.at(static_cast<std::size_t>((row * x.cols + c) * C + col.at(m)));
+          const bool in = std::isfinite(v) && (range[0].is_null() || v >= range[0].get<double>()) && (range[1].is_null() || v <= range[1].get<double>());
+          if (!in) { keep = false; refused[m] = refused.value(m, 0) + 1; break; }
+        }
+        if (!keep) continue;
+        out.data.insert(out.data.end(), ev.data.begin() + e * 4, ev.data.begin() + e * 4 + 4);
+        ++out.rows;
+        ordinals.push_back(e);
+        measured.push_back(c);
+      }
+      out.meta = ev.meta;
+      out.meta["measured_ordinals"] = measured;
+      out.meta["gate"] = Json{{"where", p["where"]}, {"events", ev.rows}, {"kept", out.rows}, {"ordinals", ordinals}, {"refused_by", refused}};
+      return Arrays{{"spans", std::move(out)}};
+    }
     const double min_r2 = p["min_r2"].get<double>();
     Array out{0, 4, {}};
     Json ordinals = Json::array();
@@ -1435,9 +1541,11 @@ void bind_execution(std::vector<StepSpec>& r) {
     const double width_s = x.meta.value("width_s", 0.0);
     need(W > 0 && width_s > 0, "detect_spans: x carries no tile width");
     // seconds in whole tiles: joined when the tiles between them span ≤ merge_s; kept when min_s ≤ tiles × width ≤ max_s
-    const std::int64_t gap = static_cast<std::int64_t>(std::floor(p["merge_s"].get<double>() / width_s + 1e-9)) + 1;
-    const std::int64_t minL = std::max<std::int64_t>(1, static_cast<std::int64_t>(std::ceil(p["min_s"].get<double>() / width_s - 1e-9)));
-    const std::int64_t maxL = p["max_s"].is_null() ? std::numeric_limits<std::int64_t>::max() : static_cast<std::int64_t>(std::floor(p["max_s"].get<double>() / width_s + 1e-9));
+    nxr::select::BurstOptions bo;
+    bo.enterSd = p["enter_sd"].get<double>(); bo.exitSd = p["exit_sd"].get<double>(); bo.mergeS = p["merge_s"].get<double>(); bo.minS = p["min_s"].get<double>();
+    if (!p["max_s"].is_null()) bo.maxS = p["max_s"].get<double>();
+    const nxr::select::BurstLengths lengths = nxr::select::burstLengths(bo, width_s);
+    const std::int64_t gap = lengths.gap, maxL = lengths.maxLength;
     // the measure the events are found on: one column of x [rows x tiles x measures]
     const std::int64_t C = std::max<std::int64_t>(1, x.comps);
     std::int64_t mi = 0, at_comp = 0;
@@ -1474,24 +1582,21 @@ void bind_execution(std::vector<StepSpec>& r) {
     std::size_t si = 0;
     for (const auto& [row, v] : series) {
       const std::size_t this_series = si++;
-      std::vector<double> good;
-      for (Eigen::Index t = 0; t < v.size(); ++t) if (std::isfinite(v(t))) good.push_back(v(t));
-      if (good.size() < 2) { thresholds.push_back(Json{{"row", row}, {"skipped", "fewer than 2 good tiles"}}); continue; }
-      const Eigen::Map<const Eigen::VectorXd> g(good.data(), static_cast<Eigen::Index>(good.size()));
-      const double med = base ? base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmed + bshift)] : nxr::select::median(g);
-      const double sd = base ? base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmad + bshift)] : nxr::select::mad(g);
-      if (!(sd > 0)) { thresholds.push_back(Json{{"row", row}, {"median", med}, {"robust_sd", sd}, {"skipped", "no spread (robust SD 0)"}}); continue; }
-      const double hi = med + p["enter_sd"].get<double>() * sd, lo = med + p["exit_sd"].get<double>() * sd;
-      Eigen::VectorXd z = v;
-      for (Eigen::Index t = 0; t < z.size(); ++t) if (!std::isfinite(z(t))) z(t) = -std::numeric_limits<double>::infinity();   // a bad tile ends a span
-      auto spans = nxr::select::keepSpans(nxr::select::mergeSpans(nxr::select::crossings(z, hi, lo), gap), minL, maxL);
-      thresholds.push_back(Json{{"row", row}, {"median", med}, {"robust_sd", sd}, {"enter", hi}, {"exit", lo}, {"good_tiles", static_cast<std::int64_t>(good.size())}, {"spans", static_cast<std::int64_t>(spans.size())}});
+      // the detection is the compute function (nxr::select::detectBursts); the baseline is the stored statistic's when given
+      std::optional<nxr::select::Baseline> given;
+      if (base) given = nxr::select::Baseline{base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmed + bshift)],
+                                              base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmad + bshift)]};
+      const nxr::select::Bursts found = nxr::select::detectBursts(v, width_s, bo, given);
+      if (found.good < 2) { thresholds.push_back(Json{{"row", row}, {"skipped", "fewer than 2 good tiles"}}); continue; }
+      if (!found.skipped.empty()) { thresholds.push_back(Json{{"row", row}, {"median", found.median}, {"robust_sd", found.sd}, {"skipped", found.skipped}}); continue; }
+      const auto& spans = found.spans;
+      thresholds.push_back(Json{{"row", row}, {"median", found.median}, {"robust_sd", found.sd}, {"enter", found.enter}, {"exit", found.exit}, {"good_tiles", found.good}, {"spans", static_cast<std::int64_t>(spans.size())}});
       for (const auto& sp : spans) {
         out.data.insert(out.data.end(), {static_cast<double>(sp.start), static_cast<double>(sp.stop), static_cast<double>(row), sp.value});
         ++out.rows;
       }
     }
-    out.meta = Json{{"tiles_of", x.meta}, {"durations", durations}, {"thresholds", thresholds}, {"tiles_compared", Json{{"merge_gap_tiles_below", gap}, {"min_tiles", minL},
+    out.meta = Json{{"tiles_of", x.meta}, {"durations", durations}, {"thresholds", thresholds}, {"tiles_compared", Json{{"merge_gap_tiles_below", gap}, {"min_tiles", lengths.minLength},
                     {"max_tiles", p["max_s"].is_null() ? Json() : Json(maxL)}, {"width_s", width_s}}},
                     {"statistic", ins.count("baseline") ? "per series: the median and the robust SD (1.4826 x MAD) of the baseline statistic (summarize)" :
                                                          "per series: the median and the robust SD (1.4826 x MAD) over its good tiles in the run's span (nxr::select::median, mad), computed here"}};
@@ -1507,7 +1612,7 @@ StepSpec describe_native(const nxr::graph::NodeSpec& n) {
   s.name = n.name;
   s.native = true;
   s.kind = n.kind == nxr::graph::Kind::chunk ? "chunk" : n.kind == nxr::graph::Kind::accumulate ? "accumulate" : "array";
-  for (const auto& p : n.inputs) { s.inputs.push_back(p.name); if (p.optional) s.optional.push_back(p.name); }
+  for (const auto& p : n.inputs) { s.inputs.push_back(p.name); if (p.optional) s.optional.push_back(p.name); if (p.many) s.many.push_back(p.name); }
   for (const auto& p : n.outputs) s.outputs.push_back(p.name);
   for (const auto& p : n.parameters) s.parameters[p.name] = p.def;
   s.matches = n.matches;
@@ -1628,12 +1733,14 @@ const std::map<std::string, std::string>& retired_steps() {
 const StepSpec& step(const std::string& name) {
   for (const auto& s : registry()) if (s.name == name) return s;
   if (const auto it = retired_steps().find(name); it != retired_steps().end()) refuse("the step '" + name + "' is retired: use " + it->second);
+  if (const ExternalNodes* x = ExternalNodes::current())
+    if (const StepSpec* s = x->find_step(name)) return *s;
   std::vector<std::string> n;
   for (const auto& s : registry()) n.push_back(s.name);
   std::sort(n.begin(), n.end());
   std::string list;
   for (const auto& x : n) list += (list.empty() ? "" : ", ") + x;
-  refuse("no pipeline step '" + name + "' (registered: " + list + ")");
+  refuse("no pipeline step '" + name + "' (registered: " + list + "; a node another program implements is declared by its signature to `compile`)");
 }
 
 std::vector<std::string> undeclared_traits() {
@@ -1645,6 +1752,31 @@ std::vector<std::string> undeclared_traits() {
 void check_traits(const StepSpec& node) {
   if (!node.traits.declared())
     refuse(node.name + ": the node declares no time behaviour or numeric precision (NodeTraits, registry.h): a node is registered with its traits (windowed: with its window rule)");
+}
+
+namespace {
+thread_local const ExternalNodes* external_scope = nullptr;
+}  // namespace
+
+ExternalNodes::ExternalNodes(std::vector<nxr::graph::NodeSpec> nodes) : nodes_(std::move(nodes)) {
+  for (const auto& n : nodes_) {
+    for (const auto& s : registry())
+      if (s.name == n.name) refuse("the external node " + n.name + " is a registered step: a declared signature never replaces nxr-neuro's own");
+    if (retired_steps().count(n.name)) refuse("the external node " + n.name + " has a retired step's name (use another)");
+    steps_.push_back(describe_native(n));                                  // the definition reader sees its ports and parameters; the executor's node is `n` itself
+  }
+  previous_ = external_scope;
+  external_scope = this;
+}
+ExternalNodes::~ExternalNodes() { external_scope = previous_; }
+const ExternalNodes* ExternalNodes::current() { return external_scope; }
+const StepSpec* ExternalNodes::find_step(const std::string& name) const {
+  for (const auto& s : steps_) if (s.name == name) return &s;
+  return nullptr;
+}
+const nxr::graph::Signature* ExternalNodes::signature(const std::string& name) const {
+  for (const auto& n : nodes_) if (n.name == name && n.signature) return &*n.signature;
+  return nullptr;
 }
 
 Json catalogue() {

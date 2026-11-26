@@ -3,6 +3,7 @@
 // checks, and `tamper`, named so that a test that corrupts a database on purpose says so. Tests otherwise use the record API, as pipelines do.
 #pragma once
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -29,11 +30,19 @@ class Probe {
   std::vector<Row> rows(const std::string& table, const Row& where = {}, const std::string& order_by = "") const;
   // PRAGMA foreign_key_check and integrity_check: empty when the database is sound, else one line per problem.
   std::vector<std::string> integrity() const;
+  // Whether the database was opened read-only (a reader).
+  bool read_only() const;
   // Run `sql` against the database to corrupt it on purpose (a test of what a reader or a check does with a damaged database).
   void tamper(const std::string& sql) const;
 
  private:
   const Database* db_;
 };
+
+// Rewrite a schema-55 database file AS SCHEMA 50 on purpose (a fixture for "an older dataset read as it is"): the tables and column of 51 to 54 dropped (55 widened a CHECK only),
+// the subject kind list and the views as the build before had them, the migration records removed, user_version 50.
+void rewrite_as_schema_50(const std::filesystem::path& database_file);
+// The file's PRAGMA user_version, opened read-only.
+int user_version_of(const std::filesystem::path& database_file);
 
 }  // namespace nxr::io::testing

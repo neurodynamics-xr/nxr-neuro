@@ -34,6 +34,9 @@ std::vector<MeasureSpec> standard_table() {
       S("total_power", "power", "sum", M::sum), S("phase_power", "power", "sum", M::sum), S("phase_gradient_power", "power", "sum", M::sum),
       // forms on the complex's edges and faces (the tile integrals)
       S("outflow", "edge_1form", "sum", M::sum), S("circulation", "face_2form", "sum", M::sum),
+      // the ⋆1 energies of a phase 1-form and of its split's parts (vertexEnergy: each edge's half at each end), summed over a member
+      S("one_form_energy", "edge_1form", "sum", M::sum), S("exact_energy", "edge_1form", "sum", M::sum), S("coexact_energy", "edge_1form", "sum", M::sum),
+      S("exact_misfit_energy", "edge_1form", "sum", M::sum),
       // the member's own (no field): area is Σw, n_elements the count
       S("area", "member", "weight", M::sum), S("n_elements", "member", "count", M::sum), S("duration", "member", "member", M::sum), S("n_tiles", "member", "member", M::sum),
       S("n_cells", "member", "member", M::sum), S("interval_next", "member", "member", M::none), S("centre", "member", "member", M::none), S("first_cell", "member", "member", M::none),
@@ -62,6 +65,8 @@ std::vector<MeasureSpec> standard_table() {
       {"tile_pair_quadrature_fraction", {"tile_pair_cross_spectrum_norm2", "tile_pair_cross_spectrum_quadrature_norm2"}},
       {"phase_gradient_x", {"phase_current_x", "power"}}, {"phase_gradient_y", {"phase_current_y", "power"}}, {"phase_gradient_z", {"phase_current_z", "power"}},
       {"relative_power", {"power_sum", "total_power"}}, {"crossing_consistency", {"crossing_sum_x", "crossing_sum_y", "crossing_sum_z", "crossings"}}, {"crossing_rho2", {"crossing_sum_x", "crossing_sum_y", "crossing_sum_z", "crossings"}},
+      {"exact_share", {"exact_energy", "one_form_energy"}}, {"coexact_share", {"coexact_energy", "one_form_energy"}},
+      {"residual_share", {"one_form_energy", "exact_energy", "coexact_energy"}}, {"exact_misfit_share", {"exact_misfit_energy", "one_form_energy"}},
   };
   for (const auto& d : derived) t.push_back(S(d.first, "none", "", M::none, "", d.second));
   return t;
@@ -153,6 +158,11 @@ double Registry::derive(const std::string& name, const std::function<double(cons
     const double n = g("crossings"), s2 = sq(g("crossing_sum_x")) + sq(g("crossing_sum_y")) + sq(g("crossing_sum_z"));
     v = name == "crossing_consistency" ? std::sqrt(s2) / n : (s2 - n) / (n * (n - 1));
   }
+  // the split of a phase 1-form: shares of its ⋆1 energy (ratios of the sums over a member; NaN where it has no energy)
+  else if (name == "exact_share") v = g("one_form_energy") > 0 ? g("exact_energy") / g("one_form_energy") : kNaN;
+  else if (name == "coexact_share") v = g("one_form_energy") > 0 ? g("coexact_energy") / g("one_form_energy") : kNaN;
+  else if (name == "residual_share") v = g("one_form_energy") > 0 ? std::max(0.0, 1.0 - (g("exact_energy") + g("coexact_energy")) / g("one_form_energy")) : kNaN;
+  else if (name == "exact_misfit_share") v = g("one_form_energy") > 0 ? g("exact_misfit_energy") / g("one_form_energy") : kNaN;
   else throw std::invalid_argument("measurement: the registry derives '" + name + "' but compute has no formula for it");
   return finite_or_nan(v);
 }
@@ -177,14 +187,18 @@ double value(const Ingredients& g, std::int64_t row, std::int64_t member, const 
   if (row < 0 || row >= g.rows || member < 0 || member >= g.members) throw std::invalid_argument("measurement: value of (row " + std::to_string(row) + ", member " + std::to_string(member) + ") is outside the ingredients");
   if (component < 0 || component >= g.components) throw std::invalid_argument("measurement: component " + std::to_string(component) + " of " + std::to_string(g.components));
   const std::size_t k = g.at(row, member);
-  const double w = g.weight[k];
   const std::string& in = s.ingredient;
+  // each measure reads only its own ingredient (a stored max needs no weight); one the ingredients do not hold is refused, never read past its end
+  auto take = [&](const auto& v, const char* name, std::size_t at) -> double {
+    if (at >= v.size()) throw std::invalid_argument("measurement: '" + measure + "' needs the ingredient '" + name + "', which these ingredients do not hold");
+    return static_cast<double>(v[at]);
+  };
   double v;
-  if (in == "count") v = static_cast<double>(g.count[k]);
-  else if (in == "weight") v = w;
-  else if (in == "max") v = g.max[k];
-  else if (in == "min") v = g.min[k];
-  else if (in == "abs_max") v = g.abs_max[k];
+  if (in == "count") v = take(g.count, "count", k);
+  else if (in == "weight") v = take(g.weight, "weight", k);
+  else if (in == "max") v = take(g.max, "max", k);
+  else if (in == "min") v = take(g.min, "min", k);
+  else if (in == "abs_max") v = take(g.abs_max, "abs_max", k);
   else if (in == "held") {
     if (g.held.empty()) throw std::invalid_argument("measurement: a median needs the values held (Ingredients(..., hold = true), Request::measures names it)");
     std::vector<double> h = g.held[k];                                     // numpy median of the finite values: the middle one, the mean of the two middle ones when even
@@ -197,14 +211,15 @@ double value(const Ingredients& g, std::int64_t row, std::int64_t member, const 
   }
   else {
     double total;
-    if (in == "sum") total = g.sum[g.at(row, member, component)];
-    else if (in == "sum_sq") total = g.sum_sq[k];
-    else if (in == "sum_cube") total = g.sum_cube[k];
-    else if (in == "sum_fourth") total = g.sum_fourth[k];
-    else if (in == "sum_abs") total = g.sum_abs[k];
-    else if (in == "sum_sqrt_abs") total = g.sum_sqrt_abs[k];
+    if (in == "sum") total = take(g.sum, "sum", g.at(row, member, component));
+    else if (in == "sum_sq") total = take(g.sum_sq, "sum_sq", k);
+    else if (in == "sum_cube") total = take(g.sum_cube, "sum_cube", k);
+    else if (in == "sum_fourth") total = take(g.sum_fourth, "sum_fourth", k);
+    else if (in == "sum_abs") total = take(g.sum_abs, "sum_abs", k);
+    else if (in == "sum_sqrt_abs") total = take(g.sum_sqrt_abs, "sum_sqrt_abs", k);
     else throw std::invalid_argument("measurement: '" + measure + "' is a member's own measure (" + in + "): it is computed from the member, not accumulated");
-    v = s.merge == Merge::mean ? (w > 0 ? total / w : 0.0) : total;       // a mean of a member of zero weight is the reference's 0
+    if (s.merge == Merge::mean) { const double w = take(g.weight, "weight", k); v = w > 0 ? total / w : 0.0; }
+    else v = total;       // a mean of a member of zero weight is the reference's 0
   }
   return finite_or_nan(v);
 }

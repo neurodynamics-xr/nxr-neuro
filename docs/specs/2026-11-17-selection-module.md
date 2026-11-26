@@ -264,7 +264,7 @@ vocabulary.
 
 | how the neighbourhood is given today | functions |
 |---|---|
-| derived from a design, never stated (the streaming state handles chunk edges) | FIR filters (length from ripple and transition width); IIR notch and bandstop (unbounded, forward and back); `Filter::window`, `RunningMean` |
+| derived from a design, never stated (the halo of the windowed filter handles chunk edges) | FIR filters (length from ripple and transition width); IIR notch and bandstop (unbounded, forward and back); `Filter::window`, `RunningMean` |
 | an explicit margin or halo, computed and reported | `wt` margin (the longest member's response tail); `timebank::haloOf`; `frame_tiling::sincInterpolate` (`half_width`); `taps` (half-width); `surrogate::shapingTaps`, `filterValid` |
 | the mesh's one-ring, implicit in the operator (k-rings for a Chebyshev series of order k) | the Laplacians, DEC, Hodge–Dirac and connection operators; curvatures, normals, face frames; `phase::vertexGradient`, `phaseGradient`, `phaseVelocity`, `travellingIndex`; `hodge_weights`, `intrinsic_forms`, `magnetic`, `transport`, `lag::holonomy`; the graph filterbank's Chebyshev route |
 | a radius or a distance | `ChartKit::disc`; `quadrature::weightedPhaseGradient` (a disc); `tracks::link` (`linkDistance`); `lag::pairsAtDistance` |

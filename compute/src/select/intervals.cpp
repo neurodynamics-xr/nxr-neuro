@@ -10,6 +10,31 @@
 
 namespace nxr::select {
 
+std::vector<std::int64_t> overlapGroups(const std::vector<double>& start, const std::vector<double>& stop, const std::vector<double>& fLow, const std::vector<double>& fHigh) {
+  const std::size_t n = start.size();
+  if (stop.size() != n) throw std::invalid_argument("overlapGroups: one stop an event");
+  const bool freq = !fLow.empty() || !fHigh.empty();
+  if (freq && (fLow.size() != n || fHigh.size() != n)) throw std::invalid_argument("overlapGroups: one frequency box an event, or none");
+  std::vector<std::size_t> parent(n);
+  for (std::size_t i = 0; i < n; ++i) parent[i] = i;
+  auto root = [&](std::size_t i) { while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  for (std::size_t i = 0; i < n; ++i)
+    for (std::size_t j = i + 1; j < n; ++j) {
+      if (!(start[i] < stop[j] && start[j] < stop[i])) continue;
+      if (freq && !(fLow[i] <= fHigh[j] && fLow[j] <= fHigh[i])) continue;
+      const std::size_t a = root(i), b = root(j);
+      if (a != b) parent[std::max(a, b)] = std::min(a, b);
+    }
+  std::vector<std::int64_t> group(n, -1), of_root(n, -1);
+  std::int64_t next = 0;
+  for (std::size_t i = 0; i < n; ++i) {
+    const std::size_t r = root(i);
+    if (of_root[r] < 0) of_root[r] = next++;
+    group[i] = of_root[r];
+  }
+  return group;
+}
+
 std::vector<Span> crossings(const Eigen::Ref<const Eigen::VectorXd>& x, double entry, double exit) {
   if (!(exit <= entry)) throw std::invalid_argument("crossings: the exit level is at most the entry level");
   std::vector<Span> out;
@@ -97,6 +122,38 @@ std::vector<double> eventIntervalNext(const std::vector<TileEvent>& events, doub
     if (best >= 0) out[i] = static_cast<double>(best - events[i].stop) * width;
   }
   return out;
+}
+
+BurstLengths burstLengths(const BurstOptions& o, double step) {
+  if (!(step > 0) || !std::isfinite(step)) throw std::invalid_argument("burstLengths: step (s between samples) is above 0");
+  // seconds in whole samples: joined when the samples between two spans last <= mergeS; kept when minS <= length * step <= maxS
+  BurstLengths L;
+  L.gap = static_cast<std::int64_t>(std::floor(o.mergeS / step + 1e-9)) + 1;
+  L.minLength = std::max<std::int64_t>(1, static_cast<std::int64_t>(std::ceil(o.minS / step - 1e-9)));
+  L.maxLength = std::isinf(o.maxS) ? std::numeric_limits<std::int64_t>::max() : static_cast<std::int64_t>(std::floor(o.maxS / step + 1e-9));
+  return L;
+}
+
+Bursts detectBursts(const Eigen::Ref<const Eigen::VectorXd>& x, double step, const BurstOptions& o, const std::optional<Baseline>& baseline) {
+  if (!(step > 0) || !std::isfinite(step)) throw std::invalid_argument("detectBursts: step (s between samples) is above 0");
+  if (!(o.mergeS >= 0) || !(o.minS >= 0) || !(o.maxS >= o.minS)) throw std::invalid_argument("detectBursts: 0 <= mergeS, 0 <= minS <= maxS");
+  Bursts b;
+  const BurstLengths L = burstLengths(o, step);
+  b.gap = L.gap; b.minLength = L.minLength; b.maxLength = L.maxLength;
+  std::vector<double> good;
+  for (Eigen::Index t = 0; t < x.size(); ++t) if (std::isfinite(x(t))) good.push_back(x(t));
+  b.good = static_cast<std::int64_t>(good.size());
+  if (good.size() < 2) { b.skipped = "fewer than 2 good samples"; return b; }
+  const Eigen::Map<const Eigen::VectorXd> g(good.data(), static_cast<Eigen::Index>(good.size()));
+  b.median = baseline ? baseline->median : median(g);
+  b.sd = baseline ? baseline->sd : mad(g);
+  if (!(b.sd > 0)) { b.skipped = "no spread (robust SD 0)"; return b; }
+  b.enter = b.median + o.enterSd * b.sd;
+  b.exit = b.median + o.exitSd * b.sd;
+  Eigen::VectorXd z = x;
+  for (Eigen::Index t = 0; t < z.size(); ++t) if (!std::isfinite(z(t))) z(t) = -std::numeric_limits<double>::infinity();   // a bad sample ends a span
+  b.spans = keepSpans(mergeSpans(crossings(z, b.enter, b.exit), b.gap), b.minLength, b.maxLength);
+  return b;
 }
 
 }  // namespace nxr::select

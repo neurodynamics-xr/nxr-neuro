@@ -143,7 +143,7 @@ std::vector<Row> statistics_of(const Database& db, const std::string& subject_id
   return db.all(sql + " ORDER BY name", args);
 }
 
-StoredStatistic read_statistic(SubjectWriter& sub, const std::string& name) {
+StoredStatistic read_statistic(SubjectWriter& sub, const std::string& name, bool with_values) {
   std::optional<Row> r;
   for (const Row& x : statistics_of(sub.db(), sub.id())) if (text(x, "name") == name) r = x;
   if (!r) {
@@ -159,6 +159,7 @@ StoredStatistic read_statistic(SubjectWriter& sub, const std::string& name) {
   if (is_null(*r, "path")) return out;
   const ArrayReader ar = ArrayReader::open(sub.store(), text(*r, "path"));
   out.shape = ar.shape();
+  if (!with_values) return out;
   const auto raw = ar.read();
   const DType dt = ar.dtype();
   if (dt == DType::Float32) {

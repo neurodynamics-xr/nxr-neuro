@@ -13,7 +13,6 @@ namespace nxr::operators {
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 constexpr double AREA_EPS = 1e-12;
-constexpr int K_WALL = 3;
 
 std::int64_t Basis::kept() const {
     std::int64_t n = 0;
@@ -86,45 +85,19 @@ void FaceOperators::meanFaceGradient(const MatrixXd& x, MatrixXd out[3]) const {
 }
 
 GluedCarry::GluedCarry(const Basis& basis, const RowMat3& inputPositions) {
+    // THE GLUE IS A SELECTION: a kept vertex reads its input vertex's rows, a bridge vertex reads nothing (zero: no current is estimated on the bridge)
     vInput_ = inputPositions.rows();
     kept_ = basis.kept();
     vGlued_ = static_cast<Eigen::Index>(basis.keep.size());
-    const std::int64_t nb = vGlued_ - kept_;
-    std::vector<char> isKept(static_cast<std::size_t>(vInput_), 0);
     keep_.assign(basis.keep.begin(), basis.keep.begin() + kept_);
-    for (std::int64_t i = 0; i < kept_; ++i) isKept[static_cast<std::size_t>(basis.keep[static_cast<std::size_t>(i)])] = 1;
-    if (nb == 0) return;
-    std::vector<int> cut;
-    for (Eigen::Index i = 0; i < vInput_; ++i) if (!isKept[static_cast<std::size_t>(i)]) cut.push_back(static_cast<int>(i));
-    if (cut.size() < static_cast<std::size_t>(K_WALL)) throw std::invalid_argument("gluedKernel: fewer than 3 cut vertices to blend a bridge from");
-    const RowMat3 Pin = inputPositions.cast<float>().cast<double>();
-    wallVertex_.resize(static_cast<std::size_t>(K_WALL * nb));
-    wallWeight_.resize(static_cast<std::size_t>(K_WALL * nb));
-    for (std::int64_t b = 0; b < nb; ++b) {
-        const Eigen::RowVector3d p = basis.positions.row(kept_ + b);
-        std::vector<std::pair<double, int>> d;
-        d.reserve(cut.size());
-        for (int c : cut) d.emplace_back((Pin.row(c) - p).norm(), c);
-        std::partial_sort(d.begin(), d.begin() + K_WALL, d.end());
-        double w[K_WALL], sum = 0;
-        for (int k = 0; k < K_WALL; ++k) { w[k] = 1.0 / std::max(d[static_cast<std::size_t>(k)].first, 1e-9); sum += w[k]; }
-        for (int k = 0; k < K_WALL; ++k) {
-            wallVertex_[static_cast<std::size_t>(K_WALL * b + k)] = d[static_cast<std::size_t>(k)].second;
-            wallWeight_[static_cast<std::size_t>(K_WALL * b + k)] = w[k] / sum;
-        }
-    }
+    for (const std::int64_t v : keep_) if (v < 0 || v >= vInput_) throw std::invalid_argument("gluedKernel: a kept vertex outside the input surface");
 }
 
 MatrixXd GluedCarry::apply(const MatrixXd& W) const {
     const Eigen::Index C = W.cols();
     if (W.rows() != 3 * vInput_) throw std::invalid_argument("gluedKernel: the kernel has " + std::to_string(W.rows()) + " rows, 3 x " + std::to_string(vInput_) + " input vertices expected");
-    MatrixXd out(3 * vGlued_, C);
+    MatrixXd out = MatrixXd::Zero(3 * vGlued_, C);
     for (std::int64_t i = 0; i < kept_; ++i) out.middleRows(3 * i, 3) = W.middleRows(3 * keep_[static_cast<std::size_t>(i)], 3);
-    for (std::int64_t b = 0; b < vGlued_ - kept_; ++b) {
-        MatrixXd acc = MatrixXd::Zero(3, C);
-        for (int k = 0; k < K_WALL; ++k) acc += wallWeight_[static_cast<std::size_t>(K_WALL * b + k)] * W.middleRows(3 * wallVertex_[static_cast<std::size_t>(K_WALL * b + k)], 3);
-        out.middleRows(3 * (kept_ + b), 3) = acc;
-    }
     return out;
 }
 

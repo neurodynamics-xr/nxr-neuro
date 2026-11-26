@@ -124,12 +124,12 @@ void Dataset::drain() const {
 
 void Dataset::remove_subject(const std::string& subject_id) const {
   DatasetWriter& ds = impl_->w("remove_subject");
-  remove_node(ds.db(), ds.store(), "subject", subject_id);
+  remove_node(ds.db(), ds.node_store(), "subject", subject_id);
 }
 
 void Dataset::remove(Cls cls, const std::string& id) const {
   DatasetWriter& ds = impl_->w("remove");
-  remove_node(ds.db(), ds.store(), to_string(cls), id);
+  remove_node(ds.db(), ds.node_store(), to_string(cls), id);
 }
 
 std::string Dataset::package_subject_id() const {

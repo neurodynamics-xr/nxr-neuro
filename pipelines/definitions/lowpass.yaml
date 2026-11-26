@@ -21,6 +21,7 @@ parameters:
   method: {default: null, meaning: "fir | iir; null: the reference's (FIR, but IIR for bandstop and notch)", unit: "-"}
   ripple: {default: null, meaning: "FIR: the passband and stopband deviation (linear); null: 1e-3", unit: "-"}
   transition: {default: null, meaning: "FIR: each transition band; null: the reference's rule", unit: "Hz"}
+  design: {default: brainstorm, meaning: "FIR: the reference's rule for the transition bands: brainstorm (the current release) | brainstorm_2018 (the release of 2018-10-12, the MEG fingerprinting paper's: its transition bands, the record's ends padded with zeros)", unit: "-", choices: [brainstorm, brainstorm_2018]}
   edge: {default: null, meaning: "FIR: the record's ends padded with the mean of the transient (mean_of_transient) or zeros; null: mean_of_transient", unit: "-"}
   transient_samples: {default: null, meaning: "FIR: the transient's length stated; null: the energy rule", unit: "samples"}
   remove_mean: {default: null, meaning: "FIR: subtract the record's channel means first; null: true", unit: "-"}
@@ -32,7 +33,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: signal.filter, in: {x: recording, mean: mean}, with: {kind: lowpass, upper: $upper, method: $method, ripple: $ripple, transition: $transition, edge: $edge, transient_samples: $transient_samples, remove_mean: $remove_mean, notch_bandwidth: $notch_bandwidth, bandstop_order: $bandstop_order, tolerance: $tolerance}, out: y}
+      - {node: signal.filter, in: {x: recording, mean: mean}, with: {kind: lowpass, upper: $upper, method: $method, ripple: $ripple, transition: $transition, design: $design, edge: $edge, transient_samples: $transient_samples, remove_mean: $remove_mean, notch_bandwidth: $notch_bandwidth, bandstop_order: $bandstop_order, tolerance: $tolerance}, out: y}
 
 outputs:
   y:

@@ -1,4 +1,4 @@
-"""golden for test_hodge_weights: nxr.inverse.fused (glued_kernel, fused_weights, synthesis) on a tiny synthetic glued icosphere.
+"""golden for test_hodge_weights: nxr.inverse.fused (glued_kernel with its bridge rows set to zero, fused_weights, synthesis) on a tiny synthetic glued icosphere.
 Run: cd <nxr checkout> && uv run python <this file> <out.txt>"""
 import sys
 import numpy as np
@@ -49,6 +49,8 @@ solve = Solve(P, mu, kind, keep, mass, V, "m", "s")
 C = 20
 W = rng.standard_normal((3 * len(Vin), C)) * 1e-8
 Wg = glued_kernel(W, solve, Vin)
+# the glue is a selection: the bridge rows are zero (no current is estimated on the bridge); nxr's glued_kernel blends 3 wall vertices there, which invents current
+Wg[3 * kept:] = 0
 B = fused_weights(solve, F, Wg)
 Xc = rng.standard_normal((C, 3))
 J = synthesis(solve, F, B @ Xc)

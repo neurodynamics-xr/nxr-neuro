@@ -24,6 +24,7 @@ enum class MegModel { OverlappingSpheres, SingleSphere, None };
 struct HeadModelOptions {
   std::string name = "headmodel", channels = "sensors", sources = "cortex";
   std::optional<std::string> meg_surface, eeg_surface;
+  std::optional<std::vector<double>> eeg_radii, eeg_conductivities;   // the EEG shells: relative radii and conductivities (S/m), innermost to outermost; none: the layers'
   MegModel meg = MegModel::OverlappingSpheres;
   bool eeg = true, replace = false;
 };
@@ -39,6 +40,7 @@ struct NoiseCovOptions {
   std::optional<double> block_seconds;
   nxr::stats::CovarianceOptions covariance;
   bool replace = false;
+  nxr::io::Projectors projectors = nxr::io::Projectors::active;
 };
 struct NoiseCovResult {
   bool hit = false;
@@ -49,8 +51,10 @@ struct NoiseCovResult {
 struct InverseComputeOptions {
   std::string forward, noise_cov, name;
   nxr::meeg::KernelOptions kernel;
+  std::optional<double> snr;                // the amplitude signal-to-noise ratio; none: the conventions'
   bool mne_conventions = false;
   bool replace = false;
+  nxr::io::Projectors projectors = nxr::io::Projectors::active;   // the channels' projectors handed to the kernel (the run's --projectors)
 };
 struct InverseComputeResult {
   bool hit = false;
@@ -87,6 +91,8 @@ inline HeadModelResult headmodel_compute(nxr::io::DatasetWriter& ds, nxr::io::Su
                                     {"meg", o.meg == MegModel::OverlappingSpheres ? "overlapping_spheres" : o.meg == MegModel::SingleSphere ? "single_sphere" : "none"}};
   if (o.meg_surface) set["meg_surface"] = *o.meg_surface;
   if (o.eeg_surface) set["eeg_surface"] = *o.eeg_surface;
+  if (o.eeg_radii) set["eeg_radii"] = *o.eeg_radii;
+  if (o.eeg_conductivities) set["eeg_conductivities"] = *o.eeg_conductivities;
   const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("headmodel"), set, span_options(std::nullopt, std::nullopt, std::nullopt, o.replace));
   HeadModelResult r;
   r.hit = !runs.empty() && runs[0].value("hit", false);
@@ -101,7 +107,9 @@ inline NoiseCovResult noisecov_compute(nxr::io::DatasetWriter& ds, nxr::io::Subj
                                     {"divisor", o.covariance.divisor == nxr::stats::CovarianceDivisor::Samples ? "samples" : o.covariance.divisor == nxr::stats::CovarianceDivisor::SamplesMinusOne ? "samples_minus_one" : "samples_minus_blocks"}};
   if (!o.name.empty()) set["name"] = o.name;
   if (o.block_seconds) set["block_seconds"] = *o.block_seconds;
-  const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("noisecov"), set, span_options(o.chunks, o.start, o.stop, o.replace));
+  nxr::pipelines::graph::RunOptions ro = span_options(o.chunks, o.start, o.stop, o.replace);
+  ro.projectors = o.projectors;
+  const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("noisecov"), set, ro);
   NoiseCovResult r;
   r.hit = !runs.empty() && runs[0].value("hit", false);
   const std::string name = o.name.empty() ? o.recording + "_noise_cov" : o.name;
@@ -124,7 +132,10 @@ inline InverseComputeResult inverse_compute(nxr::io::DatasetWriter& ds, nxr::io:
   if (!o.noise_cov.empty()) set["noise_cov"] = o.noise_cov;
   if (!o.name.empty()) set["name"] = o.name;
   if (!o.kernel.depth.enabled) set["depth_weighting"] = false;
-  const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("inverse"), set, span_options(std::nullopt, std::nullopt, std::nullopt, o.replace));
+  if (o.snr) set["snr"] = *o.snr;
+  nxr::pipelines::graph::RunOptions ro = span_options(std::nullopt, std::nullopt, std::nullopt, o.replace);
+  ro.projectors = o.projectors;
+  const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("inverse"), set, ro);
   InverseComputeResult r;
   r.hit = !runs.empty() && runs[0].value("hit", false);
   if (const auto k = sub.by_name("operator", o.name)) {

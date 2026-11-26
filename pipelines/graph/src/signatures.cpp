@@ -33,7 +33,10 @@ ManifoldRef with_of(const ManifoldRef& m, const ManifoldRef& of) { Manifold x = 
 ManifoldRef strip_glued(const ManifoldRef& m) { return m && m->form == Manifold::Form::derived && m->key == "glued" ? m->of : m; }
 bool is_members(const ManifoldRef& m) { return m && m->form == Manifold::Form::members; }
 // a member set of a partition (a measurement's factor), or the time tiles a node made of one: what a time event is found on
-bool member_like(const ManifoldRef& m) { return m && (m->form == Manifold::Form::members || m->role == Role::time_tiles || m->role == Role::frames); }
+bool member_like(const ManifoldRef& m) { return m && (m->form == Manifold::Form::members || is_tiled(*m)); }
+// a member set of a time partition (tile levels, frame tilings, events found on a line), or a frame line: what a reduction over time takes away. The tile pyramid is the selection system's
+// (members of its partitions); the type only says that the partition is of a line in seconds.
+bool time_partition(const Manifold& m) { return is_tiled(m) || (m.form == Manifold::Form::members && m.of && (in_seconds(*m.of) || time_partition(*m.of))); }
 std::string partition_id(const ManifoldRef& m) { return m->form == Manifold::Form::members ? m->by : m->key; }
 bool is_joint_members(const ManifoldRef& m) { return is_members(m) && m->label == "joint"; }
 bool is_surface(const ManifoldRef& m) { return m && m->kind == ManifoldKind::surface; }
@@ -92,7 +95,7 @@ Signature s_analytic_frames() {
         const PortType& t = u.type("tiling");
         if (!t.sel || t.sel->type != "tiling") u.fail("tiling", "is a " + (t.sel ? t.sel->type : std::string("?")) + " selection, not a frame tiling (a closed-form tiling of the time line)");
         PortType& y = u.out.at("y");
-        y.domain.factors.back() = members(id_of(u, "tiling"), u.type("x").domain.factors.back(), Role::frames);
+        y.domain.factors.back() = frame_members(id_of(u, "tiling"), u.type("x").domain.factors.back());
         y.axis = Axis::frames;
       });
 }
@@ -167,17 +170,25 @@ void statistic_of_stream(Unified& u, const std::string& port, const std::string&
 
 // ── the consolidated measurement nodes (spec 2026-11-17-consolidation.md, section 2) ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // `reduce`: a field over the members of any selection (the only move that removes a factor); its two outputs, the measures' values and the ingredients they are read from, are the same measurement.
+// x is a series on a time or frame line, OR a static map on a manifold (a stored per-vertex map, read whole as the loop's one block): its domain is any product, and the partition is over the
+// factors it covers (measure_rule). Bad segments (`exclude`) are spans of x's time line, so a static map takes none.
 Signature s_reduce() {
   return sig(Move::measure).accumulating()
-      .in("x", field({R, TF}).streamed().value_in({VT::real, VT::vector3, VT::complex}).because("Reduce a real quantity of it (give it a form first: field.form magnitude | power | phase_current), or a complex field by sum or mean."))
+      .in("x", field({R}).streamed().value_in({VT::real, VT::vector3, VT::complex}).because("Reduce a real quantity of it (give it a form first: field.form magnitude | power | phase_current), or a complex field by sum or mean."))
       .in("over", selection_any().optional().over())
-      .in("exclude", selection({TF}).optional())
+      .in("exclude", selection_any().optional())
       .in("weights", any_port().optional())
       .out("values", make_of(PortClass::measurement))
       .out("ingredients", make_of(PortClass::measurement))
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
         if (!p.contains("measures") || !p["measures"].is_array() || p["measures"].empty()) u.fail("x", "`measures` names what is measured (no default): the caller's, or the preset's");
+        if (u.has("exclude")) {                                     // the samples excluded are spans of x's own time (or frame) line
+          const PortType& ex = u.type("exclude");
+          if (!x.domain.streamed()) u.fail("exclude", "excludes spans of a time line; x lies on " + print(x.domain) + ", which has none (a static map has no bad segments)");
+          if (ex.domain.factors.size() != 1 || !same(ex.domain.factors[0], x.domain.factors.back()))
+            u.fail("exclude", "lies on " + print(ex.domain) + "; x's time line is " + print(x.domain.factors.back()));
+        }
         const std::string m = p["measures"][0].get<std::string>();
         // a COMPLEX field is reduced as it is only by the measures linear in its value; the others need a real quantity (an order, a magnitude)
         if (x.value == VT::complex)
@@ -235,7 +246,7 @@ Signature s_reduce_members() {
         for (const char* port : {"values", "ingredients"}) {
           PortType& y = u.out.at(port);
           y.domain = x.domain;
-          y.domain.factors.back() = members(id_of(u, "over"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), Role::time_tiles, "", true);
+          y.domain.factors.back() = members(id_of(u, "over"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), "", true);
           y.quantity = x.quantity;
           y.value = x.value;
           y.complex_parts = x.complex_parts;
@@ -284,6 +295,9 @@ Signature s_field_form() {
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
         const std::string form = p.value("form", std::string());
+        const std::string disc = p.value("discretisation", std::string("vertex_gradient"));
+        if (disc != "vertex_gradient" && (form != "phase_current" || disc != "intrinsic_edges"))
+          u.fail("x", "discretisation is vertex_gradient (the reference) or intrinsic_edges, and only the phase current has one (form " + form + ", discretisation " + disc + ")");
         PortType& y = u.out.at("y");
         y.nonlinear = true;
         if (form == "magnitude") { y.value = VT::real; y.complex_parts = false; y.quantity = "amplitude"; }
@@ -297,6 +311,29 @@ Signature s_field_form() {
         } else if (form == "outer") {
           if (!is_complex(x)) u.fail("x", "must be complex (the analytic signal): z z^H of a real field is its square");
         } else u.fail("x", "form is magnitude, power, phase_current or outer (no default)");
+      });
+}
+
+// `signal.phase_split`: the phase of a complex scalar field on a surface split by a Hodge-Dirac package's modes, per sample; every output a real vertex field on x's domain
+// (the propagation a tangent vector3); the edges of the package's complex stay inside the node (docs/specs/2026-11-19-intrinsic-form-nodes.md)
+Signature s_phase_split() {
+  return sig(Move::pointwise)
+      .in("x", field({M, TF}).streamed())
+      .in("package", any_port().because("The Hodge-Dirac package (its eigenvectors operator) of the surface x lies on."))
+      .out("potential", like("x")).out("stream", like("x")).out("propagation", like("x"))
+      .out("one_form_energy", like("x")).out("exact_energy", like("x")).out("coexact_energy", like("x")).out("exact_misfit_energy", like("x"))
+      .refine([](Unified& u, const Json& p) {
+        const PortType& x = u.type("x");
+        if (!p.contains("one_form") || !p["one_form"].is_string())
+          u.fail("x", "one_form is not given: the definition states the 1-form that is split (phase_gradient or phase_current; no default)");
+        const std::string one_form = p["one_form"].get<std::string>();
+        if (one_form != "phase_gradient" && one_form != "phase_current") u.fail("x", "one_form is phase_gradient or phase_current, not '" + one_form + "'");
+        if (x.value != VT::complex) u.fail("x", "must be a complex scalar field (the analytic signal at the vertices): its phase is split");
+        if (!is_surface(x.domain.factors.front())) u.fail("x", "its first factor " + print(x.domain.factors.front()) + " is not a surface; the phase is split on a surface's intrinsic complex");
+        for (auto& [name, y] : u.out) {
+          y.nonlinear = true; y.complex_parts = false; y.quantity.clear();
+          y.value = name == "propagation" ? VT::vector3 : VT::real;
+        }
       });
 }
 
@@ -338,26 +375,49 @@ Signature s_select_product() {
         if (c.domain.cells.empty()) c.domain.cells = "0";
       });
 }
-// select.events.spans: the three rules (detect, keep_where, stages) of one node; each rule's own signature is applied to its own ports
+// select.events.spans: the five rules (detect, keep_where, stages, edges, union) of one node; each rule's own signature is applied to its own ports
 Signature s_select_events_spans() {
   Signature s = sig(Move::detect);
   s.in("x", measurement_any().optional().because("Events are detected on a measurement over a time partition's members: reduce the field over the constant-Q level first (reduce with `over`).")).in("baseline", statistic_any().optional()).in("events", selection_any().optional()).in("fit_r2", measurement_any().optional())
-   .in("t_on", measurement_any().optional()).in("t_off", measurement_any().optional()).in("tau_rise", measurement_any().optional()).in("tau_fall", measurement_any().optional()).in("kept", selection_any().optional());
-  s.out("spans", make_of(PortClass::selection)).out("onset", make_of(PortClass::selection)).out("within", make_of(PortClass::selection)).out("offset", make_of(PortClass::selection));
-  return s.refine([](Unified& u, const Json& p) {
+   .in("t_on", measurement_any().optional()).in("t_off", measurement_any().optional()).in("tau_rise", measurement_any().optional()).in("tau_fall", measurement_any().optional()).in("kept", selection_any().optional())
+   .in("series", any_port().optional());
+  s.out("spans", make_of(PortClass::selection)).out("onset", make_of(PortClass::selection)).out("within", make_of(PortClass::selection)).out("offset", make_of(PortClass::selection))
+   .out("values", make_of(PortClass::measurement));
+  // the events a rule keeps or re-edges: a spans selection like `events`, of its own identity
+  auto events_like = [](Unified& u) {
+    PortType kept = u.in.at("events");
+    kept.facts = Json::object();
+    kept.typed = true;
+    u.out["spans"] = kept;
+    if (u.out.at("spans").sel) u.out.at("spans").sel->identity = u.out_names.at("spans");
+  };
+  return s.refine([events_like](Unified& u, const Json& p) {
     const std::string rule = p.value("rule", std::string());
     if (rule == "detect") s_detect_spans().refine_fn(u, p);
     else if (rule == "keep_where") {
-      if (!u.has("events") || !u.has("fit_r2")) u.fail("events", "rule keep_where reads `events` and `fit_r2` (risefall's fit)");
-      PortType kept = u.in.at("events");
-      kept.facts = Json::object();
-      kept.typed = true;
-      u.out["spans"] = kept;
-      s_fit_gate().refine_fn(u, p);
+      if (!u.has("events") || (!u.has("fit_r2") && !u.has("x"))) u.fail("events", "rule keep_where reads `events` and either `fit_r2` (risefall's fit) or `x` (a measurement over the events, with `where`)");
+      if (u.has("fit_r2")) {
+        PortType kept = u.in.at("events");
+        kept.facts = Json::object();
+        kept.typed = true;
+        u.out["spans"] = kept;
+        s_fit_gate().refine_fn(u, p);
+      } else {
+        if (u.type("x").cls != PortClass::measurement) u.fail("x", "must be a measurement over the events");
+        events_like(u);
+      }
     } else if (rule == "stages") {
       for (const char* k : {"events", "t_on", "t_off", "tau_rise", "tau_fall"}) if (!u.has(k)) u.fail("events", std::string("rule stages reads `events` and risefall's t_on, t_off, tau_rise and tau_fall: ") + k + " is not wired");
       s_burst_stages().refine_fn(u, p);
-    } else u.fail("x", "rule is detect, keep_where or stages (no default)");
+    } else if (rule == "edges" || rule == "union") {
+      if (!u.has("events")) u.fail("events", "rule " + rule + " reads `events`");
+      if (u.has("x") && u.type("x").cls != PortClass::measurement) u.fail("x", "must be a measurement over the events");
+      events_like(u);
+      if (rule == "edges") {
+        const PortType& ev = u.in.at("events");
+        u.out.at("values").domain = dom_of({members(u.out_names.at("spans"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), "", true)});
+      }
+    } else u.fail("x", "rule is detect, keep_where, stages, edges or union (no default)");
   });
 }
 
@@ -371,7 +431,7 @@ Signature s_summarize() {
         y.domain = dom_of({});
         for (std::size_t i = 0; i < x.domain.factors.size(); ++i) {
           const ManifoldRef& f = x.domain.factors[i];
-          const bool timelike = f->role == Role::time_tiles || f->role == Role::frames;
+          const bool timelike = time_partition(*f);
           const bool last_members = is_members(f) && i + 1 == x.domain.factors.size();
           if (!timelike && !last_members) y.domain.factors.push_back(f);
         }
@@ -388,7 +448,7 @@ Signature s_detect_spans() {
         const PortType& x = u.type("x");
         if (x.domain.factors.empty()) u.fail("x", "has no factor");
         const ManifoldRef& last = x.domain.factors.back();
-        if (!(last->role == Role::time_tiles || last->role == Role::frames) || !last->of)
+        if (!time_partition(*last) || !last->of)
           u.fail("x", "its last factor " + print(last) + " is not the member set of a time partition; events are found on a time line. Measure x over a time partition first.");
         if (u.has("baseline")) {
           const PortType& b = u.in.at("baseline");
@@ -411,7 +471,7 @@ Signature s_risefall() {
     const PortType& ev = u.type("events");
     if (!(x.cls == PortClass::measurement || (x.cls == PortClass::field && !x.streamed()))) u.fail("x", "must be the sample series of the run (`collect`)");
     if (!ev.sel || ev.sel->type != "spans" || ev.sel->detected_over.empty()) u.fail("events", "must be the spans `detect_spans` made");
-    for (const auto& o : outs) u.out.at(o).domain = dom_of({members(id_of(u, "events"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), Role::time_tiles, "", true)});
+    for (const auto& o : outs) u.out.at(o).domain = dom_of({members(id_of(u, "events"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), "", true)});
   });
 }
 
@@ -477,7 +537,7 @@ Signature s_extent_measure() {
         if (!l.sel || l.sel->type != "set" || l.domain.factors.empty() || !is_joint_members(l.domain.factors[0])) u.fail("labels", "must be the labelling `cell_extent` made");
         if (u.has("x") && !same(u.in.at("x").domain, l.domain)) u.fail("x", "its cells are not the labelling's");
         PortType& y = u.out.at("y");
-        y.domain = dom_of({members(id_of(u, "labels"), l.domain.factors[0]->of, Role::time_tiles, "", true)});
+        y.domain = dom_of({members(id_of(u, "labels"), l.domain.factors[0]->of, "", true)});
         y.quantity = p.value("measure", std::string());
       });
 }
@@ -619,7 +679,7 @@ Signature s_tile_crossings() {
         if (!p.contains("spatial_scale") || !has_level(p["spatial_scale"])) u.fail("tiles", "`spatial_scale` names the tile level");
         const std::string lvl = id_of(u, "tiles") + "@" + (level_number(p["spatial_scale"]) >= 0 ? std::to_string(level_number(p["spatial_scale"])) : p["spatial_scale"].get<std::string>());
         PortType& y = u.out.at("crossings");
-        y.domain = dom_of({members(lvl, t.domain.factors[0], Role::none)});
+        y.domain = dom_of({members(lvl, t.domain.factors[0])});
         if (p.value("as", std::string("measurement")) == "statistic") y.cls = PortClass::statistic;   // a null draw's crossings: a statistic of its own, never the data's rows
       });
 }
@@ -755,6 +815,7 @@ const std::map<std::string, Signature>& table() {
     m["measurement.roll_up"] = s_roll_up();
     m["measurement.estimate"] = s_estimate();
     m["signal.field_form"] = s_field_form();
+    m["signal.phase_split"] = s_phase_split();
     m["select.time_grid"] = s_select_time_grid();
     m["select.dyadic_surface"] = s_select_dyadic_surface();
     m["select.bands"] = s_select_bands();

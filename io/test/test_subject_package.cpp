@@ -136,7 +136,7 @@ int main() {
   // the bundle of a package equals the bundle of the same subject written into a dataset (ids and times aside)
   {
     DatasetWriter ds = create_dataset(root / "store", "demo");
-    SubjectWriter sub = SubjectWriter::create(ds, "S1", SubjectOptions{.default_template = false});
+    SubjectWriter sub = SubjectWriter::create(ds, "S1", SubjectOptions{});
     add_content(sub, "");
     sub.complete();
     const Json from_dataset = *subject_bundle(ds.db(), sub.id());

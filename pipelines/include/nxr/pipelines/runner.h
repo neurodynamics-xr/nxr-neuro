@@ -12,12 +12,14 @@
 //            (then moved aside, never deleted).
 #pragma once
 #include <functional>
+#include <memory>
 #include <map>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "nxr/graph/graph.h"
+#include "nxr/io/chunk_loop.h"
 #include "nxr/io/database.h"
 #include "nxr/io/writer.h"
 #include "nxr/pipelines/definition.h"
@@ -43,12 +45,16 @@ struct Plan {
   nxr::graph::Types types;                     // its inputs' types, from what was found
   std::string preset;                          // the named parameter set the run was asked for (`--set NAME`): in the provenance only, never the cache key (a preset is only a named parameter set); empty: none
   std::int64_t align = 0;                      // the grid (samples) the span snaps to: the largest a node of the graph asks (Planned::align); 0: none
+  std::shared_ptr<const nxr::graph::Checked> checked;   // the graph as the plan checked it (every value's type, the halo): what `compile` hands back
 
   std::vector<const Planned*> section(const std::string& sec) const;
   /** the plan as a person reads it (`--dry-run`) */
   std::string text(const nxr::io::Database& db) const;
 };
 
+/** the executor's form of an (expanded) definition: its steps as uses of nodes with `with` written out for the run's parameters `params`, the inputs named in `present`
+ *  (an optional input absent from it is left unwired; a required one refused), its outputs */
+nxr::graph::Graph graph_of(const Definition& d, const Json& params, const std::vector<std::string>& present);
 /** every step's arrows checked on the inputs, in order; what each makes; the outputs' places: before any data is read */
 /** what a node may know of a recording's channels (types, quality, units: channel_facts), as a function of the recording's name; given by a caller that holds the subject's store (a plan reads the database only) */
 using ChannelFacts = std::function<Json(const std::string& recording)>;
@@ -65,6 +71,7 @@ struct RunOptions {
   std::optional<std::string> chunks;
   std::optional<double> start, stop;
   bool replace = false;
+  std::string requested_by;                    // the program (`nxr-neuro 0.1 / C++17`) the run's job row names (docs/specs/2026-11-20-data-layer-queries.md, 3.8); empty: no job row (a run made inside another command, e.g. a surrogate's draws)
   std::string preset;                          // the definition's named parameter set to start from (`--set NAME`); empty: the defaults
   /** the width (samples) of the time SUB-BLOCKS a chunk's pointwise tail runs on: after the last chunk step that needs a halo (a band's taps), every step is pointwise in
    *  time, so it runs on the chunk's own columns a sub-block at a time and folds in time order. The result does not depend on it (as on the chunk size); only memory does.
@@ -74,13 +81,21 @@ struct RunOptions {
    *  in frame order. The result does not depend on it (a frame's value is its own); only memory does. MEMORY held by the tail: (the tail's rows, e.g. the glued vertices x the levels x the components a
    *  vertex) x block_frames x 8 bytes per complex value alive at once, a few times over (the operator's product in double, the float copy). The steps BEFORE the tiling see the sensors only. 0: the whole chunk's frames. */
   std::int64_t block_frames = 256;
+  /** the channels' projectors (the caller's choice of data). On load (the chunk service): active (the default: the recording's status-1 projectors applied to every block), none (the samples
+   *  as recorded), or named (exactly those projectors, whatever their stored status). What was applied is in the run's provenance (`run.projectors`) and, when the recording has active
+   *  projectors or a choice is named, in its cache key. The same choice selects the projector Operators the runner hands with a statistic over channels (`meta.projectors`, read by a node
+   *  that applies them as its reference does: the inverse kernel): active hands them all (the node's reference rule picks by status), none hands none, named hands those named with their
+   *  status set to active; what is handed (names and statuses) is in the cache key. */
+  nxr::io::Projectors projectors = nxr::io::Projectors::active;
 };
 /** The per-subject inputs of a GROUP run (a definition of `scope: group`), stacked over the member subjects: for each `per_subject` selection input, the members' measurements (the measures the run's `measures`
  *  parameter names, of the field the member's `per_subject` field input found, when there is one) as ONE array [subjects x measures x rows x members]; the ids of what each member's input found, in the caller's order. */
 struct GroupInputs {
   std::vector<std::string> subjects;                              // the members' names, in the caller's order (the stack's first axis)
+  std::vector<std::string> subject_ids, content_hashes;           // each member's id and content hash, in the same order (cohort_member_status reads them back)
   std::map<std::string, nxr::graph::Array> stacked;               // per_subject input → its values stacked over the subjects (meta: subjects, measures, rows, members, shape)
   std::map<std::string, std::vector<std::string>> ids;            // per_subject input → each member's found id
+  std::map<std::string, std::vector<std::string>> names;          // per_subject input → each member's found name (the provenance: a group result links no member's row)
 };
 /** one planned run executed and its outputs stored (or found in the cache): {pipeline, anchor, stored: [{output, path, id, on}], run, hit}. `group`: the stacked inputs of a group run (run_group), whose
  *  outputs `sub` (the group's default subject) holds; null: a run of one subject. */
@@ -91,6 +106,7 @@ struct GroupMember {
   std::string name;
   nxr::io::DatasetWriter* ds = nullptr;
   nxr::io::SubjectWriter* sub = nullptr;
+  std::string subject_id, content_hash;                           // a catalogue member's id and content hash as the run read it (the provenance; empty hash: a one-database dataset)
 };
 /** A GROUP RUN (consolidation spec 5; replaces `pyramid reduce` and group.cpp's subject merge): `d` (scope group) with its `per_subject` inputs found in EACH member (exactly one match each, else refused naming
  *  the subject), its other inputs and every output in the group's default subject (`group_ds`, `group_sub`). The members are stated by the caller (no default: none is refused). The members' inputs must lie on the
@@ -104,5 +120,7 @@ std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, c
 
 /** every run of `d` on the subject planned (one per anchor match), none executed */
 std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, const std::string& subject_id, const Json& set, const std::string& preset = std::string(), const ChannelFacts& channels = nullptr);
+/** the same on an open subject, its channel facts read from it: what `compile` and a caller outside the runner use (the database handle stays in the runner) */
+std::vector<Plan> plan_runs(const Definition& d, nxr::io::SubjectWriter& sub, const Json& set, const std::string& preset = std::string());
 
 }  // namespace nxr::pipelines::graph

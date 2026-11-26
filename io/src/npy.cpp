@@ -1,4 +1,4 @@
-// nxr-io — NumPy .npy files, read (see npy.h).
+// nxr-io — NumPy .npy files, read and written (see npy.h).
 #include "nxr/io/npy.h"
 
 #include <cstring>
@@ -138,5 +138,76 @@ template std::vector<double> NpyFile::rows<double>(std::int64_t, std::int64_t) c
 template std::vector<float> NpyFile::rows<float>(std::int64_t, std::int64_t) const;
 template std::vector<std::int64_t> NpyFile::rows<std::int64_t>(std::int64_t, std::int64_t) const;
 template std::vector<std::int32_t> NpyFile::rows<std::int32_t>(std::int64_t, std::int64_t) const;
+template std::vector<std::uint8_t> NpyFile::rows<std::uint8_t>(std::int64_t, std::int64_t) const;
+
+namespace {
+// numpy's descr of a store dtype, and back
+const std::vector<std::pair<std::string, std::string>>& dtype_descrs() {
+  static const std::vector<std::pair<std::string, std::string>> t = {{"float32", "<f4"}, {"float64", "<f8"}, {"int8", "|i1"}, {"int16", "<i2"}, {"int32", "<i4"}, {"int64", "<i8"},
+                                                                     {"uint8", "|u1"}, {"uint16", "<u2"}, {"uint32", "<u4"}, {"uint64", "<u8"}, {"bool", "|b1"}};
+  return t;
+}
+}  // namespace
+
+std::string npy_dtype_name(const std::string& descr) {
+  std::string d = descr;
+  if (d.size() == 3 && d[0] == '=') d[0] = d[2] == '1' ? '|' : '<';
+  if (d.size() == 3 && d[2] == '1' && d[0] == '<') d[0] = '|';
+  for (const auto& [name, de] : dtype_descrs()) if (de == d) return name;
+  throw Error(code::invalid_argument, "the .npy dtype '" + descr + "' is not one io reads (float32, float64, int8 to int64, uint8 to uint64, bool; little-endian)");
+}
+
+namespace {
+// the header of a version 1.0 .npy file (magic, length, dictionary padded to 64 bytes) of `shape` and the dtype's descr
+std::string npy_header(const std::string& dtype, const std::vector<std::int64_t>& shape, const fs::path& path, std::size_t* item_out, std::int64_t* count_out) {
+  std::string descr;
+  for (const auto& [name, de] : dtype_descrs()) if (name == dtype) descr = de;
+  if (descr.empty()) throw Error(code::invalid_argument, path.string() + ": no .npy dtype for '" + dtype + "'");
+  std::int64_t n = 1;
+  for (const auto d : shape) n *= d;
+  *item_out = static_cast<std::size_t>(std::stoul(descr.substr(2)));
+  *count_out = n;
+  std::string sh;
+  for (const auto d : shape) sh += std::to_string(d) + ", ";
+  if (!sh.empty()) sh.erase(sh.size() - (shape.size() > 1 ? 2 : 1));   // (n,) for one axis, (a, b) for more, () for none
+  std::string header = "{'descr': '" + descr + "', 'fortran_order': False, 'shape': (" + sh + "), }";
+  while ((10 + header.size() + 1) % 64) header += ' ';
+  header += '\n';
+  std::string out = "\x93NUMPY\x01";
+  out.push_back('\0');
+  out.push_back(static_cast<char>(header.size() & 0xff));
+  out.push_back(static_cast<char>(header.size() >> 8));
+  return out + header;
+}
+}  // namespace
+
+void write_npy(const fs::path& path, const std::string& dtype, const std::vector<std::int64_t>& shape, const std::vector<std::uint8_t>& bytes) {
+  std::size_t item = 0;
+  std::int64_t n = 0;
+  const std::string head = npy_header(dtype, shape, path, &item, &n);
+  if (bytes.size() != static_cast<std::size_t>(n) * item)
+    throw Error(code::invalid_argument, path.string() + ": " + std::to_string(bytes.size()) + " bytes are not " + std::to_string(n) + " values of " + dtype);
+  std::ofstream o(path, std::ios::binary | std::ios::trunc);
+  if (!o) throw Error(code::not_writable, path.string() + ": cannot be written");
+  o.write(head.data(), static_cast<std::streamsize>(head.size()));
+  o.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+  if (!o) throw Error(code::not_writable, path.string() + ": a short write");
+}
+
+std::uint64_t create_npy(const fs::path& path, const std::string& dtype, const std::vector<std::int64_t>& shape) {
+  std::size_t item = 0;
+  std::int64_t n = 0;
+  const std::string head = npy_header(dtype, shape, path, &item, &n);
+  {
+    std::ofstream o(path, std::ios::binary | std::ios::trunc);
+    if (!o) throw Error(code::not_writable, path.string() + ": cannot be written");
+    o.write(head.data(), static_cast<std::streamsize>(head.size()));
+    if (!o) throw Error(code::not_writable, path.string() + ": a short write");
+  }
+  std::error_code ec;
+  fs::resize_file(path, head.size() + static_cast<std::uint64_t>(n) * item, ec);   // the values: zeros (a sparse file)
+  if (ec) throw Error(code::not_writable, path.string() + ": cannot be sized (" + ec.message() + ")");
+  return head.size();
+}
 
 }  // namespace nxr::io

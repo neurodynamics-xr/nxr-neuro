@@ -13,6 +13,7 @@
 #include "geometrycentral/surface/surface_point.h"
 
 #include <array>
+#include <cmath>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -190,6 +191,75 @@ static LogMapResult logMapOn(
     return out;
 }
 
+// ── Log map at a point of an input face (the blend of the corners' log maps; see the header) ──
+
+namespace {
+// The rotation taking the unit vector a to the unit vector b (Rodrigues; the identity when they coincide).
+Eigen::Matrix3d rotationBetween(const Eigen::Vector3d& a, const Eigen::Vector3d& b) {
+    const Eigen::Vector3d v = a.cross(b);
+    const double c = a.dot(b);
+    if (c < -0.999999) throw Error(ErrorCode::InvalidInput, "log map at a face point: a corner's normal is opposite the face's");
+    Eigen::Matrix3d K;
+    K << 0, -v.z(), v.y(), v.z(), 0, -v.x(), -v.y(), v.x(), 0;
+    return Eigen::Matrix3d::Identity() + K + K * K / (1.0 + c);
+}
+Eigen::Vector3d toEigen(const Vector3& v) { return {v.x, v.y, v.z}; }
+}  // namespace
+
+static FaceLogMapResult logMapAtFacePoint(Solver& s, const SurfaceArrays& surface, const FacePoint& pt, LogMapStrategy strategy) {
+    if (pt.face < 0 || pt.face >= surface.nF()) {
+        throw Error(ErrorCode::InvalidInput, "face index out of range", "expected 0 <= face < " + std::to_string(surface.nF()));
+    }
+    double sum = 0;
+    for (double w : pt.barycentric) {
+        if (!std::isfinite(w) || w < 0) throw Error(ErrorCode::InvalidInput, "barycentric weights must be finite and non-negative");
+        sum += w;
+    }
+    if (std::abs(sum - 1.0) > 1e-9) throw Error(ErrorCode::InvalidInput, "barycentric weights must sum to 1 (within 1e-9)");
+
+    int corner[3];
+    Eigen::Vector3d p[3];
+    for (int k = 0; k < 3; ++k) {
+        corner[k] = surface.faces(pt.face, k);
+        p[k] = surface.positions.row(corner[k]).transpose();
+    }
+    Eigen::Vector3d nF = (p[1] - p[0]).cross(p[2] - p[0]);
+    if (!(nF.norm() > 0)) throw Error(ErrorCode::InvalidInput, "log map at a face point: the face is degenerate");
+    nF.normalize();
+
+    int big = 0;
+    for (int k = 1; k < 3; ++k) if (pt.barycentric[k] > pt.barycentric[big]) big = k;
+
+    FaceLogMapResult out;
+    out.logCoords = Eigen::MatrixXd::Zero(s.nV, 2);
+    out.sourcePoint.setZero();
+    for (int k = 0; k < 3; ++k) out.sourcePoint += pt.barycentric[k] * p[k];
+
+    // the common frame: the heaviest corner's, rotated into the face's plane
+    {
+        const auto f = s.frame(corner[big]);
+        const Eigen::Vector3d e1 = toEigen(f[0]), e2 = toEigen(f[1]);
+        const Eigen::Matrix3d R = rotationBetween(e1.cross(e2).normalized(), nF);
+        out.sourceE1 = R * e1;
+        out.sourceE2 = R * e2;
+        out.sourceNormal = nF;
+    }
+    for (int k = 0; k < 3; ++k) {
+        if (pt.barycentric[k] == 0) continue;
+        const LogMapResult lm = logMapOn(s, corner[k], strategy);
+        const auto f = s.frame(corner[k]);
+        const Eigen::Vector3d e1 = toEigen(f[0]), e2 = toEigen(f[1]);
+        const Eigen::Matrix3d R = rotationBetween(e1.cross(e2).normalized(), nF);
+        // the corner's tangent vector (x e1 + y e2) carried into the face plane, read in the common frame
+        const Eigen::Vector3d a = R * e1, b = R * e2;
+        const double a1 = a.dot(out.sourceE1), a2 = a.dot(out.sourceE2), b1 = b.dot(out.sourceE1), b2 = b.dot(out.sourceE2);
+        const double w = pt.barycentric[k];
+        out.logCoords.col(0) += w * (a1 * lm.logCoords.col(0) + b1 * lm.logCoords.col(1));
+        out.logCoords.col(1) += w * (a2 * lm.logCoords.col(0) + b2 * lm.logCoords.col(1));
+    }
+    return out;
+}
+
 // ── Karcher mean / find center ────────────────────────────
 
 Eigen::Vector3d findCenter(
@@ -258,6 +328,19 @@ std::vector<LogMapResult> logMap(const SurfaceArrays& surface, const std::vector
     std::vector<LogMapResult> out;
     out.reserve(sourceVertices.size());
     for (int v : sourceVertices) out.push_back(logMapOn(s, v, strategy));
+    return out;
+}
+
+FaceLogMapResult logMap(const SurfaceArrays& surface, const FacePoint& point, LogMapStrategy strategy, double tCoef) {
+    Solver s(surface, tCoef);
+    return logMapAtFacePoint(s, surface, point, strategy);
+}
+
+std::vector<FaceLogMapResult> logMap(const SurfaceArrays& surface, const std::vector<FacePoint>& points, LogMapStrategy strategy, double tCoef) {
+    Solver s(surface, tCoef);
+    std::vector<FaceLogMapResult> out;
+    out.reserve(points.size());
+    for (const FacePoint& p : points) out.push_back(logMapAtFacePoint(s, surface, p, strategy));
     return out;
 }
 

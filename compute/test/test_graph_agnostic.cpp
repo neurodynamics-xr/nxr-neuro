@@ -47,7 +47,6 @@ using namespace nxr::geometry::transport;
 using namespace nxr::geometry::connection;
 using namespace nxr::operators::connection;
 using namespace nxr::geometry::parametrization;
-using namespace nxr::geometry::parametrization::stripes;
 using namespace nxr::geometry;
 using namespace nxr::geometry::query;
 using namespace nxr::synthesis;

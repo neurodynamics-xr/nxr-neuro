@@ -2,6 +2,7 @@
 // Ported line for line from Rheome (@graphfilterbank/private/designbank.m, +graphtransform/{eigen,chebyshev}.m,
 // +filters/frame_{gains,bounds,analysis,synthesis}.m) and checked against nxr's filters.frames and the Studio's dyadicFrame.ts.
 #include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 
 #include <Eigen/Cholesky>
 #include <Spectra/MatOp/SparseCholesky.h>
@@ -136,24 +137,6 @@ double meyerNu(double x) {
     return std::pow(x, 4) * (35 - 84 * x + 70 * x * x - 20 * std::pow(x, 3));
 }
 
-namespace {
-double angle(double x, double e, double h) { return (kPi / 2) * meyerNu((std::log2(x / e) + h) / (2 * h)); }
-}
-
-double meyerBand(double x, double lo, double hi, double h) {
-    if (!(x > 0)) return lo > 0 ? 0.0 : 1.0;
-    const double rise = lo > 0 ? std::sin(angle(x, lo, h)) : 1.0;
-    const double fall = std::isfinite(hi) ? std::cos(angle(x, hi, h)) : 1.0;
-    return rise * fall;
-}
-
-double morletBand(double x, double lo, double hi) {
-    if (!(hi > lo)) throw std::invalid_argument("filterbank::morletBand: needs lo < hi");
-    const double f0 = (lo + hi) / 2, sigma = (hi - lo) / (2 * std::sqrt(2 * std::log(2.0)));
-    const double z = (std::fabs(x) - f0) / sigma;
-    return std::exp(-0.5 * z * z);
-}
-
 double mexicanHat(double lambda, double centre) {
     if (!(centre > 0)) throw std::invalid_argument("filterbank::mexicanHat: the centre is above 0");
     const double x = lambda / centre;
@@ -180,7 +163,7 @@ GraphFilterbank dyadic(const std::vector<double>& edges, double h) {
     const double inf = std::numeric_limits<double>::infinity();
     auto add = [&](Role r, double lo, double hi, double level) {
         Member m; m.role = r; m.lo = lo; m.hi = hi; m.level = level;
-        m.gain = [=](double x) { return meyerBand(x, lo, hi, h); };
+        m.gain = [=](double x) { return timefilterbank::meyerBand(x, lo, hi, h); };
         b.members.push_back(std::move(m));
     };
     add(Role::Scaling, 0.0, edges[0], 0);
@@ -290,6 +273,21 @@ Eigen::VectorXd massLost(const GraphFilterbank& bank) {
         v.setConstant(kNaN);
     }
     return v;
+}
+
+Family familyOf(const std::string& name) {
+    if (name == "mexhat") return Family::MexHat;
+    if (name == "heat") return Family::Heat;
+    if (name == "itersine") return Family::Itersine;
+    if (name == "logitersine") return Family::LogItersine;
+    throw std::invalid_argument("graph bank family '" + name + "' is not one of mexhat, heat, itersine, logitersine, meyer, weyl, rank");
+}
+
+GraphFilterbank graphBank(const NamedBank& b) {
+    if (b.family == "meyer") return dyadic(b.edges, b.halfWidth);
+    if (b.family == "weyl") return weyl(b.area, b.levels, b.halfWidth);
+    if (b.family == "rank") return rank(b.levels, b.halfWidth);
+    return design(familyOf(b.family), b.range, b.options);
 }
 
 }  // namespace nxr::signal::graphfilterbank

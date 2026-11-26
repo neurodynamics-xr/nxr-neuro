@@ -6,19 +6,21 @@
 #
 #   nxr-neuro run cellquadrature --dataset <folder> --subject sub-01 --recording rest --cross-spectrum rest_crossspectrum_alpha_windows --joint "cortex tiles x frames (rest)" --spatial-scale "parts 8" --bursts "rest alpha bursts"
 pipeline: cellquadrature
+# WHY WELCH: it reads a Welch band cross-spectrum (tapered segments); moving it onto the chunk spectra the flow definitions read would change
+# its method, so it stays as it is (a decision of the flow consolidation, #254).
 version: 2
 description: the quadrature ingredients per spatial tile (and tile pair), per time tile and per burst, from an analytic cross-spectrum
 scope: subject
 
 inputs:
-  cross_spectrum: {statistic: any, where: {name: $cross_spectrum}}
+  cross_spectrum: {selection: any, where: {name: $cross_spectrum}, hint: "the band's time grid holding the analytic cross-spectrum (`nxr-neuro run measure --set analytic_cross_spectrum_tiles` first)"}
   recording:      {field: recording, where: {name: $recording}}
   kernel:         {operator: inverse kernel, where: {name: $kernel}}
   joint:          {selection: set, where: {name: $joint}, hint: "the joint cells of the surface's level and the cross-spectrum's tile level (`nxr-neuro run select_product` first, or composed by `run measure`)"}
   bursts:         {selection: spans, manifold: recording.time, where: {name: $bursts}, required: false}
 
 parameters:
-  cross_spectrum: {default: null, meaning: "the analytic cross-spectrum's name (<name>_<band>_windows)", unit: "-"}
+  cross_spectrum: {default: null, meaning: "the analytic cross-spectrum's time grid by name (\"<recording> time grid band 8-16 Hz\"), whose members carry the complex measurement `sum`", unit: "-"}
   recording: {default: null, meaning: "the recording the cross-spectrum is of (the measurements are of it)", unit: "-"}
   kernel: {default: none, meaning: "the inverse kernel's name (free or fixed orientation), or none: the subject's one inverse kernel", unit: "-"}
   joint: {default: null, meaning: "the joint cells' name (its time level is the cross-spectrum's tile level)", unit: "-"}
@@ -43,16 +45,19 @@ outputs:
     of: recording
   cell_pairs:
     kind: measurement
+    optional: true
     name: "tilepairs.{cross_spectrum}.{joint}"
     over: joint
     of: recording
   bursts_q:
     kind: measurement
+    optional: true
     name: "cellquadrature.{cross_spectrum}.{bursts}"
     over: bursts
     of: recording
   burst_pairs:
     kind: measurement
+    optional: true
     name: "tilepairs.{cross_spectrum}.{bursts}"
     over: bursts
     of: recording

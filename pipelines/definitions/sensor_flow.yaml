@@ -1,0 +1,82 @@
+# THE SENSOR-SPACE FLOW ANALYSIS (spec docs/specs/2026-11-24-sensor-flow.md): the flow of the magnetic field on the sensor surface, per atom of the joint frequency x eigenvalue level.
+#
+# THE GRAPH. before: the sensor surface's Hodge-Dirac eigenvectors + its vertex-to-channel map --[signal.mode_analysis, modes exact_and_constant, unit_mass]--> the serving operator (the field's
+# coordinates: the constant and the exact modes), bound once.
+# chunks: recording, each chunk with an overlap of half a chunk on each side (reflected at the recording's ends) --[signal.overlapped_spectrum: one transform of 2^16 samples, no window, no
+# taper, no zero padding, the bins of [0, 60) Hz]--> the chunk's spectrum --[signal.chunk_spectra]--> the cross-spectrum in its factored form, stored.
+# after: --[signal.spectral_flow: the atoms (Gaussians normalised by the sum of their squared gains) x the cos² eigenvalue bands and their pairs]--> power, phase current per edge and
+# per vertex, Hodge-Dirac flow coefficients, potential and stream; --[signal.atom_time_cells]--> the same per time cell of each atom (in the run only: never stored); --[stats.sign_flip_consistency]--> R1 per edge;
+# optional (aperiodic: true): --[signal.sensor_power]--> --[stats.aperiodic_fit]--> each sensor's aperiodic background.
+# Every value below is a stated choice of this definition (the nodes default nothing). The atoms and bands are kernel sets made first by `select_kernels` (nxr's flow analysis's atoms: centres
+# 4 x 2^(k/5) Hz, k = 0..16, gaussian, chart linear, width_rule proportional, width 0.19622 (FWHM = 2 sqrt(2 ln 2) / 12 x the centre: a standard deviation of centre / 12), gain 2;
+# the bands: profile cos2_partition on the eigenvalue line, chart log2, centres as wavelengths).
+#
+# What it cannot resolve: the field on the helmet only (no source, no field spread); patterns shorter than about two sensor spacings; a whole-run cross-spectrum keeps the net
+# quadrature only (the time cells test it); the apparent speed derived at read is an upper bound; an incomplete eigensolve leaves coordinates and flow modes out (stated).
+#
+#   nxr-neuro run sensor_flow --dataset D --subject S --recording REC --all --package hodgeDirac__SURFACE --channel-map SURFACE_map --atoms "ATOMS" --bands "BANDS"
+pipeline: sensor_flow
+version: 1
+description: the flow of the field on the sensor surface per atom of the joint frequency x eigenvalue level - chunk spectra with overlap, power, phase currents, Hodge-Dirac flow, band pairs, time cells and their sign-flip test
+scope: subject
+
+inputs:
+  recording:   {field: recording, each: true, where: {name: $recording}}
+  package:     {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, hint: "the sensor surface's Hodge-Dirac solve (`nxr-neuro run eigenmodes --surface SURFACE` first)"}
+  channel_map: {field: any, where: {name: $channel_map}, hint: "the sensor surface's vertex-to-channel map (`nxr-neuro run sensor_surface` first)"}
+  atoms:       {selection: any, where: {name: $atoms}, hint: "the frequency atoms, a kernel set (`nxr-neuro run select_kernels --profile gaussian --chart linear --width-rule proportional` first)"}
+  bands:       {selection: any, where: {name: $bands}, hint: "the eigenvalue bands, a kernel set on the solve's eigenvalue line (`nxr-neuro run select_kernels --profile cos2_partition` first)"}
+  pairs:       {selection: any, where: {name: $pairs}, hint: "the band pairs' members: atoms x bands x bands (`nxr-neuro run select_kernel_product --factors 3 --first ATOMS --second BANDS --third BANDS` first)"}
+  atom_bands:  {selection: any, where: {name: $atom_bands}, hint: "the sign-flip test's members: atoms x bands (`nxr-neuro run select_kernel_product --factors 2 --first ATOMS --second BANDS` first)"}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  package: {default: null, meaning: "the Hodge-Dirac solve's stem (its eigenvectors are <package>_eigenvectors)", unit: "-"}
+  channel_map: {default: null, meaning: "the sensor surface's vertex-to-channel map's name", unit: "-"}
+  atoms: {default: null, meaning: "the frequency atoms' kernel set by name", unit: "-"}
+  bands: {default: null, meaning: "the eigenvalue bands' kernel set by name", unit: "-"}
+  pairs: {default: null, meaning: "the product atoms x bands x bands by name: the band pairs are measured over its members", unit: "-"}
+  atom_bands: {default: null, meaning: "the product atoms x bands by name: the sign-flip test is measured over its members", unit: "-"}
+  overlap_samples: {default: 16384, meaning: "the overlap on each side of a chunk: half a chunk (the chunk 2^15 samples), so each transform is 2^16 samples of data and every sample is taken in twice", unit: samples}
+  transform_samples: {default: 65536, meaning: "each chunk's one transform: the chunk and its two overlaps (a part chunk at the recording's end reflected to the same length: one frequency line)", unit: samples}
+  frequency_span: {default: [0, 60], meaning: "[lo, hi) the bins kept of each chunk's transform (the physiological bands)", unit: Hz}
+  frequency_normalisation: {default: sum_of_squared_gains, meaning: "the atoms divided at each bin by the square root of their squared gains' sum (they add back to the whole span) | none (nxr's flow analysis's gains as they are)", unit: "-", choices: [sum_of_squared_gains, none]}
+  support_floor: {default: 0.001, meaning: "a bin whose atoms' squared gains sum to less than this fraction of their largest sum lies outside the atoms (gain 0)", unit: "-"}
+  cell_width: {default: 2.0, meaning: "a time cell's width in the atom's time standard deviations (1 / (2 pi sigma_f)), snapped to the nearest power of two of samples", unit: "-"}
+  flip_elements: {default: edges, meaning: "the sign-flip test's elements: edges (the edge phase current) | vertices (the vertex phase current, three components)", unit: "-", choices: [edges, vertices]}
+  patterns: {default: 2000, meaning: "the sign-flip test's random patterns (nxr's flow analysis's maps: 2000)", unit: "-"}
+  seed: {default: 0, meaning: "the seed of numpy's default_rng for the sign patterns (nxr's flow analysis: 0)", unit: "-"}
+  cells_per_flip: {default: 1, meaning: "consecutive time cells one sign flips together (1: each cell its own; the measured correlation of neighbouring cells is stored with the result as the check)", unit: cells}
+  aperiodic: {default: false, meaning: "also fit each sensor's aperiodic background (a control)", unit: "-"}
+  aperiodic_knee: {default: false, meaning: "the aperiodic model with a knee (nxr's flow analysis ran both: run once each)", unit: "-"}
+  aperiodic_range: {default: [1, 45], meaning: "[low, high] the frequencies the aperiodic fit reads (nxr's flow analysis')", unit: Hz}
+  name: {default: "{recording}_{package}", meaning: "the stem of the stored names", unit: "-"}
+
+steps:
+  before:
+    - {node: signal.mode_analysis, in: {package: package, channel_map: channel_map}, with: {modes: exact_and_constant, normalisation: unit_mass}, out: operator}
+  chunks:
+    over: recording
+    do:
+      - {node: signal.overlapped_spectrum, in: {x: recording, operator: operator}, with: {overlap_samples: $overlap_samples, transform_samples: $transform_samples, frequency_span: $frequency_span}, out: spectrum}
+      - {node: signal.chunk_spectra, in: {spectrum: spectrum, operator: operator}, out: spectra}
+  after:
+    - {node: signal.spectral_flow, in: {spectra: spectra, package: package, frequency: atoms, scale: bands}, with: {frequency_weighting: kernels, frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes]}
+    - {node: signal.atom_time_cells, in: {spectra: spectra, package: package, frequency: atoms, scale: bands}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cell_width: $cell_width}, out: cells}
+    - {node: stats.sign_flip_consistency, in: {cells: cells}, with: {elements: $flip_elements, patterns: $patterns, seed: $seed, cells_per_flip: $cells_per_flip}, out: [consistency, consistency_summary, whole_consistency, whole_consistency_summary]}
+    - {node: signal.sensor_power, in: {spectra: spectra, package: package}, out: power, when: $aperiodic}
+    - {node: stats.aperiodic_fit, in: {power: power}, with: {knee: $aperiodic_knee, fit_range: $aperiodic_range, iterations: 3, threshold: 2.0}, out: aperiodic_fit, when: $aperiodic}
+
+outputs:
+  spectra:        {kind: statistic, name: "{name}_chunk_spectra", of: recording, axes: [{name: chunk, on: recording.time}, {name: frequency, line: "{recording}_freq_overlapped", of_time: recording.time}, {name: coordinate, on: package.from}]}
+  whole_vertices: {kind: measurement, over: atoms, of: recording}
+  whole_edges:    {kind: measurement, over: atoms, of: recording}
+  whole_modes:    {kind: measurement, over: atoms, of: recording}
+  pair_vertices:  {kind: measurement, over: pairs, of: recording}
+  pair_edges:     {kind: measurement, over: pairs, of: recording}
+  pair_modes:     {kind: measurement, over: pairs, of: recording}
+  consistency:    {kind: measurement, over: atom_bands, of: recording}
+  consistency_summary: {kind: measurement, over: atom_bands, of: recording}
+  # (whole_consistency, whole_consistency_summary: the sensor chain's time cells are per band only, so the node makes them absent; not stored)
+  power:          {kind: statistic, name: "{name}_sensor_power", of: recording, when: $aperiodic}
+  aperiodic_fit:  {kind: statistic, name: "{name}_aperiodic", of: recording, when: $aperiodic}

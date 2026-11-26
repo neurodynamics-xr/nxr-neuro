@@ -71,7 +71,7 @@ const std::set<std::string>& identifying_sidecar_keys() {
 }  // namespace
 
 nxr::formats::RecordingHeader bids_header(const nxr::formats::RecordingHeader& base, const tsv::Table* channels, const tsv::Table* events, const tsv::Table* electrodes,
-                                          const std::string& position_unit) {
+                                          const std::string& position_unit, const std::string& position_space) {
   nxr::formats::RecordingHeader h = base;
   if (channels) {
     if (channels->column("name") < 0) refuse("a channels table has no `name` column");
@@ -107,6 +107,7 @@ nxr::formats::RecordingHeader bids_header(const nxr::formats::RecordingHeader& b
       const std::size_t r = it->second;
       if (!given(*electrodes, r, "x") || !given(*electrodes, r, "y") || !given(*electrodes, r, "z")) continue;
       c.location = std::array<double, 3>{electrodes->number(r, "x") * scale, electrodes->number(r, "y") * scale, electrodes->number(r, "z") * scale};
+      c.position_frame = "bids-" + (position_space.empty() ? std::string("electrodes") : lower(position_space));   // the table's own coordinate system: the positions are stored in it, never moved to another
     }
     h.position_unit = unit;
   }
@@ -199,7 +200,7 @@ Json import_bids(const fs::path& bids_root, const fs::path& dataset_folder, cons
           }
         }
         auto header = std::make_shared<nxr::formats::RecordingHeader>(
-            bids_header(reader->header(), rec.channels ? &rec.channels->table : nullptr, rec.events ? &rec.events->table : nullptr, electrodes, position_unit));
+            bids_header(reader->header(), rec.channels ? &rec.channels->table : nullptr, rec.events ? &rec.events->table : nullptr, electrodes, position_unit, space));
 
         Json bj = Json::object();
         bj["subject"] = sname;

@@ -52,6 +52,9 @@ struct CreateOptions {
 struct OpenOptions {
   bool lock = true;                      // false: a READER, no lock and no recovery
   std::optional<bool> recover;           // default: whether THIS process took the lock (a borrowed lock recovers nothing)
+  // A READER opens SQLite read-only (SQLITE_OPEN_READONLY): it never migrates an older schema (50 to 53 is read as it is), never makes a table or a view and never writes `meta`.
+  // Default: true for a reader (lock = false), false for a writer. Only a writable open, under the writer lock, migrates.
+  std::optional<bool> read_only;
 };
 
 // An open dataset: its database, the datastore root its paths are under, and its row. Closing (or destroying) releases the writer lock.
@@ -153,6 +156,7 @@ struct TopologySpec {
   int n_components = 1;
   std::optional<std::string> winding;
   std::vector<CellSpec> cells;
+  std::optional<bool> closed, orientable;   // measured by its maker (the glue checks a sphere); unset: not measured
 };
 struct DimensionSpec {
   std::optional<std::string> name;
@@ -287,11 +291,9 @@ struct DictionarySpec {
 struct DictionaryResult { std::string id; std::vector<std::int64_t> codes; };
 
 struct SubjectOptions {
-  std::string kind = "subject";             // subject · template · group
+  std::string kind = "subject";             // subject · template · registration (a subject names no template: format 56)
   std::optional<std::string> folder;
   std::optional<std::string> source_format, source_path, created_by;
-  bool default_template = true;             // a `subject` points at the dataset's default subject (D127) …
-  std::optional<std::string> template_id;   // … or at this one
   bool immediate = false;                   // the whole procedure per node
 };
 struct OpenSubjectOptions { bool immediate = false; std::optional<std::string> created_by; };
@@ -360,6 +362,7 @@ class SubjectWriter {
     std::string space, name;                 // the space (made when new) and the system on it
     std::optional<std::string> unit, description;
     std::string space_description;
+    std::string space_geometry = "volume";   // a new space's geometry: line, circle, plane, sphere, torus or volume
   };
   std::string frame(const FrameSpec& f);
   // An array at a store-relative path, laid out (canonical zarr.json) and populated; the groups above it plain groups. With `table`/`id` the

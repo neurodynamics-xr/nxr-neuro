@@ -20,6 +20,7 @@
 
 #include "psd_run.h"
 #include "check.h"
+#include "hemispheres.h"
 #include "store_at.h"
 #include "mesh_helpers.h"
 #include "brain_helpers.h"
@@ -110,6 +111,7 @@ int main() {
       std::vector<std::int32_t> dk(static_cast<std::size_t>(N), 1);            // the medial wall: the vertices facing the other hemisphere are unassigned
       for (int i = 0; i < N; ++i) { const double y = U[3 * static_cast<std::size_t>(i) + 1]; if ((i < nHalf && y < cy - 0.7 * R) || (i >= nHalf && y > -cy + 0.7 * R)) dk[static_cast<std::size_t>(i)] = 0; }
       so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
+      so.atlases.push_back(nxrtest::structures_of(U, F0));   // the hemispheres, as Brainstorm's Structures (the glue reads them)
       surf = add_surface(sub, so, U, F0).id;
       const std::string cid = uuid7();
       std::vector<float> pos(static_cast<std::size_t>(M) * 3, 0.1f);

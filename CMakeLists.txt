@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(nxr_neuro VERSION 0.1.0 LANGUAGES CXX)
+project(nxr_neuro VERSION 0.4.3 LANGUAGES CXX)
 
 # nxr-neuro: the project's combined C++ toolkit. One build, separate libraries:
 #   compute/    nxr_compute    pure maths (geometry-central + Eigen + Spectra); no file I/O
@@ -66,6 +66,10 @@ if(NXR_NEURO_BUILD_TESTS)
   enable_testing()
   # the layering guard: a recording is read and looped over only by the io chunk service (cmake/check_layering.cmake)
   add_test(NAME layering_recordings_read_by_chunk_service COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/check_layering.cmake)
+  # its twins on fixtures: a bracket in a comment must not merge the lines after it (no false alarm), and a real SQL string after it must still be caught
+  add_test(NAME layering_recordings_read_by_chunk_service_brackets COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_SOURCE_DIR}/cmake/recordings_layering_brackets -P ${CMAKE_SOURCE_DIR}/cmake/check_layering.cmake)
+  add_test(NAME layering_recordings_read_by_chunk_service_brackets_catches COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_SOURCE_DIR}/cmake/recordings_layering_brackets_bad -P ${CMAKE_SOURCE_DIR}/cmake/check_layering.cmake)
+  set_tests_properties(layering_recordings_read_by_chunk_service_brackets_catches PROPERTIES WILL_FAIL TRUE)
   # the records guard: only io writes SQL or holds the database handle (cmake/check_records_layering.cmake, docs/specs/2026-11-17-io-record-api.md); it reads the allowlist of files not yet migrated
   add_test(NAME layering_sql_only_in_io COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/check_records_layering.cmake)
   add_test(NAME layering_sql_only_in_io_catches COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_SOURCE_DIR}/cmake/records_layering_bad -DALLOW=NONE -P ${CMAKE_SOURCE_DIR}/cmake/check_records_layering.cmake)

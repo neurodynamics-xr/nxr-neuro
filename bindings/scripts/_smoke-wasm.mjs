@@ -296,12 +296,6 @@ console.log(`  heatDiffusion ✓ (T=${heat.T}, nV=${heat.nV})`)
   require(vfield.nSym === 2, 'nSym preserved')
   console.log(`  smoothField ✓ (face nF=${nF}, vertex nV=${nV})`)
 
-  // ── Test 11: stripe patterns ───────────────────────────────
-  const stripes = nxrCompute['geometry.compute'](S, vfield.vertexFieldRaw, 8.0, true)
-  require(stripes.segmentCount >= 0, 'stripes segmentCount non-negative')
-  require(stripes.positions.length === stripes.segmentCount * 6,
-          'stripes positions length 2*segs*3')
-  console.log(`  stripes ✓ (segs=${stripes.segmentCount})`)
 }
 
 // ── Test 12: high-level wrapper supplies defaults ───────────
@@ -325,8 +319,7 @@ console.log(`  heatDiffusion ✓ (T=${heat.T}, nV=${heat.nV})`)
   const ff = wrapped['geometry.smoothFace'](wS)
   require(ff.length === nF * 3, 'wrapped smoothFace default nSym works')
   const vf = wrapped['geometry.smoothVertex'](wS)
-  const sp = wrapped['geometry.compute'](wS, vf.vertexFieldRaw, 8.0)
-  require(sp.segmentCount >= 0, 'wrapped stripes default flag works')
+  require(vf.vertexFieldRaw.length === nV * 2, 'wrapped smoothVertex default nSym works')
   console.log('  index.mjs defaults ✓')
 }
 

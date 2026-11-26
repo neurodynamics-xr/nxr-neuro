@@ -7,7 +7,7 @@
 //   nxr-neuro dataset show   --dataset D/N
 //   nxr-neuro dataset delete --datastore D --name N
 //   nxr-neuro dataset recover --dataset D/N
-//   nxr-neuro subject create --dataset D/N --name S [--kind subject|template|group]
+//   nxr-neuro subject create --dataset D/N --name S [--kind subject|template]
 //   nxr-neuro subject list   --dataset D/N
 //   nxr-neuro subject show   --dataset D/N --subject S
 //   nxr-neuro subject delete --dataset D/N --subject S [--node PATH]
@@ -18,6 +18,7 @@
 //   nxr-neuro read <dataset folder> [--array <subject> <path> [--region a:b,c:d] [--out FILE]]
 //
 // Like nxr's, progress and results are JSON lines on stdout (`stage` keyed); a failure is a `stage: error` line and exit 1 (a usage error: exit 2).
+#include <algorithm>
 #include <atomic>
 #include <csignal>
 #include <cstdio>
@@ -27,19 +28,12 @@
 #include <set>
 #include <sstream>
 
-#include "nxr/io/default_subject.h"
 #ifdef NXR_NEURO_WITH_PIPELINES
-#include "nxr/pipelines/dataset.h"
-#include "nxr/pipelines/frames.h"
-#include "nxr/pipelines/listing.h"
+#include "nxr/pipelines/face.h"
 #endif
-#include "nxr/io/surface.h"
 #include "cli.h"
-#include "nxr/io/catalogue.h"
-#include "nxr/io/compact.h"
-#include "nxr/io/task/dataset.h"
-#include "nxr/io/task/task.h"
-#include "nxr/io/writer.h"
+#include "nxr/io/chunk_loop.h"
+#include "nxr/io/errors.h"
 
 #ifndef NXR_NEURO_VERSION
 #define NXR_NEURO_VERSION "0.0.0"
@@ -56,17 +50,12 @@ int measure_main(const std::vector<std::string>& argv);        // cli/measure_co
 int surrogate_lagfree_spatial_events_compare_main(const std::vector<std::string>& argv);   // cli/measure_command.cpp
 int surrogate_lagfree_vortex_compare_main(const std::vector<std::string>& argv);           // cli/measure_command.cpp
 int run_main(const std::vector<std::string>& argv);            // cli/run_command.cpp
+int compile_main(const std::vector<std::string>& argv);        // cli/run_command.cpp
 #endif
 
 namespace {
 
-DatasetWriter dataset_of(const Args& a, bool lock = true) {
-  OpenOptions o;
-  o.lock = lock;
-  return open_dataset(a, o);
-}
-
-// ── nxr-neuro dataset ──
+// ── nxr-neuro dataset ── (each action: parse, one library call (nxr/io/task/commands.h), print)
 int dataset_main(const std::vector<std::string>& argv) {
   if (argv.empty()) throw Usage("nxr-neuro dataset: error: the following arguments are required: action");
   const std::string action = argv[0];
@@ -74,126 +63,63 @@ int dataset_main(const std::vector<std::string>& argv) {
   const std::string prog = "nxr-neuro dataset " + action;
   if (action == "create") {
     const Args a = parse(prog, rest, {"--dataset", "--datastore", "--name", "--source-tool", "--source-protocol", "--source-path", "--templates", "--default", "--modes", "--atlas-finest", "--lc-scales", "--store-format"}, {}, {});
-    // THE DEFAULT FORM: `--dataset PATH` makes a catalogue, the folder of a dataset that holds its subjects' packages (`create subject` adds one; `register package` lists
-    // packages made elsewhere). `--datastore DIR --name N` (the old spelling's) still makes the one-database dataset DIR/N; `split dataset` turns it into a catalogue.
-    if (a.maybe("--dataset") && a.maybe("--datastore")) throw Usage(prog + ": error: --dataset (a catalogue) and --datastore (a one-database dataset) are alternatives");
-    if (!a.maybe("--dataset") && !a.maybe("--datastore")) throw Usage(prog + ": error: the following arguments are required: --dataset");
-    if (a.maybe("--dataset")) {
-      for (const char* x : {"--templates", "--default", "--modes", "--atlas-finest", "--lc-scales", "--store-format"})
-        if (a.maybe(x)) throw Usage(prog + ": error: " + x + " belongs to the one-database form (--datastore); a catalogue's template is a template package (`import template`, `list templates`)");
-      CreateCatalogueOptions co;
-      co.name = a.maybe("--name").value_or(std::filesystem::path(a.get("--dataset")).filename().string());
-      if (co.name.empty()) co.name = std::filesystem::path(a.get("--dataset")).parent_path().filename().string();
-      co.source_tool = a.maybe("--source-tool");
-      co.source_protocol = a.maybe("--source-protocol");
-      co.source_path = a.maybe("--source-path");
-      co.created_by = stamp();
-      co.built_by = stamp();
-      const Catalogue c = create_catalogue(a.get("--dataset"), co);
-      emit(Json{{"stage", "result"}, {"dataset", text(c.dataset_row(), "name")}, {"id", text(c.dataset_row(), "id")}, {"folder", c.folder().string()}, {"form", "catalogue"}});
-      return 0;
+    task::CreateDatasetRequest rq;
+    rq.dataset = a.maybe("--dataset");
+    rq.datastore = a.maybe("--datastore");
+    rq.name = a.maybe("--name");
+    rq.source_tool = a.maybe("--source-tool");
+    rq.source_protocol = a.maybe("--source-protocol");
+    rq.source_path = a.maybe("--source-path");
+    rq.templates = a.maybe("--templates");
+    rq.default_ = a.maybe("--default");
+    rq.atlas_finest = a.maybe("--atlas-finest");    // a quantity (parts per hemisphere, a tile diameter, a tile area): parsed where the grid is made
+    rq.store_format = a.maybe("--store-format");
+    rq.created_by = stamp();
+    if (const auto v = a.maybe("--lc-scales")) {   // the tile scales of the Levi-Civita measurement, comma-separated quantities ("parts 16,parts 64")
+      rq.lc_scales.emplace();
+      std::stringstream ss(*v);
+      for (std::string x; std::getline(ss, x, ',');) {
+        if (x.empty()) throw Usage(prog + ": error: --lc-scales is a comma-separated list of quantities (e.g. \"parts 16,parts 64\" or \"20 mm,40 mm\"), not '" + *v + "'");
+        rq.lc_scales->push_back(x);
+      }
     }
-    if (!a.maybe("--name")) throw Usage(prog + ": error: the following arguments are required: --name (with --datastore)");
-    std::cerr << "note: --datastore makes the one-database form; `create dataset --dataset PATH` makes a catalogue of subject packages (the default form).\n";
-    if (!a.maybe("--templates") && (a.maybe("--default") || a.maybe("--modes") || a.maybe("--atlas-finest") || a.maybe("--lc-scales")))
-      throw Usage(prog + ": error: --default, --modes, --atlas-finest and --lc-scales need --templates (the default subject)");
-    CreateOptions o;
-    o.source_tool = a.maybe("--source-tool");
-    o.source_protocol = a.maybe("--source-protocol");
-    o.source_path = a.maybe("--source-path");
-    o.created_by = stamp();
-    if (const auto f = a.maybe("--store-format")) {
-      if (*f != "51" && *f != "52") throw Usage(prog + ": error: --store-format is 51 or 52");
-      o.store_format = std::stoi(*f);
+    if (const auto v = a.maybe("--modes")) {        // the number of Hodge–Dirac modes to solve (as `run eigenmodes --modes`)
+      try { rq.modes = std::stoi(*v); } catch (...) { throw Usage(prog + ": error: --modes is a whole number (the number of modes to solve), not '" + *v + "'"); }
     }
-    if (const auto t = a.maybe("--templates")) {
-      // THE DEFAULT SUBJECT, with the dataset: both or neither (the library function removes the dataset it made when a step fails)
 #ifdef NXR_NEURO_WITH_PIPELINES
-      nxr::pipelines::DatasetWithTemplateOptions w;
-      w.dataset = o;
-      w.subject.templates = *t;
-      if (const auto v = a.maybe("--default")) w.subject.default_resolution = *v;
-      if (const auto v = a.maybe("--atlas-finest")) w.atlas_finest = *v;     // a quantity (parts per hemisphere, a tile diameter, a tile area): parsed where the grid is made
-      if (const auto v = a.maybe("--lc-scales")) {             // the tile scales of the Levi-Civita measurement, comma-separated quantities ("parts 16,parts 64")
-        w.lc_scales.clear();
-        std::stringstream ss(*v);
-        for (std::string x; std::getline(ss, x, ',');) {
-          if (x.empty()) throw Usage(prog + ": error: --lc-scales is a comma-separated list of quantities (e.g. \"parts 16,parts 64\" or \"20 mm,40 mm\"), not '" + *v + "'");
-          w.lc_scales.push_back(x);
-        }
-      }
-      if (const auto v = a.maybe("--modes")) {                 // the number of Hodge–Dirac modes to solve (as `run eigenmodes --modes`)
-        try { w.modes = std::stoi(*v); } catch (...) { throw Usage(prog + ": error: --modes is a whole number (the number of modes to solve), not '" + *v + "'"); }
-        if (*w.modes < 1) throw Usage(prog + ": error: --modes is a whole number of at least 1");
-      }
-      Json out = nxr::pipelines::create_dataset_with_template(a.get("--datastore"), a.get("--name"), w, stamp(), [](const Json& j) { emit(j); });
+    const task::CommandResult r = call(prog, [&] { return nxr::pipelines::face::create_dataset(rq, progress()); });
+    if (rq.templates && !rq.dataset) {             // the library's report with the default subject: "stage" last, as it always printed
+      Json out = r.result;
       out["stage"] = "result";
       emit(out);
-#else
-      throw Usage(prog + ": error: --templates writes the default subject with its frames and group tree, and needs the pipelines (-DNXR_NEURO_BUILD_PIPELINES=ON)");
-#endif
-    } else {
-      DatasetWriter ds = create_dataset(a.get("--datastore"), a.get("--name"), o);
-      emit(Json{{"stage", "result"}, {"dataset", text(ds.row(), "name")}, {"id", ds.id()}, {"database", (ds.folder() / kDatasetFile).string()}});
-      ds.close();
-    }
-  } else if (action == "list") {
-    const Args a = parse(prog, rest, {"--datastore"}, {}, {"--datastore"});
-    const Json cat = list_datasets(a.get("--datastore"));
-    emit(Json{{"stage", "result"}, {"datastore", cat.contains("id") ? cat["id"] : Json()}, {"datasets", cat.contains("datasets") ? cat["datasets"] : Json::array()}});
-  } else if (action == "show") {
-    const Args a = parse(prog, rest, {"--dataset"}, {}, {"--dataset"});
-    if (is_catalogue_dataset(a.get("--dataset"))) {   // a catalogue: its subjects by kind, from the entries (no package is opened)
-      const Catalogue cat = Catalogue::open(a.get("--dataset"));
-      Json kinds = Json::object();
-      std::int64_t total = 0;
-      for (const auto& e : cat.entries()) if (e.status != "replaced") { kinds[e.kind] = (kinds.contains(e.kind) ? kinds[e.kind].get<std::int64_t>() : 0) + 1; ++total; }
-      const Row d = cat.dataset_row();
-      auto opt = [&](const char* c) { return is_null(d, c) ? Json() : Json(text(d, c)); };
-      emit(Json{{"stage", "result"}, {"dataset", text(d, "name")}, {"id", text(d, "id")}, {"path", cat.folder().string()}, {"form", "catalogue"}, {"subjects", total}, {"kinds", kinds},
-                {"source_tool", opt("source_tool")}, {"source_protocol", opt("source_protocol")}, {"created_utc", opt("created_utc")}});
       return 0;
     }
-    DatasetWriter ds = dataset_of(a, false);
-    Json kinds = Json::object();
-    std::int64_t total = 0;
-    for (const auto& k : nxr::io::task::Dataset::of(ds).subject_kinds()) {
-      kinds[k.kind] = k.n;
-      total += k.n;
-    }
-    auto opt = [&](const char* c) { return is_null(ds.row(), c) ? Json() : Json(text(ds.row(), c)); };
-    emit(Json{{"stage", "result"}, {"dataset", text(ds.row(), "name")}, {"id", ds.id()}, {"path", text(ds.row(), "path")}, {"schema_version", schema_version()},
-              {"subjects", total}, {"kinds", kinds}, {"source_tool", opt("source_tool")}, {"source_protocol", opt("source_protocol")}, {"created_utc", opt("created_utc")}});
+#else
+    const task::CommandResult r = call(prog, [&] { return task::create_dataset(rq, progress()); });
+#endif
+    emit_result(r.result);
+  } else if (action == "list") {
+    const Args a = parse(prog, rest, {"--datastore"}, {}, {"--datastore"});
+    emit_result(task::list_datasets({a.get("--datastore")}).result);
+  } else if (action == "show") {
+    const Args a = parse(prog, rest, {"--dataset"}, {}, {"--dataset"});
+    emit_result(call(prog, [&] { return task::show_dataset({a.get("--dataset")}, progress()); }).result);
   } else if (action == "delete") {
     const Args a = parse(prog, rest, {"--datastore", "--name"}, {}, {"--datastore", "--name"});
-    delete_dataset(a.get("--datastore"), a.get("--name"));
-    emit(Json{{"stage", "result"}, {"deleted", a.get("--name")}});
+    emit_result(task::delete_dataset({a.get("--datastore"), a.get("--name")}).result);
   } else if (action == "recover") {
     const Args a = parse(prog, rest, {"--dataset"}, {}, {"--dataset"});
-    OpenOptions o;
-    o.recover = false;
-    DatasetWriter ds = open_one_database(a, "recover dataset", o);
-    const nxr::io::task::Dataset td = nxr::io::task::Dataset::of(ds);
-    const nxr::io::task::Healed healed = td.recover();
-    td.drain();
-    write_catalog(ds.root());
-    emit(Json{{"stage", "result"}, {"rolled_back", healed.rolled_back}, {"finished", healed.finished}});
-    ds.close();
+    emit_result(call(prog, [&] { return task::recover_dataset({a.get("--dataset")}); }).result);
   } else if (action == "compact") {
-    // nxr-neuro dataset compact --dataset D/N [--subject S] [--dry-run] [--no-shard] [--no-small-files]
-    //   FORMAT 50 -> 51 -> 52, array by array (io/include/nxr/io/compact.h): the new layout beside the old, every value compared byte for byte, then swapped; resumable and
-    //   idempotent. The writer lock is taken (a dataset another writer holds is refused); nothing is recovered. --dry-run reports the files and folders before and after.
+    // nxr-neuro dataset compact --dataset D/N [--subject S] [--dry-run] [--no-shard] [--no-small-files]   (FORMAT 50 -> 51 -> 52, array by array: io/include/nxr/io/compact.h)
     const Args a = parse(prog, rest, {"--dataset", "--subject"}, {"--dry-run", "--no-shard", "--no-small-files"}, {"--dataset"});
-    OpenOptions o;
-    o.recover = false;
-    DatasetWriter ds = open_one_database(a, "compact dataset", o);
-    CompactOptions co;
-    co.subject = a.maybe("--subject");
-    co.dry_run = a.flag.count("--dry-run") > 0;
-    co.shard = !a.flag.count("--no-shard");
-    co.small_files = !a.flag.count("--no-small-files");
-    emit(compact_dataset(ds, co));
-    ds.close();
+    task::CompactDatasetRequest rq;
+    rq.dataset = a.get("--dataset");
+    rq.subject = a.maybe("--subject");
+    rq.dry_run = a.flag.count("--dry-run") > 0;
+    rq.no_shard = a.flag.count("--no-shard") > 0;
+    rq.no_small_files = a.flag.count("--no-small-files") > 0;
+    emit_result(call(prog, [&] { return task::compact_dataset(rq); }).result);
   } else {
     throw Usage("nxr-neuro dataset: error: argument action: invalid choice: '" + action + "' (choose from 'create', 'list', 'show', 'delete', 'recover', 'compact')");
   }
@@ -206,108 +132,39 @@ int subject_main(const std::vector<std::string>& argv) {
   const std::string action = argv[0];
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const std::string prog = "nxr-neuro subject " + action;
-  if (action == "list" || action == "show") {
-    const bool show = action == "show";
-    const Args a = show ? parse(prog, rest, {"--dataset", "--subject"}, {}, {"--dataset", "--subject"}) : parse(prog, rest, {"--dataset", "--subjects", "--where"}, {}, {"--dataset"});
-    if (!show && std::filesystem::exists(std::filesystem::path(a.get("--dataset")) / kCatalogueFile)) {   // a catalogue of subject packages: by name, or by a filter over the participants
-      const Catalogue cat = Catalogue::open(a.get("--dataset"));
-      Json rows = Json::array();
-      if (a.maybe("--subjects") || a.maybe("--where")) {
-        SubjectSelection sel;
-        if (const auto names = a.maybe("--subjects")) { std::stringstream ss(*names); for (std::string x; std::getline(ss, x, ',');) if (!x.empty()) sel.subjects.push_back(x); }
-        sel.where = a.maybe("--where");
-        const SelectedSubjects chosen = select_subjects(a.get("--dataset"), sel);
-        for (const auto& m : chosen.members) rows.push_back(m.to_json());
-        emit(Json{{"stage", "result"}, {"dataset", text(cat.dataset_row(), "name")}, {"subjects", rows}, {"selection", chosen.provenance()}});
-      } else {
-        for (const auto& e : cat.entries()) rows.push_back(e.to_json());
-        emit(Json{{"stage", "result"}, {"dataset", text(cat.dataset_row(), "name")}, {"subjects", rows}});
-      }
-      return 0;
-    }
-    if (!show && (a.maybe("--subjects") || a.maybe("--where"))) throw Usage(prog + ": error: --subjects and --where need a catalogue dataset (made by `create dataset --dataset PATH`); " + a.get("--dataset") + " is a one-database dataset");
-    DatasetWriter ds = dataset_of(a, false);
-    if (!show) {
-      Json rows = Json::array();
-      for (const auto& r : nxr::io::task::Dataset::of(ds).subjects())
-        rows.push_back(Json{{"name", r.name}, {"kind", r.kind}, {"status", r.status}, {"path", r.path}});
-      emit(Json{{"stage", "result"}, {"dataset", text(ds.row(), "name")}, {"subjects", rows}});
-    } else {
-      SubjectWriter s = SubjectWriter::open(ds, a.get("--subject"));
-      const nxr::io::task::NodeCounts n = nxr::io::task::Subject::of(s).node_counts();
-      emit(Json{{"stage", "result"}, {"subject", s.name()}, {"kind", text(s.row(), "kind")}, {"path", text(s.row(), "path")}, {"manifolds", n.manifolds},
-                {"fields", n.fields}, {"operators", n.operators}, {"selections", n.selections}});
-    }
+  if (action == "list") {
+    const Args a = parse(prog, rest, {"--dataset", "--subjects", "--where"}, {}, {"--dataset"});
+    task::ListSubjectsRequest rq;
+    rq.dataset = a.get("--dataset");
+    if (const auto v = a.maybe("--subjects")) rq.subjects = split_commas(*v);
+    rq.where = a.maybe("--where");
+    emit_result(call(prog, [&] { return task::list_subjects(rq, progress()); }).result);
+    return 0;
+  }
+  if (action == "show") {
+    const Args a = parse(prog, rest, {"--dataset", "--subject"}, {}, {"--dataset", "--subject"});
+    emit_result(call(prog, [&] { return task::show_subject({a.get("--dataset"), a.get("--subject")}, progress()); }).result);
     return 0;
   }
   if (action != "create" && action != "delete") throw Usage("nxr-neuro subject: error: argument action: invalid choice: '" + action + "' (choose from 'create', 'list', 'show', 'delete')");
   if (action == "create") {
     const Args a = parse(prog, rest, {"--dataset", "--name", "--kind"}, {}, {"--dataset", "--name"});
-    const std::string kind = a.maybe("--kind").value_or("subject");
-    if (kind != "subject" && kind != "template" && kind != "group") throw Usage(prog + ": error: argument --kind: invalid choice: '" + kind + "' (choose from 'subject', 'template', 'group')");
-    if (is_catalogue_dataset(a.get("--dataset"))) {   // a catalogue: a new package in the dataset's folder, registered
-      const Catalogue cat = Catalogue::open(a.get("--dataset"));
-      CreatePackageOptions po = cat.package_options();
-      po.subject.kind = kind;
-      po.subject.created_by = stamp();
-      po.built_by = stamp();
-      const std::filesystem::path pkg = cat.folder() / (a.get("--name") + kPackageSuffix);
-      DatasetWriter w = create_package(pkg, a.get("--name"), po);
-      const std::string sid = nxr::io::task::Dataset::of(w).package_subject_id();
-      w.close();
-      RegisterOptions ro;
-      ro.registered_by = stamp();
-      const auto res = register_packages(a.get("--dataset"), {pkg}, ro);
-      if (res.empty() || res[0].outcome == "refused") throw Error(code::invalid_argument, a.get("--name") + ": " + (res.empty() ? std::string("not registered") : res[0].reason));
-      emit(Json{{"stage", "result"}, {"subject", a.get("--name")}, {"kind", kind}, {"id", sid}, {"path", pkg.filename().string()}});
-      return 0;
-    }
-    DatasetWriter ds = dataset_of(a);
-    SubjectOptions o;
-    o.kind = kind;
-    o.created_by = stamp();
-    SubjectWriter sub = SubjectWriter::create(ds, a.get("--name"), o);
-    sub.compose([] {});
-    emit(Json{{"stage", "result"}, {"subject", a.get("--name")}, {"kind", kind}, {"id", sub.id()}, {"path", text(sub.row(), "path")}});
+    task::CreateSubjectRequest rq;
+    rq.dataset = a.get("--dataset");
+    rq.name = a.get("--name");
+    rq.kind = a.maybe("--kind").value_or("subject");
+    rq.created_by = stamp();
+    emit_result(call(prog, [&] { return task::create_subject(rq, progress()); }).result);
     return 0;
   }
-  const Args a = parse(prog, rest, {"--dataset", "--subject", "--node"}, {}, {"--dataset", "--subject"});
-  DatasetWriter ds = open_one_database(a, "delete subject");
-  OpenSubjectOptions oo;
-  oo.created_by = stamp();
-  SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-  if (!a.maybe("--node")) {
-    nxr::io::task::Dataset::of(ds).remove_subject(sub.id());
-    write_catalog(ds.root());
-    emit(Json{{"stage", "result"}, {"removed", a.get("--subject")}});
-  } else {
-    const std::string node = *a.maybe("--node");
-    using nxr::io::task::Cls;
-    const nxr::io::task::Dataset td = nxr::io::task::Dataset::of(ds);
-    for (const Cls c : {Cls::manifold, Cls::field, Cls::operator_, Cls::selection}) {
-      const char* t = nxr::io::task::to_string(c);
-      if (const auto r = sub.find(t, node)) {
-        td.remove(c, text(*r, "id"));
-        emit(Json{{"stage", "result"}, {"removed", node}, {"table", t}});
-        return 0;
-      }
-    }
-    // no store path of that name: the node's NAME (a source estimate or a joint Selection has no path); unique within the subject, else refused with the matches
-    std::vector<std::pair<Cls, std::string>> hits;   // class, id
-    for (const Cls c : {Cls::manifold, Cls::field, Cls::operator_, Cls::selection, Cls::statistic})
-      if (const auto r = sub.by_name(nxr::io::task::to_string(c), node)) hits.push_back({c, text(*r, "id")});
-    if (hits.size() == 1) {
-      td.remove(hits[0].first, hits[0].second);
-      emit(Json{{"stage", "result"}, {"removed", node}, {"table", nxr::io::task::to_string(hits[0].first)}, {"by", "name"}});
-      return 0;
-    }
-    if (hits.size() > 1) {
-      std::string list;
-      for (const auto& h : hits) list += (list.empty() ? "" : ", ") + std::string(nxr::io::task::to_string(h.first)) + " " + h.second;
-      throw Error(code::invalid_argument, node + ": several nodes of " + a.get("--subject") + " have this name (" + list + "); name a store path with --node instead");
-    }
-    throw Error(code::no_such_row, node + ": no node of " + a.get("--subject") + " by store path or by name");
-  }
+  const Args a = parse(prog, rest, {"--dataset", "--subject", "--node", "--by"}, {}, {"--dataset", "--subject"});
+  task::DeleteSubjectRequest rq;
+  rq.dataset = a.get("--dataset");
+  rq.subject = a.get("--subject");
+  rq.node = a.maybe("--node");
+  rq.by = a.maybe("--by");
+  rq.created_by = stamp();
+  emit_result(call(prog, [&] { return task::delete_subject(rq); }).result);
   return 0;
 }
 
@@ -315,27 +172,25 @@ int subject_main(const std::vector<std::string>& argv) {
 int surface_main(const std::vector<std::string>& argv) {
   if (argv.empty() || argv[0] != "add") throw Usage("nxr-neuro surface: error: the following arguments are required: action (add)");
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const Args a = parse("nxr-neuro surface add", rest, {"--dataset", "--subject", "--name", "--scale"}, {"--primary", "--no-primary"}, {"--dataset", "--subject"}, 1);
-  const double scale = a.maybe("--scale") ? std::stod(*a.maybe("--scale")) : 1.0;
-  Mesh mesh = read_mesh(a.pos[0]);
-  const std::string name = sanitize_node_name(a.maybe("--name").value_or(mesh_name(a.pos[0])));
-  DatasetWriter ds = dataset_of(a);
-  OpenSubjectOptions oo;
-  oo.created_by = stamp();
-  SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-  for (auto& x : mesh.vertices) x *= scale;
-  SurfaceOptions so;
-  so.name = name;
-  so.source = fs::path(a.pos[0]).filename().string();
-  so.primary = !a.flag.count("--no-primary");
-  SurfaceInfo info;
-  sub.compose([&] { info = add_surface(sub, so, mesh.vertices, mesh.faces); });
-  emit(Json{{"stage", "result"}, {"name", info.name}, {"folder", info.folder}, {"n_vertices", info.n_vertices}, {"n_faces", info.n_faces}, {"atlases", info.atlases},
-            {"registration", info.registration}, {"hemispheres", info.hemispheres}, {"flipped", info.flipped}, {"mesh_health", info.mesh_health}});
+  const std::string prog = "nxr-neuro surface add";
+  // a mesh FILE, or the surface from arrays (--vertices and --faces, .npy): then no positional argument
+  const bool arrays = std::find(rest.begin(), rest.end(), "--vertices") != rest.end() || std::find(rest.begin(), rest.end(), "--faces") != rest.end();
+  const Args a = parse(prog, rest, {"--dataset", "--subject", "--name", "--scale", "--vertices", "--faces", "--by"}, {"--primary", "--no-primary"}, {"--dataset", "--subject"}, arrays ? 0 : 1);
+  task::AddSurfaceRequest rq;
+  rq.scale = a.maybe("--scale") ? std::stod(*a.maybe("--scale")) : 1.0;
+  rq.dataset = a.get("--dataset");
+  rq.subject = a.get("--subject");
+  if (!arrays) rq.file = a.pos[0];
+  rq.vertices = a.maybe("--vertices");
+  rq.faces = a.maybe("--faces");
+  rq.name = a.maybe("--name");
+  rq.primary = a.flag.count("--primary") > 0;
+  rq.no_primary = a.flag.count("--no-primary") > 0;
+  rq.created_by = stamp();
+  rq.by = a.maybe("--by");
+  emit_result(call(prog, [&] { return task::add_surface(rq, progress()); }).result);
   return 0;
 }
-
-
 
 }  // namespace
 
@@ -367,15 +222,22 @@ void chunk_loop_defaults(const std::vector<std::string>& args) {
 
 // the old command words dispatched to their mains (the hidden aliases of the old spellings, and what every new command rewrites itself to)
 // ── nxr-neuro list recordings|kernels|results (the old words: `__list`, which has no old spelling) ──
+int list_class_main(const std::string& what, const std::vector<std::string>& rest);   // cli/node_command.cpp
 int list_nodes_main(const std::vector<std::string>& argv) {
+  for (const char* cls : {"manifolds", "fields", "selections", "operators", "statistics", "dictionaries", "spaces", "acquisitions", "jobs"})
+    if (!argv.empty() && argv[0] == cls) return list_class_main(argv[0], std::vector<std::string>(argv.begin() + 1, argv.end()));
 #ifdef NXR_NEURO_WITH_PIPELINES
   if (argv.empty()) throw Usage("nxr-neuro list: error: the following arguments are required: what (recordings, kernels, results)");
   const std::string what = argv[0];
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const Args a = parse("nxr-neuro list " + what, rest, {"--dataset", "--subject"}, {}, {"--dataset", "--subject"});
-  DatasetWriter ds = dataset_of(a, false);
-  SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"));
-  emit(Json{{"stage", "result"}, {"subject", sub.name()}, {what, nxr::pipelines::list_subject_nodes(ds, sub, what)}});
+  const std::string prog = "nxr-neuro list " + what;
+  const Args a = parse(prog, rest, {"--dataset", "--subject"}, {}, {"--dataset", "--subject"});
+  const nxr::pipelines::face::ListNodesRequest rq{a.get("--dataset"), a.get("--subject")};
+  namespace face = nxr::pipelines::face;
+  if (what == "recordings") emit_result(call(prog, [&] { return face::list_recordings(rq, progress()); }).result);
+  else if (what == "kernels") emit_result(call(prog, [&] { return face::list_kernels(rq, progress()); }).result);
+  else if (what == "results") emit_result(call(prog, [&] { return face::list_results(rq, progress()); }).result);
+  else throw Error(code::invalid_argument, "list: '" + what + "' is not something a subject holds by kind (recordings, kernels or results)");
   return 0;
 #else
   (void)argv;
@@ -387,8 +249,14 @@ int package_main(const std::vector<std::string>& argv);   // cli/package_command
 int import_main(const std::vector<std::string>& argv);    // cli/import_command.cpp
 int export_main(const std::vector<std::string>& argv);    // cli/export_command.cpp
 int crossspectrum_read_main(const std::vector<std::string>& rest);   // cli/meeg_command.cpp
+int read_node_main(const std::vector<std::string>& argv);   // cli/node_command.cpp
+int add_node_main(const std::vector<std::string>& argv);    // cli/node_command.cpp
+int edit_node_main(const std::vector<std::string>& argv);   // cli/node_command.cpp
 int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
   if (cmd == "__list") return list_nodes_main(rest);
+  if (cmd == "__read") return read_node_main(rest);           // `read field | statistic | operator | selection | manifold`
+  if (cmd == "__edit") return edit_node_main(rest);           // `edit manifold | dictionary`
+  if (cmd == "__add") return add_node_main(rest);             // `add field | selection | statistic | measurements | operator | points | line`
   if (cmd == "read") {
     std::vector<std::string> store = {"read"};
     store.insert(store.end(), rest.begin(), rest.end());
@@ -408,6 +276,13 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       return run_main(rest);
 #else
       throw Error(code::unsupported, "nxr-neuro run needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
+#endif
+    }
+    if (cmd == "__compile") {                                                 // `compile <definition>`
+#ifdef NXR_NEURO_WITH_PIPELINES
+      return compile_main(rest);
+#else
+      throw Error(code::unsupported, "nxr-neuro compile needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
     if (cmd == "__surrogate_lagfree_spatial_events_compare") {               // `run surrogate_lagfree_spatial_events_compare` (the command table's internal words)

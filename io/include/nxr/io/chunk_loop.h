@@ -16,6 +16,11 @@
 //                                    chunk k is folded (read-ahead), each handed to `visit` cut to what was asked; progress after each chunk; cancellable (a cancelled job
 //                                    throws `code::cancelled`, so nothing of it is stored); one job at a time (a QUEUE: a lock file, so two jobs never share the disk).
 //                                    Never a whole-recording buffer: the memory held is two chunks (the one folded, the one read ahead).
+//   THE PROJECTORS                   a recording is stored AS RECORDED; its ACTIVE projectors (status 1, Operators of kind `projector` on its channels) are applied to every
+//                                    block the service loads, BY DEFAULT, as Brainstorm's in_fread applies the channel file's active projectors and MNE-Python applies
+//                                    info['projs'] on load: the selected SSP vectors stacked and re-orthogonalised, the others in the file's order (nxr::bst::joint_projector).
+//                                    `Projectors::none` reads the samples as recorded; a NAMED choice applies exactly those projectors, whatever their status. Which were applied is the run's provenance and in its cache key (`load_projection`).
+//                                    An SSP or ICA projector is idempotent (P P = P), so samples that already carry one come out the same up to rounding: no guard is kept.
 //   defaults                         the process's progress, cancel and queue (`set_chunk_loop_defaults`), set once by the command line; pipelines pass nothing.
 //
 // COMPUTE NEVER SEES THIS: a pipeline declares the recording, its rows and its span and passes `visit`; the maths (nxr_compute, nxr_meeg) receives a matrix and
@@ -85,6 +90,38 @@ struct LinkedBlocks {
   std::function<void(std::int64_t s0, std::int64_t n, float* out)> read;
 };
 
+/** THE PROJECTION a load applies: [n x n] row-major over all the recording's channels */
+struct LoadProjection {
+  std::int64_t n = 0;
+  std::vector<double> matrix;
+};
+/** which of the recording's projectors a reading applies: `active` (the default: its status-1 projectors, every block is P x), `none` (the samples as recorded), or `named`
+ *  (exactly the projectors named, by their Operator names on the channels, WHATEVER THEIR STORED STATUS: the caller chose them; an unknown name is refused, naming the valid ones) */
+struct Projectors {
+  enum class Choice { active, none, named };
+  Choice choice = Choice::active;
+  std::vector<std::string> names;          // named: the projectors applied (composed in the file's order, not the order given)
+  static const Projectors active;
+  static const Projectors none;
+  static Projectors named(std::vector<std::string> names) { return Projectors{Choice::named, std::move(names)}; }
+  bool operator==(const Projectors& o) const { return choice == o.choice && names == o.names; }
+  bool operator!=(const Projectors& o) const { return !(*this == o); }
+};
+inline const Projectors Projectors::active{};
+inline const Projectors Projectors::none{Projectors::Choice::none, {}};
+/** a `named` choice checked against the names of the projectors stored with the channels (`stored`, in the file's order): a name that is not one of them is an Error naming the valid ones */
+void check_projector_names(const Projectors& option, const std::vector<std::string>& stored);
+/** the projection of `recording` (a Field row) under `option`, and its record: {option, active: [the status-1 projectors' names, in the file's order], applied: [those applied]}
+ *  (and, for a named choice, chosen: [the names given]); the record is null when the recording's channels carry no active projector and none is named (nothing to apply or skip). */
+struct ProjectionOf {
+  std::shared_ptr<const LoadProjection> projection;   // null: nothing is applied
+  Json record;
+};
+ProjectionOf load_projection(const Database& db, const Store& store, const Row& recording, Projectors option);
+/** the option as text and back: "active" | "none" | "NAME[,NAME...]" (a named choice, the names comma-separated); empty text or an empty name is an Error */
+std::string to_string(const Projectors& p);
+Projectors projectors_from(const std::string& text);
+
 class ChunkSource {
  public:
   /** what a chunk carries: its samples (the default), or the recording's SHAPE only (its channels, samples and chunk grid, and the good-sample mask), never a sample: a run that makes its own
@@ -103,6 +140,11 @@ class ChunkSource {
   std::int64_t count() const { return (n_samples_ + width_ - 1) / width_; }
   /** chunk k, WHOLE (its first sample in out.first, its length in out.n) */
   void read(std::int64_t k, Chunk& out) const;
+  /** apply `p` (over all the recording's channels) to every chunk read; `record` is what the run's provenance says of it (see load_projection) */
+  void project(std::shared_ptr<const LoadProjection> p, Json record);
+  const Json& projection_record() const { return projection_record_; }
+  /** the matrix applied to every chunk read [n x n] over all the recording's channels; null: nothing is applied */
+  std::shared_ptr<const LoadProjection> projection() const { return projection_; }
   /** the chunks read so far (each read once per job: what a test counts); a shape-only source reads none (0) */
   std::int64_t reads() const;
 
@@ -116,6 +158,8 @@ class ChunkSource {
   std::optional<std::vector<std::pair<double, double>>> bad_;
   std::shared_ptr<std::atomic<std::int64_t>> reads_ = std::make_shared<std::atomic<std::int64_t>>(0);
   Reading reading_ = Reading::samples;
+  std::shared_ptr<const LoadProjection> projection_;
+  Json projection_record_;
 };
 
 /** a job's state, as `progress` sees it after each chunk (the Studio's ChunkJob) */

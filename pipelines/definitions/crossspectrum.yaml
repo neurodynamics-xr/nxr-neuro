@@ -4,7 +4,8 @@
 # Stored: the statistic `<name>` (band x channel x channel, complex; a band k is read by its old name `<name>_<band>`), its channels `<name>_channels`, its segment partition
 # `<name>_segments`, and with resolve bins `<name>_bins` (frequency x channel x channel).
 #
-#   nxr-neuro run crossspectrum --dataset <folder> --subject sub-01 --recording rest --all [--channels-of KERNEL] [--bands '[{name: alpha, lo: 8, hi: 12}]'] [--resolve bins]
+#   nxr-neuro run crossspectrum --dataset <folder> --subject sub-01 --recording rest --all [--channels-of KERNEL] --bands '[{"name": "alpha", "lo": 8, "hi": 12}]' [--resolve bins]
+# The bands are required: no band set is assumed (a refused run names how to pass them).
 pipeline: crossspectrum
 version: 1
 description: the sensor cross-spectral density per band (Welch), on a kernel's channels or the good imaging channels
@@ -20,7 +21,7 @@ parameters:
   channels_of: {default: null, meaning: "an operator (a kernel) whose channels are the ones covered, in order; null: the good channels of channel_types", unit: "-"}
   channel_types: {default: [MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG], meaning: "the channel types covered when channels_of is null (good channels only)", unit: "-"}
   name: {default: "{recording}_crossspectrum", meaning: "the stored statistic's name; beside it <name>_channels, <name>_segments, and with resolve bins <name>_bins", unit: "-"}
-  bands: {default: [{name: delta, lo: 2, hi: 4}, {name: theta, lo: 5, hi: 7}, {name: alpha, lo: 8, hi: 12}, {name: beta, lo: 15, hi: 29}, {name: gamma1, lo: 30, hi: 59}, {name: gamma2, lo: 60, hi: 90}], meaning: "the bands: {name, lo, hi}; a band holds the bins from lo to hi inclusive", unit: "Hz"}
+  bands: {default: required, meaning: "the bands, the caller's choice (no default): a list of {name, lo, hi}, e.g. --bands '[{\"name\": \"alpha\", \"lo\": 8, \"hi\": 12}]'; a band holds the bins from lo to hi inclusive", unit: "Hz"}
   resolve: {default: band, meaning: "band = each band one member (its bins averaged) | bins = also every bin of each band", unit: "-", choices: [band, bins]}
   segment_seconds: {default: 4.0, meaning: "the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples)", unit: "s"}
   segment_samples: {default: null, meaning: "the segment's length in samples (wins over segment_seconds); null: from segment_seconds", unit: "samples"}

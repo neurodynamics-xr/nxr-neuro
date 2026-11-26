@@ -333,7 +333,7 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
   Json montage_record;
   if (!opt.montage.empty()) {
     const auto mrow = sub.db().one("SELECT id, producer_json FROM manifold WHERE subject_id = ? AND type = 'points' AND name = ? AND status = 'complete'", {nxr::io::V(sub.id()), nxr::io::V(opt.montage)});
-    if (!mrow) refuse("--montage " + opt.montage + ": the subject has no points manifold of that name (a montage is made by `montage create` and stored before the recording is imported)");
+    if (!mrow) refuse("--montage " + opt.montage + ": the subject has no points manifold of that name (a montage is made by `run montage` and stored before the recording is imported)");
     std::set<std::string> labels;
     for (const auto& r : sub.db().all("SELECT DISTINCT de.name AS name FROM selection s JOIN dictionary_entry de ON de.dictionary_id = s.dictionary_id WHERE s.manifold_id = ?", {nxr::io::V(nxr::io::text(*mrow, "id"))})) labels.insert(nxr::io::text(r, "name"));
     if (labels.empty()) refuse("--montage " + opt.montage + ": the manifold has no names labelling, so no channel can be matched");
@@ -361,11 +361,10 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
   producer["origin"] = origin;
 
   RecordingOperators ops = operators_of(reader);
-  const std::vector<double> projection = applied_projection(ops);     // the active projectors, applied as the samples are copied
   Json out;
   sub.compose([&] {
     std::map<std::string, std::string> units_by_type;
-    const SensorPlacement place = place_sensors(reader, opt.name + "_channels", opt.acquisition);
+    const SensorPlacement place = place_sensors(reader, opt.name + "_channels", opt.acquisition, &h);
     make_frames(sub, place);
     auto mat = channel_mat(h, place, units_by_type);
     if (!place.digitisation.empty() && !place.headpoints_cs_key.empty()) mat["HeadPoints"] = headpoints_value(place.digitisation);
@@ -410,12 +409,7 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
     b.linked = opt.in_place;
     b.read = [&](std::int64_t s0, std::int64_t n, std::vector<float>& blk) {
       blk.resize(static_cast<std::size_t>(n_chan * n));
-      reader.read(static_cast<std::uint64_t>(s0), static_cast<std::uint64_t>(n), 0, static_cast<std::size_t>(n_chan), blk.data());
-      if (!projection.empty()) {
-        std::vector<float> y;
-        nxr::bst::project(projection, static_cast<std::size_t>(n_chan), blk, static_cast<std::size_t>(n), y);
-        blk.swap(y);
-      }
+      reader.read(static_cast<std::uint64_t>(s0), static_cast<std::uint64_t>(n), 0, static_cast<std::size_t>(n_chan), blk.data());   // as recorded: the projectors are applied on load
     };
     out = nxr::bst::write_recording_blocks(sub, b);
     out["channels"] = si.name;

@@ -29,7 +29,7 @@
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/signal/filters_fir.h"
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "make_grids.h"
 #include "run_definition.h"
 
@@ -181,7 +181,7 @@ int main() {
   const std::vector<double> va = nxr::select::vertexAreas(lm);
   std::vector<double> tarea(static_cast<std::size_t>(tiles), 0.0);
   for (int v = 0; v < N; ++v) tarea[static_cast<std::size_t>(SL.tile[static_cast<std::size_t>(v)])] += va[static_cast<std::size_t>(v)];
-  const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 16.0); };
+  const auto gain = [&](double f) { return nxr::signal::timefilterbank::morletBand(f, 8.0, 16.0); };
   const auto hh = nxr::signal::gainTaps(gain, sfreq, false), qq = nxr::signal::gainTaps(gain, sfreq, true);
   const auto re = nxr::signal::convolveRows(xf.data(), M, T, hh, 0, T, false);
   const auto im = nxr::signal::convolveRows(xf.data(), M, T, qq, 0, T, true);
@@ -249,9 +249,8 @@ int main() {
   const double et = worst(ct, want_t);
   std::printf("  temporal cells vs direct: worst relative error %.2e\n", et);
   CHECK(et < 2e-4);
-  // (a rerun of the `measure` preset is not a cache hit: the rows exist and are refused without --replace, as another recipe's are; the chain parameters are part of the recipe as written, so naming the default
-  //  envelope is no different: the old verb read a named default as the unnamed one and its rerun was a hit)
-  CHECK(code_of([&] { cells_run("rest", no_extra, preset); }) == std::string(code::already_exists));
+  // a rerun of the `measure` preset with the same recipe is a cache hit (the method rule); another envelope's rows are another recipe's: refused without --replace, never silently replaced
+  { const auto r = cells_run("rest", no_extra, preset); CHECK(r.size() == 1 && r[0]["hit"] == true); }
   CHECK(code_of([&] { cells_run("rest", temporal, preset); }) == std::string(code::already_exists));
   CHECK(code_of([&] { cells_run("rest", mono, preset); }) == std::string(code::already_exists));   // another envelope's rows are another recipe's: refused, never silently replaced
   g::RunOptions preset_rep = preset;
@@ -274,7 +273,7 @@ int main() {
     CHECK(dumped.find("spatiotemporal") != std::string::npos);
   }
   // a rerun is a hit; the other chunk width gives the same cells; the temporal rerun is refused again (the rows are the spatiotemporal ones now) unless --replace
-  CHECK(code_of([&] { cells_run("rest", mono, preset); }) == std::string(code::already_exists));
+  { const auto r = cells_run("rest", mono, preset); CHECK(r.size() == 1 && r[0]["hit"] == true); }
   {
     double diff = 0;
     for (std::size_t i = 0; i < cs.size(); ++i) if (!std::isnan(cs[i]) || !std::isnan(csb[i])) diff = std::max(diff, static_cast<double>(std::abs(cs[i] - csb[i])));

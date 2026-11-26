@@ -3,7 +3,7 @@
 #include <iostream>
 
 #include "nxr/bst/mat.h"
-#include "../../cli/py_json.h"   // the CLI's JSON writer (Python-style number text); the one place io's test helpers reach into cli/
+#include "nxr/io/py_json.h"   // the JSON writer of the command line (Python-style number text)
 
 using namespace nxr::bst;
 using nxr::io::Json;

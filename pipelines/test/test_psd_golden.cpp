@@ -111,7 +111,7 @@ int main() {
   const MatrixXd rf400 = rg.mat("rotary_f_n400"), rwant400 = rg.mat("rotary_hann_const_n400"), rf301 = rg.mat("rotary_f_n301"), rwant301 = rg.mat("rotary_hamming_linear_n301_ov100");
 
   DatasetWriter ds = create_dataset(root, "demo");
-  // a recording's frequency line `<recording>_freq` is shared by every spectrum of its resolution (one more resolution takes `_freq_alt`): each case runs on a subject of its own
+  // a recording's frequency line is shared by every spectrum of its span length (one more length is another line): each case runs on a subject of its own
   make_subject(ds, "S2", X4, fs, 650, nullptr, &A);
   make_subject(ds, "S2b", X4, fs, 2400, nullptr, &A);
   SubjectWriter s2 = SubjectWriter::open(ds, "S2"), s2b = SubjectWriter::open(ds, "S2b");

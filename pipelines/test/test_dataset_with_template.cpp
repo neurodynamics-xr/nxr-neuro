@@ -119,7 +119,7 @@ int main() {
   DatasetWriter ds = open_writer(root / "store" / "demo");
   SubjectWriter sub = SubjectWriter::open(ds, kDefaultSubject);
   CHECK(sub.find("operator", "hodgeDirac_eigenvectors").has_value());      // the basis, in the layout `eigen solve` stores for any subject
-  CHECK(sub.find("selection", "hodgeDirac_support").has_value());
+  CHECK(!sub.find("selection", "hodgeDirac_support").has_value());     // no support: the glue's correspondence is derived from the glued cortex's labelling and the medial wall
   CHECK(sub.find("manifold", "source/cortex_pial_glued").has_value());
   ds.close();
 

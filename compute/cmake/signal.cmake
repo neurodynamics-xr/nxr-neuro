@@ -7,15 +7,16 @@ target_sources(nxr_compute PRIVATE
   src/signal/crossspectral_bins.cpp
   src/signal/crossspectral_decomposition.cpp
   src/signal/crossspectral_measures.cpp
+  src/signal/decimation.cpp
   src/signal/filters.cpp
   src/signal/filters_fir.cpp
   src/signal/filters_fir_design.cpp
   src/signal/filters_iir.cpp
   src/signal/forms.cpp
   src/signal/fourier.cpp
+  src/signal/gabor.cpp
   src/signal/graphfilterbank.cpp
   src/signal/graphtransforms.cpp
-  src/signal/graphfilterbank_operator.cpp
   src/signal/graphwavelet.cpp
   src/signal/istft.cpp
   src/signal/jointtransforms.cpp
@@ -23,6 +24,15 @@ target_sources(nxr_compute PRIVATE
   src/signal/wavelet_cross.cpp
   src/signal/windowed_graphtransforms.cpp
   src/signal/intrinsic_forms.cpp
+  src/signal/mode_spectrum.cpp
+  src/signal/spectral_flow.cpp
+  src/signal/kernel_gains.cpp
+  src/signal/source_flow.cpp
+  src/signal/flow_readout.cpp
+  src/signal/aperiodic.cpp
+  src/signal/bispectrum.cpp
+  src/signal/tile_flow.cpp
+  src/signal/flow_across_frequencies.cpp
   src/signal/hodge_decomposition.cpp
   src/signal/isolines.cpp
   src/signal/streamlines.cpp
@@ -47,9 +57,41 @@ set_source_files_properties(src/signal/filters_fir.cpp PROPERTIES COMPILE_OPTION
 set_source_files_properties(src/signal/forms.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")   # a port of the Studio's fieldForms.ts / faceGradient.ts (no FMA in JavaScript)
 
 if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
+  add_executable(test_gabor test/test_gabor.cpp)
+  target_link_libraries(test_gabor PRIVATE nxr_compute)
+  add_test(NAME test_gabor COMMAND test_gabor)
+  add_executable(test_gabor_golden test/test_gabor_golden.cpp)
+  target_link_libraries(test_gabor_golden PRIVATE nxr_compute)
+  target_compile_definitions(test_gabor_golden PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+  add_test(NAME test_gabor_golden COMMAND test_gabor_golden)
   add_executable(test_intrinsic_forms test/test_intrinsic_forms.cpp)
   target_link_libraries(test_intrinsic_forms PRIVATE nxr_compute)
   add_test(NAME test_intrinsic_forms COMMAND test_intrinsic_forms)
+  add_executable(test_mode_spectrum test/test_mode_spectrum.cpp)
+  target_link_libraries(test_mode_spectrum PRIVATE nxr_compute)
+  add_test(NAME test_mode_spectrum COMMAND test_mode_spectrum)
+  add_executable(test_spectral_flow test/test_spectral_flow.cpp)
+  target_link_libraries(test_spectral_flow PRIVATE nxr_compute)
+  add_test(NAME test_spectral_flow COMMAND test_spectral_flow)
+  add_executable(test_kernel_gains test/test_kernel_gains.cpp)   # kernelGains: the one evaluator of a kernel set; the flow's old gains bit for bit, the banks' own shapes
+  target_link_libraries(test_kernel_gains PRIVATE nxr_compute)
+  add_test(NAME test_kernel_gains COMMAND test_kernel_gains)
+  add_executable(test_flow_readout test/test_flow_readout.cpp)   # the one flow readout, time cells and split (sensor, source, tiles); synthetic
+  target_link_libraries(test_flow_readout PRIVATE nxr_compute)
+  add_test(NAME test_flow_readout COMMAND test_flow_readout)
+  add_executable(test_source_flow test/test_source_flow.cpp)
+  target_link_libraries(test_source_flow PRIVATE nxr_compute)
+  add_test(NAME test_source_flow COMMAND test_source_flow)
+  add_executable(test_aperiodic test/test_aperiodic.cpp)
+  target_link_libraries(test_aperiodic PRIVATE nxr_compute)
+  target_compile_definitions(test_aperiodic PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+  add_test(NAME test_aperiodic COMMAND test_aperiodic)
+  add_executable(test_tile_flow test/test_tile_flow.cpp)   # the tiles' cross-spectrum and time cells: a planted directed lag
+  target_link_libraries(test_tile_flow PRIVATE nxr_compute)
+  add_test(NAME test_tile_flow COMMAND test_tile_flow)
+  add_executable(test_bispectrum test/test_bispectrum.cpp)
+  target_link_libraries(test_bispectrum PRIVATE nxr_compute)
+  add_test(NAME test_bispectrum COMMAND test_bispectrum)
   add_executable(test_patterns test/test_patterns.cpp)
   target_link_libraries(test_patterns PRIVATE nxr_compute)
   add_test(NAME test_patterns COMMAND test_patterns)
@@ -104,10 +146,6 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_psd_linear_map test/test_psd_linear_map.cpp)
   target_link_libraries(test_psd_linear_map PRIVATE nxr_compute)
   add_test(NAME test_psd_linear_map COMMAND test_psd_linear_map)
-  add_executable(test_wt test/test_wt.cpp)
-  target_link_libraries(test_wt PRIVATE nxr_compute)
-  add_test(NAME test_wt COMMAND test_wt)
-  set_tests_properties(test_wt PROPERTIES LABELS slow)   # minutes long: CI runs it on main and nightly, not on every pull request
   add_executable(test_analytic test/test_analytic.cpp)
   target_link_libraries(test_analytic PRIVATE nxr_compute)
   add_test(NAME test_analytic COMMAND test_analytic)
@@ -173,6 +211,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   target_link_libraries(test_filter PRIVATE nxr_compute)
   target_compile_definitions(test_filter PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
   add_test(NAME test_filter COMMAND test_filter)
+  add_executable(test_decimation test/test_decimation.cpp)   # decimate: chunk-size independence with the halo, zero phase, no alias
+  target_link_libraries(test_decimation PRIVATE nxr_compute)
+  add_test(NAME test_decimation COMMAND test_decimation)
   foreach(t test_crossspectrum_bins test_tensor test_wave)   # moved from meeg: they read compute's functions (and meeg's source power)
     add_executable(${t} test/${t}.cpp)
     target_link_libraries(${t} PRIVATE nxr_compute nxr_meeg)

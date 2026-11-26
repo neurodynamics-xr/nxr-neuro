@@ -87,6 +87,8 @@ class Bound {
   std::optional<nxr::io::Row> eigenvalue_line() const;
   /** the glue map of a manifold that is a derived glued surface (made by `glue`): glued vertex → original vertex (-1: the bridge); nothing for any other manifold. Results on it are restricted back to the original */
   std::optional<GlueMap> glue_of(const std::string& manifold_id) const;
+  /** a labelling (a set per element: an atlas, a hemisphere labelling) as stored: each element's label and the dictionary's entries */
+  StoredLabelling labelling(const std::string& selection_id) const;
   // ── the subject's stored constants (a run) ──
   std::optional<nxr::io::Row> manifold_named(const std::string& name) const;    // the run's subject's manifold by name
   SurfaceInput surface(const std::optional<std::string>& name = std::nullopt, bool as_stored = false) const;
@@ -95,7 +97,8 @@ class Bound {
   std::string subject_kind() const;                                              // the run's subject's kind: subject, template or group
   std::string coordinate_unit(const std::string& manifold_id) const;             // the length unit of a manifold's coordinate system ("m", "mm"; empty when it records none)
   std::string coordinate_system_key(const std::string& manifold_id) const;        // the NAME of a manifold's coordinate system ("scs"; empty when it records none): a surface made from it lies in the same one
-  std::vector<std::uint8_t> medial_wall(const SurfaceInput& surface) const;      // a surface's medial wall [nV] (1 on it) from its stored Desikan-Killiany atlas; refused by name without one
+  std::vector<std::uint8_t> medial_wall(const SurfaceInput& surface) const;
+  nxr::io::Json medial_wall_record(const SurfaceInput& surface) const;          // the medial wall's selection on it (input.h medial_wall_record): {labelling, member, id, entry, code}      // a surface's medial wall [nV] (1 on it) from its stored Desikan-Killiany atlas; refused by name without one
   GroupTemplate group_template(const std::string& surface_name) const;           // the default subject's group ladder, sphere and surface, with this subject's registered sphere (group.h)
   internal::GluedDomain glued_domain(const SurfaceInput& surface) const;
   StoredCrossSpectrum cross_spectrum(const std::string& name) const;

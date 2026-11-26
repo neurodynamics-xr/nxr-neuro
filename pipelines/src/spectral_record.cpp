@@ -6,7 +6,7 @@ namespace nxr::pipelines {
 using nxr::io::Json;
 
 Json welch_scaling_record(const nxr::signal::spectral::WelchOptions& wo, double band_width_hz, const std::string& power_unit, int degree) {
-  if (wo.scaling == nxr::signal::spectral::Scaling::Chain) return Json();
+  if (wo.scaling == nxr::signal::spectral::Scaling::Chain || wo.scaling == nxr::signal::spectral::Scaling::Brainstorm2018) return Json();   // no conversion is defined for these
   return Json{{"stored", wo.scaling == nxr::signal::spectral::Scaling::Density ? "density" : "spectrum"}, {"degree", degree}, {"band_width_hz", band_width_hz},
               {"bin_enbw_hz", nxr::signal::spectral::enbwPerBin(wo)}, {"power_unit", power_unit},
               {"note", "converted at read (nxr::spectral): density = stored (density) or stored / bin_enbw_hz (spectrum); band power = density x band_width_hz (the broadband reading)"}};

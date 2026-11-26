@@ -55,4 +55,9 @@ class CovarianceEstimate {
 /** The covariance [channels x channels] of x [channels x samples] as ONE block (MATLAB / NumPy `cov`, observations in the columns): the estimate fed the whole matrix. */
 Eigen::MatrixXd cov(const Eigen::MatrixXd& x, const CovarianceOptions& opt = {});
 
+/** PEARSON'S CORRELATION of the rows from their covariance: R_ij = C_ij / sqrt(C_ii C_jj) (MATLAB corrcoef, Brainstorm's bst_corrn, numpy corrcoef; the divisor cancels). A function of the
+ *  stored covariance: the correlation over a span is the covariance statistic over that time partition, then this ratio. std::invalid_argument for a matrix that is not square, or a row
+ *  with no variance (C_ii <= 0, named). */
+Eigen::MatrixXd correlation(const Eigen::MatrixXd& covariance);
+
 }  // namespace nxr::stats

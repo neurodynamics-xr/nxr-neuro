@@ -11,7 +11,7 @@
 //
 // INDEX, LABEL, LOOKUP are three things. A member's INDEX is its member number (its position, 0 .. count - 1: its identity); its LABEL is its `code`; the LOOKUP
 // (the set's dictionary) says what a label means (a name, a colour; label 0 is `unassigned` where a dictionary has it, as the Studio's do). Five bursts are
-// five members with one label; two members may share a label. A kernel is not a selection: it is the weights a measurement uses.
+// five members with one label; two members may share a label. A member with a `profile` is a KERNEL (an anchor + weights: nxr::signal::kernelGains).
 //
 // TWO FAMILIES OF SETS (spec section 0):
 //   GRID        a PARTITION OF THE MANIFOLD, defined before any data: a chunk grid, a frame tiling, a constant-Q ladder's levels, the dyadic tiles of a surface, the
@@ -42,6 +42,7 @@
 // band setting another factor's level) and grid addresses in grid.h.
 #pragma once
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
@@ -87,6 +88,17 @@ struct Grid {
   double origin = 0, rate = 0;              // time: the first sample's time (seconds) and the sample rate (Hz)
 };
 
+/** A KERNEL's PROFILE (its gains: nxr::signal::kernelGains, nxr/signal/kernel_gains.h): a member's weights round its anchor. A kernel is an anchor (a point, a span or a distance: where) + a profile (what the weight does
+ *  across it) + a chart (the coordinates the profile's widths are in); a member without a profile is a plain member (weight 1 on the elements it holds).
+ *  Every part is STATED: no default family, chart, gain or parameter (a missing one is refused with its name). The weight is the AMPLITUDE g (peak `gain`): a quadratic
+ *  field takes g^2. The families and their gains: nxr::signal::kernelGains (nxr/signal/kernel_gains.h). */
+struct Profile {
+  std::string family;                          // gaussian | box | cos2_partition | morlet_band | meyer_band | mexican_hat (nxr::signal::kernelGains)
+  std::map<std::string, double> params;        // the family's parameters (gaussian, box: fwhm or fwhm_per_centre, in the chart's units; meyer_band: half_width); the centre is the member's anchor
+  std::string chart;                           // `linear` | `log2` | `log10`: the coordinates the widths are in (the anchor is in the line's reference coordinates)
+  double gain = 1;                             // the peak amplitude g at the profile's centre
+};
+
 struct Selection {
   Type type = Type::set;
   Family family = Family::irregular;       // a set: GRID or IRREGULAR (set by the makers: tiled, elements_grid, dyadic_grid, product of grids, a ladder; the rest irregular)
@@ -97,6 +109,7 @@ struct Selection {
   double radius = 0;                        // distance (an irregular member on a surface: its extent about the centre)
 
   std::vector<Extent> extents;              // span
+  std::optional<Profile> profile;           // point, span, distance: a KERNEL member (anchor = the member's own description); io stores it as type `kernel`
 
   std::vector<std::int32_t> indices;        // indices (sorted, each once)
 

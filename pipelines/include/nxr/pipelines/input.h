@@ -9,6 +9,9 @@
 
 #include "nxr/io.h"
 #include "nxr/io/subject_package.h"
+#include "nxr/io/task/task.h"
+
+namespace nxr::geometry { class IntrinsicSurface; }
 
 namespace nxr::pipelines {
 
@@ -56,8 +59,41 @@ struct HodgePackageData {
   std::string input_surface_id, stem, axis_id, id;
 };
 HodgePackageData hodge_package_data(nxr::io::SubjectWriter& sub, const std::string& eigenvectors_name, const std::optional<std::int64_t>& modes);
+/** the package's FULL forms beyond its eigenvectors: the 2-form parts χ/√2 of its first `K` modes on the intrinsic faces (`<stem>_forms2`, [nF x K], float32 as stored, row-major) and the
+ *  options its intrinsic complex was built with (the solve's provenance: mollify, flip_eps, star1_floor; null floor: none named), so a node rebuilds the same complex from the glued surface */
+struct HodgePackageForms {
+  std::vector<float> forms2;
+  std::vector<float> forms1;                 // the 1-form parts [nE x K] of `<stem>_forms1` (float32 as stored, row-major); empty when the package has none (a reading makes them)
+  std::int64_t nF = 0, K = 0, nE = 0;
+  double mollify = 1e-6, flip_eps = 1e-6, star1_floor = 0.0;
+};
+HodgePackageForms hodge_package_forms(nxr::io::SubjectWriter& sub, const HodgePackageData& package);
+/** A STORED HODGE-DIRAC EIGENSOLVE in the four classes (eigen.h): the eigenvectors operator (eigenvalue line -> intrinsic triangulation, cell key '0+1+2', rows stacked 0-forms [0, V) ·
+ *  1-forms [V, V+E) · 2-forms [V+E, V+E+F)), the eigenvalue line (mu, ascending), the kinds labelling read per mode (0 exact, 2 coexact), the triangulation and the surface it is made from, and the
+ *  options the solve recorded. A solve in the earlier form (three operators, a kind field) is refused, naming `nxr-neuro migrate eigensolve`. Reads no eigenvector bytes. */
+struct StoredEigensolve {
+  std::string stem;
+  nxr::io::Row eigenvectors, line, triangulation, surface;
+  std::int64_t V = 0, E = 0, F = 0, K = 0;
+  std::vector<double> mu;
+  std::vector<std::uint8_t> kind;
+  double mollify = 1e-6, flip_eps = 1e-6, star1_floor = 0.0;
+};
+StoredEigensolve stored_eigensolve(nxr::io::SubjectWriter& sub, const std::string& stem);
+/** the eigenvectors' rows [r0, r1), every mode (row-major, float32 as stored): only those rows are read */
+std::vector<float> stored_eigensolve_rows(nxr::io::SubjectWriter& sub, const StoredEigensolve& e, std::int64_t r0, std::int64_t r1);
+/** THE VERTEX POTENTIALS of the first K modes (all: K < 0) [V x K] (row-major, float32), what a vertex reader draws: an exact mode's 0-form part (the eigenvectors' vertex rows) and a coexact
+ *  mode's STREAM FUNCTION, derived from its 2-form part (the face rows) by compute's streamFunctionAtVertices on the intrinsic triangulation (its faces and *2 = 1/area), the reference solve's
+ *  face-to-vertex operator; the eigenvectors' vertex rows of a coexact mode are its 0-form part, 0. `triangulation`: the construction of `solved` with the solve's options, when the caller holds one
+ *  (else made here); its faces must be the stored triangulation's. */
+std::vector<float> stored_vertex_potentials(nxr::io::SubjectWriter& sub, const StoredEigensolve& e, const SurfaceInput& solved, std::int64_t K = -1, nxr::geometry::IntrinsicSurface* triangulation = nullptr);
 // The type of each channel of a channels manifold (its 'type' labelling); empty when there is none.
+/** the positions of a points manifold with no channel types (the landmarks of a template: nasion, LPA, RPA): [n x 3] and each point's name from its `<manifold>_names` labelling (empty when it has none) */
+struct NamedPoints { std::string id, name; std::vector<double> positions; std::vector<std::string> names; };
+NamedPoints named_points(nxr::io::SubjectWriter& sub, const std::string& points_id);
 std::vector<std::string> channel_types_of(nxr::io::SubjectWriter& sub, const std::string& channels_id);
+// The name of each channel of a channels manifold (its `<manifold>_names` labelling); empty when there is none.
+std::vector<std::string> channel_names_of(nxr::io::SubjectWriter& sub, const std::string& channels_id);
 
 // How many connected pieces the faces make (a cortex: its two hemispheres; a mesh or a sphere: one).
 int connected_pieces(const std::vector<std::int32_t>& faces, std::int64_t n_vertices);
@@ -69,15 +105,39 @@ std::string hodge_package_stem(const SurfaceInput& surface);
 // `unknown`), as nxr's `nxr.pipelines.hodge.medial_wall` and the Studio's `medialWall` read it. A surface with no such atlas is refused by name (the
 // hemispheres are glued by anatomy only).
 std::vector<std::uint8_t> medial_wall(nxr::io::SubjectWriter& sub, const SurfaceInput& surface);
+// The same for a surface named by its id, name and vertex count (its positions not read).
+std::vector<std::uint8_t> medial_wall_of(nxr::io::SubjectWriter& sub, const std::string& surface_id, const std::string& surface_name, std::int64_t n_vertices);
 
-// THE GLUED CORTEX. The imported two-hemisphere surface is the manifold of record; the glued surface is a DERIVED manifold made by a `glue` definition, which stores its MAP (glued vertex → original
-// vertex, -1 on the bridge) in the manifold's producer record under `glue: {original: <manifold id>}`; the map is the field `<glued name>_map` of the glued surface. Analysis runs on the glued surface; every result is RESTRICTED BACK to the original for
+// THE GLUED CORTEX. The imported two-hemisphere surface is the manifold of record; the glued surface is a DERIVED manifold made by a `glue` definition. What the glue stores is SELECTIONS, as an atlas is
+// stored: on the glued surface ONE LABELLING `<glued name>_hemispheres` (the caller's hemisphere labelling of the original carried over, its entries kept, one more: `bridge`). The glue removes exactly
+// the original's medial wall, so the glued vertices are the original's vertices off the wall, in ascending order, then the bridge's: the correspondence is derived from the labelling and the original's
+// wall (no index field, no kept-vertex selection; a glue stored with one is of an earlier form, converted by `migrate glue`). The manifold's producer record names the original (`glue: {original, form: labelling}`). Analysis runs on the glued surface; every result is RESTRICTED BACK to the original for
 // storage, export and visualisation: exact (the glued → original transfer), the bridge dropped like the medial wall.
 struct GlueMap {
   std::string glued_id, original_id;
-  std::vector<std::int32_t> original_of;   // [n_glued]: the original vertex, or -1 (the bridge)
+  std::vector<std::int32_t> original_of;   // [n_glued]: the original vertex, or -1 (the bridge): derived from the labelling and the original's medial wall
   std::int64_t n_glued() const { return static_cast<std::int64_t>(original_of.size()); }
 };
+/** a LABELLING as stored (a set per element: an atlas, the glued cortex's hemispheres): each element's label (-1: none) and the dictionary's entries (code, name, colour) */
+struct StoredLabelling {
+  std::string id, name;
+  std::vector<std::int64_t> labels;
+  std::vector<nxr::io::task::DictionaryLevel> entries;
+  std::optional<std::int64_t> code_of(const std::string& entry) const { for (const auto& e : entries) if (e.name == entry) return e.code; return std::nullopt; }
+};
+StoredLabelling stored_labelling(nxr::io::SubjectWriter& sub, const std::string& selection_id);
+/** why a HEMISPHERE LABELLING of a two-hemisphere surface disagrees with it (empty: it agrees): the entries `left` and `right` must exist, each be ONE connected piece of the surface (joined by the faces
+ *  all of whose vertices carry it), every vertex outside the labelling's own `unassigned` be in one of them, and no face have vertices in both */
+std::string hemispheres_disagree(const std::vector<std::int32_t>& faces, const StoredLabelling& labelling, const std::string& left, const std::string& right);
+/** THE MEDIAL WALL'S SELECTION on a surface, as the glue reads it: {labelling (`<surface>_atlases`), member (`Desikan-Killiany`), id (the member's), entry (`unassigned`, or `unknown`), code}. */
+nxr::io::Json medial_wall_record(nxr::io::SubjectWriter& sub, const std::string& surface_id, const std::string& surface_name);
+/** THE GLUE'S RELATION as a glued cortex's description records it (its producer's `glue`): the original manifold (id and name), the hemispheres labelling of the glued cortex (by name) and its
+ *  `bridge` entry (its name; a definition's step gives {output: PORT}, the runner stores the name of that output), the medial wall's selection on the original (`medial_wall_record`), the counts and the RULE in words: glued vertex i < n_cortex is the i-th vertex of the original outside the wall,
+ *  in ascending index; the rest is the bridge. What a reader outside nxr-neuro needs to carry a node onto the glued cortex, which `read operator|field --onto` does. */
+nxr::io::Json glue_relation(const std::string& original_id, const std::string& original_name, const nxr::io::Json& hemispheres, const nxr::io::Json& wall, std::int64_t n_cortex, std::int64_t n_glued);
+/** a node's rows carried onto the glued cortex: `rows` [k x n_original] values of `bytes_per_row` bytes each (vertex-major: k consecutive rows a vertex) -> [k x n_glued], each glued vertex the rows of
+ *  its original vertex, a bridge vertex's rows zero (all-zero bytes: 0 in every number type). A selection of rows, never an interpolation. */
+std::vector<std::uint8_t> carried_onto_glued(const std::vector<std::uint8_t>& rows, std::int64_t n_rows, const GlueMap& map, std::int64_t n_original);
 // The glue map of a manifold when it is a derived glued surface (made by `glue`), else nothing.
 std::optional<GlueMap> glue_map_of(nxr::io::SubjectWriter& sub, const std::string& manifold_id);
 // Vertex-major values [n_glued x comps] restricted to the original [n_original x comps]: each original vertex takes its glued counterpart's values; an original vertex with no counterpart (the medial wall,

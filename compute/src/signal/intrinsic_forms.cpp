@@ -1,5 +1,6 @@
 #include "nxr/signal/intrinsic_forms.h"
 #include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
 #include "geometrycentral/surface/intrinsic_geometry_interface.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -7,7 +8,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
+#include <string>
 
 namespace nxr::signal {
 
@@ -17,7 +20,7 @@ using Eigen::VectorXd;
 namespace {
 Eigen::Vector3d row3(const MatrixXd& X, int v) { return X.row(v).transpose(); }
 // the vertex's tangent basis: e1 the reference neighbour's direction projected on the tangent plane, e2 = n × e1
-void basisAt(const Complex& c, int v, Eigen::Vector3d& e1, Eigen::Vector3d& e2) {     // an orthonormal basis of the vertex's tangent plane
+void basisAt(const IntrinsicComplex& c, int v, Eigen::Vector3d& e1, Eigen::Vector3d& e2) {     // an orthonormal basis of the vertex's tangent plane
     const Eigen::Vector3d n = row3(c.normals, v);
     const Eigen::Vector3d a = std::abs(n.x()) < 0.9 ? Eigen::Vector3d(1, 0, 0) : Eigen::Vector3d(0, 1, 0);
     e1 = (a - a.dot(n) * n).normalized();
@@ -25,10 +28,10 @@ void basisAt(const Complex& c, int v, Eigen::Vector3d& e1, Eigen::Vector3d& e2) 
 }
 }  // namespace
 
-Complex complexOf(const nxr::geometry::SurfaceArrays& arrays) {
+IntrinsicComplex intrinsicComplex(const nxr::geometry::SurfaceArrays& arrays, double star1Floor) {
     nxr::geometry::IntrinsicSurface surface(arrays);
     const auto K = surface.complex();
-    Complex c;
+    IntrinsicComplex c;
     c.nV = surface.nV(); c.nE = static_cast<int>(K.length.size()); c.nF = static_cast<int>(K.faces.size() / 3);
     c.edges = K.edges;
     // d0, d1, ⋆1 (the cotangent weights) and ⋆2 (1 / area) are the operators module's DEC of the triangulation; ⋆0 its recorded mass
@@ -37,19 +40,27 @@ Complex complexOf(const nxr::geometry::SurfaceArrays& arrays) {
     c.length = Eigen::Map<const VectorXd>(K.length.data(), c.nE);
     c.star0 = nxr::operators::vertexMass(arrays, nxr::operators::MassMatrixVariant::MixedVoronoi).diagonal();
     c.star1 = dec.hodge1.diagonal();
+    nxr::operators::hodgedirac::raiseStar1(c.star1, star1Floor);
     c.star2 = dec.hodge2.diagonal();
-    c.angleTail.resize(c.nE); c.angleTip.resize(c.nE);
+    c.angleTail = VectorXd::Constant(c.nE, std::numeric_limits<double>::quiet_NaN());
+    c.angleTip = c.angleTail;
     for (int h = 0; h < 3 * c.nF; ++h) {
         const int se = K.faceEdges[static_cast<std::size_t>(h)], e = std::abs(se) - 1;
         (se > 0 ? c.angleTail : c.angleTip)(e) = K.angle[static_cast<std::size_t>(h)];
     }
     c.coneAngle = Eigen::Map<const VectorXd>(K.angleSum.data(), c.nV);
+    // a boundary edge has one face: its halfedge runs along the edge (tail -> tip), and the end at its tip has no corner. Its direction there is the
+    // last of the tip's fan, at the tip's angle sum (a boundary vertex's angles run from its first boundary edge, 0, to its other one, the angle sum)
+    for (int e = 0; e < c.nE; ++e) {
+        if (std::isnan(c.angleTip(e))) c.angleTip(e) = c.coneAngle(c.edges[static_cast<std::size_t>(2 * e + 1)]);
+        if (std::isnan(c.angleTail(e))) c.angleTail(e) = c.coneAngle(c.edges[static_cast<std::size_t>(2 * e)]);
+    }
     c.reference.assign(K.reference.begin(), K.reference.end());
     attachEmbedding(c, surface);
     return c;
 }
 
-void attachEmbedding(Complex& c, const double* positions, const std::int32_t* inputFaces, int nFin) {
+void attachEmbedding(IntrinsicComplex& c, const double* positions, const std::int32_t* inputFaces, int nFin) {
     // the input as it is (the same vertices; its own signposts: the same reference halfedges, the same cone angles as the intrinsic mesh's)
     nxr::geometry::IntrinsicOptions o;
     o.intrinsic = false;
@@ -57,7 +68,7 @@ void attachEmbedding(Complex& c, const double* positions, const std::int32_t* in
     attachEmbedding(c, input);
 }
 
-void attachEmbedding(Complex& c, nxr::geometry::IntrinsicSurface& surface) {
+void attachEmbedding(IntrinsicComplex& c, nxr::geometry::IntrinsicSurface& surface) {
     namespace gcs = geometrycentral::surface;
     auto& E = surface.embedded();
     E.requireVertexNormals();
@@ -82,7 +93,7 @@ void attachEmbedding(Complex& c, nxr::geometry::IntrinsicSurface& surface) {
 }
 
 
-Eigen::Vector3d tangentAt(const Complex& c, int e, bool atTip) {
+Eigen::Vector3d tangentAt(const IntrinsicComplex& c, int e, bool atTip) {
     const int v = c.edges[static_cast<std::size_t>(2 * e + (atTip ? 1 : 0))];
     const auto& fan = c.fans[static_cast<std::size_t>(v)];
     if (fan.empty()) throw std::invalid_argument("intrinsic: no embedding of the signposts (attachEmbedding)");
@@ -94,6 +105,9 @@ Eigen::Vector3d tangentAt(const Complex& c, int e, bool atTip) {
     const auto& hi = i + 1 < fan.size() ? fan[i + 1] : fan[0];
     double span = hi.first - lo.first, off = theta - lo.first;
     if (i + 1 >= fan.size()) span += cone;
+    // an angle within rounding of an input edge's IS that edge (exact): at a boundary vertex the last input edge sits at the angle sum, and an intrinsic
+    // edge there (the boundary edge, at the cone angle) must not wrap round through the exterior, where the boundary vertex's fan has no gap to cross
+    if (std::abs(off) <= 1e-9) return atTip ? Eigen::Vector3d(-lo.second) : lo.second;
     const double s = span > 0 ? off / span : 0.0;
     // rotate lo toward hi in the tangent plane by s of the angle between them (the actual angle, not the signpost's)
     const Eigen::Vector3d n = row3(c.normals, v);
@@ -104,7 +118,7 @@ Eigen::Vector3d tangentAt(const Complex& c, int e, bool atTip) {
     return atTip ? Eigen::Vector3d(-t) : t;           // the tip's signpost is the twin's (pointing tip → tail): reversed to point along the edge
 }
 
-MatrixXd flat(const Complex& c, const MatrixXd& J) {
+MatrixXd flat(const IntrinsicComplex& c, const MatrixXd& J) {
     if (J.rows() != 3 * c.nV) throw std::invalid_argument("intrinsic::flat: J has " + std::to_string(J.rows()) + " rows, 3 x " + std::to_string(c.nV) + " expected");
     MatrixXd w(c.nE, J.cols());
     for (int e = 0; e < c.nE; ++e) {
@@ -115,30 +129,40 @@ MatrixXd flat(const Complex& c, const MatrixXd& J) {
     return w;
 }
 
-MatrixXd sharp(const Complex& c, const MatrixXd& w) {
-    if (w.rows() != c.nE) throw std::invalid_argument("intrinsic::sharp: a 1-form of " + std::to_string(c.nE) + " edges expected");
-    // per vertex: Σ_e (t_e t_eᵀ) v = Σ_e t_e (ω_e / L_e), on the tangent plane (2 x 2 in the vertex's basis)
-    std::vector<Eigen::Matrix2d> A(static_cast<std::size_t>(c.nV), Eigen::Matrix2d::Zero());
-    std::vector<MatrixXd> rhs(static_cast<std::size_t>(c.nV), MatrixXd::Zero(2, w.cols()));
-    std::vector<Eigen::Vector3d> E1(static_cast<std::size_t>(c.nV)), E2(static_cast<std::size_t>(c.nV));
-    for (int v = 0; v < c.nV; ++v) basisAt(c, v, E1[static_cast<std::size_t>(v)], E2[static_cast<std::size_t>(v)]);
-    for (int e = 0; e < c.nE; ++e)
-        for (int end = 0; end < 2; ++end) {
-            const int v = c.edges[static_cast<std::size_t>(2 * e + end)];
-            const Eigen::Vector3d t = tangentAt(c, e, end == 1);
-            const Eigen::Vector2d t2(t.dot(E1[static_cast<std::size_t>(v)]), t.dot(E2[static_cast<std::size_t>(v)]));
-            A[static_cast<std::size_t>(v)] += t2 * t2.transpose();
-            rhs[static_cast<std::size_t>(v)] += t2 * (w.row(e) / c.length(e));
-        }
-    MatrixXd out(3 * c.nV, w.cols());
-    for (int v = 0; v < c.nV; ++v) {
-        const MatrixXd x = A[static_cast<std::size_t>(v)].ldlt().solve(rhs[static_cast<std::size_t>(v)]);
-        out.middleRows(3 * v, 3) = E1[static_cast<std::size_t>(v)] * x.row(0) + E2[static_cast<std::size_t>(v)] * x.row(1);
+Eigen::SparseMatrix<double> sharpOperator(const IntrinsicComplex& c) {
+  // sharp at vertex v: x_v = A_v⁻¹ Σ_e t_e (w_e / L_e) in the tangent basis, A_v = Σ_e t_e t_eᵀ, then E1 x0 + E2 x1: linear in each w_e, so its weights are a sparse [3V x E]
+  std::vector<Eigen::Matrix2d> normal(static_cast<std::size_t>(c.nV), Eigen::Matrix2d::Zero());
+  std::vector<Eigen::Vector3d> first(static_cast<std::size_t>(c.nV)), second(static_cast<std::size_t>(c.nV));
+  for (int v = 0; v < c.nV; ++v) basisAt(c, v, first[static_cast<std::size_t>(v)], second[static_cast<std::size_t>(v)]);
+  std::vector<Eigen::Vector2d> direction(static_cast<std::size_t>(2 * c.nE));
+  for (int e = 0; e < c.nE; ++e)
+    for (int end = 0; end < 2; ++end) {
+      const std::size_t v = static_cast<std::size_t>(c.edges[static_cast<std::size_t>(2 * e + end)]);
+      const Eigen::Vector3d t = tangentAt(c, e, end == 1);
+      const Eigen::Vector2d inPlane(t.dot(first[v]), t.dot(second[v]));
+      direction[static_cast<std::size_t>(2 * e + end)] = inPlane;
+      normal[v] += inPlane * inPlane.transpose();
     }
-    return out;
+  std::vector<Eigen::Triplet<double>> entries;
+  entries.reserve(static_cast<std::size_t>(6 * c.nE * 2));
+  for (int e = 0; e < c.nE; ++e)
+    for (int end = 0; end < 2; ++end) {
+      const std::size_t v = static_cast<std::size_t>(c.edges[static_cast<std::size_t>(2 * e + end)]);
+      const Eigen::Vector2d x = normal[v].ldlt().solve(direction[static_cast<std::size_t>(2 * e + end)]) / c.length(e);
+      const Eigen::Vector3d weight = first[v] * x(0) + second[v] * x(1);
+      for (int k = 0; k < 3; ++k) entries.emplace_back(static_cast<int>(3 * v) + k, e, weight(k));
+    }
+  Eigen::SparseMatrix<double> out(3 * c.nV, c.nE);
+  out.setFromTriplets(entries.begin(), entries.end());
+  return out;
 }
 
-MatrixXd area2form(const Complex& c, const MatrixXd& rho) {
+MatrixXd sharp(const IntrinsicComplex& c, const MatrixXd& w) {
+    if (w.rows() != c.nE) throw std::invalid_argument("intrinsic::sharp: a 1-form of " + std::to_string(c.nE) + " edges expected");
+    return sharpOperator(c) * w;
+}
+
+MatrixXd area2form(const IntrinsicComplex& c, const MatrixXd& rho) {
     // a face's vertices: from d1 (its edges) and d0 (their ends); a face's area: 1 / ⋆2
     MatrixXd s = MatrixXd::Zero(c.nF, rho.cols());
     const Eigen::SparseMatrix<double, Eigen::RowMajor> D1(c.d1);
@@ -152,7 +176,7 @@ MatrixXd area2form(const Complex& c, const MatrixXd& rho) {
     return s;
 }
 
-MatrixXd vertexDensity(const Complex& c, const MatrixXd& sigma) {
+MatrixXd vertexDensity(const IntrinsicComplex& c, const MatrixXd& sigma) {
     MatrixXd out = MatrixXd::Zero(c.nV, sigma.cols());
     VectorXd wsum = VectorXd::Zero(c.nV);
     const Eigen::SparseMatrix<double, Eigen::RowMajor> D1(c.d1);
@@ -167,12 +191,23 @@ MatrixXd vertexDensity(const Complex& c, const MatrixXd& sigma) {
     return out;
 }
 
-VectorXd vertexOutflow(const Complex& c, const VectorXd& u) {
+VectorXd vertexOutflow(const IntrinsicComplex& c, const VectorXd& u) {
   if (u.size() != c.nE) throw std::invalid_argument("vertexOutflow: u has one value an intrinsic edge");
   return -(c.d0.transpose() * (c.star1.asDiagonal() * u));                    // the outflow of each vertex's region (the divergence times mass, negated)
 }
 
-VectorXd vertexCirculation(const Complex& c, const VectorXd& w) {
+MatrixXd vertexEnergy(const IntrinsicComplex& c, const MatrixXd& w) {
+  if (w.rows() != c.nE) throw std::invalid_argument("vertexEnergy: w has one row an intrinsic edge");
+  MatrixXd out = MatrixXd::Zero(c.nV, w.cols());
+  for (int e = 0; e < c.nE; ++e) {
+    const Eigen::RowVectorXd half = 0.5 * c.star1(e) * w.row(e).cwiseAbs2();   // ⋆1_e w_e², half to each end
+    out.row(c.edges[2 * static_cast<std::size_t>(e)]) += half;
+    out.row(c.edges[2 * static_cast<std::size_t>(e) + 1]) += half;
+  }
+  return out;
+}
+
+VectorXd vertexCirculation(const IntrinsicComplex& c, const VectorXd& w) {
   if (w.size() != c.nE) throw std::invalid_argument("vertexCirculation: w has one value an intrinsic edge");
   const VectorXd curl = c.d1 * w;                                            // each face's circulation
   VectorXd out = VectorXd::Zero(c.nV);
@@ -186,45 +221,141 @@ VectorXd vertexCirculation(const Complex& c, const VectorXd& w) {
   return out;
 }
 
-MatrixXd read1(const Complex& c, const Modes& m, const MatrixXd& w) {
+namespace {
+void checkModes(const IntrinsicComplex& c, const Modes& m) {
+    if (m.P.rows() != c.nV || m.X2.rows() != c.nF || m.P.cols() != m.mu.size() || m.X2.cols() != m.mu.size() || static_cast<Eigen::Index>(m.kind.size()) != m.mu.size())
+        throw std::invalid_argument("the modes do not match the intrinsic complex (" + std::to_string(c.nV) + " vertices, " + std::to_string(c.nF) +
+                                    " faces): the modes and the complex must come from the same triangulation");
+    if (m.X1.cols() > 0 && (m.X1.rows() != c.nE || m.X1.cols() != m.mu.size()))
+        throw std::invalid_argument("the modes' stored 1-form parts are not [" + std::to_string(c.nE) + " edges x " + std::to_string(m.mu.size()) + " modes]: the modes and the complex must come from the same triangulation");
+}
+}  // namespace
+
+namespace {
+constexpr Eigen::Index kBlock = 256;   // modes at a time when a [nE x K] matrix is read or made: the temporaries stay [nE x kBlock]
+}
+
+MatrixXd oneFormFromParts(const Eigen::SparseMatrix<double>& d0, const Eigen::SparseMatrix<double>& d1, const VectorXd& star1, const VectorXd& star2, const MatrixXd& zeroFormPart, const MatrixXd& twoFormPart) {
+    return d0 * zeroFormPart + star1.cwiseInverse().asDiagonal() * (d1.transpose() * (star2.asDiagonal() * twoFormPart));
+}
+
+MatrixXd oneFormParts(const IntrinsicComplex& c, const Modes& m) {
+    checkModes(c, m);
+    const Eigen::Index K = m.mu.size();
+    MatrixXd out(c.nE, K);
+    for (Eigen::Index k0 = 0; k0 < K; k0 += kBlock) {
+        const Eigen::Index n = std::min(kBlock, K - k0);
+        MatrixXd a = MatrixXd::Zero(c.nV, n), b = MatrixXd::Zero(c.nF, n);
+        for (Eigen::Index j = 0; j < n; ++j) {
+            const Eigen::Index k = k0 + j;
+            if (m.kind[static_cast<std::size_t>(k)] == 0) a.col(j) = m.P.col(k) / m.mu(k); else b.col(j) = m.X2.col(k) / m.mu(k);
+        }
+        out.middleCols(k0, n) = oneFormFromParts(c.d0, c.d1, c.star1, c.star2, a, b);
+    }
+    return out;
+}
+
+MatrixXd projectOneForm(const IntrinsicComplex& c, const Modes& m, const MatrixXd& w) {
+    checkModes(c, m); if (w.rows() != c.nE) throw std::invalid_argument("projectOneForm: the 1-form has one row an intrinsic edge (the modes and the complex must come from the same triangulation)");
     const MatrixXd s1w = c.star1.asDiagonal() * w;                       // ⋆1 ω
+    MatrixXd out(m.mu.size(), w.cols());
+    if (m.hasOneFormParts()) {                                           // the stored parts: c_k = 2 ⟨φ_k, ω⟩⋆1
+        for (Eigen::Index k0 = 0; k0 < m.mu.size(); k0 += kBlock) {
+            const Eigen::Index n = std::min(kBlock, m.mu.size() - k0);
+            out.middleRows(k0, n) = 2.0 * (m.X1.middleCols(k0, n).cast<double>().transpose() * s1w);
+        }
+        return out;
+    }
     const MatrixXd ex = m.P.transpose() * (c.d0.transpose() * s1w);       // ⟨dP_k, ω⟩⋆1
     const MatrixXd co = m.X2.transpose() * (c.star2.asDiagonal() * (c.d1 * w));   // ⟨⋆1⁻¹ d1ᵀ ⋆2 X2_k, ω⟩⋆1 = X2_kᵀ ⋆2 d1 ω
-    MatrixXd out(m.mu.size(), w.cols());
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) out.row(k) = 2.0 * (m.kind[static_cast<std::size_t>(k)] == 0 ? ex.row(k) : co.row(k)) / m.mu(k);
     return out;
 }
 
-MatrixXd synth1(const Complex& c, const Modes& m, const MatrixXd& coef) {
+MatrixXd synthesizeOneForm(const IntrinsicComplex& c, const Modes& m, const MatrixXd& coef) {
+    checkModes(c, m); if (coef.rows() != m.mu.size()) throw std::invalid_argument("synthesizeOneForm: one coefficient row a mode");
+    if (m.hasOneFormParts()) {                                           // the stored parts: Σ c_k φ_k
+        MatrixXd out = MatrixXd::Zero(c.nE, coef.cols());
+        for (Eigen::Index k0 = 0; k0 < m.mu.size(); k0 += kBlock) {
+            const Eigen::Index n = std::min(kBlock, m.mu.size() - k0);
+            out += m.X1.middleCols(k0, n).cast<double>() * coef.middleRows(k0, n);
+        }
+        return out;
+    }
     MatrixXd ce = coef, cc = coef;
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) {
         const bool exact = m.kind[static_cast<std::size_t>(k)] == 0;
         ce.row(k) = exact ? MatrixXd(coef.row(k) / m.mu(k)) : MatrixXd::Zero(1, coef.cols());
         cc.row(k) = exact ? MatrixXd::Zero(1, coef.cols()) : MatrixXd(coef.row(k) / m.mu(k));
     }
-    return c.d0 * (m.P * ce) + c.star1.cwiseInverse().asDiagonal() * (c.d1.transpose() * (c.star2.asDiagonal() * (m.X2 * cc)));
+    return oneFormFromParts(c.d0, c.d1, c.star1, c.star2, m.P * ce, m.X2 * cc);
 }
 
-MatrixXd read2(const Complex& c, const Modes& m, const MatrixXd& sigma) {
+MatrixXd projectTwoForm(const IntrinsicComplex& c, const Modes& m, const MatrixXd& sigma) {
+    checkModes(c, m); if (sigma.rows() != c.nF) throw std::invalid_argument("projectTwoForm: the 2-form has one row an intrinsic face");
     MatrixXd out = 2.0 * (m.X2.transpose() * (c.star2.asDiagonal() * sigma));
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (m.kind[static_cast<std::size_t>(k)] == 0) out.row(k).setZero();
     return out;
 }
 
-MatrixXd synth2(const Complex& c, const Modes& m, const MatrixXd& coef) {
+MatrixXd synthesizeTwoForm(const IntrinsicComplex& c, const Modes& m, const MatrixXd& coef) {
+    checkModes(c, m); if (coef.rows() != m.mu.size()) throw std::invalid_argument("synthesizeTwoForm: one coefficient row a mode");
     (void)c;
     MatrixXd cc = coef;
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (m.kind[static_cast<std::size_t>(k)] == 0) cc.row(k).setZero();
     return m.X2 * cc;
 }
 
-MatrixXd potential(const Modes& m, const MatrixXd& coef) {
+MatrixXd exactPotential(const Modes& m, const MatrixXd& coef) {
+    if (coef.rows() != m.mu.size()) throw std::invalid_argument("exactPotential: one coefficient row a mode");
     MatrixXd ce = MatrixXd::Zero(coef.rows(), coef.cols());
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (m.kind[static_cast<std::size_t>(k)] == 0) ce.row(k) = coef.row(k) / m.mu(k);
     return m.P * ce;
 }
 
-Eigen::VectorXd weightedPotentialMesh(const Complex& c, const VectorXd& w, const VectorXd& omega) {
+MatrixXd coexactStream(const IntrinsicComplex& c, const Modes& m, const MatrixXd& coef) {
+    checkModes(c, m);
+    if (coef.rows() != m.mu.size()) throw std::invalid_argument("coexactStream: one coefficient row a mode");
+    MatrixXd cs = MatrixXd::Zero(coef.rows(), coef.cols());
+    for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (m.kind[static_cast<std::size_t>(k)] == 2) cs.row(k) = coef.row(k) / m.mu(k);
+    return vertexDensity(c, m.X2 * cs);
+}
+
+MatrixXd streamFunctionAtVertices(int nV, const std::vector<std::int32_t>& faces, const VectorXd& star2, const MatrixXd& twoForm) {
+    const Eigen::Index nF = static_cast<Eigen::Index>(faces.size() / 3);
+    if (nV < 0 || faces.size() % 3 != 0 || star2.size() != nF || twoForm.rows() != nF)
+        throw std::invalid_argument("streamFunctionAtVertices: faces [3 nF], star2 [nF] and the 2-form [nF x m] disagree in nF");
+    MatrixXd out = MatrixXd::Zero(nV, twoForm.cols());
+    std::vector<int> count(static_cast<std::size_t>(nV), 0);
+    for (Eigen::Index f = 0; f < nF; ++f)
+        for (int k = 0; k < 3; ++k) {
+            const std::int32_t v = faces[static_cast<std::size_t>(3 * f + k)];
+            if (v < 0 || v >= nV) throw std::invalid_argument("streamFunctionAtVertices: face " + std::to_string(f) + " names a vertex outside 0.." + std::to_string(nV - 1));
+            out.row(v) += star2(f) * twoForm.row(f);
+            ++count[static_cast<std::size_t>(v)];
+        }
+    for (int v = 0; v < nV; ++v) if (count[static_cast<std::size_t>(v)] > 0) out.row(v) /= static_cast<double>(count[static_cast<std::size_t>(v)]);
+    return out;
+}
+
+Modes modesOf(const nxr::operators::EigenResult& r, int nV, int nE, int nF) {
+    const Eigen::Index K = r.eigenvalues.size();
+    if (r.eigenvectors.rows() != static_cast<Eigen::Index>(nV) + nE + nF || r.eigenvectors.cols() != K || r.kind.size() != K)
+        throw std::invalid_argument("modesOf: the result's rows are not nV + nE + nF, or it has no kind per mode (a Hodge–Dirac mode solve's result)");
+    Modes m;
+    m.P = r.eigenvectors.topRows(nV);
+    m.X2 = r.eigenvectors.bottomRows(nF);
+    m.mu = r.eigenvalues;
+    m.kind.resize(static_cast<std::size_t>(K));
+    for (Eigen::Index k = 0; k < K; ++k) {
+        if (!(r.eigenvalues(k) > 0)) throw std::invalid_argument("modesOf: a mode with mu <= 0 (solve without both signs)");
+        if (r.kind(k) != 0 && r.kind(k) != 2) throw std::invalid_argument("modesOf: a harmonic mode (only exact and coexact modes are read)");
+        m.kind[static_cast<std::size_t>(k)] = r.kind(k);
+    }
+    return m;
+}
+
+Eigen::VectorXd weightedPotentialMesh(const IntrinsicComplex& c, const VectorXd& w, const VectorXd& omega) {
     if (w.size() != c.nE || omega.size() != c.nE) throw std::invalid_argument("intrinsic::weightedPotentialMesh: weights and the 1-form on the " + std::to_string(c.nE) + " edges");
     const VectorXd W = c.star1.cwiseProduct(w);
     Eigen::SparseMatrix<double> L = c.d0.transpose() * W.asDiagonal() * c.d0;
@@ -236,7 +367,7 @@ Eigen::VectorXd weightedPotentialMesh(const Complex& c, const VectorXd& w, const
     return phi.array() - phi.dot(c.star0) / c.star0.sum();
 }
 
-Eigen::VectorXd weightedPotentialModes(const Complex& c, const Modes& m, const std::vector<char>& use, const VectorXd& w, const VectorXd& omega) {
+Eigen::VectorXd weightedPotentialModes(const IntrinsicComplex& c, const Modes& m, const std::vector<char>& use, const VectorXd& w, const VectorXd& omega) {
     std::vector<int> ks;
     for (Eigen::Index k = 0; k < m.mu.size(); ++k) if (use[static_cast<std::size_t>(k)] && m.kind[static_cast<std::size_t>(k)] == 0) ks.push_back(static_cast<int>(k));
     if (ks.empty()) return VectorXd::Zero(c.nV);
@@ -250,7 +381,7 @@ Eigen::VectorXd weightedPotentialModes(const Complex& c, const Modes& m, const s
     return Pu * a;
 }
 
-PatternFields patternFields(const Complex& c, const Modes& m, const std::vector<std::pair<int, int>>& rows, const Eigen::VectorXcd& coef) {
+PatternFields patternFields(const IntrinsicComplex& c, const Modes& m, const std::vector<std::pair<int, int>>& rows, const Eigen::VectorXcd& coef) {
   const Eigen::Index K = m.mu.size();
   if (static_cast<Eigen::Index>(rows.size()) != coef.size()) throw std::invalid_argument("patternFields: one coefficient a row");
   Eigen::VectorXcd cs = Eigen::VectorXcd::Zero(K), ca = Eigen::VectorXcd::Zero(K), cn = Eigen::VectorXcd::Zero(K);
@@ -274,42 +405,51 @@ PatternFields patternFields(const Complex& c, const Modes& m, const std::vector<
   Eigen::MatrixXd re(K, 2);
   re.col(0) = cn.real();
   re.col(1) = cn.imag();
-  const Eigen::MatrixXd r = vertexDensity(c, synth2(c, m, re));
+  const Eigen::MatrixXd r = vertexDensity(c, synthesizeTwoForm(c, m, re));
   out.rho = r.col(0).cast<std::complex<double>>() + std::complex<double>(0, 1) * r.col(1).cast<std::complex<double>>();
   return out;
 }
 
-PhaseSplit splitPhase(const Complex& c, const Modes& m, const Eigen::VectorXd& w) {
-  if (w.size() != c.nE) throw std::invalid_argument("splitPhase: w has one value an intrinsic edge");
-  const Eigen::Index K = m.mu.size();
-  PhaseSplit out;
-  out.coef = read1(c, m, w).col(0);
-  Eigen::VectorXd ce = out.coef, cc = out.coef;
-  for (Eigen::Index k = 0; k < K; ++k) (m.kind[static_cast<std::size_t>(k)] == 0 ? cc : ce)(k) = 0;
-  out.exact = synth1(c, m, ce).col(0);
-  out.coexact = synth1(c, m, cc).col(0);
-  const double E = w.dot(c.star1.asDiagonal() * w), Eex = out.exact.dot(c.star1.asDiagonal() * out.exact), Eco = out.coexact.dot(c.star1.asDiagonal() * out.coexact);
-  out.shareTiming = E > 0 ? Eex / E : NAN;
-  out.shareRotation = E > 0 ? Eco / E : NAN;
-  out.shareResidual = E > 0 ? std::max(0.0, 1 - out.shareTiming - out.shareRotation) : NAN;
-  out.potential = potential(m, ce).col(0);
-  out.propagation = sharp(c, -out.exact);
-  Eigen::VectorXd cs = cc;
-  for (Eigen::Index k = 0; k < K; ++k) if (m.kind[static_cast<std::size_t>(k)] == 2) cs(k) /= m.mu(k);
-  out.stream = vertexDensity(c, m.X2 * cs).col(0);
-  Eigen::VectorXd num = Eigen::VectorXd::Zero(c.nV), den = Eigen::VectorXd::Zero(c.nV);
-  for (int e = 0; e < c.nE; ++e) {
-    const double r2 = c.star1(e) * std::pow(w(e) - out.exact(e), 2), w2 = c.star1(e) * w(e) * w(e);
-    for (int end = 0; end < 2; ++end) { const int v = c.edges[2 * static_cast<std::size_t>(e) + static_cast<std::size_t>(end)]; num(v) += r2; den(v) += w2; }
-  }
-  out.inconsistency = num.cwiseQuotient(den);
+PhaseSplits splitPhases(const IntrinsicComplex& c, const Modes& m, const Eigen::MatrixXd& oneForms, const Eigen::SparseMatrix<double>& sharpWeights) {
+  if (oneForms.rows() != c.nE) throw std::invalid_argument("splitPhases: the 1-forms have one row an intrinsic edge");
+  if (sharpWeights.rows() != 3 * c.nV || sharpWeights.cols() != c.nE) throw std::invalid_argument("splitPhases: the sharp operator is [3V x nE] (sharpOperator)");
+  PhaseSplits out;
+  out.coefficients = projectOneForm(c, m, oneForms);
+  MatrixXd exactCoefficients = out.coefficients, coexactCoefficients = out.coefficients;
+  for (Eigen::Index k = 0; k < m.mu.size(); ++k) (m.kind[static_cast<std::size_t>(k)] == 0 ? coexactCoefficients : exactCoefficients).row(k).setZero();
+  out.exact = synthesizeOneForm(c, m, exactCoefficients);
+  out.coexact = synthesizeOneForm(c, m, coexactCoefficients);
+  out.potential = exactPotential(m, exactCoefficients);
+  out.stream = coexactStream(c, m, coexactCoefficients);
+  out.propagation = -(sharpWeights * out.exact);
   return out;
 }
 
-Eigen::VectorXd phaseOneForm(const Complex& c, const Eigen::VectorXcd& x) {
-  if (x.size() != c.nV) throw std::invalid_argument("phaseOneForm: x has one value a vertex");
-  Eigen::VectorXd w(c.nE);
-  for (int e = 0; e < c.nE; ++e) w(e) = std::arg(x(c.edges[2 * static_cast<std::size_t>(e) + 1]) * std::conj(x(c.edges[2 * static_cast<std::size_t>(e)])));
+PhaseSplit splitPhase(const IntrinsicComplex& c, const Modes& m, const Eigen::VectorXd& w) {
+  if (w.size() != c.nE) throw std::invalid_argument("splitPhase: w has one value an intrinsic edge");
+  const PhaseSplits batch = splitPhases(c, m, w, sharpOperator(c));
+  PhaseSplit out;
+  out.coef = batch.coefficients.col(0); out.exact = batch.exact.col(0); out.coexact = batch.coexact.col(0);
+  out.potential = batch.potential.col(0); out.stream = batch.stream.col(0); out.propagation = batch.propagation;
+  return out;
+}
+
+MatrixXd phaseCurrent(const IntrinsicComplex& c, const Eigen::MatrixXcd& z) {
+  if (z.rows() != c.nV) throw std::invalid_argument("phaseCurrent: z has one row a vertex");
+  MatrixXd J(c.nE, z.cols());
+  for (int e = 0; e < c.nE; ++e) {
+    const Eigen::Index a = c.edges[2 * static_cast<std::size_t>(e)], b = c.edges[2 * static_cast<std::size_t>(e) + 1];
+    J.row(e) = (z.row(a).conjugate().cwiseProduct(z.row(b))).imag();
+  }
+  return J;
+}
+
+MatrixXd phaseGradient(const IntrinsicComplex& c, const Eigen::MatrixXcd& x) {
+  if (x.rows() != c.nV) throw std::invalid_argument("phaseGradient: x has one row a vertex");
+  MatrixXd w(c.nE, x.cols());
+  for (int e = 0; e < c.nE; ++e)
+    for (Eigen::Index k = 0; k < x.cols(); ++k)
+      w(e, k) = std::arg(x(c.edges[2 * static_cast<std::size_t>(e) + 1], k) * std::conj(x(c.edges[2 * static_cast<std::size_t>(e)], k)));
   return w;
 }
 

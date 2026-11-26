@@ -70,6 +70,13 @@ void test_pointwise() {
   const auto env = use("signal.envelope", {{"x", rec}}).at("y");
   CHECK(env.nonlinear && env.quantity == "envelope");
   CHECK(refused([&] { use("signal.analytic", {{"x", z}}); }, {"port `x`", "is complex", "analytic signal is taken of a real field", "chunks[0] signal.analytic -> out"}));
+  // signal.phase_split: the 1-form it splits is stated by the definition, never defaulted: refused at the check without `one_form`
+  {
+    const auto onCortex = field_t({cortex, time}, VT::complex);
+    const g::Types in{{"x", onCortex}, {"package", kernel_t(sensors, cortex)}};
+    CHECK(use("signal.phase_split", in, Json{{"one_form", "phase_current"}}).at("potential").value == VT::real);
+    CHECK(refused([&] { use("signal.phase_split", in); }, {"one_form", "no default"}));
+  }
   // a toy node declared pointwise that drops a factor: the cardinal rule refuses it, whatever the node's own code does
   g::Signature bad = g::sig(g::Move::pointwise).in("x", g::field({g::var("M"), g::time_var("T")})).out("y", g::like("x").on({g::var("M")}));
   g::TypeUse tu; tu.label = "chunks[1] toy.drop"; tu.in = {{"x", rec}}; tu.in_names = {{"x", "rec"}}; tu.out_names = {{"y", "y"}};
@@ -108,7 +115,7 @@ void test_apply() {
   const auto real_rec = field_t({sensors, time});
   const auto tiling = selection_t({time}, "tiling", true, "tiling");
   const auto fr = use("signal.analytic_frames", {{"x", real_rec}, {"tiling", tiling}}).at("y");
-  CHECK(g::print(fr.domain) == "sensors(rest) × members(tiling)" && fr.axis == g::Axis::frames && fr.domain.factors.back()->role == g::Role::frames);
+  CHECK(g::print(fr.domain) == "sensors(rest) × members(tiling)" && fr.axis == g::Axis::frames && g::is_tiled(*fr.domain.factors.back()) && g::in_seconds(*fr.domain.factors.back()));
   CHECK(refused([&] { use("signal.analytic_frames", {{"x", power}, {"tiling", tiling}}); }, {"port `x`", "is non-linear"}));
   CHECK(refused([&] { use("signal.analytic_frames", {{"x", real_rec}, {"tiling", selection_t({time}, "spans", true, "bad")}}); }, {"not a frame tiling"}));
   CHECK(refused([&] { use("signal.analytic_frames", {{"x", real_rec}, {"tiling", selection_t({g::time_line("other")}, "tiling", true, "t2")}}); }, {"port `tiling`", "time(other) is not time(rest)"}));
@@ -193,7 +200,7 @@ void test_measure() {
   env.res.band = std::array<double, 2>{8.0, 16.0};
   const auto ladder = selection_t({time}, "ladder", false, "ladder");
   const auto am = use("measurement.reduce", {{"x", env}, {"over", ladder}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}).at("values");
-  CHECK(g::print(am.domain) == "sensors(rest) × members(ladder@8-16)" && am.domain.factors.back()->role == g::Role::time_tiles);
+  CHECK(g::print(am.domain) == "sensors(rest) × members(ladder@8-16)" && am.domain.factors.back()->form == g::Manifold::Form::members && !g::is_tiled(*am.domain.factors.back()));
   g::PortType nob = env; nob.res.band.reset();
   CHECK(refused([&] { use("measurement.reduce", {{"x", nob}, {"over", ladder}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}); }, {"carries no band", "the level IS the band"}));
   // a chunk node measuring a partition of the stream needs an accumulate node; no partition: the run's span, also an accumulate node's
@@ -222,7 +229,7 @@ void test_summarize_detect() {
   CHECK(refused([&] { use("select.events.spans", {{"x", amp}, {"baseline", other}}, Json{{"rule", "detect"}}, false); }, {"port `baseline`", "is not a statistic of x"}));
   // a measurement of events detected on another grid's members is refused (events themselves may overlap: no disjointness is asked)
   g::PortType amp2 = amp;
-  amp2.domain.factors.back() = g::members("ladder@14-30", time, g::Role::time_tiles);
+  amp2.domain.factors.back() = g::members("ladder@14-30", time);
   amp2.quantity = "amplitude";
   CHECK(refused([&] { use("measurement.reduce_members", {{"x", amp2}, {"over", sp}}, Json{{"measures", Json::array({"amplitude"})}}, false); }, {"port `over`", "were detected on the members of `ladder@8-16`", "`ladder@14-30`"}));
   const auto roll = use("measurement.reduce_members", {{"x", amp}, {"over", sp}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}).at("values");
@@ -295,9 +302,9 @@ void test_builtin_table() {
 }
 // T5: the coordinate system is part of a manifold's type; no transition is inserted: the checker refuses and names `positions.transition`
 void test_coordinates() {
-  const auto device = g::manifold_id("sensors", "run1", g::ManifoldKind::points, g::Role::none, g::CoordinateSystem{"head", "device:run1", "m"});
-  const auto head = g::manifold_id("sensors", "run1", g::ManifoldKind::points, g::Role::none, g::CoordinateSystem{"head", "scs", "m"});
-  const auto surface = g::manifold_id("cortex", "kernel", g::ManifoldKind::surface, g::Role::none, g::CoordinateSystem{"head", "scs", "m"});
+  const auto device = g::manifold_id("sensors", "run1", g::ManifoldKind::points, g::CoordinateSystem{"head", "device:run1", "m"});
+  const auto head = g::manifold_id("sensors", "run1", g::ManifoldKind::points, g::CoordinateSystem{"head", "scs", "m"});
+  const auto surface = g::manifold_id("cortex", "kernel", g::ManifoldKind::surface, g::CoordinateSystem{"head", "scs", "m"});
   CHECK(!g::same(device, head) && g::same(head, head));
   g::PortType tr; tr.typed = true; tr.cls = g::PortClass::operator_; tr.quantity = "transition";
   tr.transition = std::make_pair(g::CoordinateSystem{"head", "device:run1", "m"}, g::CoordinateSystem{"head", "scs", "m"});

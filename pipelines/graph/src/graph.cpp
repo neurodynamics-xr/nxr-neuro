@@ -179,10 +179,10 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
       fail(std::string("a ") + to_string(spec.kind) + " node belongs in `chunks`, not in `" + to_string(it.section) + "`");
 
     // ports: known, present, defined
-    std::set<std::string> ports;
-    for (const auto& p : spec.inputs) ports.insert(p.name);
+    std::set<std::string> ports, many;
+    for (const auto& p : spec.inputs) { ports.insert(p.name); if (p.many) many.insert(p.name); }
     for (const auto& [port, value] : u.in) {
-      if (!ports.count(port)) {
+      if (!ports.count(port) && !(many.count(port_of_key(port)) && port_of_key(port) != port)) {
         std::string valid;
         for (const auto& p : spec.inputs) valid += " " + p.name;
         fail("no input port '" + port + "'; its ports:" + valid);
@@ -192,7 +192,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
       n.in_types[port] = c.values.at(value);
     }
     for (const auto& p : spec.inputs)
-      if (!p.optional && !n.in.count(p.name)) fail("input port '" + p.name + "' is not wired");
+      if (!p.optional && !n.in.count(p.name) && !(p.many && n.in.count(p.name + ".0"))) fail("input port '" + p.name + "' is not wired" + (p.many ? std::string(" (a list: ") + p.name + ".0, " + p.name + ".1, ...)" : std::string()));
 
     // the streamed values: a `before` node takes none; an `after` node takes no block
     for (const auto& [port, t] : n.in_types) {

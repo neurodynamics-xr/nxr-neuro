@@ -21,15 +21,14 @@
 //     IIR ends = MATLAB's filtfilt: the signal extended by an odd reflection of 3 x (the filter length - 1) samples, the filter started from its steady state.
 // (MNE-Python's filter_data option set: not done.)
 //
-// STREAMING. `Filter::add(chunk)` takes [channels x samples] blocks of any size and returns the samples that are now FINAL: the output lags the input by the filter's
-// look-ahead (R samples), and `finish()` flushes the rest (with the record's end). Every output block is computed from the input window it needs (L samples behind, R ahead);
-// the record's two ends are treated as the reference treats them (ends are known: the window then begins at sample 0, or ends at the last). Memory: one chunk + L + R samples
-// per channel.
-//   FIR  L = R = (order)/2 : the output is the whole-record filter to rounding (~1e-12), for any chunk size.
-//   IIR  forward-backward filters have an infinite impulse response, so L = R = the sum over the stages of the length after which the impulse response has decayed to
-//        `tolerance` (absolute, relative to its L1 norm; default 1e-15); the stage is started from its steady state at the window's start. The output equals the whole-record
-//        filter to ~`tolerance` x the signal's variation (~1e-12 for signals of order 1-10), for any chunk size; at the record's ends it is exact.
-// Brainstorm's mean removal needs the RECORD's mean: a caller that streams passes the means of the window it filters (computed in a first pass, `RunningMean`).
+// WINDOWS ARE THE CALLER'S. `filter` takes one window of a record with its halo and returns the window's own samples: a caller that streams a recording (the chunk service, the
+// `signal.filter` node) hands it each chunk with design.lookBehind samples before and design.lookAhead after (or the record's end), and the output is the whole record's there, for any
+// chunk size; a whole array in memory is one window (`lowpass` ... `notch`). Stateless: windows in any order.
+//   FIR  look-behind = look-ahead = order/2: the whole-record filter to rounding (~1e-12).
+//   IIR  forward-backward filters have an infinite impulse response, so the halo is the sum over the stages of the length after which the impulse response has decayed to
+//        `tolerance` (relative to its L1 norm; default 1e-15); each stage starts from its steady state at the window's start. The whole-record filter to ~`tolerance` x the
+//        signal's variation; at the record's ends it is exact.
+// Brainstorm's mean removal needs the RECORD's channel means: the caller passes them (a measurement over the record's span; the whole-array verbs take the array's own means).
 #include <Eigen/Dense>
 #include <complex>
 #include <cstddef>
@@ -42,6 +41,12 @@ namespace nxr::signal::filters {
 enum class Kind { Lowpass, Highpass, Bandpass, Bandstop, Notch };
 enum class Method { Fir, Iir };
 enum class Edge { MeanOfTransient, Zeros };   // FIR: the two ends of the record are padded with the mean of the first / last K samples (Brainstorm) · nothing
+/** FIR: how the transition bands are set when `transitionBandwidth` is not stated.
+ *  Brainstorm      the current release's rule: 0.5 Hz (1 Hz when the high-pass edge is above 5 Hz; 1 Hz for a low-pass alone), the same width at both edges.
+ *  Brainstorm2018  the rule of Brainstorm's release of 2018-10-12 (bst_bandpass_hfilter of that release, the version the MEG fingerprinting paper used): the high-pass stop edge at
+ *                  0.5 x the edge (0.85 x when the edge is above 5 Hz), the low-pass stop edge at 1.15 x the edge (1.05 x for a low-pass alone); kaiserord on the narrower transition,
+ *                  the cut-offs at the transitions' midpoints. With it the release pads the record's ends with zeros (Edge::Zeros) after removing its mean. */
+enum class TransitionRule { Brainstorm, Brainstorm2018 };
 
 struct FilterOptions {
     Kind kind = Kind::Bandpass;
@@ -53,6 +58,7 @@ struct FilterOptions {
     // ---- FIR
     double ripple = 1e-3;                     // Kaiser: the passband and stopband deviation (linear); the stopband attenuation is -20 log10(ripple) = 60 dB  (Brainstorm "relax": 1e-2)
     std::optional<double> transitionBandwidth;    // Hz, each transition band (the lower edge's with Firwin); unset: the reference's rule
+    TransitionRule transitionRule = TransitionRule::Brainstorm;   // the reference's rule when `transitionBandwidth` is unset
     Edge edge = Edge::MeanOfTransient;
     double transientEnergy = 0.99;            // MeanOfTransient: K = the shortest one-sided impulse response holding this fraction of its energy
     std::optional<std::size_t> transientSamples;    // MeanOfTransient: K stated (samples), instead of the energy rule (Brainstorm's own rule for K is not published: ours agrees to within 1 sample)
@@ -82,18 +88,6 @@ struct Design {
 
 /** The filter the options describe. Invalid edges (not 0 < edge < Nyquist, lower >= upper, ...) throw std::invalid_argument. */
 Design design(const FilterOptions& options);
-
-/** Channel means over what is fed (a first pass, for Brainstorm's mean removal). */
-class RunningMean {
-public:
-    explicit RunningMean(int channels) : sum_(Eigen::VectorXd::Zero(channels)) {}
-    void add(const Eigen::MatrixXd& chunk) { sum_ += chunk.rowwise().sum(); n_ += chunk.cols(); }
-    Eigen::VectorXd mean() const { return n_ ? Eigen::VectorXd(sum_ / static_cast<double>(n_)) : sum_; }
-    std::int64_t samples() const { return n_; }
-private:
-    Eigen::VectorXd sum_;
-    std::int64_t n_ = 0;
-};
 
 /** THE PURE FILTER (zero-phase: forward-backward IIR, centred FIR; Brainstorm's process_bandpass / process_notch): one window of a record, `w` [channels x width], whose OWN columns
  *  are [left, left + own); returns those own columns filtered. `atStart` / `atEnd`: the window reaches the record's first / last sample (its ends are padded as the option set says).

@@ -21,9 +21,13 @@ for name, order, wn, pz in (("low", 30, [0.3], True), ("high", 30, [0.4], False)
 put("fir1.bandpass.noscale.kaiser5", signal.firwin(41, [0.2, 0.5], window=("kaiser", 5.0), pass_zero=False, scale=False))
 
 # butter (output 'ba')
-for name, n, wn, bt in (("low", 4, [0.25], "lowpass"), ("high", 5, [0.4], "highpass"), ("bandpass", 3, [0.2, 0.45], "bandpass"), ("stop", 4, [0.15, 0.5], "bandstop"), ("low1", 1, [0.1], "lowpass"), ("low8", 8, [0.3], "lowpass")):
+for name, n, wn, bt in (("low", 4, [0.25], "lowpass"), ("high", 5, [0.4], "highpass"), ("bandpass", 3, [0.2, 0.45], "bandpass"), ("stop", 4, [0.15, 0.5], "bandstop"), ("low1", 1, [0.1], "lowpass"), ("low8", 8, [0.3], "lowpass"), ("high1", 1, [0.35], "highpass"), ("high6", 6, [0.15], "highpass"), ("bandpass1", 1, [0.2, 0.6], "bandpass"), ("bandpass6", 6, [0.1, 0.3], "bandpass"), ("stop1", 1, [0.3, 0.6], "bandstop"), ("stop5", 5, [0.25, 0.4], "bandstop"), ("low7", 7, [0.05], "lowpass"), ("high9", 9, [0.8], "highpass")):
     b, a = signal.butter(n, wn, btype=bt)
     put(f"butter.{name}.b", b); put(f"butter.{name}.a", a)
+    # the same designs as zeros, poles, gain (output 'zpk': the complex roots as re, im pairs) and as second-order sections (output 'sos', rows b0 b1 b2 a0 a1 a2)
+    z, p, k = signal.butter(n, wn, btype=bt, output="zpk")
+    put(f"butter.{name}.z", np.asarray(z, dtype=complex)); put(f"butter.{name}.p", np.asarray(p, dtype=complex)); put(f"butter.{name}.k", [k])
+    put(f"butter.{name}.sos", signal.butter(n, wn, btype=bt, output="sos"))
 
 # mscohere (scipy.signal.coherence): two noisy signals sharing a 12 Hz tone; the frequency axis; several windows
 fs = 100.0

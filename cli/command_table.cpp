@@ -15,9 +15,11 @@ std::vector<const char*> command_table_text() {
   return {
 R"TBL(verb run	Run a pipeline on a subject: a built-in (psd, crossspectrum, phasegradient, measure, ...), a built-in definition, or a definition file
 verb compute	Compute a node or a graph on arrays or files (reserved: not available yet; pipelines are run with `run`)
+verb compile	Compile a pipeline definition without running it: expand it, type-check every connection, print the compiled graph with every value's type
 verb list	List datasets, subjects, recordings, kernels, results or pipelines
 verb show	Show a dataset or a subject
-verb read	Read stored arrays and derived readings
+verb edit	Edit what a subject holds without touching its arrays: a manifold's label, description and primary flag, a dictionary's entries, a projector's status
+verb read	Read stored arrays and derived readings: a stored field, statistic, operator, selection or manifold by name, as .npy files or JSON
 verb query	Query stored measurements
 verb export	Export stored results: measurements as a table, cortical maps as GIFTI
 verb import	Import data from Brainstorm into a dataset
@@ -26,13 +28,14 @@ verb delete	Delete a dataset or a subject
 verb compact	Compact a dataset
 verb recover	Recover a dataset after an interrupted write
 verb reduce	Reduce stored results across subjects
-verb add	Add a surface to a subject
+verb add	Add to a subject what was computed elsewhere: a surface, a field, a selection, a statistic, measurements, an operator, points, a line, a product of manifolds or a dictionary, from .npy and JSON files
 verb register	Register subject packages in a dataset's catalogue
 verb split	Split a one-database dataset into subject packages with a catalogue
 verb join	Join subject packages back into a one-database dataset
 verb release	Release a template or registration as a frozen, versioned package
 verb verify	Verify a subject package against the hashes it records
 verb migrate	Migrate a dataset's stored layout in place
+verb copy	Copy a subject's stored nodes from another package of the same subject: a manifold with what lies on it and was made from it (a triangulation and its eigensolve, a sensor mesh), never solved again
 )TBL",
 R"TBL(--atlas-finest	QUANTITY	The finest tile of the default subject's group tree (the dataset's atlas leaves), as a quantity: parts per hemisphere ("parts 256"), a tile diameter ("14 mm") or a tile area ("area 150 mm2"); needs --templates.	parts 256 (2^8 tiles a hemisphere)	parts
 --lc-scales	QUANTITY,...	The tile scales, as quantities, at which the Levi-Civita connection between neighbouring tiles is measured (a measurement over a level's product with itself); needs --templates.	parts 16, parts 64	parts
@@ -60,6 +63,17 @@ R"TBL(--atlas-finest	QUANTITY	The finest tile of the default subject's group tre
 --berg-dipoles	J	Number of equivalent dipoles in the Berg-Scherg approximation of the three-shell EEG sphere.	3	-
 --berg-starts	N	Number of simplex starts when fitting the three-dipole Berg-Scherg approximation of the EEG sphere model; the best fit is kept	12	-
 --berg-terms	N	Number of series terms fitted when approximating the multi-shell EEG model by the Berg-Scherg parameters.	200	terms
+--by@add surface	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add field	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add selection	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add statistic	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add measurements	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add operator	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add points	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add line	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add product	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@add dictionary	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+--by@delete subject	TEXT	With --node: delete the node only if this author saved it (its created_by, as `add <class> --by` records it); a node another author saved is refused, naming its author. So a client deletes only what it saved.	none (any node is deleted)	-
 --block-frames	N	How many frames the steps after a frame tiling process at once; limits memory only, the result does not change (0 = the whole chunk's frames).	256	frames
 --block-frames@run	N	How many frames the steps after a frame tiling process at once; limits memory only, the result does not change (0 = the whole chunk's frames).	256	frames
 --block-samples	N	Samples processed at a time, which sets memory use only and does not change the result (run: width for the steps after the last filter, 0 = whole chunk)	run: 1024	samples
@@ -174,14 +188,19 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --keep-bad-segments		Keep the recording's bad segments in the computation instead of leaving them out	off	-
 --kernel	NAME	Name of the stored inverse kernel (the map from channels to sources) to apply.	the subject's only kernel	-
 --kernels	SPEC,...	Which kernels' pyramids are summed: all, constrained, free, latest, a method, stamp, name or glob (kinds combine with AND, tokens of one kind with OR).	all	-
---kind	subject|template|group	Kind of subject to create	subject	-
---kind@create subject	subject|template|group	Kind of the new subject: an ordinary subject, a template subject or a group subject.	subject	-
+--kind	subject|template	Kind of subject to create	subject	-
+--kind@create subject	subject|template	Kind of the new subject: an ordinary subject or the dataset's template subject (which holds the cohort).	subject	-
 --labelling	NAME	The partition (a stored Selection with one code per vertex, e.g. a parcellation or a tile level) whose members are measured.	none (required)	-
 --labelling@export measurements	NAME	The partition (labelling) whose members are the table's columns, named the same in every subject	required	-
 --layout	split|wide	Table layout: split gives a table per condition and statistic with a column per member; wide gives one table with a column per condition, member and statistic.	split	-
 --layout@export measurements	split|wide	split writes one table per condition and statistic with a column per member; wide writes one table with a column per condition, member and statistic	split	-
 --levels	L,...	Spatial tile levels of the scale space the blur is measured over.	2,3,4,5,6,7,8	levels
 --limit	N	Maximum number of rows returned	none	rows
+--after	CURSOR	The cursor a listing gave (its `next`): the rows after it.	none (the first page)	-
+--columns	a,b,...	Only these columns of each row, in this order.	all columns	-
+--on	MANIFOLD	Only the nodes that lie on the manifold of this name.	all	-
+--classes	A,B,...	Only these classes of nodes.	all classes	-
+--related		Also the subjects this one refers to.	off	-
 --limit@query measurements	N	The most rows to return.	none (all rows)	rows
 --limits	LO-HI	Frequency limits of the filter bank for the itersine and meyer families.	see the command's description	Hz
 --list	V,V,...	run: list the available pipeline definitions and their steps (flag); pointspread: native vertex indices to use as the source sample instead of --vertices	run: off; pointspread: none	-
@@ -221,6 +240,10 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@create dataset	NAME	Name of the new dataset.	the folder's name (required with --datastore)	-
 --name@create subject	NAME	Name of the new subject in the dataset.	required	-
 --name@delete dataset	NAME	Name of the dataset's folder to delete, inside the folder given by --datastore	required	-
+--name@import covariance	NAME	Name of the stored statistic.	<condition>_noise_covariance or <condition>_data_covariance	-
+--kind@import covariance	noise|data	Which covariance of the study: its noise covariance (noisecov_*.mat) or its data covariance (ndatacov_*.mat).	noise	-
+--protocol@import covariance	PATH	The Brainstorm protocol's folder (the one holding data/ and anat/).	required	-
+--condition@import covariance	NAME	The condition (study) whose covariance is imported; its channels must be imported already (`import condition`); the statistic is stored under that acquisition.	required	-
 --name@import inverse	NAME	Name of the stored kernel.	Brainstorm's file stem, session-qualified if already taken	-
 --name@import resample	NAME	Name of the resampled recording that is created	<recording>_<rate>Hz (e.g. meg_250Hz)	-
 --name@read crossspectrum	NAME	The stored band-resolved cross-spectrum to read, named <stem>_<band>_bins (made by run crossspectrum --resolve bins).	required	-
@@ -237,13 +260,14 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --no-raw		Do not import the raw recording, only the condition's other data.	off	-
 --no-raw@import condition		Do not import the condition's raw recording; import only its other data files.	off	-
 --no-remove-mean		Do not remove the mean (DC offset) of each block before computing or filtering.	off (mean removed)	-
+--no-sensor-mesh@import subject		Do not make the subject's sensor meshes (the definition sensor_mesh, one per channels manifold and sensor type, MEG or EEG, on the good channels) after importing it; the result says so.	off (the sensor meshes are made)	-
 --no-shard		Do not group chunks into shards when compacting	off	-
 --no-shard@compact dataset		Do not group chunks into shards; only the key separator changes, so an array over 4 MiB stays unsharded.	off (arrays are sharded)	-
 )TBL",
 R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subject's small files into its small-files database.	off	-
 --no-small-files@compact dataset		Stop at the sharded layout; do not also move each subject's small keys into its small-files database.	off (small files are moved)	-
 --node	PATH	Delete only this stored node of the subject, by store path, instead of the whole subject.	none (whole subject)	-
---node@delete subject	NAME	Delete only this node (manifold, field, operator or selection) of the subject instead of the whole subject	none (the whole subject is deleted)	-
+--node@delete subject	CLASS:NAME	Delete only this node of the subject instead of the whole subject, named by its class (manifold, field, selection, operator, statistic or dictionary) and its name, since names repeat across classes. What the node owns goes with it (a manifold's geometry and topology, a field's arrays, a selection's weights array, the operator a deleted field was made by when nothing else uses it); a node other nodes depend on is refused, naming them. A bare name or a store path is accepted when it names one node only.	none (the whole subject is deleted)	-
 --noise-cov	NAME	Name of a stored noise covariance to use (alternative to --recording)	none	-
 --normalisation	none|relative	Normalisation of the band power maps: none, or relative (each map divided by the source's total power over all bins up to Nyquist).	none	-
 --of	NAME	The stored field, or band of a map statistic, that was measured	none (required)	-
@@ -270,6 +294,8 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --prefer@import scan	protocol.mat|walk	Which reader to use for the protocol: its protocol.mat file or a walk of the folders.	automatic (protocol.mat when present)	-
 --primary		Mark the added mesh as the subject's primary surface	on	-
 --primary@add surface		Mark the added surface as the subject's primary surface (the one other commands use when no --surface is named).	on	-
+--projectors	active|none|NAME,...	The recording's projectors (SSP, ICA) when it is read: active applies its active projectors to every block loaded, as Brainstorm and MNE-Python do on reading; none reads the samples as recorded; NAME,... applies exactly the projectors named (their operator names on the channels), whatever their stored status, and refuses a name that is not one of them. Recorded in the provenance and the cache key.	active	-
+--projectors@run	active|none|NAME,...	The channels' projectors: active applies the recording's active projectors to every block loaded, none reads the samples as recorded, NAME,... applies exactly the projectors named, whatever their stored status (an unknown name is refused, listing the valid ones). The same choice selects the projectors a node applies as its reference does (run inverse: active hands them all to its conventions' rule, none none, NAME,... only those). Recorded in the run's provenance and cache key.	active	-
 --provenance	FILE	A JSON file of provenance to store with the imported maps.	none	-
 --provenance@import map	FILE	A JSON file of provenance to store with each imported map.	none	-
 --psd	NAME	The recording's stored Welch spectrum, whose shape gives the band's effective bandwidth.	none (required)	-
@@ -290,6 +316,16 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --reference-level	L	Spatial tile level whose power the blur patch is cut from.	6	level
 --region	a:b,c:d	Read only this region of the array: a start:stop range per dimension.	the whole array	samples
 --region@read dataset	a:b,c:d	Read only this region of the array: one start:stop index range per dimension, stop excluded; used with --array.	the whole array	samples
+--region@read field	START:STOP,...	A part of a field with no time line: [START, STOP) along each leading axis of each array it gives (a STOP past an array's extent is cut to it; the result's regions say what each array read). A time-resolved field is read by --rows and --from/--to instead; a sparse field whole.	the whole field	-
+--region@read statistic	START:STOP,...	A part of the statistic: [START, STOP) along each leading axis of each array the read gives (a STOP past an array's extent is cut to it; the result's regions say what each array read).	the whole statistic	-
+--region@read operator	START:STOP,...	A part of the operator: [START, STOP) along each leading axis of each array the read gives (a STOP past an array's extent is cut to it; the result's regions say what each array read). A sparse operator is read whole.	the whole operator	-
+--region@read selection	START:STOP,...	A part of the selection: [START, STOP) along each leading axis of each array the read gives (a STOP past an array's extent is cut to it; the result's regions say what each array read).	the whole selection	-
+--region@read manifold	START:STOP,...	A part of the manifold: [START, STOP) along each leading axis of each array the read gives (a STOP past an array's extent is cut to it; the result's regions say what each array read).	the whole manifold	-
+--budget@read field	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
+--budget@read statistic	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
+--budget@read operator	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
+--budget@read selection	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
+--budget@read manifold	BYTES	The most bytes a read may hold: a read whose arrays would hold more is refused before any is read, naming its size and the --region (or, for a time-resolved field, the time range) that fits.	1e9 (1 GB)	bytes
 --regularisation	ridge|diagonal|none	Regularisation of the noise covariance when whitening	ridge	-
 --regulariser	connection|ambient	Smoothness term of the flow: connection (connection Laplacian on the signpost gauge) or ambient (Dirichlet energy of the ambient 3-vector field, Lefevre and Baillet).	connection	-
 --replace		Replace an existing result of the same name instead of refusing; the old one is moved aside, not deleted.	off	-
@@ -321,6 +357,11 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --set	NAME=VALUE	Set a pipeline parameter, NAME=VALUE with VALUE read as YAML (8, [15, 29], dSPM); repeatable.	none	-
 --set@run surrogate_lagfree_vortex_compare	NAME=VALUE	Parameter of every null draw (repeatable); {recording} stands for each recording's name	none	-
 --set@run surrogate_lagfree_spatial_events_compare	NAME=VALUE	A parameter of every surrogate draw's spatial-events run (levels, threshold, band, ...); repeatable.	none (the data's parameters)	-
+--set@compile	NAME=VALUE	A parameter of the definition, NAME=VALUE with VALUE read as YAML (8, [15, 29], dSPM); NAME alone chooses one of its presets. Repeatable.	none (the definition's own values)	-
+--signatures@compile	FILE	A JSON file of node signatures another program implements ({"nodes": [...]}: ports with types or type variables, the move, parameters): checked with nxr-neuro's nodes, never run.	none (nxr-neuro's nodes only)	-
+--inputs@compile	FILE	Without --dataset: a JSON file giving each input's type by name (the structured JSON form or the printed form).	none	-
+--dataset@compile	PATH	The dataset whose subject's stored records type the inputs (read only; with --subject).	none (the input types come from --inputs)	-
+--subject@compile	NAME	The subject whose stored records type the inputs (with --dataset).	none	-
 --set@run	NAME=VALUE	Override a parameter of the pipeline definition; the value is read as YAML (8, [15, 29], dSPM). Repeatable.	none (the definition's own values)	-
 --shape	morlet|meyer|power_partition	Band filter shape: morlet (Gaussian centred on the band, FWHM equal to its width) or meyer (surrogate_lagfree_pairs).	morlet	-
 --shift	absolute|relative	How the eigenvalue solve is shifted: at one absolute shift (reference method) or by a scale-aware relative ladder.	absolute	-
@@ -404,33 +445,11 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --into	DIR	The templates folder a released package is made in.	none (required)	-
 --template-version	VERSION	The version string the releaser gives (e.g. 1.0); name@version must be new.	none (required)	-
 --where	FILTER	A filter over the participant variables, in the filter language version 1 (== != < <= > >=, in (...), is missing, and, or, not, parentheses).	none	-
---templates@register package	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@list templates	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this listing uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@show subject	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@delete subject	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@add surface	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@list recordings	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this listing uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@list kernels	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this listing uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@list results	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this listing uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@import subject	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@import surface	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@import mri	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@import condition	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@import inverse	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@import map	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@import resample	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@import badsegments	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@import events	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@read crossspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this reading uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@query measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this query uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run surrogate_lagfree_spatial_events_compare	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run surrogate_lagfree_vortex_compare	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@register package	DIR	A folder of released templates to look in (repeatable); when given, each package's template must be found there by name, version and hash and its anchor rows must equal the template's.	none (not checked)	-
 --templates@list templates	DIR	A folder to look in for released templates (repeatable), before NXR_TEMPLATE_PATH and the user setting template_path.	none (the environment variable and the user setting only)	-
 --package@create package	PATH	The folder of the subject package to make (<subject>.nxr.zarr); it must not exist yet.	required	-
 --name@create package	NAME	Name of the subject the package holds.	required	-
 --home-dataset@create package	NAME	The dataset the package is made for, by its name: provenance, not membership.	required	-
---kind@create package	subject|template|group	Kind of the subject the package holds: an ordinary subject, a template or a group.	subject	-
+--kind@create package	subject|template	Kind of the subject the package holds: an ordinary subject or a template.	subject	-
 --package@register package	PATH	A subject package's folder (repeatable); an alternative to --scan.	none	-
 --scan@register package		Register every *.nxr.zarr package directly inside the dataset folder; an alternative to --package.	off	-
 --registered-by@register package	WHO	Who registers: recorded with each catalogue entry.	required	-
@@ -445,8 +464,16 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --tsv@export participants	FILE	The file to write the participants table to as BIDS participants.tsv; nothing else is written.	required	-
 --sidecar@export participants	FILE	Also write the participants.json sidecar to this file.	none	-
 --registered-by@split dataset	WHO	Who runs the split: recorded with each catalogue entry.	required	-
+--name@migrate glue	NAME	The glued cortex to convert, by name.	every glued cortex of the subject	-
+--hemispheres@migrate glue	NAME	The original cortex's hemisphere labelling, by name: carried onto the glued cortex.	Structures (Brainstorm's scout atlas)	-
+--left@migrate glue	NAME	The hemisphere labelling's entry that is the left hemisphere.	Cortex L (Brainstorm's)	-
+--right@migrate glue	NAME	The hemisphere labelling's entry that is the right hemisphere.	Cortex R (Brainstorm's)	-
+--name@migrate eigensolve	STEM	The stem of the stored eigensolve to convert (hodgeDirac, hodgeDirac__<surface>).	every stored eigensolve of the subject	-
+--dry-run@migrate selections		Report, per subject, the selections that would be converted to the member form, without changing anything.	off	-
 --dry-run@migrate measurements		Report, per subject, the statistics that would become measurements, the products and tilings that would be rewritten, and the conflicts, without changing anything.	off	-
 --remove-statistics@migrate measurements		The explicit second step, taken only when asked for explicitly: remove each migrated statistic whose measurement is verified (and its array). Never the default: the old statistics are kept.	off	-
+--dry-run@migrate template-links		Report, per member, the template links that would be undone, without changing anything.	off	-
+--registered-by@migrate template-links	WHO	Who runs the migration: recorded with each catalogue entry when the packages are registered again.	required unless --dry-run	-
 --dry-run@split dataset		Report the subjects and the format without changing anything (not even bringing the dataset to format 52).	off	-
 --package@verify package	PATH	The folder of the subject package to verify.	required	-
 --package@show package	PATH	The folder of the subject package to show.	required	-
@@ -489,7 +516,7 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --licence@create registration	TEXT	The licence recorded in the origin of every item.	derived from the two spheres' origin records	-
 --attribution@create registration	TEXT	The attribution recorded in the origin of every item.	derived from the two spheres' origin records	-
 --redistributable@create registration	yes|no	Whether the registration may be redistributed (decides what the redistributable edition keeps).	yes only when both spheres' origin records say so	-
---recipe	fsaverage|icbm152|icbm152_2023b	Which template to build from its source files.	none (required)	-
+--recipe	fsaverage|fsaverage5|icbm152|icbm152_2023b	Which template to build from its source files.	none (required)	-
 --sources	DIR	The folder of the downloaded source files the recipe reads.	none (required)	-
 --parcellation	NAME	A parcellation to write, named explicitly (repeatable); none is written unless named.	none (no parcellation)	-
 --cortex-mask		Also write the cortex mask (the vertices that are not the medial wall).	off	-
@@ -500,7 +527,7 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --max-end-distance	MM	An end farther than this from the end surface is left out of the ends operator; every end's distance is stored.	5	mm
 --hcp-points	N	Points per streamline after resampling at equal arc length.	64	points
 --accept-unlisted-sources		Read a source file the manifest does not list or whose checksum differs; the checksum read is recorded in the origin.	off (refused)	-
---recipe@create template	fsaverage|icbm152|icbm152_2023b	fsaverage: FreeSurfer's fsaverage; icbm152_2023b: Brainstorm's default anatomy ICBM152_2023b; icbm152: its current default (ICBM152 2026). With --hcp-trk, also HCP-1065 streamlines.	required	-
+--recipe@create template	fsaverage|fsaverage5|icbm152|icbm152_2023b	fsaverage: FreeSurfer's fsaverage; fsaverage5: its ico5 version (10242 vertices a hemisphere); icbm152_2023b: Brainstorm's default anatomy ICBM152_2023b; icbm152: its current default (ICBM152 2026). With --hcp-trk, also HCP-1065 streamlines.	required	-
 --sources@create template	DIR	The folder of the downloaded source files (for fsaverage a FreeSurfer subject folder holding surf/ and label/; for icbm152 Brainstorm's default-anatomy folder). Each file is checked against the manifest.	required	-
 --package@create template	PATH	The folder of the template package to make (a working copy; `release template` freezes it); it must not exist yet.	required	-
 --name@create template	NAME	Name of the template, the subject the package holds.	the recipe's template name	-
@@ -527,7 +554,7 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --windows	NAME	The stored analytic cross-spectrum windows (named <stem>_<band>_windows) the bursts are read from.	none (required)	-
 --acquisition@import recording	NAME	The session of the subject the recording is stored under.	rest	-
 --anonymize@import recording		Drop the identifying header fields (the file's start time, subject, experimenter, patient and recording identification) instead of keeping them as the file has them.	off (the header is kept as the file has it)	-
---montage@import recording	NAME	A montage stored in the subject (a points manifold such as `eeg_1005`, made by `montage create`): each channel's name is matched to the montage's labels EXACTLY (case as written; the montage's recorded aliases, e.g. T3 = T7, count and are marked as such); the montage and the match are recorded with the recording, and the channels no label matches are listed. Nothing is guessed: no prefix or suffix is stripped, no channel is placed that no label names.	none (no montage recorded)	-
+--montage@import recording	NAME	A montage stored in the subject (a points manifold such as `eeg_1005`, made by `run montage` on the template's scalp and landmarks): each channel's name is matched to the montage's labels EXACTLY (case as written; the montage's recorded aliases, e.g. T3 = T7, count and are marked as such); the montage and the match are recorded with the recording, and the channels no label matches are listed. Nothing is guessed: no prefix or suffix is stripped, no channel is placed that no label names.	none (no montage recorded)	-
 --format@import recording	FORMAT	The file's format: fif, edf, bdf, brainvision, eeglab, ctf or kit.	from the file's extension	-
 --anonymize@import bids		Drop the identifying header fields of every recording and the sidecar's institution and device-serial keys.	off (kept as the files have them)	-
 --dataset@import bids	PATH	The folder of the new dataset (made by the import; refused if it holds a catalogue): one subject package per BIDS subject, registered in its catalogue.	required	-
@@ -709,7 +736,7 @@ opts: --datastore* --name*
 R"TBL(@ recover dataset
 old: dataset recover
 alias: refused
-summary: Finish or roll back an interrupted write in a dataset.
+summary: Finish or roll back an interrupted write in a dataset, and roll back the unfinished writes in pieces (add field | statistic --begin never committed).
 opts: --dataset*
 )TBL",
 R"TBL(@ compact dataset
@@ -742,7 +769,7 @@ R"TBL(@ register package
 old: package register
 alias: no
 summary: Register subject packages in a dataset's catalogue (idempotent; each package is checked, none is moved or read).
-opts: --dataset* --package+ --registered-by* --replace --scan --templates+
+opts: --dataset* --package+ --registered-by* --replace --scan
 )TBL",
 R"TBL(@ list members
 old: package status
@@ -768,17 +795,50 @@ alias: no
 summary: Split a one-database dataset into subject packages with a catalogue, in place, verified row for row and byte for byte, resumable; the old database is kept.
 opts: --dataset* --dry-run --registered-by*
 )TBL",
+R"TBL(@ migrate selections
+old: package migrate-selections
+alias: no
+summary: Bring a dataset's selections to the member form (schema 52): each selection's elements are stored by member number. In place, subject by subject, under the dataset's writer lock; --dry-run reports what would change and changes nothing.
+opts: --dataset* --dry-run
+)TBL",
+R"TBL(@ migrate template-links
+old: package migrate-template-links
+alias: no
+summary: Bring a catalogue dataset made before format 56 to it (the template holds the cohort; a subject names no template): each subject's link to the template undone (its template_id cleared, the rows it carried from a template removed, refused for a package whose rows still point at one), every database brought to 56, the packages registered again, the index rebuilt. A dataset holding a group package is refused. --dry-run reports, per member, what would change.
+opts: --dataset* --dry-run --registered-by
+)TBL",
 R"TBL(@ migrate measurements
 old: package migrate-measurements
 alias: no
 summary: Make every value over a selection's members one measurement (schema 53): per-member statistics become array-backed measurements, verified byte for byte; a product that only coupled a level names the grid and the level; day-anchored tower tilings are marked read-only. In place, subject by subject, resumable; the old statistics are kept.
 opts: --dataset* --dry-run --remove-statistics
 )TBL",
+R"TBL(@ migrate eigensolve
+old: package migrate-eigensolve
+alias: no
+summary: Convert a subject's stored Hodge-Dirac eigensolve of the earlier form (three operators _eigenvectors, _forms1, _forms2; a kind field; stored d0, d1 and stars) in place to the four classes: one eigenvectors operator to the intrinsic triangulation's cells 0+1+2, the kinds a labelling, d0, d1 and the stars analytic. No solve; idempotent; an unknown form refused; the replaced items moved aside.
+opts: --dataset* --subject* --name
+example: nxr-neuro migrate eigensolve --dataset D --subject sub-01 --name hodgeDirac__cortex_pial_glued
+)TBL",
+R"TBL(@ migrate glue
+old: package migrate-glue
+alias: no
+summary: Convert a subject's stored glued cortex of the earlier form (the field <glued>_map and the selection <glued>_bridge) in place to selections: the original's hemisphere labelling carried onto the glued cortex with one more entry, bridge, and the original's kept vertices. The map is checked against the glue's rule and the labelling against the original surface before the map and the bridge are moved aside; idempotent; an unknown form refused.
+opts: --dataset* --subject* --name --hemispheres --left --right
+example: nxr-neuro migrate glue --dataset D --subject sub-01 --name cortex_pial_glued --hemispheres Structures
+)TBL",
 R"TBL(@ join dataset
 old: package join
 alias: no
 summary: Join a catalogue's subject packages back into a one-database dataset (the reverse of split); everything replaced is kept aside.
 opts: --dataset*
+)TBL",
+R"TBL(@ copy nodes
+old: package copy-nodes
+alias: no
+summary: Copy a subject's stored nodes from another package of the same subject: each named manifold with what lies on it and was made from it (its intrinsic triangulation and Hodge-Dirac eigensolve, a glue's labelling, a sensor mesh's map and pick) and the arrays they name; every row a copy names is found the same in the target; every chunk checked against the source's digests; nothing solved.
+opts: --dataset* --dry-run --from* --manifold+* --subject*
+example: nxr-neuro copy nodes --dataset /data/study --subject sub-01 --from /data/old/sub-01.nxr.zarr --manifold cortex_pial_low_glued
 )TBL",
 R"TBL(@ verify package
 old: package verify
@@ -840,35 +900,36 @@ R"TBL(@ show subject
 old: subject show
 alias: refused
 summary: Show how many manifolds, fields, operators and selections a subject holds.
-opts: --dataset* --subject* --templates+
+opts: --dataset* --subject*
 )TBL",
 R"TBL(@ delete subject
 old: subject delete
 alias: refused
-summary: Delete a subject, or one of its nodes, from a dataset.
-opts: --dataset* --node --subject* --templates+
+summary: Delete a subject, or one of its nodes (--node CLASS:NAME), from a dataset.
+opts: --by --dataset* --node --subject*
 )TBL",
 R"TBL(@ add surface
 old: surface add
 alias: refused
-summary: Add a mesh file (OBJ, PLY or STL) to a subject as a surface.
-pos: FILE
-opts: --dataset* --name --no-primary --primary --scale --subject* --templates+
+summary: Add a surface to a subject: a mesh file (OBJ, PLY or STL), or its vertices and faces as .npy files.
+pos: FILE?
+example: nxr-neuro add surface bunny.obj --dataset /data/study --subject sub-01
+opts: --by --dataset* --faces --name --no-primary --primary --scale --subject* --vertices
 )TBL",
 R"TBL(@ list recordings
 old: __list recordings
 summary: List the recordings of a subject.
-opts: --dataset* --subject* --templates+
+opts: --dataset* --subject*
 )TBL",
 R"TBL(@ list kernels
 old: __list kernels
 summary: List the inverse kernels of a subject.
-opts: --dataset* --subject* --templates+
+opts: --dataset* --subject*
 )TBL",
 R"TBL(@ list results
 old: __list results
 summary: List the fields and statistics the computations stored for a subject.
-opts: --dataset* --subject* --templates+
+opts: --dataset* --subject*
 )TBL",
 R"TBL(@ list pipelines
 old: run --list
@@ -894,9 +955,9 @@ opts: --out --prefer --summary
 R"TBL(@ import subject
 old: convert subject
 alias: refused
-summary: Import a Brainstorm subject's anatomy into a dataset.
+summary: Import a Brainstorm subject into a dataset, then make its sensor meshes (MEG, EEG) from the good channels.
 pos: PROTOCOL
-opts: --dataset* --resample --subject* --templates+
+opts: --dataset* --no-sensor-mesh --resample --subject*
 )TBL",
 R"TBL(@ import template
 old: convert template
@@ -923,13 +984,13 @@ R"TBL(@ import surface
 old: convert surface
 alias: refused
 summary: Import Brainstorm tessellation files as surfaces of a subject.
-opts: --bst-root --dataset* --file+ --subject* --templates+
+opts: --bst-root --dataset* --file+ --subject*
 )TBL",
 R"TBL(@ import mri
 old: convert mri
 alias: refused
 summary: Import an anatomical MRI of a subject.
-opts: --anat* --dataset* --only+ --subject* --templates+
+opts: --anat* --dataset* --only+ --subject*
 )TBL",
 R"TBL(@ import bids
 old: __import bids
@@ -1008,37 +1069,43 @@ old: convert convert
 alias: refused
 summary: Import a Brainstorm condition (its recordings, channels and head models) into a dataset.
 pos: PROTOCOL
-opts: --all-surfaces --channel-file --condition* --dataset* --extra-surface+ --include-imported --no-gain --no-raw --recording --resample --subject* --surface --templates+
+opts: --all-surfaces --channel-file --condition* --dataset* --extra-surface+ --include-imported --no-gain --no-raw --note --recording --replace-recording --resample --subject* --surface
 )TBL",
 R"TBL(@ import inverse
 old: convert inverse
 alias: refused
 summary: Import a Brainstorm inverse kernel as an operator of a subject.
-opts: --acquisition* --bst-root* --channel-file --channels-id --dataset* --file* --forward-id --name --subject* --surface-id --templates+
+opts: --acquisition* --bst-root* --channel-file --channels-id --dataset* --file* --forward-id --name --subject* --surface-id
+)TBL",
+R"TBL(@ import covariance
+old: convert covariance
+alias: refused
+summary: Import a Brainstorm study's own noise covariance (noisecov_*.mat) or data covariance (ndatacov_*.mat) as a statistic of the condition's channels, the one `run inverse --noise-cov` reads.
+opts: --condition* --dataset* --kind --name --protocol* --replace --subject*
 )TBL",
 R"TBL(@ import map
 old: convert map
 alias: refused
 summary: Import Brainstorm source or matrix maps as fields of a subject.
-opts: --acquisition --bst-root* --dataset* --file+* --provenance --replace --subject* --templates+
+opts: --acquisition --bst-root* --dataset* --file+* --provenance --replace --subject*
 )TBL",
 R"TBL(@ import resample
 old: convert resample
 alias: refused
 summary: Resample a recording to a new sampling rate, as a new recording.
-opts: --dataset* --name --recording* --subject* --to* --templates+
+opts: --dataset* --name --recording* --subject* --to*
 )TBL",
 R"TBL(@ import badsegments
 old: convert badsegments
 alias: refused
 summary: Import a recording's bad segments from a file.
-opts: --dataset* --from* --replace --subject* --templates+
+opts: --dataset* --from* --replace --subject*
 )TBL",
 R"TBL(@ import events
 old: convert events
 alias: refused
 summary: Import a recording's events from a file.
-opts: --dataset* --from* --replace --subject* --templates+
+opts: --dataset* --from* --replace --subject*
 )TBL",
 R"TBL(@ read dataset
 old: read
@@ -1051,13 +1118,13 @@ R"TBL(@ read crossspectrum
 old: crossspectrum read
 alias: refused
 summary: Read coherency, phase, delay or phase-slope index from a stored band-resolved cross-spectrum.
-opts: --dataset* --name* --pair --reading --seed --subject* --weights --templates+
+opts: --dataset* --name* --pair --reading --seed --subject* --weights
 )TBL",
 R"TBL(@ query measurements
 old: measure query
 alias: refused
 summary: Query stored measurements over a selection's members at any spatial and temporal scale, stated as quantities (rolled up at read).
-opts: --band --dataset* --factor --field --limit --max-value --measure* --min-value --order --selection* --spatial-scale --subject* --subjects --tile --templates+ --where
+opts: --band --dataset* --factor --field --limit --max-value --measure* --min-value --order --selection* --spatial-scale --subject* --subjects --tile --where
 )TBL",
 R"TBL(@ export measurements
 old: measure export
@@ -1065,19 +1132,400 @@ alias: refused
 summary: Export stored measurements as a table for statistics (a row per subject), with its dictionary and provenance.
 opts: --dataset* --exclude --fields* --keep-all --labelling* --layout --out* --recipe --scaling --statistics --subjects --table*
 )TBL",
+R"TBL(@ compile
+old: __compile
+summary: Compile a pipeline definition without running it: expand it, type-check every connection (with nodes other programs declare by signature), and print the compiled graph with every value's type.
+pos: DEFINITION
+example: nxr-neuro compile psd --dataset /data/study --subject sub-01 --set recording=rest
+opts: --dataset --inputs --set+ --signatures --subject
+)TBL",
 R"TBL(@ run surrogate_lagfree_spatial_events_compare
 old: __surrogate_lagfree_spatial_events_compare compute
 group: Surrogates
 summary: The spatial events against lag-free surrogate draws (draws with early stopping): per-vertex p and q, the patch sizes.
 span: yes
-opts: --batch --chunks --dataset* --events --exceedances=--h --max-draws --min-draws --recording* --replace --set+ --start --stop --subject* --templates+
+opts: --batch --chunks --dataset* --events --exceedances=--h --max-draws --min-draws --recording* --replace --set+ --start --stop --subject*
 )TBL",
 R"TBL(@ run surrogate_lagfree_vortex_compare
 old: __surrogate_lagfree_vortex_compare compute
 group: Surrogates
 summary: The vortex cores' tile crossings against lag-free surrogate draws (draws with early stopping): per-tile p and q, the run repeat.
 span: yes
-opts: --batch --chunks --dataset* --exceedances=--h --max-draws --min-crossings --min-draws --over --recording-a* --recording-b --replace --set+ --stage --start --stop --subject* --templates+
+opts: --batch --chunks --dataset* --exceedances=--h --max-draws --min-crossings --min-draws --over --recording-a* --recording-b --replace --set+ --stage --start --stop --subject*
 )TBL",
+R"TBL(--name@read field	NAME	The stored field to read, by name or id.	required	-
+--out@read field	FILE.npy	Write the values as a .npy file (C order, little-endian, the stored precision) and print the result with the file's path.	none (the result only, as JSON)	-
+--rows@read field	I,J,...	The rows (channels) of a time-resolved field to read, by index, in the order given.	every row	-
+--projectors@read field	active|none|NAME,...	A recording's projectors when it is read: active applies its active projectors to every block loaded (as a run reads it), none reads the samples as stored, NAME,... applies exactly the projectors named, whatever their stored status (an unknown name is refused, listing the valid ones).	active	-
+--shape-only@read field		Print the description of a time-resolved field (rate, origin, samples, channels, unit, projection) and read no sample.	off	-
+--projection-only@read field		The projection the chosen --projectors make, [channels x channels] over every channel of the recording (what a read applies to each block), and its record; no sample is read. Nothing is returned when no projector applies. For composing the projection with a caller's own operators (read the samples with --projectors none, apply the matrix once to whatever is smaller).	off	-
+--onto@read field	GLUED	Carry the field onto a glued cortex: its rows (the vertices of the two-hemisphere surface it lies on, k rows a vertex) selected onto the glued cortex GLUED by the glue's rule, each glued vertex the rows of its original vertex, a bridge vertex's rows zero. Not with --rows or --region.	none (the rows as stored)	-
+)TBL",
+R"TBL(--name@read statistic	NAME	The stored statistic to read, by name or id.	required	-
+--out@read statistic	FILE.npy	Write the values as a .npy file (C order, little-endian, the stored precision) and print the result with the file's path.	none (the result only, as JSON)	-
+)TBL",
+R"TBL(--name@read operator	NAME	The stored operator to read, by name or id.	required	-
+--out@read operator	FILE.npy	Write the operator as .npy files: a dense one to FILE itself, a sparse one as <stem>.data.npy, <stem>.indices.npy and <stem>.indptr.npy (scipy.sparse.csr_matrix's arrays).	none (the result only, as JSON)	-
+--onto@read operator	GLUED	Carry the operator onto a glued cortex: its rows (the vertices of the two-hemisphere surface it maps to, k rows a vertex: 3 for a free orientation) selected onto the glued cortex GLUED by the glue's rule, each glued vertex the rows of its original vertex, a bridge vertex's rows zero. A dense operator only; not with --region.	none (the rows as stored)	-
+)TBL",
+R"TBL(--name@read selection	NAME	The stored selection to read, by name or id.	required	-
+--out@read selection	FILE.npy	Write its arrays as .npy files: one array to FILE itself; several (spans' start, stop and code; a measurement table's code, value, weight and members) as <stem>.<array>.npy.	none (the result only, as JSON)	-
+--measure@read selection	NAME	Read the selection's measurement table of this measure (code, value, weight, members a member) instead of its array or spans.	none (its array or spans)	-
+--field@read selection	NAME	With --measure: the field the measurement is of, when several are measured over the selection.	the only field measured	-
+)TBL",
+R"TBL(--name@read manifold	NAME	The stored manifold to read, by name or id.	required	-
+--out@read manifold	FILE.npy	Write its arrays as .npy files: one array to FILE itself; several (positions and cells_<rank>) as <stem>.<array>.npy.	none (the result only, as JSON)	-
+--family@read manifold	NAME	Read one labelling of the manifold (type, unit, quality, hemisphere, ...): a code per element and its dictionary.	none (its positions, cells, axes and names)	-
+)TBL",
+R"TBL(--templates@add field	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@add field	NAME	Name the field is stored under in the subject; a name already used is refused unless --replace.	required	-
+--description@add field	TEXT	A sentence on what the values are and how they were made, kept with the node and in its producer record.	none	-
+--manifold@add field	NAME	The manifold the field lies on, by name or id; the values' first axis is its vertices (or its edges or faces, by --cell).	required	-
+--values@add field	FILE.npy	The values: [n] or [n x components] (a value type's components trail), or with --time [n x samples (x components)]; float32 stays float32. With --append: the values of the region.	required (not with --begin or --commit)	-
+--time@add field	LINE	A time line (by name, e.g. made by add line): the field is time-resolved, [n x samples], and is read back with read field --from/--to or --all.	none (a field with no time line)	-
+--value-type@add field	TYPE	The value at each element: scalar, integer, complex (re, im), vector2, vector3, matrix3, quaternion or hermitian3; its components trail the values' axes.	scalar	-
+--kind@add field	TEXT	What the values are (stored as the field's kind).	added	-
+--unit@add field	TEXT	The unit of the values.	none	-
+--cell@add field	0|1|2	The cells of the manifold the values sit on: 0 its vertices, 1 its edges, 2 its faces.	0	-
+--derived-from@add field	NAME	The stored field these values were computed from, by name or id (provenance).	none	-
+)TBL",
+R"TBL(--templates@add selection	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@add selection	NAME	Name the selection is stored under in the subject; a name already used is refused unless --replace.	required	-
+--description@add selection	TEXT	A sentence on what the values are and how they were made, kept with the node and in its producer record.	none	-
+--manifold@add selection	NAME	The manifold the selection lies on, by name or id (spans: a line).	required	-
+--type@add selection	partition|set|indices|spans	partition or set: a label per element (--members); indices: the elements picked, in order (--indices); spans: intervals on a line (--spans).	required	-
+--members@add selection	FILE.npy	partition, set: an integer label per element [n] (-1: in no member); stored as int32 member numbers with each member's label.	none	-
+--indices@add selection	FILE.npy	indices: the elements picked [k], integers, in order.	none	-
+--spans@add selection	FILE.npy	spans: [k x 2] (start, stop) or [k x 3] (start, stop, code; -1 no code), in the line's unit.	none	-
+--entries@add selection	NAME,...	The names of the labels (codes) 0, 1, 2, ... in order.	none	-
+)TBL",
+R"TBL(--templates@add statistic	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@add statistic	NAME	Name the statistic is stored under in the subject; a name already used is refused unless --replace.	required	-
+--description@add statistic	TEXT	A sentence on what the values are and how they were made, kept with the node and in its producer record.	none	-
+--measure@add statistic	NAME	What the values measure, from the statistics or measure registry (power_density, mean, ...).	required	-
+--method@add statistic	NAME	How they were computed, from the statistics registry (welch, ...).	required	-
+--values@add statistic	FILE.npy	The values, one axis a --axes entry in order (and a value type's components after them); float32 or float64. With --append: the values of the region.	required (not with --begin or --commit)	-
+--axes@add statistic	NAME:MANIFOLD	Each axis of the values, in order: its name and the manifold it runs along (by name); repeat or give several.	required	-
+--value-type@add statistic	TYPE	The value at each entry: scalar, complex, vector2, vector3, matrix3, quaternion or hermitian3; its components trail the axes.	scalar	-
+--of-field@add statistic	NAME	The stored field the statistic is of, by name or id; without it the statistic is recorded as computed elsewhere (detached).	none (detached)	-
+--partition@add statistic	NAME	The selection whose members the statistic was computed over (provenance), by name or id.	none	-
+--unit@add statistic	TEXT	The unit of the values.	none	-
+)TBL",
+R"TBL(--templates@add measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--selection@add measurements	NAME	The selection whose members are measured, by name or id.	required	-
+--measure@add measurements	NAME=FILE.npy	A measure and its values in member order: [members] (one value a member, stored as float64 measurement rows), [members x N] (an array a member: a value a vertex, an edge, a mode) or [members x N x C] (C components a value), stored as an array-backed measurement as the pipelines store theirs (an array needs --field: it is a measurement of that field); float32 or float64; repeat or give several.	required	-
+--field@add measurements	NAME	The stored field the measurements are of, by name or id.	none (the members' own)	-
+--unit@add measurements	TEXT	The unit of the measures' values.	none	-
+)TBL",
+R"TBL(--templates@add operator	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@add operator	NAME	Name the operator is stored under in the subject; a name already used is refused unless --replace.	required	-
+--description@add operator	TEXT	A sentence on what the values are and how they were made, kept with the node and in its producer record.	none	-
+--from-manifold@add operator	NAME	The manifold the operator maps from (its columns), by name or id. For a transition between coordinate systems, the manifold whose positions are in the from system (an image's volume).	required	-
+--to-manifold@add operator	NAME	The manifold the operator maps to (its rows), by name or id. Left out for a transition between coordinate systems.	required (not for a transition)	-
+--kind@add operator	TEXT	What the operator is (stored as its kind).	added (transition with --from-coordinate-system)	-
+--values@add operator	FILE.npy	A dense operator [to x from] (rows the --to-manifold's elements, columns the --from-manifold's); float32 or float64. For a transition between coordinate systems, one affine [3 x 4]: the to system's numbers are the matrix applied to [x y z 1] in the from system's numbers.	none (or --data, --indices, --indptr)	-
+--data@add operator	FILE.npy	A sparse CSR operator's nonzero values [nnz] (scipy.sparse.csr_matrix's data); float32 or float64.	none	-
+--indices@add operator	FILE.npy	A sparse CSR operator's column of each value [nnz] (scipy.sparse.csr_matrix's indices).	none	-
+--indptr@add operator	FILE.npy	A sparse CSR operator's row offsets [rows + 1] (scipy.sparse.csr_matrix's indptr).	none	-
+)TBL",
+R"TBL(--templates@add points	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@add points	NAME	Name the manifold of points is stored under in the subject; a name already used is refused unless --replace.	required	-
+--description@add points	TEXT	A sentence on what the values are and how they were made, kept with the node and in its producer record.	none	-
+--positions@add points	FILE.npy	The points: positions [n x 3], or one coordinate each [n]; stored in float64.	required	-
+--coordinate-system@add points	KEY	The coordinate system the positions are in (scs, mni, ...).	scs for [n x 3]; a system of the points' own name for [n]	-
+)TBL",
+R"TBL(--templates@add line	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--name@add line	NAME	Name the line is stored under in the subject; a name already used is refused unless --replace.	required	-
+--n@add line	N	The number of points of an evenly spaced line.	required (not with --coordinates)	points
+--spacing@add line	X	The step between points of an evenly spaced line, in --unit (a time line: 1 / its sampling rate).	required (not with --coordinates)	-
+--origin@add line	X	The coordinate of the first point, in --unit.	0	-
+--unit@add line	TEXT	The unit of the line's coordinates (s for a time line, Hz for a frequency line).	required	-
+--dimension@add line	time|frequency|eigenvalue	What the line runs along: time (a clock in seconds that fields can be time-resolved on), frequency, or with --coordinates eigenvalue (an operator's spectrum, the unevenly spaced line the layout places).	time	-
+)TBL",
+R"TBL(--vertices@add surface	FILE.npy	The surface from arrays instead of a mesh FILE: the vertices [n x 3] (with --faces and --name).	none (the mesh FILE)	-
+--faces@add surface	FILE.npy	The surface from arrays: its triangles [m x 3], 0-based vertex indices (with --vertices).	none (the mesh FILE)	-
+)TBL",
+R"TBL(@ read field
+old: __read field
+summary: Read a stored field by name: its values (a time-resolved field over a stated time range, read one chunk at a time), its manifold and cells, as JSON or .npy.
+example: nxr-neuro read field --dataset /data/study --subject sub-01 --name rest --from 0 --to 10 --out rest.npy
+opts: --all --budget --dataset* --from --name* --onto --out --projection-only --projectors --region --rows --shape-only --subject* --to
+)TBL",
+R"TBL(@ read statistic
+old: __read statistic
+summary: Read a stored statistic by name: its values on its axes, in the stored precision, as JSON or .npy.
+example: nxr-neuro read statistic --dataset /data/study --subject sub-01 --name rest_psd --out psd.npy
+opts: --budget --dataset* --name* --out --region --subject*
+)TBL",
+R"TBL(@ read operator
+old: __read operator
+summary: Read a stored operator by name: dense values, or a sparse operator's data, indices and indptr, as JSON or .npy files; with --onto, its rows carried onto a glued cortex.
+example: nxr-neuro read operator --dataset /data/study --subject sub-01 --name kernel --out kernel.npy
+opts: --budget --dataset* --name* --onto --out --region --subject*
+)TBL",
+R"TBL(@ read selection
+old: __read selection
+summary: Read a stored selection by name: its per-element array, or its spans and dictionary, or its measurement table of a measure.
+example: nxr-neuro read selection --dataset /data/study --subject sub-01 --name rest_bad_segments --out bad.npy
+opts: --budget --dataset* --field --measure --name* --out --region --subject*
+)TBL",
+R"TBL(@ read manifold
+old: __read manifold
+summary: Read a stored manifold by name: its positions and cells, axes, element names and coordinate system, or one labelling of it.
+example: nxr-neuro read manifold --dataset /data/study --subject sub-01 --name cortex --out cortex.npy
+opts: --budget --dataset* --family --name* --out --region --subject*
+)TBL",
+R"TBL(@ add field
+old: __add field
+summary: Store values computed elsewhere as a field on a manifold (optionally time-resolved on a time line), from a .npy file, as one unit; or in pieces with --begin, --append and --commit.
+example: nxr-neuro add field --dataset /data/study --subject sub-01 --name thickness --manifold cortex --values thickness.npy --unit mm
+opts: --append --begin --by --by-operator --cell --commit --contribution+ --dataset* --derived-from --description --dtype --kind --manifold --name --producer --region --replace --shape --subject --time --unit --value-type --values --write
+)TBL",
+R"TBL(@ add selection
+old: __add selection
+summary: Store a partition, set, pick of elements or spans on a line computed elsewhere, from a .npy file, as one unit.
+example: nxr-neuro add selection --dataset /data/study --subject sub-01 --name regions --manifold cortex --type partition --members regions.npy
+opts: --by --dataset* --description --entries --indices --manifold* --members --name* --of-field --producer --replace --spans --subject* --type* --weights
+)TBL",
+R"TBL(@ add statistic
+old: __add statistic
+summary: Store a statistic computed elsewhere (values on named axes, each along a manifold), from a .npy file, as one unit; or in pieces with --begin, --append and --commit.
+example: nxr-neuro add statistic --dataset /data/study --subject sub-01 --name psd --measure power_density --method welch --values psd.npy --axes channel:sensors frequency:freq --of-field rest
+opts: --append --axes+ --begin --by --commit --dataset* --description --dtype --measure --method --name --of-field --partition --region --replace --shape --subject --unit --value-type --values --write
+)TBL",
+R"TBL(@ add measurements
+old: __add measurements
+summary: Store measurements computed elsewhere over a selection's members (one array a measure), from .npy files, as one unit.
+example: nxr-neuro add measurements --dataset /data/study --subject sub-01 --selection regions --field thickness --measure mean=mean.npy
+opts: --by --dataset* --field --measure+* --replace --selection* --subject* --unit
+)TBL",
+R"TBL(@ add operator
+old: __add operator
+summary: Store a linear operator between two manifolds, or a transition between two coordinate systems, computed elsewhere, dense or sparse (CSR), from .npy files, as one unit.
+example: nxr-neuro add operator --dataset /data/study --subject sub-01 --name smoother --from-manifold cortex --to-manifold cortex --data d.npy --indices i.npy --indptr p.npy
+opts: --by --data --dataset* --description --from-coordinate-system --from-manifold* --from-selection --indices --indptr --kind --layout --method --name* --params --producer --replace --subject* --to-coordinate-system --to-manifold --values
+)TBL",
+R"TBL(@ add points
+old: __add points
+summary: Store a manifold of points (positions or one coordinate each) from a .npy file, as one unit.
+example: nxr-neuro add points --dataset /data/study --subject sub-01 --name electrodes --positions electrodes.npy
+opts: --by --coordinate-system --dataset* --description --name* --positions* --replace --subject*
+)TBL",
+R"TBL(@ add line
+old: __add line
+summary: Store a line: n points a spacing apart from an origin (a time line in seconds, a frequency line), or points at the coordinates given (an eigenvalue axis).
+example: nxr-neuro add line --dataset /data/study --subject sub-01 --name epoch_time --n 1000 --spacing 0.004 --unit s
+opts: --by --coordinates --dataset* --dimension --kinds --n --name* --origin --replace --spacing --subject* --unit*
+)TBL",
+R"TBL(--subject@list manifolds	NAME	The subject whose the manifolds are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list manifolds	TEXT	Only the the manifolds whose name contains TEXT (case-insensitive).	all names	-
+--kind@list manifolds	TEXT	Only the the manifolds of this manifold type (surface, line, points, product, ...).	all kinds	-
+--on@list manifolds	MANIFOLD	Only the the manifolds that lie on the manifold of this name (a field on it or on a product of it, an operator from or to it, a statistic with an axis along it, the manifolds built on it).	all	-
+--limit@list manifolds	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list manifolds	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list manifolds	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--subject@list fields	NAME	The subject whose the fields are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list fields	TEXT	Only the the fields whose name contains TEXT (case-insensitive).	all names	-
+--kind@list fields	TEXT	Only the the fields of this field kind (recording, source_estimate, ...).	all kinds	-
+--on@list fields	MANIFOLD	Only the the fields that lie on the manifold of this name (a field on it or on a product of it, an operator from or to it, a statistic with an axis along it, the manifolds built on it).	all	-
+--limit@list fields	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list fields	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list fields	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--subject@list selections	NAME	The subject whose the selections are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list selections	TEXT	Only the the selections whose name contains TEXT (case-insensitive).	all names	-
+--kind@list selections	TEXT	Only the the selections of this selection type (partition, set, spans, ...).	all kinds	-
+--on@list selections	MANIFOLD	Only the the selections that lie on the manifold of this name (a field on it or on a product of it, an operator from or to it, a statistic with an axis along it, the manifolds built on it).	all	-
+--limit@list selections	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list selections	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list selections	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--subject@list operators	NAME	The subject whose the operators are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list operators	TEXT	Only the the operators whose name contains TEXT (case-insensitive).	all names	-
+--kind@list operators	TEXT	Only the the operators of this operator kind.	all kinds	-
+--on@list operators	MANIFOLD	Only the the operators that lie on the manifold of this name (a field on it or on a product of it, an operator from or to it, a statistic with an axis along it, the manifolds built on it).	all	-
+--limit@list operators	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list operators	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list operators	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--subject@list statistics	NAME	The subject whose the statistics are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list statistics	TEXT	Only the the statistics whose name contains TEXT (case-insensitive).	all names	-
+--kind@list statistics	TEXT	Only the the statistics of this statistic measure (power_density, ...).	all kinds	-
+--on@list statistics	MANIFOLD	Only the the statistics that lie on the manifold of this name (a field on it or on a product of it, an operator from or to it, a statistic with an axis along it, the manifolds built on it).	all	-
+--limit@list statistics	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list statistics	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list statistics	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--subject@list dictionaries	NAME	The subject whose the dictionaries are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list dictionaries	TEXT	Only the the dictionaries whose name contains TEXT (case-insensitive).	all names	-
+--kind@list dictionaries	TEXT	Only the the dictionaries of this dictionary scope (app, dataset, subject, user).	all kinds	-
+--limit@list dictionaries	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list dictionaries	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list dictionaries	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--subject@list spaces	NAME	The subject whose the spaces are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list spaces	TEXT	Only the the spaces whose name contains TEXT (case-insensitive).	all names	-
+--kind@list spaces	TEXT	Only the the spaces of this space geometry (line, circle, plane, sphere, torus, volume).	all kinds	-
+--limit@list spaces	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list spaces	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list spaces	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--subject@list acquisitions	NAME	The subject whose the acquisitions are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--name@list acquisitions	TEXT	Only the the acquisitions whose name contains TEXT (case-insensitive).	all names	-
+--limit@list acquisitions	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list acquisitions	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list acquisitions	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--subject@list jobs	NAME	The subject whose the jobs are listed; without it a one-database dataset lists every subject's (each row names its own), a catalogue of packages needs it.	every subject (one-database dataset)	-
+--kind@list jobs	TEXT	Only the the jobs of this job kind.	all kinds	-
+--limit@list jobs	N	The most rows in a page; the result's `next` is the cursor of the following page.	none (all rows)	rows
+--after@list jobs	CURSOR	The `next` cursor of the previous page: the rows after it. The cursor is opaque.	none (the first page)	-
+--columns@list jobs	a,b,...	Only these columns of each row (a name of the class's description: name, kind, domain, ...), in this order.	all columns	-
+--classes@read subject	A,B,...	Only these classes of nodes: manifolds, fields, selections, operators, statistics, dictionaries, spaces, acquisitions.	all eight classes	-
+--related@read subject		Also the subjects this one refers to (its template, and the owners of the manifolds its operators map between and its fields lie on), each with its description.	off	-
+)TBL",
+R"TBL(@ list manifolds
+old: __list manifolds
+summary: List the manifolds of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list manifolds --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --on --subject
+)TBL",
+R"TBL(@ list fields
+old: __list fields
+summary: List the fields of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list fields --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --on --subject
+)TBL",
+R"TBL(@ list selections
+old: __list selections
+summary: List the selections of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list selections --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --on --subject
+)TBL",
+R"TBL(@ list operators
+old: __list operators
+summary: List the operators of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list operators --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --on --subject
+)TBL",
+R"TBL(@ list statistics
+old: __list statistics
+summary: List the statistics of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list statistics --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --on --subject
+)TBL",
+R"TBL(@ list dictionaries
+old: __list dictionaries
+summary: List the dictionaries of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list dictionaries --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --subject
+)TBL",
+R"TBL(@ list spaces
+old: __list spaces
+summary: List the spaces of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list spaces --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --name --subject
+)TBL",
+R"TBL(@ list acquisitions
+old: __list acquisitions
+summary: List the acquisitions of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list acquisitions --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --limit --name --subject
+)TBL",
+R"TBL(@ list jobs
+old: __list jobs
+summary: List the jobs of a subject, one description each (or only the columns asked for), filtered and paged by a cursor.
+example: nxr-neuro list jobs --dataset /data/study --subject sub-01 --limit 20
+opts: --after --columns --dataset* --kind --limit --subject
+)TBL",
+R"TBL(@ read subject
+old: __read subject
+summary: Read what a subject holds as one index: every node's description (manifolds, fields, selections, operators, statistics, dictionaries, spaces, acquisitions), no arrays.
+example: nxr-neuro read subject --dataset /data/study --subject sub-01 --classes fields,manifolds
+opts: --classes --dataset* --related --subject*
+)TBL",
+R"TBL(--begin@add field		Write the field in pieces, step 1: take its shape (--shape) and stored dtype (--dtype) and the command's usual options, check them, and print a write id. Nothing is in the subject until --commit; an unfinished write is rolled back by `recover dataset`.	off	-
+--append@add field		Write in pieces, step 2: write the --values of one --region of the write named by --write. A region outside the shape, one written already or one that overlaps a written region is refused.	off	-
+--commit@add field		Write in pieces, step 3: store the field of the write named by --write, as one unit, once every value of its shape was written (the regions missing are named).	off	-
+--write@add field	ID	The write id --begin printed (--append, --commit); through a handle, left out when the handle holds one unfinished write.	none	-
+--shape@add field	N,N,...	--begin: the full shape of the values (the manifold's elements first, then the time line's samples and a value type's components as add field takes its --values).	required with --begin	-
+--dtype@add field	DTYPE	--begin: the dtype the values are stored in, one of float32, float64, int32, int64, uint8, bool; each appended array is of this dtype.	required with --begin	-
+--region@add field	START:STOP,...	--append: the part of the shape the --values fill, START:STOP for each axis (STOP not included), comma separated, e.g. 0:5000,0:3.	required with --append	-
+--begin@add statistic		Write the statistic in pieces, step 1: take its shape (--shape) and stored dtype (--dtype) and the command's usual options, check them, and print a write id. Nothing is in the subject until --commit; an unfinished write is rolled back by `recover dataset`.	off	-
+--append@add statistic		Write in pieces, step 2: write the --values of one --region of the write named by --write. A region outside the shape, one written already or one that overlaps a written region is refused.	off	-
+--commit@add statistic		Write in pieces, step 3: store the statistic of the write named by --write, as one unit, once every value of its shape was written (the regions missing are named).	off	-
+--write@add statistic	ID	The write id --begin printed (--append, --commit); through a handle, left out when the handle holds one unfinished write.	none	-
+--shape@add statistic	N,N,...	--begin: the full shape of the values (the manifold's elements first, then the time line's samples and a value type's components as add statistic takes its --values).	required with --begin	-
+--dtype@add statistic	DTYPE	--begin: the dtype the values are stored in, one of float32, float64, int32, int64, uint8, bool; each appended array is of this dtype.	required with --begin	-
+--region@add statistic	START:STOP,...	--append: the part of the shape the --values fill, START:STOP for each axis (STOP not included), comma separated, e.g. 0:5000,0:3.	required with --append	-
+--by-operator@add field	NAME	The stored operator that made the field (its lineage: a source estimate is an inverse kernel applied to a recording), by name or id.	none	-
+--contribution@add field	SUBJECT:FIELD[:WEIGHT]	A field this field is made from (a mapped field): the subject it lies in (by name), its name and an optional weight; repeat or give several.	none	-
+--producer@add field	JSON	What the maker says of how the field was made, a JSON object kept in the node's producer record (not under the keys the command records itself: command, program, inputs, output, cache).	none	-
+--of-field@add selection	NAME	The field (a recording) the selection belongs to (an indices selection of a recording's channels), by name or id.	none	-
+--weights@add selection	FILE.npy	One weight a member [members] (a set's members in label order, the picks, the spans); float32 or float64; stored beside the selection.	none	-
+--producer@add selection	JSON	What the maker says of how the selection was made, a JSON object kept in its producer record (not under the keys the command records itself: command, program, inputs, output, cache).	none	-
+--layout@add operator	dense|csr|analytic	How the operator is stored: dense or csr from the arrays given, or analytic: by its method, with no matrix.	from the arrays given	-
+--method@add operator	NAME	With --layout analytic: how the operator is evaluated (its method's name).	none	-
+--params@add operator	JSON	With --layout analytic: the method's parameters, a JSON object.	none	-
+--from-selection@add operator	NAME	The selection of the --from-manifold the operator reads, by name or id.	none	-
+--from-coordinate-system@add operator	SPACE:NAME	A transition: the coordinate system the --values affine maps from, as SPACE:NAME (head:scs); the subject must hold it. Given with --to-coordinate-system; stores kind transition, as the MRI importer does.	none	-
+--to-coordinate-system@add operator	SPACE:NAME	A transition: the coordinate system the --values affine maps to, as SPACE:NAME (head:ncs); the subject must hold it. Given with --from-coordinate-system.	none	-
+--producer@add operator	JSON	What the maker says of how the operator was made, a JSON object kept in its producer record (not under the keys the command records itself: command, program, inputs, output, cache).	none	-
+--coordinates@add line	FILE.npy	A line whose points are not evenly spaced: one coordinate a point [n], strictly increasing, in --unit; float32 or float64, stored in float64. Not with --n, --spacing or --origin.	none (an evenly spaced line)	-
+--kinds@add line	FILE.npy	With --coordinates: one integer code a point [n] (what each point is, e.g. the kind of an eigenmode).	none	-
+--name@add product	NAME	Name the product is stored under in the subject; a name already used is refused.	required	-
+--factors@add product	A,B,...	The manifolds the product is of, by name or id, in axis order, two or more (a line over time, a surface over time); each must exist.	required	-
+--subject@add dictionary	NAME	The subject the dictionary belongs to (scope subject), or through which the dataset's dictionary is written.	required for --scope subject and for a catalogue of packages	-
+--name@add dictionary	NAME	Name the dictionary is stored under; one of that name and scope is refused.	required	-
+--scope@add dictionary	dataset|subject	Whose the dictionary is: every subject of the dataset's, or the subject's own.	required	-
+--entries@add dictionary	FILE.json	The dictionary's entries: a JSON list (or the file holding it) of {code, name, label, colour, description, params}; codes unique, colour #rrggbb.	required	-
+--description@add dictionary	TEXT	A sentence on what the codes mean.	none	-
+--name@edit manifold	NAME	The manifold to change, by name or id.	required	-
+--primary@edit manifold	yes|no	Make the surface the subject's primary one (the one the others use when no surface is named; the previous primary is cleared in the same unit), or clear the flag.	unchanged	-
+--label@edit manifold	TEXT	What the manifold is, for people (an empty text clears it).	unchanged	-
+--description@edit manifold	TEXT	A sentence on the manifold (an empty text clears it).	unchanged	-
+--subject@edit dictionary	NAME	The subject whose dictionary is edited (its own is looked for first, then the dataset's).	the dataset's dictionary; required for a catalogue of packages	-
+--name@edit dictionary	NAME	The dictionary to change, by name.	required	-
+--entry@edit dictionary	CODE	The entry to change, by its code.	none (give --entries --replace)	-
+--name-of@edit dictionary	TEXT	The new name of the entry.	unchanged	-
+--label@edit dictionary	TEXT	The new label of the entry (an empty text clears it).	unchanged	-
+--colour@edit dictionary	#rrggbb	The new colour of the entry.	unchanged	-
+--description@edit dictionary	TEXT	The new description of the entry (an empty text clears it).	unchanged	-
+--params@edit dictionary	JSON	The new parameters of the entry, JSON.	unchanged	-
+--entries@edit dictionary	FILE.json	Every entry, as in add dictionary (with --replace): the list replaces the entries; the codes a selection reads must stay.	none	-
+--replace@edit dictionary		With --entries: replace the whole list of entries.	off	-
+--name@edit operator	NAME	The projector operator to change, by name or id; another kind of operator is refused.	required	-
+--status@edit operator	0|1	The projector's status: 1 active (applied by --projectors active, the default of read field, run and run inverse), 0 inactive (not applied unless named); recorded in the operator's provenance.	required	-
+--note@edit operator	TEXT	Why the status is changed, kept in the edit entry of the operator's provenance.	none	-
+--from@copy nodes	PACKAGE	The subject package (a .nxr.zarr folder) to copy from: a package of the same subject, closed by its writer (its recorded content hash is checked).	required	-
+--manifold@copy nodes	NAME	A manifold of the source to copy (by name or path), with everything that lies on it or was made from it; repeat the option for several. Name the solved surface (a glued cortex, a sensor mesh), not its parent.	required	-
+--dry-run@copy nodes		Report what would be copied, kept (the target holds it, the same) and found in the target, without writing anything.	off	-
+--note@import condition	TEXT	With --replace-recording: why the samples are replaced, kept in the recording's provenance (replaced_samples).	required with --replace-recording	-
+--replace-recording@import condition		Replace, in place, the samples of the condition's raw recording already imported into the subject: read again from its BST-BIN file (with the same --resample), the samples and envelope rewritten, the old ones moved aside; its row, id, events, flags, projectors and every other node kept. Refused for other channels, another shape or rate. Nothing else of the condition is read or written.	off	-
+--by@edit operator	TEXT	Who changes it, kept in the edit entry of the operator's provenance.	none	-
+)TBL",
+R"TBL(@ add product
+old: __add product
+summary: Store the product manifold of stored factors (a line over time, a surface over time) under a name, as one unit.
+example: nxr-neuro add product --dataset /data/study --subject sub-01 --name spectrum_by_time --factors eigenvalues,epoch_time
+opts: --by --dataset* --factors* --name* --subject*
+)TBL",
+R"TBL(@ add dictionary
+old: __add dictionary
+summary: Store a dictionary (codes with names, labels, colours, descriptions and parameters) of the dataset or of a subject, from a JSON file, as one unit.
+example: nxr-neuro add dictionary --dataset /data/study --name quality --scope dataset --entries quality.json
+opts: --by --dataset* --description --entries* --name* --scope* --subject
+)TBL",
+R"TBL(@ edit manifold
+old: __edit manifold
+summary: Change a manifold's label, description or primary flag (making a surface primary clears the previous one in the same unit); its arrays are untouched.
+example: nxr-neuro edit manifold --dataset /data/study --subject sub-01 --name white --primary yes
+opts: --dataset* --description --label --name* --primary --subject*
+)TBL",
+R"TBL(@ edit dictionary
+old: __edit dictionary
+summary: Change one entry of a dictionary (name, label, colour, description, parameters), or replace its entries from a JSON file, as one unit.
+example: nxr-neuro edit dictionary --dataset /data/study --name quality --entry 2 --colour #ff8800
+opts: --colour --dataset* --description --entries --entry --label --name* --name-of --params --replace --subject
+)TBL",
+R"TBL(@ edit operator
+old: __edit operator
+summary: Set a stored projector's status, active (1) or inactive (0), as one unit, recorded in its provenance (who, when, why, before and after); its arrays are untouched.
+example: nxr-neuro edit operator --dataset /data/study --subject sub-01 --name rec_ssp_2 --status 0 --note "not the artefact it is named for"
+opts: --by --dataset* --name* --note --status* --subject*
+)TBL"
   };
 }

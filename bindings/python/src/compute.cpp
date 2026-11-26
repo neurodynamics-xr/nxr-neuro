@@ -31,6 +31,7 @@
 #include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
+#include "nxr/signal/decimation.h"
 #include "nxr/signal/filters.h"
 #include "nxr/stats/pca.h"
 #include "nxr/signal/spectral.h"
@@ -136,6 +137,18 @@ nb::tuple welch_cross_spectrum(const Array2<T>& x, double sfreq, size_t segment_
 
 // ---- filters ----
 
+// nxr::signal::decimate: [channels x kept] in the input's precision (the own columns [left, left + width), the kept ones from `offset`, every q-th)
+template <class T>
+nb::object decimate_rows(const Array2<T>& x, int q, Eigen::Index left, Eigen::Index width, Eigen::Index offset, int order) {
+  const Eigen::MatrixXd X = to_matrix<T>(x);
+  Eigen::MatrixXd Y;
+  {
+    nb::gil_scoped_release release;
+    Y = nxr::signal::decimate(X, q, left, width, offset, order);
+  }
+  return give<T>(std::move(Y));
+}
+
 template <class T>
 nb::object filter_apply(const std::string& kind, const Array2<T>& x, double sfreq, double lower, double upper, const std::vector<double>& frequencies,
                         const std::optional<std::string>& method, double ripple, const std::optional<double>& transition_bandwidth,
@@ -238,6 +251,8 @@ void bind_compute(nb::module_& m) {
   def_both(m, "signal_filter", &filter_apply<double>, &filter_apply<float>, arg("kind"), arg("x"), arg("sfreq"), arg("lower"), arg("upper"), arg("frequencies"),
            arg("method").none(), arg("ripple"), arg("transition_bandwidth").none(), arg("edge"), arg("transient_energy"), arg("transient_samples").none(),
            arg("remove_mean"), arg("notch_bandwidth").none(), arg("bandstop_order"));
+  def_both(m, "signal_decimate", &decimate_rows<double>, &decimate_rows<float>, arg("x"), arg("q"), arg("left"), arg("width"), arg("offset"), arg("order"));
+  m.def("signal_decimationHalo", &nxr::signal::decimationHalo, arg("q"), arg("order"));
   def_both(m, "stats_pca", &pca_fit<double>, &pca_fit<float>, arg("x"), arg("scale"));
   def_both(m, "stats_reconstruct", &pca_reconstruct<double>, &pca_reconstruct<float>, arg("scores"), arg("components"), arg("mean"), arg("scale"), arg("k"));
   m.def("operators_eigen", &manifold_eigenmodes, arg("vertices"), arg("faces"), arg("k"), arg("sigma").none(), arg("normalize"), arg("remove_dc"),

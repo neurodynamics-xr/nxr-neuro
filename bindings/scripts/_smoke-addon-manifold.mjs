@@ -108,11 +108,7 @@ const center = mctx.query.center([0, 1, 2], 2)
 check(center.length === 3 && center.every(Number.isFinite),
       'query.center([0,1,2]) → 3D point')
 
-// ── uv group: stripes (rest are NOT_WIRED) ───────────────────
-const stripes = mctx.uv.stripe(svf.vertexFieldRaw, 3.0, true)
-check(stripes.segmentCount > 0,
-      `uv.stripe(...) → ${stripes.segmentCount} segments`)
-
+// ── uv group: the rest are NOT_WIRED ──────────────────────────
 // ── NOT_WIRED_IN_ADDON leaves: stable error code ─────────────
 function expectNotWired(label, fn) {
   try { fn(); failures++; console.error(`  ✗ ${label} — expected throw`) }

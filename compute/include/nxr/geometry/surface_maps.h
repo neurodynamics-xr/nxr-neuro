@@ -1,14 +1,17 @@
-// nxr::geometry::glue — two closed pieces (a cortex's hemispheres) made ONE closed surface by anatomy: each piece's MEDIAL WALL is cut out as one disk and a
-// BRIDGE of new vertices is grown between the two rims. A line port of the Cortical Flow Studio's `glueMesh` and `sourcesOf` (studio/src/studio/glue.ts),
-// the reference (nxr's `geom.glue` is the same algorithm): the iteration orders, the tie rules and JavaScript's rounding are kept, so the faces come out
-// identical (test_glue, golden from the Studio's own function). Compiled without fused multiply-add (JavaScript has none).
+// nxr::geometry::glue — two closed pieces (a cortex's hemispheres) made ONE closed surface by anatomy: each piece's MEDIAL WALL is cut out EXACTLY (its
+// vertices and the faces touching them, nothing more) and a BRIDGE of new vertices is grown between the two rims. A line port of the Cortical Flow Studio's
+// `glueMesh` and `sourcesOf` (studio/src/studio/glue.ts), the reference: the iteration orders, the tie rules and JavaScript's rounding are kept, so on a wall
+// whose exact cut is one simple loop the faces come out identical (test_glue, golden from the Studio's own function). Compiled without fused multiply-add
+// (JavaScript has none). Unlike the reference, the cut is never widened: the rim the exact cut leaves is stitched as it is, a vertex it passes twice (a
+// pinch) included; a wall that is not one piece, or whose cut leaves more than one rim loop, is refused with the reason.
 //
 //   glueMesh(P, F, wall)   P [n x 3] row-major, F [f x 3], wall [n] (1 on the medial wall: the Desikan-Killiany atlas' `unassigned`)
-//     → positions: the KEPT vertices (ascending original index), then the bridge's R rings of N vertices each
+//     → positions: every vertex off the wall (ascending original index), then the bridge's R rings of N vertices each
 //       faces:     the two cut hemispheres' faces (re-indexed), then the bridge's
 //       keep:      each glued vertex's original index; −1 on the bridge (new vertices: not cortex)
 //       bridge:    its vertex count, rings, area and longest edge
-//   Checked, as the reference does: every half-edge once, every edge on two faces, one piece, χ = χ₁ + χ₂ − 2.
+//       edges:     its edge count
+//   Checked: the result is a SPHERE (closed: every edge on exactly two faces; consistently oriented; connected; V − E + F = 2), else refused naming the property.
 //   sourcesOf(P, g)        where each glued vertex's values come from: a kept vertex its own; a bridge vertex the inverse-distance blend of its 3 nearest
 //                          CUT wall vertices (the Studio carries an estimate over the bridge this way; a forward model is zero there: not cortex)
 #pragma once
@@ -23,6 +26,7 @@ struct Glued {
   std::vector<std::int32_t> faces;         // [faces x 3]
   std::vector<std::int32_t> keep;          // [total]: the original vertex, −1 on the bridge
   Bridge bridge;
+  std::int64_t edges = 0;                  // its edge count (a sphere: V + F − 2)
 };
 Glued glueMesh(const std::vector<double>& P, const std::vector<std::int32_t>& F, const std::vector<std::uint8_t>& wall);
 

@@ -24,7 +24,7 @@ const RENAMED = {
   curvatures: 'geometry.curvatures', bff: 'geometry.bff', frames: 'geometry.frames', vertexFrames: 'geometry.vertexFrames', normals: 'geometry.normals',
   heat: 'geometry.heat', tracePath: 'geometry.tracePath', exactDistance: 'geometry.exactDistance', parallel: 'geometry.parallel',
   extendScalar: 'geometry.extendScalar', logMap: 'geometry.logMap', findCenter: 'geometry.findCenter', signedHeat: 'geometry.signedHeat',
-  smoothFace: 'geometry.smoothFace', smoothVertex: 'geometry.smoothVertex', compute: 'geometry.compute', computeFreq: 'geometry.computeFreq',
+  smoothFace: 'geometry.smoothFace', smoothVertex: 'geometry.smoothVertex',
   heatDiffusion: 'synthesis.heatDiffusion', dampedWave: 'synthesis.dampedWave', randomDecomposed1Form: 'synthesis.randomDecomposed1Form',
 }
 // The context of the former surface class is gone with the class: the surface is data now.
@@ -141,11 +141,6 @@ export function wrap(mod) {
     // Smooth direction fields (Knöppel-Crane)
     'geometry.smoothFace': (surface, nSym = 4, alignToCurvature = false) => mod['geometry.smoothFace'](surface, nSym, alignToCurvature),
     'geometry.smoothVertex': (surface, nSym = 2, alignToCurvature = false) => mod['geometry.smoothVertex'](surface, nSym, alignToCurvature),
-    // Stripe patterns (Knöppel-Crane SIGGRAPH 2015)
-    'geometry.compute': (surface, vertexFieldRaw, uniformFrequency, connectOnSingularities = true) =>
-      mod['geometry.compute'](surface, asF64(vertexFieldRaw), uniformFrequency, connectOnSingularities),
-    'geometry.computeFreq': (surface, vertexFieldRaw, frequencies, connectOnSingularities = true) =>
-      mod['geometry.computeFreq'](surface, asF64(vertexFieldRaw), asF64(frequencies), connectOnSingularities),
 
     // ── synthesis ────────────────────────────────────────────────
     'synthesis.delta': (nV, sourceVerts, sourceValues) => mod['synthesis.delta'](nV, asI32(sourceVerts), asF64(sourceValues)),
@@ -336,14 +331,6 @@ function makeManifoldContext(api, surface) {
     logMap(sourceVertex, strategy = 1 /* AffineLocal */) {
       return api['geometry.logMap'](surface, sourceVertex, strategy)
     },
-    /** Sinusoidal stripes aligned to a 2-RoSy field. */
-    stripe(vertexFieldRaw, uniformFrequency, connectOnSingularities = true) {
-      return api['geometry.compute'](surface, vertexFieldRaw, uniformFrequency, connectOnSingularities)
-    },
-    /** Stripe pattern with a per-vertex frequency (length V). */
-    stripeFreq(vertexFieldRaw, frequencies, connectOnSingularities = true) {
-      return api['geometry.computeFreq'](surface, vertexFieldRaw, frequencies, connectOnSingularities)
-    },
   }
 
   // ----- interpolate --------------------------------------------------
@@ -365,7 +352,7 @@ function makeManifoldContext(api, surface) {
       return api['geometry.smoothFace'](surface, nSym, alignToCurvature)
     },
     /** Smoothest vertex-based direction field — the `vertexFieldRaw` field
-     *  in the result is what `uv.stripe` consumes. */
+     *  in the result is the vertex direction field. */
     smoothVertex(nSym = 2, alignToCurvature = false) {
       return api['geometry.smoothVertex'](surface, nSym, alignToCurvature)
     },
@@ -455,8 +442,6 @@ function makeFunctionalNamespace() {
     uv: {
       bff:        fwd('uv', 'bff'),
       logMap:     fwd('uv', 'logMap'),
-      stripe:     fwd('uv', 'stripe'),
-      stripeFreq: fwd('uv', 'stripeFreq'),
     },
     interpolate: {
       transport:         fwd('interpolate', 'transport'),

@@ -1,41 +1,60 @@
-// wasmClient — the Cortical Flow Studio's DataClient (nxr-cortical-flow/backend/src/client.ts) backed by nxr-neuro's io in WebAssembly.
-type Row = Record<string, unknown>;
-type As = 'float32' | 'float64' | 'int32' | 'uint32' | 'uint8';
-export declare class NxrIoError extends Error { readonly code: string; }
-export interface Catalog { schema_version: number; id: string; datasets: { id: string; name: string; path: string; database: string; subjects: number }[] }
-export interface WasmDataClient {
-  readonly base: string;
-  /** release the datasets held for writing (their writer locks) */
-  close(): void;
-  readonly headers: Readonly<Record<string, string>>;
-  status(): Promise<{ root: string; file: string; catalog: Catalog } | null>;
-  subjects: { get(storePath: string): Promise<Row | null>; put(id: string, patch: Row, by?: string): Promise<Row>; delete(id: string): Promise<{ id: string }> };
-  views: { get(view: string, where?: Record<string, string | number | null>, limit?: number): Promise<Row[]> };
-  rows: { get(table: string, id: string): Promise<Row | null> };
-  selections: { post(row: unknown, children?: unknown, by?: string): Promise<Row>; put(row: unknown, children?: unknown, by?: string): Promise<Row>; delete(id: string): Promise<void> };
-  fields: { post(row: unknown, by?: string, children?: unknown): Promise<Row>; put(row: unknown, by?: string): Promise<Row>; delete(id: string): Promise<void> };
-  operators: { post(row: unknown, children?: unknown, by?: string): Promise<Row>; put(row: unknown, by?: string): Promise<Row>; delete(id: string): Promise<void> };
-  manifolds: { post(row: unknown, children?: unknown, by?: string): Promise<Row>; put(row: unknown, by?: string): Promise<Row>; delete(id: string): Promise<void> };
-  dictionaries: { post(row: unknown, children?: unknown, by?: string): Promise<Row>; put(row: unknown, children?: unknown, by?: string): Promise<Row>; delete(id: string): Promise<void> };
-  measurements: { post(rows: unknown, by?: string): Promise<number>; get(query?: unknown, selectionId?: string): Promise<Row[]>; delete(where: unknown): Promise<number> };
-  jobs: { get(id?: string, where?: Row): Promise<Row | Row[] | null>; post(row: unknown, by?: string): Promise<Row>; put(row: unknown): Promise<Row> };
-  imports: { post(req: unknown): Promise<{ subject: Row; counts: Record<string, number> }[]> };
-  layout(storePath: string, q: { name: string; manifold?: string; type?: string; role?: 'time' | 'spectral' | 'eigen'; operator?: string; manifoldName?: string; factors?: readonly string[] }): Promise<{ path: string; folder: string }>;
-  /** dataset operations (outside the Studio's DataClient: its main process's ensureDataset / removeDataset / catalog) */
-  datasets: {
-    create(name: string, source?: { tool: string; protocol: string; path?: string }): Promise<Row>;
-    delete(name: string): Promise<{ deleted: string | null }>;
-    catalog(): Promise<Catalog>;
-  };
-  storeBase(storePath: string): string;
-  read(storePath: string, arrayPath: string, opts?: { as?: As; slice?: [number, number][] }): Promise<ArrayLike<number>>;
-  arrays: {
-    create(storePath: string, arrayPath: string, meta: { shape: readonly number[]; dtype: 'float32' | 'float64' | 'int32'; chunks?: readonly number[]; fill_value?: number | 'NaN' }): Promise<{ path: string; fresh: boolean }>;
-    put(storePath: string, arrayPath: string, data: Float32Array | Float64Array | Int32Array, region: readonly (readonly [number, number])[]): Promise<void>;
-    delete(storePath: string, arrayPath: string): Promise<void>;
-  };
+// nxr-neuro in WebAssembly: every command of the `nxr-neuro` command line as `nxr.<verb>.<noun>(options)` (docs/specs/2026-11-19-io-service.md, step 5).
+// The per-command options and the verbs are generated from cli/command_table.cpp (commands.d.ts).
+import type { Verbs } from './commands.js';
+export type * from './commands.js';
+
+/** An Error carrying the library's code: `invalid_argument`, `no_such_row`, `ambiguous`, `already_exists`, `not_found`, `writer_lock_held`, `not_writable`, `schema_version`, ... */
+export declare class NxrError extends Error { readonly code: string; constructor(message: string, code: string); }
+
+export type TypedArray = Float32Array | Float64Array | Int8Array | Int16Array | Int32Array | BigInt64Array | Uint8Array | Uint16Array | Uint32Array | BigUint64Array;
+/** an array a command takes: a typed array (its precision is kept), `{ data, shape, dtype? }` (C order; `shape` defaults to `[data.length]`), or the path of a .npy file (a string) */
+export type ArrayInput = TypedArray | { data: TypedArray; shape?: readonly number[]; dtype?: string };
+/** an array a command returns: a typed array in the stored precision, with its `shape` and `dtype` (a 64-bit integer array is a BigInt64Array) */
+export type NamedArray = TypedArray & { readonly shape: number[]; readonly dtype: string };
+
+/** What a command resolves to: its result object (the command line's `"stage": "result"` line). `arrays` holds the typed arrays by name when the command returns arrays (where the
+ *  command line writes an array to a file or prints its checksum); it replaces the result's own list of their descriptions (name, dtype, shape); with none returned it is that list, empty. */
+export type Result = Record<string, any> & { arrays?: Record<string, NamedArray> | unknown[] };
+
+export interface RunOptions {
+  dataset?: string;
+  subject?: string;
+  /** the time range, in seconds on the recording's clock: `from` and `to`, or `all` (none is refused) */
+  from?: number;
+  to?: number;
+  all?: boolean;
+  replace?: boolean;
+  dry_run?: boolean;
+  preset?: string;
+  /** a group definition: the members (names, in order); its results go into the dataset's template */
+  subjects?: string[];
+  progress?: (line: Record<string, unknown>) => void;
+  /** every other key is a parameter of the pipeline (`nxr.list.pipelines()`) */
+  [parameter: string]: unknown;
 }
-/** A DataClient on the datastore folder `root`. Step 1: reads and array writes; the row writes throw NxrIoError('unsupported'). */
-export declare function wasmClient(root: string, options?: { module?: unknown; program?: string }): Promise<WasmDataClient>;
-/** The whole of nxr-neuro in one module instance: the geometry compute (bindings/wasm's API) and data clients on datastores. */
-export declare function nxrNeuro(options?: Record<string, unknown>): Promise<{ module: unknown; compute: any; client(root: string, options?: { program?: string }): Promise<WasmDataClient> }>;
+
+/** a dataset opened once: the verbs with `dataset` bound, its databases kept open between calls, mode 'write' holding the writer lock until `close()` */
+export type Handle = {
+  readonly dataset: string;
+  readonly mode: 'read' | 'write';
+  readonly closed: boolean;
+  run(pipeline: string, options?: Omit<RunOptions, 'dataset'>): Promise<Result>;
+  close(): void;
+} & { [V in keyof Verbs]: Verbs[V] };
+
+export type Nxr = Verbs & {
+  /** `nxr-neuro run PIPELINE`: a pipeline on a subject (or a group) */
+  run(pipeline: string, options: RunOptions): Promise<Result>;
+  /** a handle on a dataset: the verbs with `dataset` bound; mode 'write' takes the writer lock now and holds it until `close()` */
+  open(dataset: string, mode?: 'read' | 'write'): Handle;
+  /** the geometry compute on a mesh in memory (bindings/wasm's API) */
+  compute: any;
+  /** the Emscripten module (the bindings' raw functions) */
+  module: any;
+  version: string;
+};
+
+/** The whole of nxr-neuro in one module instance. */
+export declare function nxrNeuro(options?: Record<string, unknown>): Promise<Nxr>;
+/** A small synthetic dataset for tests and demos in the datastore folder; returns its folder. */
+export declare function syntheticDataset(nxr: Nxr, datastore: string, options?: { name?: string; subject?: string; recording?: string; channels?: number; sfreq?: number; seconds?: number }): string;

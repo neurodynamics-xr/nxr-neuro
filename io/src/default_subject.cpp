@@ -117,7 +117,6 @@ Json create_default_subject(DatasetWriter& ds, const DefaultSubjectOptions& opt,
   so.source_format = "freesurfer";
   so.source_path = fs0.string();
   so.created_by = created_by;
-  so.default_template = false;
   SubjectWriter sub = SubjectWriter::create(ds, kDefaultSubject, so);
 
   Json surfaces = Json::array();

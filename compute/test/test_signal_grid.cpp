@@ -1,4 +1,4 @@
-// The windowed graph Fourier transform, jft / ijft, fromOperator, TimeFilterbank kinds, xwt and wcoherence. Goldens from golden/gen_signal_grid_golden.py (NumPy applied to the
+// The windowed graph Fourier transform, jft / ijft, a bank on an operator's Chebyshev bound, TimeFilterbank kinds, xwt and wcoherence. Goldens from golden/gen_signal_grid_golden.py (NumPy applied to the
 // published formulas of Shuman et al. 2016, GSPBox's jft, Grinsted et al. 2004; synthetic data only).
 #include "nxr/signal/graphfilterbank.h"
 #include "nxr/signal/graphtransforms.h"
@@ -38,6 +38,26 @@ int main() {
         EXPECT(throws([&] { gt::wgft(withMass, kernel, f); }), "wgft: a non-identity mass is refused");
         EXPECT(throws([&] { gt::wgft(t, kernel, Eigen::VectorXd::Zero(N - 1)); }), "wgft: a signal of the wrong length is refused");
     }
+    std::cout << "=== cone of influence vs MATLAB wcoherence ===\n";
+    {
+        const KeyValues m(std::string(NXR_TEST_GOLDEN_DIR) + "/wcoherence_coi_golden.txt");
+        const double fs = m.vec("fs")(0), coiScalar = m.vec("fourier_factor")(0) / m.vec("sigma_t")(0);   // the wavelet's constants, as MATLAB's own function gives them
+        for (const char* tag : {"N64", "N63"}) {
+            const std::string key = tag;
+            const Eigen::Index n = static_cast<Eigen::Index>(m.vec(key + ".n")(0));
+            const Eigen::VectorXd freq = m.vec(key + ".freq_hz"), coiHz = m.vec(key + ".coi_hz");
+            const Eigen::VectorXd mine = coneOfInfluenceFrequency(n, 1.0 / fs, coiScalar, freq.maxCoeff());
+            const double e = mine.size() == coiHz.size() ? ((mine - coiHz).cwiseAbs().array() / coiHz.array()).maxCoeff() : 1e300;
+            EXPECT(e < 1e-12, std::string("coneOfInfluenceFrequency (") + std::to_string(n) + " samples): relative error vs the cone wcoherence returns " + sci(e));
+            // the mask: a coefficient is inside the cone where its frequency is below the cone's (MATLAB's plot: below the dashed line), i.e. its period is above the cone's
+            const Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic> inside = insideConeOfInfluence(freq.cwiseInverse(), coneOfInfluenceFrequency(n, 1.0 / fs, coiScalar, freq.maxCoeff()).cwiseInverse());   // the cone as periods, capped at the highest frequency as MATLAB returns it
+            long wrong = 0, inCount = 0;
+            for (Eigen::Index s = 0; s < freq.size(); ++s)
+                for (Eigen::Index t = 0; t < n; ++t) { const bool want = freq(s) < coiHz(t) * (1.0 - 1e-12); wrong += inside(s, t) != want; inCount += inside(s, t); }
+            EXPECT(wrong == 0 && inCount > 0 && inCount < inside.size(), std::string("insideConeOfInfluence (") + std::to_string(n) + " samples): " + std::to_string(inCount) + " of " + std::to_string(inside.size()) + " inside, " + std::to_string(wrong) + " differ from MATLAB's cone");
+        }
+        EXPECT(throws([] { coneOfInfluence(0, 1.0, 1.0); }) && throws([] { coneOfInfluence(8, 0.0, 1.0); }) && throws([] { coneOfInfluenceFrequency(8, 1.0, 1.0, 0.0); }), "coneOfInfluence: bad length, step, constant and cap refused");
+    }
     std::cout << "=== jft / ijft (GSPBox: graph Fourier transform, unitary DFT over time) ===\n";
     {
         const int T = 16;
@@ -51,13 +71,15 @@ int main() {
         EXPECT((jointtransforms::ijftReal(t, Fh) - F).cwiseAbs().maxCoeff() < 1e-12 && (jointtransforms::ijft(t, jointtransforms::jft(t, Fc)) - Fc).cwiseAbs().maxCoeff() < 1e-12, "ijft(jft(F)) == F, real and complex");
         EXPECT(std::abs(Fh.cwiseAbs2().sum() - F.cwiseAbs2().sum()) < 1e-10 * F.cwiseAbs2().sum(), "jft is unitary (Parseval)");
     }
-    std::cout << "=== fromOperator ===\n";
+    std::cout << "=== a bank on an operator's Chebyshev bound ===\n";
     {
         Eigen::SparseMatrix<double> L = Ld.sparseView(1e-300, 1);
-        auto ob = gfb::fromOperator(L, gfb::Family::Heat);
+        // a bank on the operator's Chebyshev bound: the transform estimates lambda_max (Lanczos), the bank is designed on [0, that bound]
+        struct { gfb::GraphFilterbank bank; gt::ChebyshevOperator transform; } ob{{}, gt::ChebyshevOperator(L, {}, 0.0, 40)};
+        ob.bank = gfb::design(gfb::Family::Heat, gfb::Range::fromLmax(ob.transform.lmax()));
         const double lmaxTrue = g.vec("graph.lmax")(0);
-        EXPECT(ob.transform.lmax() >= lmaxTrue && ob.transform.lmax() < 1.2 * lmaxTrue, "fromOperator: the Chebyshev bound " + std::to_string(ob.transform.lmax()) + " covers the true lambda_max " + std::to_string(lmaxTrue) + " (Lanczos)");
-        EXPECT(ob.bank.size() > 0 && std::abs(ob.bank.lmax - ob.transform.lmax()) < 1e-12 && ob.transform.order() == 40, "fromOperator: the bank is designed on [0, bound]; the transform has Rheome's default order 40");
+        EXPECT(ob.transform.lmax() >= lmaxTrue && ob.transform.lmax() < 1.2 * lmaxTrue, "a bank on the Chebyshev bound: the Chebyshev bound " + std::to_string(ob.transform.lmax()) + " covers the true lambda_max " + std::to_string(lmaxTrue) + " (Lanczos)");
+        EXPECT(ob.bank.size() > 0 && std::abs(ob.bank.lmax - ob.transform.lmax()) < 1e-12 && ob.transform.order() == 40, "a bank on the Chebyshev bound: the bank is designed on [0, bound]; the transform has Rheome's default order 40");
         // the polynomial route stands for the exact one: g(L) f by the Chebyshev series vs through the eigenbasis, for the bank's members
         const Eigen::VectorXd f = g.vec("wgft.f");
         double worst = 0;
@@ -69,24 +91,25 @@ int main() {
             for (int k = 0; k < c.size(); ++k) c(k) *= gain(lam(k));
             worst = std::max(worst, (poly - t.phi * c).cwiseAbs().maxCoeff());
         }
-        EXPECT(worst < 1e-3, "fromOperator: the polynomial transform equals the exact eigenbasis filter for every member (max " + sci(worst) + ")");
-        gfb::OperatorBank itersine = gfb::fromOperator(L, gfb::Family::LogItersine, {}, 60);
-        EXPECT(itersine.transform.order() == 60 && itersine.bank.kind == "logitersine", "fromOperator: the family and the order are the caller's");
+        EXPECT(worst < 1e-3, "a bank on the Chebyshev bound: the polynomial transform equals the exact eigenbasis filter for every member (max " + sci(worst) + ")");
+        struct { gfb::GraphFilterbank bank; gt::ChebyshevOperator transform; } itersine{{}, gt::ChebyshevOperator(L, {}, 0.0, 60)};
+        itersine.bank = gfb::design(gfb::Family::LogItersine, gfb::Range::fromLmax(itersine.transform.lmax()));
+        EXPECT(itersine.transform.order() == 60 && itersine.bank.kind == "logitersine", "a bank on the Chebyshev bound: the family and the order are the caller's");
     }
     std::cout << "=== TimeFilterbank kinds ===\n";
     {
         using namespace timefilterbank;
         Design d(Family::Itersine, 1.0, Sides::Analytic); d.voices = 2;
-        const TimeFilterbank bank = design(d, 1024, 128.0);
+        const TimeFilterbank bank = timeBank(d, 1024, 128.0);
         const auto k = kinds(bank);
         bool ok = k.size() == static_cast<std::size_t>(bank.size()) && k.size() >= 3 && k.front() == "lowpass" && k.back() == "highpass";
         for (std::size_t i = 1; ok && i + 1 < k.size(); ++i) ok = k[i] == "band";
         EXPECT(ok, "kinds (itersine, analytic): lowpass, then bands, then highpass: " + std::to_string(k.size()) + " members");
         Design m(Family::Meyer, 1.0, Sides::Analytic);
-        const auto km = kinds(design(m, 1024, 128.0));
+        const auto km = kinds(timeBank(m, 1024, 128.0));
         EXPECT(km.front() == "lowpass" && km.back() == "highpass", "kinds (Meyer): the scaling member is a low-pass, the top member a high-pass");
         Design two(Family::Itersine, 1.0, Sides::TwoSided); two.voices = 2;
-        const auto kt = kinds(design(two, 1024, 128.0));
+        const auto kt = kinds(timeBank(two, 1024, 128.0));
         int dc = 0; for (auto& s : kt) dc += s == "dc";
         EXPECT(dc == 1, "kinds (two-sided): the DC bin is a member of its own ('dc')");
     }

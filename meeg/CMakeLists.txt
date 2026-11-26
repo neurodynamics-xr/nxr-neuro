@@ -5,6 +5,8 @@ add_library(nxr_meeg STATIC
   src/sphere.cpp
   src/forward.cpp
   src/sources.cpp
+  src/beamformer.cpp
+  src/scouts.cpp
 )
 target_include_directories(nxr_meeg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(nxr_meeg PUBLIC cxx_std_17)
@@ -17,7 +19,7 @@ else()
 endif()
 
 if(NXR_NEURO_BUILD_TESTS)
-  foreach(t test_inverse test_inverse_parity test_forward test_forward_parity test_sources)
+  foreach(t test_inverse test_inverse_parity test_forward test_forward_parity test_sources test_beamformer test_beamformer_parity test_beamformer_mne_parity)
     add_executable(${t} test/${t}.cpp)
     target_link_libraries(${t} PRIVATE nxr_meeg)
     target_compile_definitions(${t} PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")

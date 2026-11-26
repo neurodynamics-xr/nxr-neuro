@@ -1,5 +1,6 @@
 // nxr-pipelines — a pipeline definition (definition.h): nxr's nxr/pipelines/definition.py `parse`, line for line.
 #include "nxr/pipelines/definition.h"
+#include "nxr/graph/node.h"
 
 #include <algorithm>
 #include <cmath>
@@ -27,12 +28,13 @@ const Shipped kShipped[] = {
 
 const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw", "kind", "plans", "one_of"}, kSections = {"inputs", "parameters", "presets", "steps", "outputs"};
 const std::vector<std::string> kInputClasses = {"field", "operator", "selection", "measurement", "statistic", "manifold"};
-const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint", "read", "per_subject", "of", "over", "within"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
+const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint", "read", "per_subject", "of", "over", "within", "made_by"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
                             kOutputKeys = {"kind", "unit", "description", "types",   // types: a span set's event type (outputs of kind spans)
                                            // DECLARED OUTPUTS (docs/specs/2026-11-17-definition-outputs.md, section 3): where and of what; what the values are, the node says
                                            "name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors",
                                            "from_selection", "to_selection", "of_statistic", "inverts", "inverse_kind", "acquisition_of", "of_operator", "within", "by_operator",
-                                           "codes", "carry_origin", "optional", "get_or_create", "value_type", "components", "level", "detected_over"};   // detected_over: the grid input an irregular selection was detected over (provenance)
+                                           "codes", "carry_origin", "optional", "get_or_create", "value_type", "components", "level", "detected_over",
+                                           "geometry_of", "layout"};   // geometry_of: the manifold whose positions a complex shares · layout: analytic (an operator with no bytes, D93: found or made with the manifold it lies on)   // detected_over: the grid input an irregular selection was detected over (provenance)
   //    // get_or_create: a maker's selection stored by its maker key (found when there)  // codes: 2 = two codes a row (a sparse matrix over a selection's members) · carry_origin: the input whose origin and licence the result carries  // optional: the node makes it only when the data asks for it; a link may name alternatives `a|b`
 const std::regex kPresetName("^[a-z][a-z0-9_-]*$");
 const std::regex kName("^[a-z][a-z0-9_]*$");
@@ -68,7 +70,7 @@ void refuse_bare_index(const std::string& name, const Json& doc, const std::stri
     err(where, "parameters: " + name + ": a unit of 'level' or 'index' is a bare index; state the quantity (a duration, a band, a tile size, a wavelength), or `chart: index` for diagnostics");
 }
 // a parameter named as a command-line option the verb reserves cannot be one (the option would be ambiguous): refused when the definition is read
-const std::set<std::string> kReserved = {"dataset", "subject", "from", "to", "all", "replace", "dry_run", "json", "help", "quiet", "no_color", "human", "version", "chunks", "start", "stop"};
+const std::set<std::string> kReserved = {"dataset", "subject", "from", "to", "all", "replace", "dry_run", "json", "help", "quiet", "no_color", "human", "version", "chunks", "start", "stop", "projectors"};
 // the defaults (what the runner reads) and, apart, what each parameter declares about itself
 Json split_parameters(const Json& raw, Json& docs, const std::string& where) {
   Json defaults = Json::object();
@@ -241,6 +243,19 @@ Json expand_steps(const Json& list, const Json& params, const VarMap& vars, cons
       for (const VarMap& m : combinations(el["for"], params, vars, where)) for (const auto& x : expand_steps(el["do"], params, m, where)) out.push_back(x);
     } else {
       Json one = substitute(el, vars);
+      if (one.is_object() && one.contains("in") && one["in"].is_object()) {      // a LIST PORT: `<port>: {for: {var: $list}, each: "<value {var}>"}` written out as `<port>.0`, `<port>.1`, ... in the list's order
+        Json ins = Json::object();
+        for (const auto& [port, v] : one["in"].items()) {
+          if (v.is_object() && v.contains("for")) {
+            if (v.size() != 2 || !v.contains("each") || !v["each"].is_string()) err(where, "in." + port + ": a list port is {for: {var: $list}, each: \"<value, with {var}>\"}");
+            std::size_t i = 0;
+            for (const VarMap& m : combinations(v["for"], params, vars, where + ": in." + port)) ins[port + "." + std::to_string(i++)] = substitute(v["each"], m);
+          } else {
+            ins[port] = v;
+          }
+        }
+        one["in"] = std::move(ins);
+      }
       if (one.is_object() && one.contains("when")) {                      // a step left out when its condition fails; the key never reaches the flat definition
         const bool on = holds(one["when"], params, where);
         one.erase("when");
@@ -434,6 +449,13 @@ Definition parse(const Json& written, const std::string& source, const std::stri
       }
     }
     if (spec.contains("where")) params_used(spec["where"], w, params);
+    // `made_by: {pipeline: NAME, with: {...}}`: when nothing matches, the runner runs that shipped definition first, as its OWN run (its own provenance and cache key), says so, and finds again
+    if (spec.contains("made_by")) {
+      const Json& mb = spec["made_by"];
+      if (!mb.is_object() || !mb.contains("pipeline") || !mb["pipeline"].is_string() || (mb.contains("with") && !mb["with"].is_object()))
+        err(w, "made_by: {pipeline: NAME, with: {parameter: value | $parameter}} (the definition the runner runs first when nothing matches)");
+      if (mb.contains("with")) params_used(mb["with"], w, params);
+    }
     // `read: shape` (spec docs/specs/2026-11-17-surrogates.md, section 6): a streamed recording whose SHAPE only the run reads (its channels, rate, span, chunk grid), never a sample
     if (spec.contains("read") && !(spec["read"] == "samples" || (spec["read"] == "shape" && spec.contains("field"))))
       err(w, "read: samples (the default) or shape (a recording's shape only: no sample is read; a field only)");
@@ -459,7 +481,7 @@ Definition parse(const Json& written, const std::string& source, const std::stri
   }
 
   std::set<std::string> known(defined.begin(), defined.end());
-  bool accumulates = false;
+  bool accumulates = false, ends_in_sink = false;
   for (const std::string sec : {"before", "do", "after"}) {
     const Json raw = sec == "do" ? (chunks.is_object() ? chunks.value("do", Json()) : Json()) : steps.value(sec, Json());
     if (!raw.is_null() && !raw.is_array()) err(where, "steps." + section_label(sec) + ": a list of steps");
@@ -480,12 +502,14 @@ Definition parse(const Json& written, const std::string& source, const std::stri
       const Json ins = s.contains("in") && !s["in"].is_null() ? s["in"] : Json::object();
       if (!ins.is_object()) err(w, "in: a mapping of port → thing");
       for (const auto& [port, thing] : ins.items()) {
-        if (std::find(st.inputs.begin(), st.inputs.end(), port) == st.inputs.end()) err(w, "in: '" + port + "' is not one of its ports (" + join(st.inputs) + ")");
+        const std::string base = nxr::graph::port_of_key(port);
+        const bool listed = base != port && std::find(st.many.begin(), st.many.end(), base) != st.many.end();   // an element of a list port: `<port>.<index>`
+        if (!listed && std::find(st.inputs.begin(), st.inputs.end(), port) == st.inputs.end()) err(w, "in: '" + port + "' is not one of its ports (" + join(st.inputs) + ")");
         if (!thing.is_string() || !known.count(thing.get<std::string>())) err(w, "in." + port + ": " + thing.dump() + " is neither an input nor an earlier step's output");
       }
       std::vector<std::string> missing;
       for (const auto& p : st.inputs)
-        if (!ins.contains(p) && std::find(st.optional.begin(), st.optional.end(), p) == st.optional.end()) missing.push_back(p);
+        if (!ins.contains(p) && !ins.contains(p + ".0") && std::find(st.optional.begin(), st.optional.end(), p) == st.optional.end()) missing.push_back(p);
       if (!missing.empty()) err(w, "in: its port(s) " + join(missing) + " are not given");
       const Json with = s.contains("with") && !s["with"].is_null() ? s["with"] : Json::object();
       if (!with.is_object()) err(w, "with: a mapping of parameter → value");
@@ -504,6 +528,7 @@ Definition parse(const Json& written, const std::string& source, const std::stri
         if (known.count(o)) err(w, "out: '" + o + "' is already defined");
         known.insert(o);
       }
+      if (makes.empty()) ends_in_sink = true;                              // a sink (a render, an export another program implements): it makes nothing to store
       out.push_back(StepUse{st.name, ins, with, outs, sec, Json()});
     }
   }
@@ -513,7 +538,8 @@ Definition parse(const Json& written, const std::string& source, const std::stri
   if (d.over && !accumulates && !writes_recording && d.kind != "chain") err(where, "steps.chunks: nothing leaves the loop without an accumulate step or a recording output");
 
   const Json outputs = doc.contains("outputs") && !doc["outputs"].is_null() ? doc["outputs"] : Json::object();
-  if (!outputs.is_object() || outputs.empty()) err(where, "outputs: at least one (what the pipeline stores)");
+  if (!outputs.is_object()) err(where, "outputs: a mapping of name → what is stored");
+  if (outputs.empty() && !ends_in_sink) err(where, "outputs: at least one (what the pipeline stores), unless its steps end in sink nodes (nodes that make nothing: compile it; run has nothing to store)");
   for (const auto& [k, spec] : outputs.items()) {
     const std::string w = where + ": outputs." + k;
     if (!known.count(k) || inputs.contains(k)) err(w, "not made by any step");
@@ -770,6 +796,21 @@ bool when_holds(const Json& when, const Json& params) { return holds(when, param
 std::string quantity_for_index_parameter(const std::string& name) {
   const auto it = kIndexNames.find(name);
   return it == kIndexNames.end() ? std::string() : it->second;
+}
+
+bool streams_recording(const Definition& d) {
+  if (d.over) return true;
+  auto takes_recording = [](const Json& inputs) {                         // an input that is a recording: the run is over it, so its span is the caller's
+    if (inputs.is_object()) for (const auto& [k, v] : inputs.items()) { (void)k; if (v.is_object() && v.value("field", Json()) == "recording") return true; }
+    return false;
+  };
+  if (takes_recording(d.inputs)) return true;
+  if (d.templ.is_null()) return false;
+  if (d.templ.contains("inputs") && takes_recording(d.templ["inputs"])) return true;
+  if (d.templ.contains("steps") && has_key_deep(d.templ["steps"], "chunks")) return true;
+  if (d.templ.contains("inputs") && d.templ["inputs"].is_object())
+    for (const auto& [k, v] : d.templ["inputs"].items()) { (void)k; if (v.is_object() && v.contains("chain")) return true; }
+  return false;
 }
 
 Definition expand(const Definition& d, const Json& params) {

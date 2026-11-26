@@ -6,8 +6,9 @@ accepted. `docs/reference.md` describes every verb and method, `docs/specs/` the
 
 ## The method rule (how every computation is written; inside the paramount architecture)
 
-1. **Each method has a named reference, and the default reproduces it.** The references are nxr (Python), Rheome (MATLAB), the Cortical Flow Studio
-   (TypeScript), Brainstorm, MNE-Python and scipy. `docs/reference.md` says which one each method follows. The choice of the default reference is the maintainers';
+1. **Each method has a named reference, and the default reproduces it.** The references are the published methods and established external
+   implementations (Brainstorm, MNE-Python, scipy). The project's earlier implementations (nxr in Python, Rheome in MATLAB, the Cortical Flow Studio in
+   TypeScript) are not references: their existing goldens stay as regression checks until replaced, and no new method takes one of them as its reference. `docs/reference.md` says which one each method follows. The choice of the default reference is the maintainers';
    record it with its date in the method's section of `docs/reference.md`.
 2. **Alternatives are named options, never defaults.**
    - An option has the same name in the library's options struct and on the command line.
@@ -46,14 +47,15 @@ accepted. `docs/reference.md` describes every verb and method, `docs/specs/` the
   (MEX `compute.signal.lowpass`, the MATLAB package `+nxr/+compute/+signal/lowpass.m`, the Python module `nxr_neuro.compute.signal.lowpass` and its native `signal_lowpass`) use the same word.
   Add each new entry to `pipelines/test/names.tsv`; the test `test_names_across_layers` fails on a mismatch, on an entry missing from the table and on a table row the sources do not have.
   A renamed entry is refused under its old name with the new name in the message (`retired` rows), never kept as an alias.
+- **Every function a user would call is bound.** Every function a user would call on data (a transform and its inverse, a bank's design, a detector, a fit, a measure, a statistic) is bound in every face: as a registered node, or directly while the generated bindings are not built. Only implementation helpers stay internal, each listed by name in the coverage test's exception list. A binding uses the C++ word verbatim (camelCase), in every face.
 
 ## Adding a node or a pipeline (inside the paramount architecture and its decided structure)
 
 Every pipeline is a YAML definition of registered nodes (`ARCHITECTURE.md`, "Decided structure"). Do not write a new hand-wired `<x>_compute` C++
 pipeline, and do not extend an existing one: it is being converted into a definition.
 
-0. **First, the graph:** write the pipeline as its graph (nodes, typed ports, the inputs it is handed, the outputs it gives back), place every piece in
-   its part (loading · preparation · graph · readback), and check it against the Studio's chain. If any piece does not fit, stop and ask the maintainers.
+0. **First, the graph:** write the pipeline as its graph (nodes, typed ports, the inputs it is handed, the outputs it gives back) and place every
+   piece in its part (loading · preparation · graph · readback). If any piece does not fit, stop and ask the maintainers.
 1. **The maths** goes in `compute/` (or `meeg/`) as pure functions (matrices in, matrices out), with a unit test in `compute/test/test_<topic>.cpp`.
 2. **The node:** register each function as a node with its typed ports, its parameters (one comment each: meaning, default, unit) and its traits
    (time behaviour, precision). It takes arrays and parameters only: no database, no file, no lookup of its own inputs (those are bound by the runner).
@@ -101,7 +103,7 @@ is a PR of its own, on the latest main, with these parts in this order. Nothing 
 5. **Delete the hand-wired code**: the `<x>_compute` function and its options and result types, its CLI parser and its entry in `cli/command_table.cpp` (the definition's command `run <x>` is made from the definition), its
    private helpers that nothing else uses. Keep the old spelling refused, naming the new one (`converted_spellings()` in `cli/registry.cpp`). Tests that only used `<x>_compute` to make a fixture call the runner through a helper
    (`pipelines/test/psd_run.h`).
-6. **Tests.** Compare with the REFERENCES (the method's goldens: scipy, Brainstorm, nxr, Rheome), not with the old output: one run per preset and parameter set against the golden, to the stored precision; the result the same to
+6. **Tests.** Compare with the REFERENCES (the method's goldens: scipy, MNE, Brainstorm; the existing nxr and Rheome goldens), not with the old output: one run per preset and parameter set against the golden, to the stored precision; the result the same to
    the last bit for another storage chunk width; the stored record (axes, lines, partition, scaling, unit, provenance, a cache hit on a rerun, a refused name and `--replace`); the refusals (each names the parameter or port).
    Build only the targets you touch and run only their tests (`tools/tests.py`), never the full suite.
 7. **Docs.** `docs/reference.md`: the method's section says it is a definition, lists its parameters and presets, and what is stored; the command table loses the hand-wired row.
@@ -139,7 +141,7 @@ Every ctest test has exactly one kind, listed in `tests/kinds.tsv` (`name<TAB>ki
 - **A test checks behaviour:** values, shapes, refusals with their reason. Never the internal layout of a provenance record (`producer_json`, `params_json`
   options), log text or private names; a binding test checks the binding (a call, its result, names and errors), not the library again.
 - **No refactor gates in the suite:** a comparison of new code against the old code it replaces (a golden recorded from the old code, the old function
-  copied into the test) is run during the refactor and removed with it; only references (scipy, MNE, nxr, Rheome, the Studio, Brainstorm) stay as goldens.
+  copied into the test) is run during the refactor and removed with it; only references (scipy, MNE, Brainstorm) and the existing nxr, Rheome and Studio goldens stay.
 - **Performance is measured in `bench/`** (`NXR_BUILD_BENCH`, off by default; `tools/bench.py` runs it and compares with a baseline), never in a test.
 - **A new pipeline:** one integration test, plus a unit test for each new node.
 - Select by kind: `tools/tests.py status --kind unit --fast REGEX` (`--kind` is repeatable, `--fast` leaves out `slow`).
@@ -150,8 +152,10 @@ CMake 3.20+, Ninja, C++17. Clone with `--recurse-submodules` (geometry-central).
 
     cmake -S . -B build -G Ninja                         # configure once
     cmake --build build --target <the targets you changed> 2>&1 | tail -20
-    tools/tests.py status REGEX         # builds ONLY the matching tests' targets; lists green, stale, failed or new; runs nothing
-    tools/tests.py run REGEX            # builds ONLY the matching tests' targets; runs the stale, failed and new ones among them; records them
+    tools/tests.py status REGEX         # lists green, stale, failed, new or NOT BUILT; builds nothing and runs nothing (seconds)
+    tools/tests.py build REGEX          # the ONLY command that compiles: the matching tests' targets (ask first: no build without the maintainers' OK)
+    tools/tests.py run REGEX            # runs the stale, failed and new ones among them and records them; never builds: refuses tests not built
+    tools/tests.py run '^(layering_.*|test_names_across_layers|<your tests>)$'   # ALWAYS with the guards: seconds, and they catch what CI finds after minutes
     tools/tests.py show TEST            # a test's last result and what it printed
     tools/tests.py run --suite          # the full build and suite: once, at the end of a round, never during development
 
@@ -175,8 +179,11 @@ the work was done, whatever the change.
 - **The full suite runs at the end of a development round, when the maintainers say so,** not during it. During development: `status`,
   then `run` on what the change reaches.
 - **Continuous integration** (`.github/workflows/ci.yml`; selection by `tools/ci_select.py`, build targets by `tools/tests.py targets`): CI builds only what it tests.
-  - **Pull requests (Linux) and pushes to main (Linux and macOS)** run the same scoped selection, slow tests left out (a push to main repeats its pull
-    request's selection, which already passed). A changed test source (`*/test/<name>.cpp`) selects only that test; a changed library source selects that
+  - **CI runs at milestones only.** Work lands on the integration branch `develop` with scoped local tests and runs no CI there; `main` is updated
+    from `develop` by one pull request at a milestone, and that pull request runs CI on Linux and macOS, with the bindings' workflows when their binding
+    changed. Branches merged into `develop` open no pull request and wait on no CI.
+  - **Milestone pull requests and pushes to main (Linux and macOS)** run the same scoped selection, slow tests left out (a push to main repeats its pull
+    request's selection, which already passed, and fills the compiler cache the next milestone starts from). A changed test source (`*/test/<name>.cpp`) selects only that test; a changed library source selects that
     library's tests (every kind) plus the **integration** tests of the libraries that depend on it (not their unit or golden tests); the guards
     (`^layering_`, kind `guard`) always run. Libraries (labels): `compute`, `meeg`, `io_formats`, `io`, `pipelines_graph`, `pipelines`, `cli`.
     A shared file (top-level CMake, `cmake/`, the CI workflow) selects everything; a change to `tools/` selects the guards only (except `tools/gen_record_rows.py`,
@@ -184,12 +191,12 @@ the work was done, whatever the change.
     Documentation-only pull requests run nothing.
   - **The full suite** (every test, slow ones included, Linux and macOS) runs **only nightly**, on version tags and on demand, and the nightly run first checks
     whether main changed since the last successful nightly run and does nothing if not.
-  - **The bindings** (`matlab.yml`, `wheels.yml`, `wasm.yml`) run only when their binding changes (and on tags and on demand), build only the binding
+  - **The bindings** (`matlab.yml`, `wheels.yml`, `wasm.yml`) run only in a milestone pull request that changes their binding (and on tags and on demand), build only the binding
     target and the libraries it links, and have no nightly run.
   - A test that takes minutes is `slow` in `tests/kinds.tsv`.
 
 - **Test only what the change touches.**
-  - A small change runs the tests of the function it changed: the one test file, or `ctest -R <test>`, or `pytest file::test`.
+  - A small change runs the tests of the function it changed: `tools/tests.py run '<the test>|^layering_'`, or `pytest file::test`.
   - Then stop. Do not sweep for every test that mentions the topic, and do not rerun the whole C++ or parity suite.
   - Run the full suites only for a change across several areas or a shared core (a reader/writer, the schema, a header used everywhere), and say why.
   - The same applies in the sibling repositories.
@@ -237,7 +244,11 @@ not signed or notarised yet; that needs an Apple developer account and is not do
 - **Every PR description answers the architecture checklist** (the architecture policy, point 5). A PR that breaks the architecture is not opened:
   ask the maintainers first.
 
-- **Branch and PR:** work on a branch in this checkout (`feat/…`, `fix/…`, `docs/…`) and merge through a pull request on `neurodynamics-xr/nxr-neuro`.
+- **Branches:** development goes into the integration branch `develop`. Work on a branch from it (`feat/…`, `fix/…`, `docs/…`), one commit per change;
+  when its scoped local tests pass, merge it into `develop` (no pull request, no CI) and push.
+- **Milestones:** `main` is updated from `develop` by ONE pull request on `neurodynamics-xr/nxr-neuro`, when a piece of work is done. Before opening it,
+  run CI's own selection locally once (configure first): `python3 tools/ci_select.py --base origin/main --head develop --exclude-slow` prints the
+  tests (`CTEST_NAMES`); run them with `tools/tests.py run '<that regex>'`. The pull request then needs one CI round (Linux, macOS, changed bindings).
 - **Commit messages:** one sentence on what changed and why, prefixed by the area when it helps (`flow: …`).
 - **Never** force-push, leave work uncommitted at the end of a run, or commit data, build outputs or `Testing/`.
 - **`compute/` and `io/` came in by `git subtree`** with their history (`git log -- compute/src` reaches the old repos). The old `nxr-compute` and `nxr-io`

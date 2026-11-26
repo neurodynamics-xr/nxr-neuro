@@ -3,6 +3,7 @@
 #include "nxr/signal/fourier.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -87,6 +88,32 @@ static Design designKaiser(const FilterOptions& o) {
     if ((o.kind == Kind::Highpass || o.kind == Kind::Bandpass) && !(lower > 0 && lower < ny)) bad("the high-pass edge must be between 0 and Nyquist (" + std::to_string(ny) + " Hz)");
     if ((o.kind == Kind::Lowpass || o.kind == Kind::Bandpass) && !(upper > 0 && upper < ny)) bad("the low-pass edge must be between 0 and Nyquist (" + std::to_string(ny) + " Hz)");
     if (o.kind == Kind::Bandpass && !(lower < upper)) bad("the lower edge must be below the upper edge");
+    if (o.transitionRule == TransitionRule::Brainstorm2018 && !o.transitionBandwidth) {
+        // the 2018-10-12 release's rule: stop edges at 0.5 x (0.85 x above 5 Hz) the high-pass edge and 1.15 x (1.05 x alone) the low-pass edge; the order from the narrower
+        // transition (kaiserord), each cut-off at its transition's midpoint (MATLAB kaiserord's Wn)
+        double width = std::numeric_limits<double>::infinity();
+        double lo = 0, hi = 0;   // the cut-offs, Hz
+        std::vector<std::pair<double, double>> pass;      // in units of Nyquist
+        if (lower > 0) {
+            const double stop = (lower <= 5 ? 0.5 : 0.85) * lower;
+            width = std::min(width, lower - stop);
+            lo = (lower + stop) / 2;
+        }
+        if (upper > 0) {
+            const double stop = std::min((o.kind == Kind::Lowpass ? 1.05 : 1.15) * upper, ny * (1 - 1e-15));
+            if (!(stop > upper)) bad("the low-pass edge's stop band reaches Nyquist");
+            width = std::min(width, stop - upper);
+            hi = (upper + stop) / 2;
+        }
+        if (o.kind == Kind::Lowpass) pass = {{0, hi / ny}};
+        else if (o.kind == Kind::Highpass) pass = {{lo / ny, 1}};
+        else if (o.kind == Kind::Bandpass) pass = {{lo / ny, hi / ny}};
+        else bad("the Kaiser FIR design makes low-pass, high-pass and band-pass filters");
+        auto [n, beta] = kaiserord(width, o.sfreq, o.ripple);
+        const std::size_t order = n + (n % 2);
+        d.b = fir1(order, pass, kaiser(order + 1, beta));
+        return d;
+    }
     // Brainstorm's rule: 0.5 Hz transition bands, 1 Hz when the high-pass edge is above 5 Hz and for a low-pass alone
     const double tb = o.transitionBandwidth ? *o.transitionBandwidth : (o.kind == Kind::Lowpass ? 1.0 : lower <= 5 ? 0.5 : 1.0);
     if (!(tb > 0)) bad("the transition bandwidth must be positive");
@@ -391,26 +418,13 @@ MatrixXd filter(const MatrixXd& w, const FilterOptions& options, const VectorXd&
 
 // ── whole-record verbs ──────────────────────────────────────────────────────────────────────────────────────────
 
-// The record in at most two windows, as the former streaming filter drained it: the first `n - lookAhead` samples (when that is at least the minimum block) with the record's end still ahead, then the
-// rest with the record's end reached (a window of the last lookBehind samples before it as the halo).
+// A whole array is one window: no halo, both ends the record's.
 static MatrixXd runWhole(const MatrixXd& x, const FilterOptions& o) {
     if (x.rows() < 1) bad("at least one channel");
     VectorXd mean;
     if (o.removeMean) mean = x.rowwise().mean();
-    const Design d = design(o);
-    const std::int64_t n = x.cols(), minBlock = static_cast<std::int64_t>(std::max<std::size_t>(d.lookAhead, 1024));
-    const std::int64_t need = n - static_cast<std::int64_t>(d.lookAhead);
-    MatrixXd out(x.rows(), n);
-    if (n == 0) return out;
-    std::int64_t done = 0;
-    if (need >= minBlock) {
-        out.leftCols(need) = filter(x, o, d, mean, 0, static_cast<std::size_t>(need), true, false);
-        done = need;
-    }
-    const std::int64_t ws = std::max<std::int64_t>(0, done - static_cast<std::int64_t>(d.lookBehind));
-    const MatrixXd win = x.middleCols(ws, n - ws);
-    out.middleCols(done, n - done) = filter(win, o, d, mean, static_cast<std::size_t>(done - ws), static_cast<std::size_t>(n - done), ws == 0, true);
-    return out;
+    if (x.cols() == 0) return MatrixXd(x.rows(), 0);
+    return filter(x, o, design(o), mean, 0, static_cast<std::size_t>(x.cols()), true, true);
 }
 
 MatrixXd lowpass(const MatrixXd& x, double upperEdge, FilterOptions o) { o.kind = Kind::Lowpass; o.upperEdge = upperEdge; return runWhole(x, o); }

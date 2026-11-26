@@ -237,8 +237,7 @@
    "test_speedspectrum",
    "test_taps",
    "test_timebank",
-   "test_welch",
-   "test_wt"
+   "test_welch"
   ],
   "creates": [
    "measurement/congruence_norms.h",

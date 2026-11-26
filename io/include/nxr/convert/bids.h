@@ -41,7 +41,8 @@ struct BidsImport {
 // The header of a recording the way the BIDS tables describe it: channel types and status from `channels`, positions from `electrodes` (in `position_unit`), events from
 // `events` (the data file's own non-BAD markers dropped). Any table may be absent (null). `import_bids` hands it to `import_recording` (RecordingImport::header); exposed for the tests.
 nxr::formats::RecordingHeader bids_header(const nxr::formats::RecordingHeader& base, const nxr::formats::tsv::Table* channels, const nxr::formats::tsv::Table* events,
-                                          const nxr::formats::tsv::Table* electrodes, const std::string& position_unit);
+                                          const nxr::formats::tsv::Table* electrodes, const std::string& position_unit,
+                                          const std::string& position_space = std::string());   // `position_space`: the coordinate system's name (the electrodes' `space` entity); the positions stay in it (frame `bids-<space>`)
 
 // Import `bids_root` into the new dataset folder `dataset_folder` (refused when it holds a catalogue). Returns {dataset, subjects, recordings, skipped, participants, packages}.
 nxr::io::Json import_bids(const std::filesystem::path& bids_root, const std::filesystem::path& dataset_folder, const BidsImport& opt);

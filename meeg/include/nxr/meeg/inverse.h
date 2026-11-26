@@ -7,9 +7,9 @@
 // The estimate of the source currents (A.m) from the channels as recorded is J = K b. The defaults reproduce Brainstorm's default unconstrained current
 // kernel; the other conventions (MNE-Python's) are named options, never silent differences.
 //
-// CALLER'S JOB, before the call: G and C are restricted to the good channels; with SSP projectors P, G := P G and C := P C P^T; with EEG, sEEG or ECoG
-// channels, the average reference A is applied, G := A G and C := A C A^T. K is then applied to the recording as read (the whitener's null space removes
-// the projected and common-mode parts).
+// CALLER'S JOB, before the call: G and C restricted to the good channels and the recording's projectors applied as the reference does (the node
+// meeg.minimum_norm, nxr::pipelines::graph::minimum_norm_inputs): Brainstorm G := A P G, C := A P C P^T A^T; MNE-Python C := P C P^T, G as it is, and the
+// kernel then multiplied by P on the right. K is applied to the recording as loaded (its active projectors applied by the chunk service).
 #pragma once
 #include <Eigen/Dense>
 #include <string>

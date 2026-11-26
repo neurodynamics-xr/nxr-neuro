@@ -347,7 +347,7 @@ definition language's `chain:` input (section 4.2); the chain's provenance (its 
 |---|---|---|---|
 | `band_analytic` | a recording | `bands` (a band set, made by `select.bands`), shape | `field<sensors × members(bands) × T; complex>`: one transform a block shared by all bands, then the bands selected |
 | `cortical_band` | a recording, an inverse kernel, (optional) a surface grid, (optional) a frame grid, (optional) canonical frames | `bands`, shape, `spatial_scale` (folded into the kernel once: M = (F ⊗ I)K, D106), transform route (`auto` eigenmodes first, `chebyshev` announced, `exact`), envelope (`temporal` / `spatiotemporal`) | `field<cortex × members(bands) × T (or frames); complex vector3 | scalar>` |
-| `member_activation` | a recording, a kernel, a filter bank | the bank member (Hz) | `field<cortex × frames(member rate)>` (optical flow's input) |
+| `member_activation` | a recording, a kernel, a filter bank, a frame grid | the bank member (Hz) | `field<cortex × frames(the frame grid's)>` (optical flow's input) |
 | `band_outer` | composes `band_analytic`, then the pointwise outer product z zᴴ (the general A M Aᴴ algebra) | as `band_analytic`, channels | `field<channels × channels × T; complex>` |
 
 The FORM of a field (`magnitude`, `power`, `phase_current`, `outer`, `none`) is one pointwise node `field.form` (the Studio's `fieldForms.ts`,

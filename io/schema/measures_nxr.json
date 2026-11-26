@@ -930,6 +930,50 @@
    "description": "the exact circulation of the phase field round the tile (rad: the net rotation, the integral of its curl; a winding number x 2 pi round a phase singularity), the tile integral of nxr's measure/integrals; additive up the tile tree; the mean curl is this over the tile's area"
   },
   {
+   "code": 1063,
+   "name": "one_form_energy",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the ⋆1 energy Σ_e ⋆1_e w_e² of a 1-form w on the intrinsic edges (the one the Hodge split took: a phase step, rad, or a phase current) over a member: the sum of nxr::signal::vertexEnergy (each edge's ⋆1 w² half at each end). The denominator of the split's shares"
+  },
+  {
+   "code": 1064,
+   "name": "exact_energy",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the ⋆1 energy of the EXACT (curl-free) part of a 1-form (d of a potential; nxr::signal::splitPhase) over a member: the sum of vertexEnergy of the exact part (rad²)"
+  },
+  {
+   "code": 1065,
+   "name": "coexact_energy",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the ⋆1 energy of the COEXACT (divergence-free) part of a 1-form (nxr::signal::splitPhase) over a member: the sum of vertexEnergy of the coexact part (rad²)"
+  },
+  {
+   "code": 1066,
+   "name": "exact_misfit_energy",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the ⋆1 energy of what the exact part leaves of a 1-form, w − exact (the coexact part and what lies outside the modes) over a member: the sum of vertexEnergy of w − exact (rad²)"
+  },
+  {
    "code": 1116,
    "name": "displacement",
    "merge": "none",
@@ -1069,7 +1113,7 @@
    "weight": null,
    "span": "levels",
    "derived_from": null,
-   "description": "\u03a3|z|\u00b2 of the whole spectrum a band's power is a share of (the denominator of the relative power; stored with the band's power_sum)"
+   "description": "Σ|z|² of the whole spectrum a band's power is a share of (the denominator of the relative power; stored with the band's power_sum)"
   },
   {
    "code": 1128,
@@ -1084,6 +1128,228 @@
     "total_power"
    ],
    "description": "the share of the total power a band holds: power_sum / total_power (Brainstorm's relative power; 0 where the total is 0). A RATIO of sums, derived at read, never a sum of ratios"
+  },
+  {
+   "code": 1129,
+   "name": "exact_share",
+   "merge": "derived",
+   "form": "none",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "exact_energy",
+    "one_form_energy"
+   ],
+   "description": "the share of a 1-form's ⋆1 energy its exact (curl-free) part holds over a member: exact_energy / one_form_energy. A RATIO of sums, derived at read (NaN where the member has no energy). The parts are ⋆1-orthogonal over the whole complex only: over a tile their cross terms remain, so a tile's share may pass 1"
+  },
+  {
+   "code": 1130,
+   "name": "coexact_share",
+   "merge": "derived",
+   "form": "none",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "coexact_energy",
+    "one_form_energy"
+   ],
+   "description": "the share of a 1-form's ⋆1 energy its coexact (divergence-free) part holds over a member: coexact_energy / one_form_energy. A RATIO of sums, derived at read (over a tile, as exact_share, it may pass 1: the cross terms of the parts remain)"
+  },
+  {
+   "code": 1131,
+   "name": "residual_share",
+   "merge": "derived",
+   "form": "none",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "one_form_energy",
+    "exact_energy",
+    "coexact_energy"
+   ],
+   "description": "the share of a 1-form's ⋆1 energy outside the modes over a member: max(0, 1 − (exact_energy + coexact_energy) / one_form_energy) (the parts are ⋆1-orthogonal over the whole complex; over a tile the parts' cross terms make it approximate, hence the floor at 0). Derived at read"
+  },
+  {
+   "code": 1132,
+   "name": "exact_misfit_share",
+   "merge": "derived",
+   "form": "none",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "exact_misfit_energy",
+    "one_form_energy"
+   ],
+   "description": "the share of a 1-form's ⋆1 energy its exact part leaves over a member: exact_misfit_energy / one_form_energy (0: a potential explains the whole form; on a single vertex, the share over its edges). A RATIO of sums, derived at read"
+  },
+  {
+   "code": 1067,
+   "name": "atom_time",
+   "merge": "none",
+   "form": "member",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's centre, the recording's clock (the tile's centre; the fit refines frequency and width, never time) (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1068,
+   "name": "atom_frequency",
+   "merge": "none",
+   "form": "member",
+   "unit": "Hz",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's frequency, refined by a parabola through log|W| (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1069,
+   "name": "atom_width",
+   "merge": "none",
+   "form": "member",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's width sigma (its envelope e^(-t^2/2 sigma^2)), refined by a parabola through log|W| in log width (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1070,
+   "name": "atom_fwhm",
+   "merge": "none",
+   "form": "member",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's duration: the full width at half maximum, 2.355 sigma (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1071,
+   "name": "atom_cycles",
+   "merge": "none",
+   "form": "member",
+   "unit": "cycles",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's cycles at half maximum, 2.355 sigma f (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1072,
+   "name": "atom_amplitude",
+   "merge": "none",
+   "form": "member",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's amplitude, 2|W| / (pi^(1/4) sqrt(sigma)): the amplitude of the Gaussian burst it matches, in the series' unit (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1073,
+   "name": "atom_phase",
+   "merge": "none",
+   "form": "member",
+   "unit": "rad",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's phase arg W, of cos(2 pi f (t - t0) + phase) (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1074,
+   "name": "atom_coefficient",
+   "merge": "none",
+   "form": "member",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a matched Gabor atom's |W|, the unit-energy coefficient (the series' unit times sqrt(s)) (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1075,
+   "name": "atom_width_peak",
+   "merge": "none",
+   "form": "member",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "1 when the atom's |W| peaks along width too (larger than at the neighbouring widths, inside the grid's widths), else 0 (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1076,
+   "name": "atom_r2",
+   "merge": "none",
+   "form": "member",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the R^2 of the atom against the band's signal in its half-maximum window: the share of the band's signal there that one atom explains (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1077,
+   "name": "onset",
+   "merge": "none",
+   "form": "member",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "an event's onset, the recording's clock, by the rule its run names (the tangent on its envelope, or the atom's half maximum) (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1078,
+   "name": "offset",
+   "merge": "none",
+   "form": "member",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "an event's offset, the recording's clock, by the rule its run names (the tangent on its envelope, or the atom's half maximum) (a per-event value: it does not roll up; nxr-neuro, 2026-11-20)"
+  },
+  {
+   "code": 1133,
+   "name": "phase_current",
+   "merge": "sum",
+   "form": "edge_1form",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": null,
+   "description": "the phase current Im(conj(z_tail) z_tip) of a band's complex field per intrinsic edge (a 1-form), summed over the member's samples (a cell of a joint filterbank: its tiles and bins)"
+  },
+  {
+   "code": 1134,
+   "name": "exact_potential",
+   "merge": "none",
+   "form": "vertex",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": null,
+   "description": "the potential of the exact (curl-free) part of a 1-form per vertex (nxr::signal::splitPhase): its sources and sinks; a map, never summed across a member"
+  },
+  {
+   "code": 1135,
+   "name": "coexact_stream",
+   "merge": "none",
+   "form": "vertex",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": null,
+   "description": "the stream function of the coexact (divergence-free) part of a 1-form per vertex (nxr::signal::splitPhase): its rotation; a map, never summed across a member"
   }
  ]
 }

@@ -15,6 +15,7 @@
 #include "nxr/bst/sensors.h"
 #include "nxr/bst/projectors.h"
 #include "nxr/bst/session.h"
+#include "nxr/bst/subject.h"
 #include "nxr/io/layout.h"
 
 namespace nxr::bst {
@@ -71,11 +72,44 @@ std::vector<std::string> channel_names_of(const Value* channel) {
   return out;
 }
 
+// the flags of a raw link (its `ChannelFlag`, else the sFile's `channelflag`, else every channel good) and the channel file's sha1 with them: the import's fingerprint (D121)
+std::vector<std::int64_t> raw_flags(const std::map<std::string, Value>& raw_mat, const std::map<std::string, Value>& chan) {
+  std::vector<std::int64_t> flags;
+  const Value* cf = nullptr;
+  if (auto it = raw_mat.find("ChannelFlag"); it != raw_mat.end()) cf = &it->second;
+  if (!cf) if (auto it = raw_mat.find("F"); it != raw_mat.end() && it->second.is_struct()) cf = it->second.field("channelflag");
+  if (cf && cf->is_numeric()) for (double x : cf->doubles()) flags.push_back(static_cast<std::int64_t>(x));
+  else { const auto ch = chan.find("Channel"); for (std::size_t i = 0; ch != chan.end() && i < ch->second.numel(); ++i) flags.push_back(1); }
+  return flags;
+}
+std::string channels_fingerprint(const fs::path& channel_file, const std::vector<std::int64_t>& flags) {
+  std::string flag_bytes;
+  for (auto f : flags) flag_bytes.push_back(static_cast<char>(static_cast<std::int8_t>(f)));
+  return source_fingerprint({channel_file}, flag_bytes);
+}
+
+// `import condition --replace-recording`: the condition's raw recording, already imported, gets its samples again from its file (replace_raw_timeseries); nothing else is read or written
+Json replace_condition_recording(SubjectWriter& sub, const std::string& condition, const ConditionPlan& plan, const ConvertOptions& opt, const Emit& progress) {
+  if (!plan.raw_data_file) value_error("--replace-recording replaces the samples of the condition's raw recording, and " + condition + " has none here (or --no-raw / --recording was given)");
+  if (!acquisition_rows(sub, condition)) value_error("acquisition " + condition + " is not in " + sub.name() + ": nothing to replace (import it first)");
+  const auto chan = read_all_variables(plan.channel_file);
+  const auto raw_mat = read_all_variables(*plan.raw_data_file);
+  const auto itF = raw_mat.find("F");
+  if (itF == raw_mat.end()) throw nxr::io::Error(code::no_such_row, "F");
+  const Value& sfile = itF->second;
+  if (!sfile.is_struct()) value_error(plan.raw_data_file->string() + " is not a raw link (F is a matrix)");
+  const fs::path bst = resolve_raw_binary(*plan.raw_data_file, sfile, progress);
+  const Json r = replace_raw_timeseries(sub, recording_node_name(*plan.raw_data_file), sfile, condition, bst, channels_fingerprint(plan.channel_file, raw_flags(raw_mat, chan)), progress,
+                                        opt.resample, *opt.replace_recording);
+  return Json{{"subject", sub.name()}, {"acquisition", condition}, {"replaced", r}};
+}
+
 }  // namespace
 
 Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::string& condition, const ConditionPlan& plan, const ConvertOptions& opt, const Emit& progress) {
   auto emit = [&](const Json& j) { if (progress) progress(j); };
   if (plan.data_files.empty() && !plan.raw_data_file) value_error("nothing to convert: no data files and no raw link");
+  if (opt.replace_recording) return replace_condition_recording(sub, condition, plan, opt, progress);
   if (acquisition_rows(sub, condition)) value_error("acquisition " + condition + " already exists in " + sub.name() + " \xe2\x80\x94 delete it first to re-import");
   const fs::path cond_dir = !plan.data_files.empty() ? plan.data_files[0].parent_path() : plan.channel_file.parent_path();
   const fs::path anat_dir_ = plan.surface_file.parent_path();
@@ -96,9 +130,14 @@ Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::
     if (present(sf)) continue;
     if (!is_file(sf))
       value_error("subject has no anatomy (" + sf.filename().string() + " not found under anat/) \xe2\x80\x94 a sensor-only subject cannot import yet: the store is manifold-centric.");
-    const auto info = export_surface(sub, sf, bst_root.string(), surface_node_name(sf) == primary_surf);
-    names.push_back(info.name);
-    emit(Json{{"stage", "surface"}, {"name", info.name}, {"folder", info.folder}, {"n_vertices", info.n_vertices}, {"hemispheres", info.hemispheres}});
+    const bool primary = surface_node_name(sf) == primary_surf;
+    const auto one = [&] {
+      const auto info = export_surface(sub, sf, bst_root.string(), primary);
+      names.push_back(info.name);
+      emit(Json{{"stage", "surface"}, {"name", info.name}, {"folder", info.folder}, {"n_vertices", info.n_vertices}, {"hemispheres", info.hemispheres}});
+    };
+    if (primary) one();   // the surface the kernels index: the condition cannot go on without it
+    else or_skip_unreadable_v73(sub, emit, one);
   }
   const auto surface = sub.find("manifold", nxr::io::folder_for("surface", primary_surf) + "/" + primary_surf);
   if (!surface) value_error("primary surface " + primary_surf + " not among exported " + names.dump());
@@ -116,20 +155,12 @@ Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::
     for (double x : first->doubles()) flags.push_back(static_cast<std::int64_t>(x));
   } else {
     raw_mat = read_all_variables(*plan.raw_data_file);
-    const Value* cf = nullptr;
-    if (auto it = raw_mat->find("ChannelFlag"); it != raw_mat->end()) cf = &it->second;
-    if (!cf) if (auto it = raw_mat->find("F"); it != raw_mat->end() && it->second.is_struct()) cf = it->second.field("channelflag");
-    if (cf && cf->is_numeric()) for (double x : cf->doubles()) flags.push_back(static_cast<std::int64_t>(x));
-    else { const auto ch = chan.find("Channel"); for (std::size_t i = 0; ch != chan.end() && i < ch->second.numel(); ++i) flags.push_back(1); }
+    flags = raw_flags(*raw_mat, chan);
   }
   const auto entries = projector_entries(chan);
-  Projection projection;                       // the status-1 projectors as one matrix, applied to every recording's samples
-  projection.matrix = applied_matrix(entries);
-  projection.n_channels = chan.count("Channel") ? chan.at("Channel").numel() : 0;
+  Projection projection;                       // the record of the projectors: the samples are stored as recorded (the chunk service applies the active ones on load)
   // SESSION-SCOPED NAMES (D121): shared when the file and the flags are identical, qualified otherwise
-  std::string flag_bytes;
-  for (auto f : flags) flag_bytes.push_back(static_cast<char>(static_cast<std::int8_t>(f)));
-  const std::string chan_fp = source_fingerprint({plan.channel_file}, flag_bytes);
+  const std::string chan_fp = channels_fingerprint(plan.channel_file, flags);
   const auto [chan_name, chan_shared] = claim_node_name(sub, nxr::io::folder_for("points"), channel_node_name(plan.channel_file), acquisition, chan_fp);
   std::string channels_id;
   std::vector<std::string> ch_names;
@@ -155,11 +186,13 @@ Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::
   }
 
   // ---- the recording(s) ----
-  for (const auto& df : plan.data_files) {
-    const Json ti = export_timeseries(sub, recording_node_name(df), df, acquisition, channels_id, ch_names, opt.resample,
-                                      [&] { Projection p = projection; p.record = recording_record(entries, chan, chan_name, std::nullopt); return p; }());
-    emit(Json{{"stage", "timeseries"}, {"name", ti["name"]}, {"n_samples", ti["n_samples"]}, {"sfreq", ti["sfreq"]}, {"events", ti["events"]}});
-  }
+  for (const auto& df : plan.data_files)
+    or_skip_unreadable_v73(sub, emit, [&] {   // a recording in MATLAB v7.3 this build cannot read: skipped, named
+      const Json ti = export_timeseries(sub, recording_node_name(df), df, acquisition, channels_id, ch_names, opt.resample,
+                                        [&] { Projection p = projection; p.record = recording_record(entries, chan, chan_name, std::nullopt); return p; }());
+      emit(Json{{"stage", "timeseries"}, {"name", ti["name"]}, {"n_samples", ti["n_samples"]}, {"sfreq", ti["sfreq"]}, {"events", ti["events"]}});
+    });
+  Json truncated;   // the raw recording, when its binary was cut short (reported in the result)
   if (plan.raw_data_file) {
     if (!raw_mat) raw_mat = read_all_variables(*plan.raw_data_file);
     const auto itF = raw_mat->find("F");
@@ -176,6 +209,7 @@ Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::
     Json line = Json{{"stage", "timeseries-raw"}};
     for (auto it = ri.begin(); it != ri.end(); ++it) if (it.key() != "id" && it.key() != "time_id") line[it.key()] = it.value();
     emit(line);
+    if (ri.contains("truncated")) truncated = ri["truncated"];
   }
 
   // ---- kernels (+ head models, deduped per file) ----
@@ -191,7 +225,9 @@ Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::
   ck.kernel_files = plan.kernel_files;
   ck.write_gain = opt.write_gain;
   const std::vector<std::string> inv_names = import_condition_kernels(sub, ck, emit);
-  return Json{{"subject", sub.name()}, {"surfaces", names}, {"inverses", inv_names}, {"acquisition", acquisition}};
+  Json res = Json{{"subject", sub.name()}, {"surfaces", names}, {"inverses", inv_names}, {"acquisition", acquisition}};
+  if (!truncated.is_null()) res["truncated"] = truncated;
+  return res;
 }
 
 }  // namespace nxr::bst

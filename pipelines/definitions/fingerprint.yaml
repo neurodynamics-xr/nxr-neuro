@@ -1,0 +1,104 @@
+# MEG BRAIN FINGERPRINTING, THE COHORT STATISTICS (spec docs/specs/2026-11-16-meg-fingerprinting.md, section 11.4, steps 20-25, and its amendment of 2026-11-19: the published method is the default).
+# The method: da Silva Castanheira J, Orozco Perez HD, Misic B, Baillet S (2021) Brief segments of neurophysiological activity enable individual differentiation. Nat Commun 12:5713,
+# doi:10.1038/s41467-021-25895-8; its authors' release megFingerprinting v1.0.0 (06fdba8), the notebooks 4_PSD_fingerprinting_* and 4_AEC_fingerprinting_*; the identification statistics after
+# Finn ES et al. (2015) Nat Neurosci 18:1664 and Amico E, Goni J (2018) Sci Rep 8:8254. Every stored result carries this citation (producer_json.references).
+#
+# GROUP scope: each member's two stored features, the TARGET (the release's validation half) and the DATABASE (its training half), are found by name in every member (`--target`, `--database`:
+# the names the caller gave the per-subject runs, the same in every member; a member missing either is refused by name; every member's feature has one shape and the same axes, else refused).
+# The runner reads them into a members x features table (preparation, never a node). The graph:
+#   stats.featureTable          the feature vectors: flatten (a region x bin spectrum, row-major, raw values) or upper-triangle (a connectome: per band the upper triangle WITH its diagonal,
+#                               bands concatenated); [target; database] stacked, 2n x p
+#   stats.identification        each vector z-scored across its features (ddof 0); the target x database Pearson matrix; the accuracy both ways (argmax per row, per column); D_self per member
+#                               (`all`: the notebook's, over all n entries; `others`: the paper's formula); the edgewise ICC(1,1), Finn's differential power and the group consistency
+#   stats.pca                   the across-member PCA of the stacked table: an EXACT thin SVD of the centred table (the release's scikit-learn PCA(k) is randomised and unseeded at this size,
+#                               so its numbers are matched only to that solver's tolerance)
+#   stats.identificationCurve   reconstruction at each k with the mean, accuracy both ways and the mean D_self; the best k (largest mean D_self); the edgewise statistics and D_self at it
+# Stored in the dataset's template (format 56: the template holds the cohort), each a statistic of method `fingerprint` (the PCA's of method `pca`), OF the first member's target
+# (the members and each one's inputs are in the provenance), names `<name>_correlation`, `_self`, `_accuracy`, `_edgewise`, `_curve`, `_reconstructed_self`, `_reconstructed_edgewise`, `_pca*`.
+# It cannot show: why the two measurements of a person are alike (anatomy, head position, the kernel, recurring artefacts and the day's noise are individual too); accuracy falls as the cohort
+# grows and depends on its make-up, so it is not comparable between cohorts; the curve and its best k are fitted on the data they score (optimistic); the edgewise statistics are on features
+# z-scored within each vector (a feature's place in a person's profile, not its absolute value); neighbouring regions share signal through the kernel, so the features are far fewer
+# independent measurements than their number.
+#
+#   nxr-neuro run fingerprint --dataset <folder> --subjects S01,S02,S03 --target fp_B --database fp_A
+pipeline: fingerprint
+version: 1
+description: "the identification of individuals across a cohort from two stored measurements each (brain fingerprinting), with the correlation, accuracy, self-identifiability, edgewise reliability and the PCA reconstruction curve"
+scope: group
+
+inputs:
+  target:   {statistic: any, per_subject: true, where: {name: $target}, hint: "each member's target (validation) feature, found by name"}
+  database: {statistic: any, per_subject: true, where: {name: $database}, hint: "each member's database (training) feature, found by name"}
+
+parameters:
+  subjects: {default: null, meaning: "the cohort's members, by name, in order (A,B,C); no default: a group run without them is refused", unit: "-"}
+  target: {default: required, meaning: "the stored feature identified (the release's validation half): its name in every member", unit: "-"}
+  database: {default: required, meaning: "the stored feature it is identified against (the release's training half): its name in every member", unit: "-"}
+  vector: {default: flatten, meaning: "flatten = the stored values as they are, row-major (a region x bin spectrum) | upper-triangle = per trailing slice (band) the upper triangle WITH the diagonal of the leading square (a connectome), slices concatenated", unit: "-", choices: [flatten, upper-triangle]}
+  self_identifiability: {default: all, meaning: "D_self: all = each correlation row z-scored over all its entries, the member included (the release's notebooks; the published numbers) | others = the paper's formula, over the other members", unit: "-", choices: [all, others]}
+  steps: {default: notebook, meaning: "the numbers of components of the PCA reconstruction: notebook = 2, 5, then 10, 20, ... below 2n (the release's) | a list of integers", unit: components}
+  name: {default: fingerprint, meaning: "the stem of the stored statistics", unit: "-"}
+
+steps:
+  before:
+    - {node: stats.featureTable, in: {target: target, database: database}, with: {vector: $vector}, out: table}
+    - {node: stats.identification, in: {table: table}, with: {self_identifiability: $self_identifiability}, out: [correlation, self, accuracy, edgewise]}
+    - {node: stats.pca, in: {x: table}, with: {members: measurement, scale: none}, out: [components, scores, variance, centring]}
+    - {node: stats.identificationCurve, in: {components: components, scores: scores, centring: centring}, with: {steps: $steps, self_identifiability: $self_identifiability}, out: [curve, reconstructed_self, reconstructed_edgewise]}
+
+outputs:
+  correlation:
+    kind: statistic
+    name: $name_correlation
+    of: target
+    axes: [{name: target_member}, {name: database_member}]
+  self:
+    kind: statistic
+    name: $name_self
+    of: target
+    axes: [{name: member}, {name: quantity}]
+  accuracy:
+    kind: statistic
+    name: $name_accuracy
+    of: target
+    axes: [{name: quantity}]
+  edgewise:
+    kind: statistic
+    name: $name_edgewise
+    of: target
+    axes: [{name: feature}, {name: quantity}]
+  curve:
+    kind: statistic
+    name: $name_curve
+    of: target
+    axes: [{name: step}, {name: quantity}]
+  reconstructed_self:
+    kind: statistic
+    name: $name_reconstructed_self
+    of: target
+    axes: [{name: member}, {name: quantity}]
+  reconstructed_edgewise:
+    kind: statistic
+    name: $name_reconstructed_edgewise
+    of: target
+    axes: [{name: feature}, {name: quantity}]
+  components:
+    kind: statistic
+    name: $name_pca
+    of: target
+    axes: [{name: component}, {name: feature}]
+  scores:
+    kind: statistic
+    name: $name_pca_scores
+    of: target
+    axes: [{name: member}, {name: component}]
+  variance:
+    kind: statistic
+    name: $name_pca_variance
+    of: target
+    axes: [{name: component}, {name: quantity}]
+  centring:
+    kind: statistic
+    name: $name_pca_centring
+    of: target
+    axes: [{name: quantity}, {name: feature}]

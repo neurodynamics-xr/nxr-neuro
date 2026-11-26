@@ -155,14 +155,13 @@
     },
 
     "parametrization": {
-      "description": "Coordinate atlases on the manifold (global UV + local frame fields + stripe phase isolines).",
+      "description": "Coordinate atlases on the manifold (global UV + local frame fields).",
       "type": "object",
       "properties": {
         "attributes":   { "$ref": "common.meta.schema.json#/$defs/group_attributes" },
         "uv":           { "$ref": "common.meta.schema.json#/$defs/leaf_slot" },
         "cross_field":  { "$ref": "common.meta.schema.json#/$defs/leaf_slot" },
-        "line_field":   { "$ref": "common.meta.schema.json#/$defs/leaf_slot" },
-        "stripes":      { "$ref": "common.meta.schema.json#/$defs/leaf_slot" }
+        "line_field":   { "$ref": "common.meta.schema.json#/$defs/leaf_slot" }
       },
       "required": ["attributes"],
       "additionalProperties": false

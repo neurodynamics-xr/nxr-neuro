@@ -16,6 +16,7 @@
 #include "nxr/io/task/task.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
+#include "nxr/bst/projectors.h"
 #include "nxr/pipelines/meeg.h"
 
 using namespace nxr::io;
@@ -300,6 +301,22 @@ int main() {
     CHECK(rel(K, ref.K) < 1e-5);                                // stored as float32
     CHECK_EQ(k1.whitener_rank, ref.whitenerRank);
     CHECK(std::abs(k1.lambda / ref.lambda - 1) < 1e-9);
+    {   // THE SNR SETS THE REGULARISATION as the maths says: twice the SNR is four times the weight on the data (lambda = snr^2 / mean eigenvalue), the library's kernel at that SNR is the stored one, and the
+        // kernel passes more of the data through (a larger norm: less regularised)
+      InverseComputeOptions hi = io;
+      hi.name = "MN_snr"; hi.snr = 2.0 * nxr::meeg::KernelOptions().snr;
+      const InverseComputeResult k3 = inverse_compute(ds, sub, hi);
+      nxr::meeg::KernelOptions ko;
+      ko.snr = *hi.snr;
+      const nxr::meeg::Kernel ref3 = nxr::meeg::unconstrainedKernel(A * G, Cc, ty, ko);
+      std::vector<std::int64_t> sh3;
+      const auto kf3 = read_typed<float>((sub.folder() / ("MN_snr")), &sh3);
+      MatrixXd K3(sh3[0], sh3[1]);
+      for (int i = 0; i < sh3[0]; ++i) for (int j = 0; j < sh3[1]; ++j) K3(i, j) = kf3[static_cast<std::size_t>(i * sh3[1] + j)];
+      CHECK(rel(K3, ref3.K) < 1e-5);
+      CHECK(std::abs(k3.lambda / k1.lambda - 4.0) < 1e-9);
+      CHECK(K3.norm() > K.norm() && rel(K3, K) > 1e-3);
+    }
   }
   {
     // stored as the importer stores a kernel
@@ -339,14 +356,72 @@ int main() {
   CHECK(sub.by_name("operator", "MN_mne").has_value());
   CHECK_EQ(code_of([&] { InverseComputeOptions bad_opt; bad_opt.name = "z"; inverse_compute(ds, sub, bad_opt); }), std::string(code::invalid_argument));
 
+  // THE PROJECTORS (one active SSP projector on the channels): the recording is read as P x by default and as recorded with projectors none, so the covariance read
+  // with them is P C P^T of the one read without, and the two are different results (never one cached under the other's name); the kernel applies P to the gain and to
+  // both sides of the covariance (Brainstorm's process_inverse_2018), so the kernels from the covariance as recorded and from the projected one are the same
+  {
+    std::vector<double> u(static_cast<std::size_t>(M), 0.0);
+    for (int i : {0, 1, 3}) u[static_cast<std::size_t>(i)] = 1.0 + i;      // over magnetometers, not the bad channel
+    double un = 0;
+    for (double x : u) un += x * x;
+    for (double& x : u) x /= std::sqrt(un);
+    const std::string cid = text(*sub.by_name("manifold", "sensors"), "id");
+    nxr::bst::ProjectorEntry e;
+    e.order = 1; e.comment = "ssp"; e.method = "SSP"; e.kind = "ssp"; e.status = 1; e.m = static_cast<std::size_t>(M); e.k = 1;
+    e.components = u; e.mask = {true};
+    sub.compose([&] { nxr::bst::export_projectors(sub, {e}, "sensors", cid, ""); });
+    MatrixXd P = MatrixXd::Identity(M, M);
+    for (int i = 0; i < M; ++i) for (int j = 0; j < M; ++j) P(i, j) -= u[static_cast<std::size_t>(i)] * u[static_cast<std::size_t>(j)];
+    const int m = static_cast<int>(good.size());
+    MatrixXd Pg(m, m);
+    for (int i = 0; i < m; ++i) for (int j = 0; j < m; ++j) Pg(i, j) = P(good[static_cast<std::size_t>(i)], good[static_cast<std::size_t>(j)]);
+    NoiseCovOptions pa = no, pn = no;
+    pa.name = "cov_projected";
+    pn.name = "cov_recorded";
+    pn.projectors = Projectors::none;
+    const NoiseCovResult ca = noisecov_compute(ds, sub, pa), cn = noisecov_compute(ds, sub, pn);
+    CHECK(rel(ca.covariance, Pg * cn.covariance * Pg.transpose()) < 1e-10);
+    CHECK(rel(cn.covariance, a.covariance) < 1e-12);                       // read as recorded: the covariance of before the projector
+    {
+      Eigen::VectorXd ug(m);
+      for (int i = 0; i < m; ++i) ug(i) = u[static_cast<std::size_t>(good[static_cast<std::size_t>(i)])];
+      CHECK(std::fabs(ug.dot(ca.covariance * ug)) < 1e-10 * ug.dot(cn.covariance * ug));   // the projected direction is gone from the one read with the projector
+    }
+    pn.name = "cov_projected";                                              // the same name read without the projectors: another result, refused unless replaced
+    CHECK_EQ(code_of([&] { noisecov_compute(ds, sub, pn); }), std::string(code::already_exists));
+    CHECK(noisecov_compute(ds, sub, pa).hit);
+    MatrixXd G(m, 3 * nv);
+    std::vector<std::string> ty;
+    for (int i = 0; i < m; ++i) { G.row(i) = (P * gain32).row(good[static_cast<std::size_t>(i)]); ty.push_back(types[static_cast<std::size_t>(good[static_cast<std::size_t>(i)])]); }
+    MatrixXd A = MatrixXd::Identity(m, m);
+    std::vector<int> eeg;
+    for (int i = 0; i < m; ++i) if (ty[static_cast<std::size_t>(i)] == "EEG") eeg.push_back(i);
+    for (int x : eeg) for (int y : eeg) A(x, y) -= 1.0 / static_cast<double>(eeg.size());
+    const nxr::meeg::Kernel ref = nxr::meeg::unconstrainedKernel(A * G, A * Pg * cn.covariance * Pg.transpose() * A.transpose(), ty);
+    auto kernel = [&](const std::string& cov, const std::string& name) {
+      InverseComputeOptions o;
+      o.noise_cov = cov;
+      o.name = name;
+      inverse_compute(ds, sub, o);
+      std::vector<std::int64_t> sh;
+      const auto kf = read_typed<float>(sub.folder() / name, &sh);
+      MatrixXd K(sh[0], sh[1]);
+      for (int i = 0; i < sh[0]; ++i) for (int j = 0; j < sh[1]; ++j) K(i, j) = kf[static_cast<std::size_t>(i * sh[1] + j)];
+      return K;
+    };
+    const MatrixXd Kr = kernel("cov_recorded", "MN_recorded"), Kp = kernel("cov_projected", "MN_projected");
+    CHECK(rel(Kr, ref.K) < 1e-5);                                           // stored as float32
+    CHECK(rel(Kp, ref.K) < 1e-5);
+  }
+
   // the commands: the same jobs through the nxr-neuro command line (JSON lines out), then read back
   ds.close();
 #ifdef NXR_TEST_CLI
   {
     const std::string cli = NXR_TEST_CLI, d = (root / "demo").string(), log = (root / "cli.log").string();
     CHECK_EQ(std::system((cli + " run noisecov --dataset " + d + " --subject S1 --recording rest --name cli_cov --start 1 --stop 20 > " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " run inverse --dataset " + d + " --subject S1 --noise-cov cli_cov --name MN_cli --snr 2 --all >> " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " run inverse --dataset " + d + " --subject S1 --noise-cov cli_cov --name MN_cli --snr 2 --all >> " + log).c_str()), 0);   // a hit
+    CHECK_EQ(std::system((cli + " run inverse --dataset " + d + " --subject S1 --noise-cov cli_cov --name MN_cli --snr 2 >> " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " run inverse --dataset " + d + " --subject S1 --noise-cov cli_cov --name MN_cli --snr 2 >> " + log).c_str()), 0);   // a hit
     CHECK(std::system((cli + " run inverse --dataset " + d + " --subject S1 > /dev/null 2>&1").c_str()) != 0);                                    // neither a covariance nor a recording
     std::ifstream in(log);
     std::string line, all;

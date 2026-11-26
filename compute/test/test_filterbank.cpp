@@ -10,7 +10,9 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include "nxr/signal/timefilterbank.h"
 using namespace nxr::signal::graphfilterbank;
+using nxr::signal::timefilterbank::meyerBand;
 using namespace nxr::signal::graphtransforms;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -55,9 +57,7 @@ static Case parseCase(std::istream& is) {
     }
     return c;
 }
-static Family familyOf(const std::string& w) {
-    return w == "mexhat" ? Family::MexHat : w == "heat" ? Family::Heat : w == "itersine" ? Family::Itersine : Family::LogItersine;
-}
+// the bank family by name: the library's graphfilterbank::familyOf
 
 int main() {
     std::ifstream f(std::string(NXR_TEST_GOLDEN_DIR) + "/filterbank_golden.txt");

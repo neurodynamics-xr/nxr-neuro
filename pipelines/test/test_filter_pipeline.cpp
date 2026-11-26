@@ -159,6 +159,13 @@ int main() {
   (void)span0; (void)span1;
   // a rerun is a cache hit; the name is taken otherwise
   CHECK(filter_compute(ds, sub, o).hit);
+  {   // the channel means the filter made first (preset channel_span_mean, a measurement over a maker's selection): the same run again is a cache hit, not `already_exists`
+    nxr::pipelines::graph::RunOptions mo;
+    mo.chunks = "all";
+    mo.preset = "channel_span_mean";
+    const auto again = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("measure"), nxr::io::Json{{"field", o.recording}, {"recording", o.recording}}, mo);
+    CHECK(!again.empty() && again[0].value("hit", false));
+  }
   { FilterComputeOptions e = o; e.filter.upperEdge = 41; CHECK_EQ(code_of([&] { filter_compute(ds, sub, e); }), std::string(code::already_exists)); }
   // another chunk size and a low-pass (the mean restored): the same numbers as the whole-record filter
   {

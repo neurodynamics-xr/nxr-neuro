@@ -240,11 +240,12 @@ Value value_of(const Database& db, const std::string& cls, const Row& row) {
   // the types' facts of every manifold it lies on (T3): read here, so nothing outside io reads a manifold row
   for (const auto& id : v.manifolds) {
     if (id.empty() || v.manifold_facts.contains(id)) continue;
-    const auto m = db.one("SELECT m.name AS name, m.type AS type, m.n_vertices AS n, sp.name AS space, cs.name AS cs_name, cs.unit AS cs_unit FROM manifold m "
-                          "LEFT JOIN geometry g ON g.id = m.geometry_id LEFT JOIN coordinate_system cs ON cs.id = g.coordinate_system_id LEFT JOIN space sp ON sp.id = cs.space_id WHERE m.id = ?", {V(id)});
+    const auto m = db.one("SELECT m.name AS name, m.type AS type, m.n_vertices AS n, sp.name AS space, cs.name AS cs_name, cs.unit AS cs_unit, tp.kind AS topology_kind FROM manifold m "
+                          "LEFT JOIN geometry g ON g.id = m.geometry_id LEFT JOIN coordinate_system cs ON cs.id = g.coordinate_system_id LEFT JOIN space sp ON sp.id = cs.space_id "
+                          "LEFT JOIN topology tp ON tp.id = m.topology_id WHERE m.id = ?", {V(id)});
     if (!m) continue;
     Json f = Json{{"name", text(*m, "name")}, {"type", text(*m, "type")}, {"n", is_null(*m, "n") ? std::int64_t(0) : integer(*m, "n")}};
-    if (text(*m, "type") == "line") f["role"] = line_role(db, id);
+    if (text(*m, "type") == "line") { f["role"] = line_role(db, id); f["topology"] = opt_text(*m, "topology_kind").value_or(""); }   // the stored topology's kind (lattice · path · circle), for the type's topology
     if (!is_null(*m, "space") || !is_null(*m, "cs_name")) f["cs"] = Json{{"space", opt_text(*m, "space").value_or("")}, {"name", opt_text(*m, "cs_name").value_or("")}, {"unit", opt_text(*m, "cs_unit").value_or("")}};
     v.manifold_facts[id] = std::move(f);
   }

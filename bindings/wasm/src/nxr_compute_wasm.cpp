@@ -453,13 +453,6 @@ EigenResult valToEigenResult(const val& s) {
     return r;
 }
 
-val stripeVal(const geom::parametrization::stripes::StripePatternResult& r) {
-    val obj = val::object();
-    obj.set("positions",    eigenMatrixToVal(r.positions));
-    obj.set("segmentCount", r.segmentCount);
-    return obj;
-}
-
 bool isMissing(const val& v) { return v.isUndefined() || v.isNull(); }
 
 } // namespace
@@ -957,7 +950,7 @@ val signedHeatJS(val surfaceVal, val curve, bool isLoop, int levelSet, double tC
     });
 }
 
-// ── geometry: smooth direction fields and stripe patterns ────
+// ── geometry: smooth direction fields ────
 
 val smoothFaceJS(val surfaceVal, int nSym, bool alignToCurvature) {
     return guarded([&] { return eigenMatrixToVal(geom::connection::smoothFace(valToSurface(surfaceVal), nSym, alignToCurvature)); });
@@ -971,18 +964,6 @@ val smoothVertexJS(val surfaceVal, int nSym, bool alignToCurvature) {
         obj.set("vertexFieldRaw", eigenVectorToVal(r.vertexFieldRaw));
         obj.set("nSym",           r.nSym);
         return obj;
-    });
-}
-
-val stripesJS(val surfaceVal, val vertexFieldArr, double uniformFrequency, bool connectOnSingularities) {
-    return guarded([&] {
-        return stripeVal(geom::parametrization::stripes::compute(valToSurface(surfaceVal), valToEigenVector(vertexFieldArr), uniformFrequency, connectOnSingularities));
-    });
-}
-
-val stripesFreqJS(val surfaceVal, val vertexFieldArr, val freqsArr, bool connectOnSingularities) {
-    return guarded([&] {
-        return stripeVal(geom::parametrization::stripes::computeFreq(valToSurface(surfaceVal), valToEigenVector(vertexFieldArr), valToEigenVector(freqsArr), connectOnSingularities));
     });
 }
 
@@ -1154,8 +1135,6 @@ EMSCRIPTEN_BINDINGS(nxr_compute_wasm) {
     emscripten::function("geometry.signedHeat", &signedHeatJS);
     emscripten::function("geometry.smoothFace", &smoothFaceJS);
     emscripten::function("geometry.smoothVertex", &smoothVertexJS);
-    emscripten::function("geometry.compute", &stripesJS);
-    emscripten::function("geometry.computeFreq", &stripesFreqJS);
     // synthesis
     emscripten::function("synthesis.delta", &deltaJS);
     emscripten::function("synthesis.heatDiffusion", &heatDiffusionJS);

@@ -1,7 +1,7 @@
 """Writes signal_grid_golden.txt for test_signal_grid.cpp. Synthetic data only. No MATLAB: each reference is NumPy/SciPy applied to the published formula.
   wgft / iwgft   Shuman, Ricaud & Vandergheynst 2016: atoms g_{i,k} = M_k T_i g from numpy.linalg.eigh of a small graph's Laplacian (the eigenvectors are written, so the signs agree)
   jft / ijft     GSPBox gsp_jft: graph Fourier transform, then numpy.fft.fft(axis=1, norm='ortho')
-  fromOperator   the true lambda_max (numpy.linalg.eigvalsh) the Lanczos estimate must bound
+  a bank on the Chebyshev bound   the true lambda_max (numpy.linalg.eigvalsh) the Lanczos estimate must bound
   xwt / wcoherence  Grinsted, Moore & Jevrejeva 2004 (wtc.m, smoothwavelet.m) written out in NumPy
 Run:  python3 compute/test/golden/gen_signal_grid_golden.py compute/test/golden/signal_grid_golden.txt"""
 import sys

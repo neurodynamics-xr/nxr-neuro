@@ -62,11 +62,12 @@ nw::Scaling scaling_of(const std::string& s) {
   if (s == "density") return nw::Scaling::Density;
   if (s == "spectrum") return nw::Scaling::Spectrum;
   if (s == "chain") return nw::Scaling::Chain;
-  ng::refuse("scaling is density, spectrum or chain (got '" + s + "')");
+  if (s == "brainstorm_2018") return nw::Scaling::Brainstorm2018;
+  ng::refuse("scaling is density, spectrum, chain or brainstorm_2018 (got '" + s + "')");
 }
 std::string window_name(nw::Window w) { return w == nw::Window::Hann ? "hann" : w == nw::Window::Hamming ? "hamming" : w == nw::Window::Blackman ? "blackman" : "rectangular"; }
 std::string detrend_name(nw::Detrend d) { return d == nw::Detrend::None ? "none" : d == nw::Detrend::Constant ? "constant" : "linear"; }
-std::string scaling_name(nw::Scaling s) { return s == nw::Scaling::Density ? "density" : s == nw::Scaling::Spectrum ? "spectrum" : "chain"; }
+std::string scaling_name(nw::Scaling s) { return s == nw::Scaling::Density ? "density" : s == nw::Scaling::Spectrum ? "spectrum" : s == nw::Scaling::Chain ? "chain" : "brainstorm_2018"; }
 
 // the parameters, each with its meaning, default and unit (the definition's `parameters:` repeat them; `run psd --help` lists them)
 std::vector<ng::ParamSpec> welch_parameters() {
@@ -78,7 +79,7 @@ std::vector<ng::ParamSpec> welch_parameters() {
       {"window", Json("hamming"), "the taper of each segment", "-", {"hann", "hamming", "blackman", "rectangular"}, false},
       {"periodic", Json(false), "the DFT-even form of the window (scipy, nxr) rather than the symmetric one (MATLAB's hamming(n), Brainstorm)", "-", {}, false},
       {"detrend", Json("constant"), "what is removed from each segment before windowing", "-", {"none", "constant", "linear"}, false},
-      {"scaling", Json("density"), "density = power per Hz | spectrum = power | chain = per sample, per bin (nxr's spectral chain)", "-", {"density", "spectrum", "chain"}, false},
+      {"scaling", Json("density"), "density = power per Hz | spectrum = power | chain = per sample, per bin (nxr's spectral chain) | brainstorm_2018 = |2 X / n|^2 at every bin (Brainstorm's bst_psd of its 2018-10-12 release, measure power; a real recording only)", "-", {"density", "spectrum", "chain", "brainstorm_2018"}, false},
       {"bad_segments", Json("exclude"), "exclude = a segment touching one of the recording's bad segments is left out | ignore = every segment is kept", "-", {"exclude", "ignore"}, false},
   };
 }
@@ -156,6 +157,15 @@ Eigen::MatrixXd own_real(const ng::Block& b) {
 Json tiling_of(const nw::WelchOptions& wo, std::int64_t first, std::int64_t samples, std::int64_t segments, std::int64_t skipped) {
   return Json{{"unit", "samples"}, {"origin", first}, {"width", static_cast<std::int64_t>(wo.segmentSamples)}, {"hop", hop_of(wo)}, {"count", segments}, {"skipped", skipped}, {"end", first + samples}};
 }
+// the frequency line a one-sided Welch spectrum lies on: origin 0, spacing fs / n, n / 2 + 1 bins. When it IS the full line of a span of n = the segment's samples, it says so (`fft` {n, fs}), and the output declares it
+// on its time line (the line is keyed by (time line, n, fs), made by the FFT operator: io's frequency_line)
+Json fft_line(const nw::WelchOptions& wo, double df, std::int64_t bins) {
+  Json l = Json{{"spacing", df}, {"origin", 0.0}, {"unit", "Hz"}, {"dimension", "frequency"}};
+  const std::int64_t n = static_cast<std::int64_t>(wo.segmentSamples);
+  if (n >= 2 && bins == n / 2 + 1) l["fft"] = Json{{"n", n}, {"fs", wo.sfreq}};
+  return l;
+}
+
 Json options_of(const Resolved& r) {
   return Json{{"segment_rule", r.rule}, {"segment_samples", static_cast<std::int64_t>(r.wo.segmentSamples)}, {"hop_samples", hop_of(r.wo)}, {"overlap", r.wo.overlap},
               {"window", window_name(r.wo.window)}, {"window_form", r.wo.periodic ? "periodic" : "symmetric"}, {"detrend", detrend_name(r.wo.detrend)},
@@ -188,11 +198,24 @@ const ng::PortType& streamed_real(const ng::Types& in, const char* port, const c
   return t;
 }
 
+// the rows' axis of a statistic: a region map's rows are the members of its partition, named by their number in it (the axis's `values`), never a selection
+// axis (values over a selection's members would be a measurement); other rows are channels
+Json row_axis(const std::string& name, std::int64_t n, const std::string& partition) {
+  Json a = Json{{"name", name}, {"size", n}};
+  if (partition.empty()) return a;
+  Json v = Json::array();
+  for (std::int64_t k = 0; k < n; ++k) v.push_back(Json{{"name", "member " + std::to_string(k)}, {"member", k}});   // the partition's member number (its id differs between packages: compared across a cohort, it is left out)
+  a["values"] = std::move(v);
+  return a;
+}
+
 // ── welch.psd ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 struct PsdPrepared {
   Resolved r;
   std::string unit;   // the recording's unit; empty: "channel unit"
+  std::string row_axis = "channel";   // "region" for the rows of a region map (signal.linear_map's)
+  std::string regions;                 // the region map's partition (its to_selection_id): each region named as a member of it
 };
 struct PsdState {
   std::optional<nw::Welch> w;   // made with the first block: its rows are the channels
@@ -227,6 +250,10 @@ static ng::NodeSpec real_psd() {
     pr.r = resolve(p, *x.sfreq);
     try { nw::Welch probe(1, pr.r.wo); } catch (const std::invalid_argument& e) { ng::refuse(e.what()); }
     pr.unit = x.unit;
+    if (x.facts.contains("operator") && x.facts["operator"].is_object() && x.facts["operator"].value("kind", std::string()) == "region map") {
+      pr.row_axis = "region";
+      pr.regions = x.facts["operator"].value("to_selection_id", std::string());
+    }
     return std::any(std::move(pr));
   };
   n.start = [](const std::any& prepared) {
@@ -264,7 +291,7 @@ static ng::NodeSpec real_psd() {
     a.meta["describe"] = Json{
         {"measure", density ? "power_density" : "power"}, {"method", "welch"}, {"label", "welch"}, {"precision", "float32"},
         {"unit", density ? base + "/Hz" : base},
-        {"axes", Json::array({Json{{"name", "channel"}, {"size", C}}, Json{{"name", "frequency"}, {"size", bins}, {"line", Json{{"spacing", df}, {"origin", 0.0}, {"unit", "Hz"}, {"dimension", "frequency"}}}}})},
+        {"axes", Json::array({row_axis(pr.row_axis, C, pr.regions), Json{{"name", "frequency"}, {"size", bins}, {"line", fft_line(pr.r.wo, df, bins)}}})},
         {"tiling", tiling_of(pr.r.wo, s.first, s.samples, res.segments, res.segmentsSkipped)},
         {"n_members", res.segments}, {"members_skipped", res.segmentsSkipped},
         {"scaling", welch_scaling_record(pr.r.wo, df, base)},
@@ -279,22 +306,35 @@ static ng::NodeSpec real_psd() {
 }
 
 // ── signal.linear_map ──────────────────────────────────────────────────────────────────────────────────────────────────
+// A LINEAR MAP OF THE CHANNELS, sample by sample (pointwise): a stored operator over the recording's channels applied to every column. Two readings, by the operator's kind:
+//   a rotation plane (two rows a_x, a_y)   ->  z = a_x.X + i a_y.X: ONE complex series (the rotary pair)
+//   any other operator (a region map, ...)  ->  y = A X: one real series a row (a region map's rows are its regions' signals; the map's per-region offsets are constants it does not add:
+//                                              the Welch detrend and a band-pass remove them)
 
 struct PairPrepared {
-  Eigen::MatrixXcd weights;            // [R x M]: the operator, complex (a pair of real rows a_x, a_y is the one row a_x + i a_y)
+  bool pair = true;                    // a rotation plane: one complex series; else each row a real series
+  Eigen::MatrixXcd weights;            // pair: [1 x M], the row a_x + i a_y
+  Eigen::MatrixXd rows;                // else: [R x M]
   std::vector<std::int32_t> channels;  // the recording's channels the operator's columns are over
 };
+// the operator's kind, as the found row gives it ("" for an operator a node made)
+std::string operator_kind(const ng::PortType& op) {
+  if (op.facts.contains("value") && op.facts["value"].is_object() && op.facts["value"].contains("row") && op.facts["value"]["row"].is_object())
+    return op.facts["value"]["row"].value("kind", std::string());
+  return op.quantity;
+}
+bool is_pair(const ng::PortType& op) { const std::string k = operator_kind(op); return k.empty() || k == "rotation plane"; }
 
 ng::NodeSpec linear_map() {
   ng::NodeSpec n;
   n.name = "signal.linear_map";
   n.kind = ng::Kind::chunk;
-  n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"operator", "a stored 2-row operator over the channels (its rows a_x and a_y: the plane's x and y)", false}};
-  n.outputs = {{"z", "z = a_x.X + i a_y.X: one complex series, +f the pair turning from x towards y", false}};
+  n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"operator", "a stored operator over the channels: a rotation plane (2 rows a_x, a_y: the plane's x and y) or any other (a region map: one row a region)", false}};
+  n.outputs = {{"z", "a rotation plane: z = a_x.X + i a_y.X, one complex series (+f the pair turning from x towards y); another operator: y = A X, one real series a row", false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input, "each sample is mapped on its own: a linear map of the channels, so any block split gives the same values; stored as float32 for float32 input");
   n.linear_map = true;
-  n.matches = "nxr.timefreq (the complex series of a rotary pair); compute nxr::signal::linearMap";
-  n.description = "the complex series of a rotary pair: the operator's two rows applied to the channels, x + i y";
+  n.matches = "nxr.timefreq (the complex series of a rotary pair); Brainstorm's scout time series of a region map (bst_scout_value's PCA, before the spectrum); compute nxr::signal::linearMap";
+  n.description = "a linear map of the channels: the complex series of a rotary pair (x + i y), or the rows of another operator (a region map's region signals)";
   n.plan = [](const ng::Types& in, const Json&) {
     const ng::PortType& x = streamed_real(in, "x", "signal.linear_map");
     if (x.value != ng::ValueType::real) ng::refuse("signal.linear_map: x is a real series");
@@ -302,24 +342,39 @@ ng::NodeSpec linear_map() {
     if (op == in.end() || op->second.cls != ng::PortClass::operator_) ng::refuse("signal.linear_map: operator is a stored operator");
     ng::Planned out;
     ng::PortType z = x;
-    z.value = ng::ValueType::complex;
-    z.rows = 1;
     z.unit = "(operator output)";
-    z.on = "pair";
     z.facts = Json::object();
-    z.facts["pair"] = op->second.facts.contains("value") ? op->second.facts["value"]["row"] : Json();   // the operator's row, for the node after it to describe its spectrum
+    if (is_pair(op->second)) {
+      z.value = ng::ValueType::complex;
+      z.rows = 1;
+      z.on = "pair";
+      z.facts["pair"] = op->second.facts.contains("value") ? op->second.facts["value"]["row"] : Json();   // the operator's row, for the node after it to describe its spectrum
+    } else {
+      const Json row = op->second.facts.contains("value") && op->second.facts["value"].is_object() ? op->second.facts["value"].value("row", Json()) : Json();
+      z.rows = row.is_object() && row.contains("n_rows") && row["n_rows"].is_number() ? row["n_rows"].get<std::int64_t>() : 0;
+      z.on = "rows";
+      z.facts["operator"] = row;     // the operator's row: its kind and its target selection (a region map's partition), for the nodes after it
+      z.domain = {};                 // rows of the operator's target, not the channels: checked by the nodes' plans
+      z.typed = false;
+    }
     out.out["z"] = z;
     return out;
   };
-  n.prepare = [](const ng::Types&, const ng::Arrays& constants, const Json&, ng::Shared&) {
+  n.prepare = [](const ng::Types& in, const ng::Arrays& constants, const Json&, ng::Shared&) {
     const auto it = constants.find("operator");
     if (it == constants.end() || it->second.meta.value("placeholder", false)) ng::refuse("signal.linear_map: the operator's matrix was not handed over");
     const ng::Array& a = it->second;
-    if (a.rows != 2) ng::refuse("signal.linear_map: the stored operator is two rows (a_x, a_y: the real and imaginary parts of one complex row) (the operator has " + std::to_string(a.rows) + ")");
     PairPrepared p;
+    p.pair = is_pair(in.at("operator"));
     const Eigen::MatrixXd rows = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(a.data.data(), a.rows, a.cols);
-    p.weights.resize(1, a.cols);
-    for (Eigen::Index c = 0; c < a.cols; ++c) p.weights(0, c) = std::complex<double>(rows(0, c), rows(1, c));
+    if (p.pair) {
+      if (a.rows != 2) ng::refuse("signal.linear_map: the stored operator is two rows (a_x, a_y: the real and imaginary parts of one complex row) (the operator has " + std::to_string(a.rows) + ")");
+      p.weights.resize(1, a.cols);
+      for (Eigen::Index c = 0; c < a.cols; ++c) p.weights(0, c) = std::complex<double>(rows(0, c), rows(1, c));
+    } else {
+      if (a.rows < 1) ng::refuse("signal.linear_map: the operator has no row");
+      p.rows = rows;
+    }
     for (const auto& c : a.meta.value("channels", Json::array())) p.channels.push_back(c.get<std::int32_t>());
     if (static_cast<std::int64_t>(p.channels.size()) != a.cols) ng::refuse("signal.linear_map: the operator's channels (" + std::to_string(p.channels.size()) + ") are not its columns (" + std::to_string(a.cols) + ")");
     return std::any(std::move(p));
@@ -333,6 +388,12 @@ ng::NodeSpec linear_map() {
     for (std::size_t i = 0; i < p.channels.size(); ++i) {
       if (p.channels[i] < 0 || p.channels[i] >= b.rows) ng::refuse("signal.linear_map: a channel of the operator is outside the recording's channels");
       X.row(static_cast<Eigen::Index>(i)) = all.row(p.channels[i]).segment(c0, w).cast<double>();
+    }
+    if (!p.pair) {
+      const Eigen::MatrixXd y = nxr::signal::linearMap(p.rows, X);   // a real operator: one real series a row
+      ng::Block o{y.rows(), w, kl, kr, std::vector<float>(static_cast<std::size_t>(y.rows() * w)), {}};
+      for (Eigen::Index r = 0; r < y.rows(); ++r) for (std::int64_t t = 0; t < w; ++t) o.re[static_cast<std::size_t>(r * w + t)] = static_cast<float>(y(r, t));
+      return ng::Blocks{{"z", std::move(o)}};
     }
     const Eigen::MatrixXcd z = nxr::signal::linearMap(p.weights, X);
     ng::Block o{1, w, kl, kr, std::vector<float>(static_cast<std::size_t>(w)), std::vector<float>(static_cast<std::size_t>(w))};
@@ -1181,7 +1242,7 @@ ng::NodeSpec fft_spectrum() {
     // 3.1 and 5 apply; the Studio's product manifold, D37): the one-sided frequency line of the block, bin k at k x sfreq / n Hz (origin 0, n = the block's samples,
     // carried on the block). Its key is "<use>.<output>"; the plan does not know the use, so the node's name and its output stand for it until the checker keys it.
     const ng::ManifoldRef channels = x.domain.factors.size() > 1 ? x.domain.factors.front() : ng::manifold_id("channels", "recording");
-    s.domain.factors = {channels, ng::made_line("frequency", "signal.rfft.spectrum", ng::Role::frequency, "Hz", 0.0, x.sfreq)};
+    s.domain.factors = {channels, ng::made_line("frequency", "signal.rfft.spectrum", "Hz", 0.0, x.sfreq, x.domain.factors.empty() ? ng::ManifoldRef() : x.domain.factors.back())};
     s.domain.cells = "0,1";
     out.out["spectrum"] = s;
     return out;

@@ -1,10 +1,12 @@
 #include "nxr/io/selection_store.h"
 #include "nxr/io/writer.h"
 #include "nxr/io/statistic.h"
+#include "nxr/io/catalogue.h"
 
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <map>
 #include <sstream>
 
 #include "named_paths.h"
@@ -80,15 +82,68 @@ Json write_catalog(const fs::path& datastore_in, const std::optional<std::string
 }
 
 Json list_datasets(const fs::path& datastore) {
+  // every dataset folder in the folder, of either form: a one-database dataset (`dataset.sqlite`; its row in catalog.json when the catalog names it, else read from its database) and a
+  // catalogue dataset (`catalogue.sqlite`, made by `create dataset --dataset`). A folder with none is an empty list; only a folder that does not exist is `not_found`. Nothing is written.
+  std::error_code ec;
+  if (!fs::is_directory(datastore, ec)) throw Error(code::not_found, datastore.string() + ": no such folder");
   const auto cat = read_catalog(datastore);
-  if (!cat) throw Error(code::not_found, datastore.string() + ": no catalog.json — not a datastore (create a dataset first)");
-  return *cat;
+  std::map<std::string, Json> listed;   // catalog.json's rows by folder
+  if (cat && cat->contains("datasets") && (*cat)["datasets"].is_array())
+    for (const auto& r : (*cat)["datasets"]) if (r.is_object() && r.contains("path") && r["path"].is_string()) listed[r["path"].get<std::string>()] = r;
+  std::vector<fs::path> folders;
+  for (const auto& e : fs::directory_iterator(datastore, ec)) if (e.is_directory()) folders.push_back(e.path());
+  std::sort(folders.begin(), folders.end());
+  Json rows = Json::array();
+  for (const auto& f : folders) {
+    const std::string folder = f.filename().string();
+    if (fs::is_regular_file(f / kDatasetFile)) {
+      Json row;
+      if (const auto it = listed.find(folder); it != listed.end()) {
+        row = it->second;
+      } else {
+        row = Json{{"id", Json()}, {"name", folder}, {"path", folder}, {"database", folder + "/" + kDatasetFile}, {"subjects", Json()}, {"modified_utc", Json()}};
+        try {
+          Database db = Database::open(f / kDatasetFile, false, "nxr-convert", true);
+          if (const auto ds = db.one("SELECT * FROM dataset ORDER BY name LIMIT 1")) {
+            row["id"] = text(*ds, "id");
+            row["name"] = text(*ds, "name");
+            row["subjects"] = integer(*db.one("SELECT count(*) AS n FROM subject WHERE dataset_id = ? AND status = 'complete'", {text(*ds, "id")}), "n");
+          }
+        } catch (const std::exception& e) {
+          row["error"] = e.what();   // listed, with why its database could not be read
+        }
+      }
+      row["form"] = "one-database";
+      rows.push_back(std::move(row));
+    } else if (is_catalogue_dataset(f)) {
+      Json row = Json{{"id", Json()}, {"name", folder}, {"path", folder}, {"database", folder + "/" + kCatalogueFile}, {"subjects", Json()}, {"modified_utc", Json()}};
+      try {
+        const Catalogue c = Catalogue::open(f);
+        const Row d = c.dataset_row();
+        row["id"] = text(d, "id");
+        row["name"] = text(d, "name");
+        std::int64_t n = 0;
+        for (const auto& x : c.entries()) if (x.status != "replaced") ++n;
+        row["subjects"] = n;
+        if (!is_null(d, "modified_utc")) row["modified_utc"] = text(d, "modified_utc");
+        else if (!is_null(d, "created_utc")) row["modified_utc"] = text(d, "created_utc");
+      } catch (const std::exception& e) {
+        row["error"] = e.what();
+      }
+      row["form"] = "catalogue";
+      rows.push_back(std::move(row));
+    }
+  }
+  Json out = Json::object();
+  out["id"] = cat && cat->contains("id") ? (*cat)["id"] : Json();
+  out["datasets"] = rows;
+  return out;
 }
 
 DatasetWriter::DatasetWriter(Database db, fs::path root, Row row, WriterLock lock, bool package)
     : lock_(std::move(lock)), db_(std::make_unique<Database>(std::move(db))), root_(std::move(root)), row_(std::move(row)) {
   if (package) return;
-  store_ = std::make_unique<DatastoreStore>(root_);
+  store_ = std::make_unique<DatastoreStore>(root_, SmallFileOptions{kSmallFileThreshold, db_->read_only()});   // a reader's subjects' small-file stores are opened read-only too: a read never writes (#146)
   store_->set_small_files(text(row_, "path"), store_format_number(*db_) >= 52);
 }
 DatasetWriter::DatasetWriter(DatasetWriter&&) noexcept = default;
@@ -247,7 +302,7 @@ DatasetWriter open_writer(const fs::path& folder_in, const OpenOptions& opt) {
   }
   std::optional<Database> db;
   try {
-    db.emplace(Database::open(folder / kDatasetFile));
+    db.emplace(Database::open(folder / kDatasetFile, false, "nxr-convert", opt.read_only.value_or(!opt.lock)));
   } catch (...) {
     held.release();
     throw;

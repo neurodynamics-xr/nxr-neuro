@@ -42,6 +42,11 @@ struct NodeTraits {
   OutputPrecision output = OutputPrecision::undeclared;
   bool uncertain = false;                               // the classification is a judgement the maintainers should confirm
   std::string note;                                     // why, in a sentence
+  /** TYPED AXES (opt in): every output this node's plan gives is `typed`, and each factor of its domain (an operator's target too) is a stored manifold (Form::id), the members of a
+   *  stored selection or of one the run makes (Form::members), a restriction of such a manifold by such a selection or one of its members (`<selection>#<member>`, Form::restricted), or a line
+   *  the node makes FROM a stored line by a transform, which io stores by key (Form::made with made_from). The runner refuses any other axis at preparation, before data flows, and writes the
+   *  axes' links when it stores the output. A selection the run makes is named `<node>.<port>`. */
+  bool typed_axes = false;
   bool declared() const { return time != TimeBehaviour::undeclared && computes_in != Precision::undeclared && output != OutputPrecision::undeclared && (time != TimeBehaviour::windowed || !window_rule.empty()); }
 };
 inline NodeTraits node_traits(TimeBehaviour time, Precision computes_in, OutputPrecision output, std::string note, std::string window_rule = {}, bool uncertain = false) {
@@ -56,7 +61,21 @@ const char* to_string(OutputPrecision p);
 enum class Kind { array, chunk, accumulate };
 const char* to_string(Kind k);
 
-struct PortSpec { std::string name, meaning; bool optional = false; };
+/** an input port. `many`: the port takes a LIST of values, in order: a definition wires `<port>.0`, `<port>.1`, ... (written `in: {<port>: {for: {band: $bands}, each: "x_{band}"}}`), and the node reads
+ *  them in that order (`many_inputs`); one at least unless `optional`. */
+struct PortSpec { std::string name, meaning; bool optional = false; bool many = false; };
+/** the wired values of a `many` port, in order: the keys `<port>.0`, `<port>.1`, ... of a node's inputs (a missing index ends the list) */
+template <class Map> std::vector<typename Map::const_iterator> many_inputs(const Map& in, const std::string& port) {
+  std::vector<typename Map::const_iterator> out;
+  for (std::size_t i = 0;; ++i) {
+    const auto it = in.find(port + "." + std::to_string(i));
+    if (it == in.end()) break;
+    out.push_back(it);
+  }
+  return out;
+}
+/** the port a wired key names: `<port>` itself, or the `many` port `<port>` of a key `<port>.<index>` */
+std::string port_of_key(const std::string& key);
 /** a parameter: its default (null: the caller must set it, unless `optional`), meaning and unit; the command line's help is made from these. `optional`: null is a value, "not given": the node decides what that means (a pipeline's optional bound) */
 struct ParamSpec { std::string name; Json def; std::string meaning, unit; std::vector<std::string> choices; bool optional = false; };
 
@@ -79,6 +98,9 @@ struct NodeSpec {
    *  without one is checked by its `plan` alone. `Registry::add` gives a node the built-in signature of its name (signatures.cpp) when the ports match. */
   std::optional<Signature> signature;
   bool linear_map = false;                // a linear map (a kernel, a form's operator): refused after a non-linear node (D106)
+  /** the node reads a Hodge-Dirac package's FULL forms: the runner, which binds a package input (an operator of kind eigenvectors) as its basis, also reads the package's 2-form parts
+   *  (`<stem>_forms2`) and the options its intrinsic complex was built with into the same constant (meta `forms2`, `forms2_shape`, `complex`). Preparation only: no port, no type. */
+  bool reads_package_forms = false;
   std::string matches, description;       // the reference it is held equal to; one sentence
 
   /** PLAN: the arrows, on types only. `in` holds the types of the inputs that are present; `params` every parameter resolved. Refuses with refuse("...") naming the port and the reason. */

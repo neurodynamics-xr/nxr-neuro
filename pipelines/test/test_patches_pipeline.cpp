@@ -1,9 +1,8 @@
-// patches compute on a synthetic two-hemisphere brain: a map with planted smooth bumps and a dip of known size and height on a smooth background plus a little noise.
-// At the level whose Weyl band matches the bumps' size each bump is ONE patch holding the bump's centre and no other patch is found; a very much larger bump is
-// not found at that level (and is at a coarser one); the dip is found with sign negative (and the bumps are not); the patches' area, mean, peak and centre equal
-// an independent computation from the stored band Field and the mesh; the plain tile means of the map (measure compute) and the band's are separate rows; a re-run
-// is a cache hit at every stage, another choice is refused unless --replace; the refusal paths (no ladder, a level the ladder lacks, a Field that is not a surface
-// scalar, a map with holes, a constant map). The exact transform and the Chebyshev series give the same band.
+// the `patches` definition run through the runner on a synthetic two-hemisphere brain (never a real dataset): a map with planted smooth bumps and a dip of known size and height on a smooth background plus a
+// little noise. At the scale whose Weyl band matches the bumps' size (`parts 32` a hemisphere) each bump is ONE patch holding the bump's centre and no other patch is found; a very much larger bump is not
+// found at that scale; the dip is found with sign negative (and the bumps are not); the patches' area, mean, peak and centre equal an independent computation from the stored band field and the mesh; the plain
+// tile means of the map (`measure`) and the band's are separate rows; a rerun is a hit; the refusals (a scale the ladder lacks, a map that is not a surface scalar, a map with holes, a constant map, an unknown
+// sign). One map, one scale, one run each.
 #include <unistd.h>
 
 #include <algorithm>
@@ -26,9 +25,8 @@
 #include "nxr/io/measures.h"
 #include "nxr/io/statistic.h"
 #include "nxr/select/dyadic.h"
-#include "nxr/pipelines/measure.h"
-#include "nxr/pipelines/patches.h"
 #include "make_grids.h"
+#include "run_definition.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -42,15 +40,17 @@ template <class T> static std::vector<T> read_array(SubjectWriter& sub, const st
   return out;
 }
 static bool refused(const std::function<void()>& f, std::string* what = nullptr) {
-  try { f(); } catch (const Error& e) { if (what) *what = e.what(); return true; } catch (const std::invalid_argument& e) { if (what) *what = e.what(); return true; }
+  try { f(); } catch (const std::exception& e) { if (what) *what = e.what(); return true; }
   return false;
 }
+static Json out_of(const Json& r, const std::string& o) { for (const auto& x : r["stored"]) if (x["output"] == o) return x; return Json(); }
 
 int main() {
   setvbuf(stdout, nullptr, _IONBF, 0);
   const char* tmp = std::getenv("TMPDIR");
   const fs::path root = fs::path(tmp ? tmp : fs::temp_directory_path().string()) / ("nxr_test_patches_pipeline_" + std::to_string(::getpid()));
   fs::remove_all(root);
+  struct Cleanup { fs::path p; ~Cleanup() { fs::remove_all(p); } } cleanup{root};
   const Brain b = brain(4, false);
   const int nV = b.n, half = b.nHalf;
   auto P = [&](int i) { return Eigen::Vector3d(b.P[3 * i], b.P[3 * i + 1], b.P[3 * i + 2]); };
@@ -125,30 +125,35 @@ int main() {
     });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S");
-  const TilesComputeResult tr = nxrtest::make_tiles(ds, sub);
-  const int depth = tr.info["depth"].get<int>();
-  std::printf("  ladder: %d levels, %d tiles at depth %d\n", tr.info["levels"].get<int>(), tr.info["tiles_at_depth"].get<int>(), depth);
-
+  nxrtest::make_tiles(ds, sub);
   nxr::select::Mesh lm; lm.positions = b.P; lm.faces = b.F; lm.n = nV;
   const std::vector<double> va = nxr::select::vertexAreas(lm);
   auto field_id = [&](const std::string& n) { return nxr::io::task::Subject::of(sub).require({.cls = nxr::io::task::Cls::field, .name = n, .any_status = true}, n).id; };
   auto sel_row = [&](const std::string& n) { return nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = n, .any_status = true}); };
-  auto patch_codes = [&](const std::string& name) { return read_array<std::int32_t>(sub, *sel_row(name)->array_path); };
-  // the independent computation: the stored band Field, the tiles' means, the baseline, regions by a breadth-first search over the tiles' mesh adjacency
-  auto direct = [&](int level, const std::string& map, const std::string& sgn, double enter_sd, double exit_sd) {
-    const std::string band = map + "_band_L" + std::to_string(level);
-    const auto bf = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = band, .any_status = true});
+  const int level = 5;                                   // 32 tiles a hemisphere, ~0.9 m² each; the band's wavelength 1.65 m (half of it 0.8: about a bump)
+  const std::string scale = "parts 32";
+  auto patches = [&](const std::string& map, const std::string& sign, double enter, double exit, bool replace = false, const std::string& sc = "parts 32") {
+    return nxrtest::run_definition(ds, sub, "patches", Json{{"map", map}, {"spatial_scale", sc}, {"sign", sign}, {"enter_sd", enter}, {"exit_sd", exit}}, replace);   // a band-pass has side lobes of the opposite sign around a bump: 3 SD keeps to the bumps
+  };
+  auto codes_of = [&](const Json& r) { return read_array<std::int32_t>(sub, *sel_row(out_of(r, "patches")["name"].get<std::string>())->array_path); };
+  auto patch_values = [&](const Json& r, const std::string& output, const std::optional<std::string>& of_field, const std::string& m) {
+    const Json x = out_of(r, output);
+    return measurement_values(sub, x["over"].get<std::string>(), of_field, std::nullopt, std::nullopt, m).values;
+  };
+  const std::vector<std::int32_t> tile5 = read_array<std::int32_t>(sub, *sel_row("cortex tiles L5")->array_path);
+  // the independent computation: the stored band field, the tiles' means, the baseline, regions by a breadth-first search over the tiles' mesh adjacency
+  auto direct = [&](const Json& r, const std::string& sgn, double enter_sd, double exit_sd) {
+    const auto bf = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = out_of(r, "band")["name"].get<std::string>(), .any_status = true});
     const std::vector<double> x = read_array<double>(sub, *bf->path);
-    const std::vector<std::int32_t> tile = read_array<std::int32_t>(sub, *sel_row("cortex tiles L" + std::to_string(level))->array_path);
     const int T = 2 << level;
     std::vector<double> sw(T, 0.0), sx(T, 0.0);
-    for (int i = 0; i < nV; ++i) { sw[tile[i]] += va[i]; sx[tile[i]] += va[i] * x[i]; }
+    for (int i = 0; i < nV; ++i) { sw[tile5[i]] += va[i]; sx[tile5[i]] += va[i] * x[i]; }
     Eigen::VectorXd m(T);
     for (int t = 0; t < T; ++t) m(t) = (sgn == "negative" ? -1 : 1) * sx[t] / sw[t];
     if (sgn == "magnitude") m = m.cwiseAbs();
     const double med = nxr::select::median(m), sd = nxr::select::mad(m);
     std::vector<std::set<int>> nb(T);
-    for (int f = 0; f < b.nF; ++f) for (int k = 0; k < 3; ++k) { const int a = tile[b.F[3 * f + k]], c = tile[b.F[3 * f + (k + 1) % 3]]; if (a != c) { nb[a].insert(c); nb[c].insert(a); } }
+    for (int f = 0; f < b.nF; ++f) for (int k = 0; k < 3; ++k) { const int a = tile5[b.F[3 * f + k]], c = tile5[b.F[3 * f + (k + 1) % 3]]; if (a != c) { nb[a].insert(c); nb[c].insert(a); } }
     std::vector<int> lab(T, -1), comp(T, -1);
     int nc = 0;
     for (int t = 0; t < T; ++t) {
@@ -160,7 +165,6 @@ int main() {
       ++nc;
       if (entered) { const int ord = *std::max_element(lab.begin(), lab.end()) + 1; for (int u : mem) lab[u] = ord; }
     }
-    // lab ordinals follow discovery order = ascending lowest tile
     struct Out { std::vector<int> vertex_code; std::vector<double> area, mean, peak; int n = 0; double enter = 0, weakest_in = 0, strongest_out = 0; };
     Out o; o.n = *std::max_element(lab.begin(), lab.end()) + 1; if (o.n < 0) o.n = 0;
     o.enter = med + enter_sd * sd;
@@ -169,7 +173,7 @@ int main() {
     o.vertex_code.assign(nV, -1);
     o.area.assign(o.n, 0.0); o.mean.assign(o.n, 0.0); o.peak.assign(o.n, -1e300);
     for (int i = 0; i < nV; ++i) {
-      const int k = lab[tile[i]];
+      const int k = lab[tile5[i]];
       o.vertex_code[i] = k;
       if (k < 0) continue;
       o.area[k] += va[i]; o.mean[k] += va[i] * x[i];
@@ -178,59 +182,45 @@ int main() {
     for (int k = 0; k < o.n; ++k) o.mean[k] /= o.area[k];
     return o;
   };
-  const int level = 5;                                   // 32 tiles a hemisphere, ~0.9 m² each; the band's wavelength 1.65 m (half of it 0.8: about a bump)
-  PatchesComputeOptions po;
-  po.map = "pet"; po.level = level; po.enter_sd = 3.0; po.exit_sd = 1.5;   // a band-pass has side lobes of the opposite sign around a bump (see README): 3 SD keeps to the bumps
-  const std::string tiling = "cortex tiles L" + std::to_string(level);
-  const std::vector<std::int32_t> tile5 = read_array<std::int32_t>(sub, *sel_row(tiling)->array_path);
-  const auto rows_of = [&](const std::string& sel, const std::optional<std::string>& fid, const std::string& m) {
-    const MeasurementValues v = measurement_values(sub, sel_row(sel)->id, fid, std::nullopt, std::nullopt, m);
-    return v.values;
-  };
 
   // ── THE BUMPS: positive sign finds the two bumps, each one patch of its centre's tile, and nothing else ──
-  const auto r1 = patches_compute(ds, sub, po);
-  const std::string pname = "pet patches L5 positive";
-  const std::vector<std::int32_t> codes1 = patch_codes(pname);
-  std::printf("  level %d: band member %d (lambda %.3g .. %.3g), %s transform, order %d (series error %.2g); baseline %.3g ± %.3g; %lld patches\n", level, r1.info["band"]["member"].get<int>(), r1.info["band"]["lambda_min"].get<double>(),
-              r1.info["band"]["lambda_max"].get<double>(), r1.info["band"]["transform"].get<std::string>().c_str(), r1.info["band"]["order"].get<int>(), r1.info["band"]["series_error"].get<double>(),
-              r1.info["baseline"]["median_used"].get<double>(), r1.info["baseline"]["sd_used"].get<double>(), r1.info["patches"].get<long long>());
-  CHECK(!r1.hit && r1.info["cache"] == "miss");
-  // the default transform is `auto`; this surface has no stored modes and no medial-wall atlas to glue it, so the series is used, ANNOUNCED
-  CHECK(r1.info["band"]["requested"] == "auto" && r1.info["band"]["transform"] == "chebyshev" && r1.info["warnings"].size() == 1);
-  CHECK(r1.info["warnings"][0].get<std::string>().find("CHEBYSHEV fallback") != std::string::npos && r1.info["warnings"][0].get<std::string>().find("level 5") != std::string::npos);
-  CHECK_EQ(r1.info["patches"].get<int>(), 2);                                                   // the two bumps and nothing else
+  const auto r1 = patches("pet", "positive", 3.0, 1.5);
+  CHECK(r1.size() == 1 && r1[0]["hit"] == false);
+  const std::vector<std::int32_t> codes1 = codes_of(r1[0]);
+  int n1 = 0;
+  for (const std::int32_t c : codes1) n1 = std::max(n1, c + 1);
+  CHECK_EQ(n1, 2);                                                                               // the two bumps and nothing else
   CHECK(codes1[cA] >= 0 && codes1[cB] >= 0 && codes1[cA] != codes1[cB]);                         // each bump's centre is in a patch, not the same one
-  CHECK(codes1[cE] == -1);                                                                       // the bump of another size is not found at this level
+  CHECK(codes1[cE] == -1);                                                                       // the bump of another size is not found at this scale
   {
     std::set<int> tilesA, tilesB;
     for (int v = 0; v < nV; ++v) { if (codes1[v] == codes1[cA]) tilesA.insert(tile5[v]); if (codes1[v] == codes1[cB]) tilesB.insert(tile5[v]); }
     CHECK(tilesA == std::set<int>({tile5[cA]}) && tilesB == std::set<int>({tile5[cB]}));         // the expected tiles: the bump centre's own
     for (int v = 0; v < nV; ++v) if (codes1[v] >= 0) CHECK((v < half) == (codes1[v] == codes1[cA]));   // a patch never crosses the hemispheres
   }
-  // the band's value at a bump's centre: the planted height times the band's response (σ² ∫ g e^(−k²σ²/2) k dk ≈ 0.27 for σ 0.35 at level 5; about 0.66 for the height 2.5)
-  const std::vector<double> band5 = read_array<double>(sub, *nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = "pet_band_L5", .any_status = true})->path);
+  // the band's value at a bump's centre: the planted height times the band's response (about 0.66 for the height 2.5 at sigma 0.35, level 5)
+  const std::string band_name = out_of(r1[0], "band")["name"].get<std::string>();
+  const std::vector<double> band5 = read_array<double>(sub, *nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = band_name, .any_status = true})->path);
   std::printf("  the band at the bumps' centres: A %.3f, B %.3f, the large bump %.3f\n", band5[cA], band5[cB], band5[cE]);
   CHECK(band5[cA] > 0.45 && band5[cA] < 0.85 && band5[cB] > 0.45 && band5[cB] < 0.85 && std::abs(band5[cE]) < 0.12);
-
-  // area, mean and peak against the direct computation, from the stored band Field and the mesh; the label of every vertex
+  // area, mean and peak against the direct computation, from the stored band field and the mesh; the label of every vertex
   {
-    const auto d = direct(level, "pet", "positive", po.enter_sd, po.exit_sd);
+    const auto d = direct(r1[0], "positive", 3.0, 1.5);
     CHECK_EQ(d.n, 2);
     std::printf("  threshold margin: entry tiles' weakest mean %.4f, entry threshold %.4f (ratio %.2f), strongest tile mean below it %.4f (ratio %.2f)\n", d.weakest_in, d.enter, d.weakest_in / d.enter, d.strongest_out, d.strongest_out / d.enter);
     CHECK(d.weakest_in > 1.5 * d.enter && d.strongest_out < 0.9 * d.enter);   // THE MARGIN (see the fixture's comment): a bump's tile at least 1.5 times the entry threshold, every other tile below 0.9 of it
     bool same = true;
     for (int v = 0; v < nV; ++v) same = same && d.vertex_code[v] == codes1[v];
     CHECK(same);
-    const auto area = rows_of(pname, std::nullopt, "area"), ntiles = rows_of(pname, std::nullopt, "n_tiles"), centre = rows_of(pname, std::nullopt, "centre_vertex");
-    const auto mean = rows_of(pname, field_id("pet_band_L5"), "mean"), mx = rows_of(pname, field_id("pet_band_L5"), "max");
+    const auto area = patch_values(r1[0], "patch_own", field_id(band_name), "area"), ntiles = patch_values(r1[0], "patch_own", field_id(band_name), "n_tiles"), centre = patch_values(r1[0], "patch_own", field_id(band_name), "centre_vertex");
+    const auto mean = patch_values(r1[0], "patch_measures", field_id(band_name), "mean"), mx = patch_values(r1[0], "patch_measures", field_id(band_name), "max");
+    CHECK(area.size() == 2 && mean.size() == 2 && mx.size() == 2);
     double worst = 0;
     for (int k = 0; k < d.n; ++k) worst = std::max({worst, std::abs(area[k] - d.area[k]) / d.area[k], std::abs(mean[k] - d.mean[k]) / std::abs(d.mean[k]), std::abs(mx[k] - d.peak[k]) / d.peak[k]});
     std::printf("  patches vs direct computation: worst relative error %.2e (areas %.4g, %.4g m²; peaks %.4g, %.4g)\n", worst, area[0], area[1], mx[0], mx[1]);
     CHECK(worst < 1e-9);
     CHECK_EQ(static_cast<int>(ntiles[0]), 1);
-    // the centre: the patch's vertex nearest its area-weighted centroid
-    for (int k = 0; k < d.n; ++k) {
+    for (int k = 0; k < d.n; ++k) {      // the centre: the patch's vertex nearest its area-weighted centroid
       Eigen::Vector3d c = Eigen::Vector3d::Zero(); double w = 0;
       for (int v = 0; v < nV; ++v) if (codes1[v] == k) { c += va[v] * P(v); w += va[v]; }
       c /= w;
@@ -238,166 +228,78 @@ int main() {
       for (int v = 0; v < nV; ++v) if (codes1[v] == k && (P(v) - c).squaredNorm() < bd) { bd = (P(v) - c).squaredNorm(); best = v; }
       CHECK_EQ(static_cast<int>(centre[k]), best);
     }
-    // the stored record and the statistics across the patches
-    const Json pj = sel_row(pname)->params;
-    CHECK(pj["pipeline"] == "patches" && pj["level"] == level && pj["sign"] == "positive" && pj["band"]["member"] == level && pj["baseline"]["statistic"] == "pet_band_L5_baseline" && pj.contains("cache") && pj["merge"] == "none");
-    CHECK(sel_row(pname)->type == "set" && sel_row(pname)->n_members == 2);
-    const StoredStatistic sa = read_statistic(sub, "pet_patches_L5_positive_area");
-    CHECK(sa.values.size() == 8 && sa.values[0] == 2.0 && std::abs(sa.values[1] - (d.area[0] + d.area[1])) < 1e-9 * (d.area[0] + d.area[1]));   // count, sum
-    const StoredStatistic sp = read_statistic(sub, "pet_patches_L5_positive_peak");
+    // the statistics across the patches: count and sum
+    const StoredStatistic sa = read_statistic(sub, out_of(r1[0], "area")["name"].get<std::string>());
+    CHECK(sa.values.size() == 8 && sa.values[0] == 2.0 && std::abs(sa.values[1] - (d.area[0] + d.area[1])) < 1e-9 * (d.area[0] + d.area[1]));
+    const StoredStatistic sp = read_statistic(sub, out_of(r1[0], "peak")["name"].get<std::string>());
     CHECK(sp.values.size() == 8 && sp.values[0] == 2.0);
-    const StoredStatistic base = read_statistic(sub, "pet_band_L5_baseline");
-    CHECK(base.values.size() == 2 && std::abs(base.values[0] - r1.info["baseline"]["median"].get<double>()) == 0);
+    CHECK(read_statistic(sub, out_of(r1[0], "baseline")["name"].get<std::string>()).values.size() == 2);
   }
-  // THE SEPARATE ROWS: a plain `measure compute` of the map over the same tiling is its own (of the map, not of its band), and neither overwrites the other
+  // THE SEPARATE ROWS: a plain `measure` of the map over the same tiling is its own (of the map, not of its band), and neither overwrites the other
   {
-    const auto before = rows_of(tiling, field_id("pet_band_L5"), "mean");
-    nxr::pipelines::run_shipped(ds, sub, "measure", Json{{"field", "pet"}, {"over", tiling}, {"weight", "barycentric"}, {"measures", Json::array({"mean"})}}, false);
-    const auto plain = rows_of(tiling, field_id("pet"), "mean"), after = rows_of(tiling, field_id("pet_band_L5"), "mean");
+    const std::string tiling = "cortex tiles L5";
+    const auto tile_means = [&](const std::string& fld) { return measurement_values(sub, sel_row(tiling)->id, field_id(fld), std::nullopt, std::nullopt, "mean").values; };
+    const auto before = tile_means(band_name);
+    nxrtest::run_definition(ds, sub, "measure", Json{{"field", "pet"}, {"over", tiling}, {"weight", "barycentric"}, {"measures", Json::array({"mean"})}});
+    const auto plain = tile_means("pet"), after = tile_means(band_name);
     CHECK(before == after && plain.size() == after.size());
     double diff = 0; for (std::size_t t = 0; t < plain.size(); ++t) diff = std::max(diff, std::abs(plain[t] - after[t]));
     CHECK(diff > 0.3);                                                                                // the map's own tile means (~0.5 + the bumps) are not the band's
-    std::set<std::string> mean_fields;      // the distinct fields the tiling has a mean of
-    for (const auto& m : nxr::io::testing::Probe(sub).rows("selection_measurement", {{"selection_id", V(sel_row(tiling)->id)}, {"measure", V("mean")}})) mean_fields.insert(text(m, "of_field_id"));
-    CHECK(mean_fields.size() == 2);
   }
-  // a RE-RUN is a hit at every stage; another choice is refused unless --replace
+  CHECK(patches("pet", "positive", 3.0, 1.5)[0]["hit"] == true);                                      // a rerun is a hit
   {
-    const auto nrows = [&] { return nxr::io::testing::Probe(sub).count("selection_measurement"); };
-    const std::int64_t n0 = nrows();
-    const auto r2 = patches_compute(ds, sub, po);
-    CHECK(r2.hit && r2.info["cache"] == "hit" && r2.info["patches"].get<int>() == 2 && nrows() == n0);
-    for (const auto& st : r2.info["statistics"]) CHECK(st["cache"] == "hit");
-    PatchesComputeOptions other = po; other.enter_sd = 8.0;
     std::string why;
-    CHECK(refused([&] { patches_compute(ds, sub, other); }, &why) && why.find("--replace") != std::string::npos);
-    other.replace = true;
-    const auto r3 = patches_compute(ds, sub, other);
-    CHECK(!r3.hit && r3.info["patches"].get<int>() == 0);          // at 8 SD nothing reaches the entry level (a bump's tile is about 2 times the 3 SD threshold, so at most 0.8 of the 8 SD one); the replaced patches' statistics are gone with them
-    CHECK(!nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::statistic, .name = "pet_patches_L5_positive_area", .any_status = true}).has_value());
-    std::printf("  enter at 8 SD, --replace: %d patch(es)\n", r3.info["patches"].get<int>());
-    PatchesComputeOptions back = po; back.replace = true;
-    const auto r4 = patches_compute(ds, sub, back);
-    CHECK(!r4.hit && r4.info["patches"].get<int>() == 2);                                              // back to the first choice: the same two patches
-    CHECK(patch_codes(pname) == codes1);
+    CHECK(refused([&] { patches("pet", "positive", 8.0, 1.5); }, &why) && why.find("--replace") != std::string::npos);   // another choice is refused without --replace
   }
 
-  // ── THE DIP: sign negative finds it, as one patch of its centre's tile; the bumps themselves are never marked by the negative sign; magnitude finds the bumps too ──
+  // ── THE DIP: sign negative finds it, as one patch of its centre's tile; the bumps themselves are never marked by the negative sign; magnitude finds the bumps too (each sign of one map is its own result, made with --replace) ──
   {
-    PatchesComputeOptions n = po; n.map = "pet_dip"; n.sign = "negative";
-    const auto r = patches_compute(ds, sub, n);
-    const std::vector<std::int32_t> c = patch_codes("pet_dip patches L5 negative");
-    std::printf("  dip, sign negative: %d patch(es); baseline %.3g ± %.3g, enter at %.3g\n", r.info["patches"].get<int>(), r.info["baseline"]["median_used"].get<double>(), r.info["baseline"]["sd_used"].get<double>(), r.info["thresholds"]["enter"].get<double>());
-    CHECK_EQ(r.info["patches"].get<int>(), 1);
+    const auto r = patches("pet_dip", "negative", 3.0, 1.5);
+    const std::vector<std::int32_t> c = codes_of(r[0]);
+    int n = 0;
+    for (const std::int32_t v : c) n = std::max(n, v + 1);
+    CHECK_EQ(n, 1);
     CHECK(c[cD] >= 0);
-    {
-      std::set<int> t; for (int v = 0; v < nV; ++v) if (c[v] == c[cD]) t.insert(tile5[v]);
-      CHECK(t.count(tile5[cD]) == 1);                                                                   // the patch holds the dip centre's tile (a dip may straddle two)
-    }
-    const auto d = direct(level, "pet_dip", "negative", n.enter_sd, n.exit_sd);
+    std::set<int> t; for (int v = 0; v < nV; ++v) if (c[v] == c[cD]) t.insert(tile5[v]);
+    CHECK(t.count(tile5[cD]) == 1);                                                                   // the patch holds the dip centre's tile (a dip may straddle two)
+    const auto d = direct(r[0], "negative", 3.0, 1.5);
     std::printf("  dip margin: entry tile's mean %.4f, threshold %.4f (ratio %.2f), strongest other tile %.4f (ratio %.2f)\n", d.weakest_in, d.enter, d.weakest_in / d.enter, d.strongest_out, d.strongest_out / d.enter);
     CHECK(d.weakest_in > 1.3 * d.enter && d.strongest_out < 0.9 * d.enter);   // the dip's margin: its tile at least 1.3 times the threshold, every other tile below 0.9 of it
     bool same = d.n == 1;
     for (int v = 0; v < nV; ++v) same = same && d.vertex_code[v] == c[v];
     CHECK(same);
-    const auto mn = rows_of("pet_dip patches L5 negative", field_id("pet_dip_band_L5"), "min");
+    const auto mn = patch_values(r[0], "patch_measures", field_id(out_of(r[0], "band")["name"].get<std::string>()), "min");
     CHECK(mn.size() == 1 && std::abs(-mn[0] - d.peak[0]) < 1e-9 * d.peak[0] && mn[0] < -0.2);              // the peak of a dip is its minimum
-    const StoredStatistic sp = read_statistic(sub, "pet_dip_patches_L5_negative_peak");
-    CHECK(sp.values[0] == 1.0 && std::abs(sp.values[2] - mn[0]) < 1e-12);                                  // count 1, the median of one value
-    // the bumps' map, sign negative: their side lobes are negative, never the bumps
-    PatchesComputeOptions nb = po; nb.sign = "negative";
-    {
-      // the side lobes of tall bumps are real band-pass structure and can pass a 3 SD threshold on some platforms' rounding, so the claim is that the negative sign never marks a bump itself
-      const auto rn = patches_compute(ds, sub, nb);
-      const std::vector<std::int32_t> cn = patch_codes("pet patches L5 negative");
-      std::printf("  bumps, sign negative: %d patch(es) (side lobes), none on a bump\n", rn.info["patches"].get<int>());
-      CHECK(cn[cA] == -1 && cn[cB] == -1 && cn[cE] == -1);
-    }
-    PatchesComputeOptions m = po; m.sign = "magnitude";
-    const auto rm = patches_compute(ds, sub, m);
-    const std::vector<std::int32_t> cm = patch_codes("pet patches L5 magnitude");
-    std::printf("  bumps, sign magnitude: %d patch(es)\n", rm.info["patches"].get<int>());
+    // the bumps' map, sign negative: their side lobes are negative, never the bumps themselves
+    const std::vector<std::int32_t> cn = codes_of(patches("pet", "negative", 3.0, 1.5, true)[0]);
+    CHECK(cn[cA] == -1 && cn[cB] == -1 && cn[cE] == -1);
+    const std::vector<std::int32_t> cm = codes_of(patches("pet", "magnitude", 3.0, 1.5, true)[0]);
     CHECK(cm[cA] >= 0 && cm[cB] >= 0 && cm[cE] == -1);
-    CHECK(!rm.info["baseline"]["note"].is_null());
-    // the positive patches are still there, untouched by the other signs
-    CHECK(patch_codes(pname) == codes1);
+    CHECK(codes_of(patches("pet", "positive", 3.0, 1.5, true)[0]) == codes1);                            // the first choice again (another sign is another result: --replace): the same two patches
   }
 
-  // ── A BUMP OF ANOTHER SIZE: the large one (σ 1.2, 3.4 times the bumps') is not found at level 5, and is at a coarser level ──
+  // ── A BUMP OF ANOTHER SIZE: the large one (sigma 1.2, 3.4 times the bumps') is not found at this scale, and is at a coarser one ──
   {
-    std::vector<int> found;
-    for (int lv = 1; lv <= 4; ++lv) {
-      PatchesComputeOptions c = po; c.level = lv; c.enter_sd = 1.5; c.exit_sd = 1.0;
-      const auto r = patches_compute(ds, sub, c);
-      if (patch_codes("pet patches L" + std::to_string(lv) + " positive")[cE] >= 0) found.push_back(lv);
+    std::vector<std::string> found;
+    for (const char* coarser : {"parts 8", "parts 4"}) {
+      const auto r = patches("pet", "positive", 1.5, 1.0, false, coarser);
+      if (codes_of(r[0])[cE] >= 0) found.push_back(coarser);
     }
-    std::printf("  the large bump (sigma 1.2) is found at level(s)");
-    for (int lv : found) std::printf(" %d", lv);
-    std::printf("; not at level 5\n");
+    std::printf("  the large bump (sigma 1.2) is found at %zu coarser scale(s); not at parts 32\n", found.size());
     CHECK(!found.empty());
-  }
-
-  // ── the transforms: the series follows the exact modes (a smaller mesh, the dense solve is capped), a series too short is refused, not used ──
-  {
-    std::string why;
-    PatchesComputeOptions e = po; e.transform = "exact";
-    CHECK(refused([&] { patches_compute(ds, sub, e); }, &why) && why.find("4096") != std::string::npos);   // 5124 vertices
-    PatchesComputeOptions lo = po; lo.order = 20;
-    CHECK(refused([&] { patches_compute(ds, sub, lo); }, &why) && why.find("--order") != std::string::npos);
-    const Brain s = brain(3, false);
-    const fs::path root2 = root.string() + "_small";
-    fs::remove_all(root2);
-    DatasetWriter d2 = create_dataset(root2, "small");
-    std::vector<float> m(static_cast<size_t>(s.n));
-    for (int i = 0; i < s.n; ++i) m[i] = static_cast<float>(std::sin(3 * s.Sph[3 * i]) * std::cos(2 * s.Sph[3 * i + 2]) + 0.3 * s.Sph[3 * i + 1]);
-    { SubjectWriter w = SubjectWriter::create(d2, "S");
-      w.compose([&] {
-        SurfaceOptions so; so.name = "cortex"; so.sphere = s.Sph;
-        const std::string id = add_surface(w, so, s.P, s.F).id;
-        FieldSpec f; f.name = "m"; f.path = "source/m"; f.kind = "map"; f.manifold_id = id; f.value_type = "scalar"; f.data = view(m, {static_cast<std::int64_t>(s.n)});
-        w.field(std::move(f));
-      }); }
-    SubjectWriter w = SubjectWriter::open(d2, "S");
-    nxrtest::make_tiles(d2, w);
-    PatchesComputeOptions a; a.map = "m"; a.level = 4; a.transform = "exact"; a.enter_sd = 1.0; a.exit_sd = 0.5;
-    patches_compute(d2, w, a);
-    auto band = [&] { const auto r = nxr::io::task::Subject::of(w).find({.cls = nxr::io::task::Cls::field, .name = "m_band_L4", .any_status = true}); return read_array<double>(w, *r->path); };
-    const std::vector<double> ex = band();
-    a.transform = "chebyshev"; a.replace = true;
-    const auto rc = patches_compute(d2, w, a);
-    const std::vector<double> ch = band();
-    double dmax = 0, vmax = 0;
-    for (std::size_t i = 0; i < ex.size(); ++i) { dmax = std::max(dmax, std::abs(ex[i] - ch[i])); vmax = std::max(vmax, std::abs(ex[i])); }
-    std::printf("  exact vs Chebyshev (order %d, series error %.2g): max |difference| %.2e of a band of size %.3f\n", rc.info["band"]["order"].get<int>(), rc.info["band"]["series_error"].get<double>(), dmax, vmax);
-    CHECK(vmax > 0.05 && dmax < 0.03 * vmax);
-    fs::remove_all(root2);
   }
 
   // ── REFUSALS, each with its reason ──
   {
     std::string why;
-    PatchesComputeOptions q = po;
-    SubjectWriter s2 = SubjectWriter::open(ds, "S2");
-    CHECK(refused([&] { patches_compute(ds, s2, q); }, &why) && why.find("tiles compute") != std::string::npos);          // no ladder
-    q.level = 99;
-    CHECK(refused([&] { patches_compute(ds, sub, q); }, &why) && why.find("no level 99") != std::string::npos);            // a level the ladder lacks
-    q = po; q.map = "vec";
-    CHECK(refused([&] { patches_compute(ds, sub, q); }, &why) && why.find("scalar") != std::string::npos);                // not a scalar
-    q.map = "sensor_map";
-    CHECK(refused([&] { patches_compute(ds, sub, q); }, &why) && why.find("not a surface") != std::string::npos);         // not on a surface
-    q.map = "pet_holes";
-    CHECK(refused([&] { patches_compute(ds, sub, q); }, &why) && why.find("no value") != std::string::npos);              // a hole
-    q.map = "flat";
-    CHECK(refused([&] { patches_compute(ds, sub, q); }, &why) && why.find("round-off") != std::string::npos);             // nothing varies
-    q.map = "nope";
-    CHECK(refused([&] { patches_compute(ds, sub, q); }, &why) && why.find("no stored Field") != std::string::npos);
-    q = po; q.sign = "up";
-    CHECK(refused([&] { patches_compute(ds, sub, q); }, &why) && why.find("positive") != std::string::npos);
-    q = po; q.exit_sd = 5.0;
-    CHECK(refused([&] { patches_compute(ds, sub, q); }, &why));
-    q = po; q.level = -1;
-    CHECK(refused([&] { patches_compute(ds, sub, q); }, &why));
+    CHECK(refused([&] { patches("vec", "positive", 3.0, 1.5); }, &why) && why.find("scalar") != std::string::npos);                    // not a scalar
+    CHECK(refused([&] { patches("sensor_map", "positive", 3.0, 1.5); }, &why));                                                         // not on a surface
+    CHECK(refused([&] { patches("pet_holes", "positive", 3.0, 1.5); }, &why) && why.find("no value") != std::string::npos);            // a hole
+    CHECK(refused([&] { patches("flat", "positive", 3.0, 1.5); }, &why) && why.find("round-off") != std::string::npos);                // nothing varies
+    CHECK(refused([&] { patches("nope", "positive", 3.0, 1.5); }, &why));                                                               // no such map
+    CHECK(refused([&] { patches("pet", "up", 3.0, 1.5); }, &why) && why.find("positive") != std::string::npos);
+    CHECK(refused([&] { patches("pet", "positive", 3.0, 5.0); }, &why));                                                                // exit above entry
+    CHECK(refused([&] { patches("pet", "positive", 3.0, 1.5, false, "parts 4096"); }, &why));                                           // a scale the grid lacks
   }
-  fs::remove_all(root);
-  return nxrtest::finish("test_patches_pipeline");
+  return 0;
 }

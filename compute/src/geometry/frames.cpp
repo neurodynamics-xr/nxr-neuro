@@ -130,6 +130,21 @@ Mat3 vertexNormals(const double* P, int nV, const int32_t* F, int nF) {
     return n;
 }
 
+Mat3 vertexNormalsPatch(const double* P, int nV, const int32_t* F, int nF) {
+    // each face's unit normal (p1 - p0) x (p2 - p0) / |.|, added to its three vertices with no weight, the sum NEGATED (MATLAB's patch convention) and normalised; a vertex in no face is 0
+    Mat3 n = Mat3::Zero(nV, 3);
+    for (int f = 0; f < nF; ++f) {
+        const int v[3] = {F[3 * f], F[3 * f + 1], F[3 * f + 2]};
+        Vector3d fn = (row(P, v[1]) - row(P, v[0])).cross(row(P, v[2]) - row(P, v[0]));
+        const double l = fn.norm();
+        if (!(l > 0)) continue;
+        fn /= l;
+        for (int k = 0; k < 3; ++k) n.row(v[k]) -= fn.transpose();
+    }
+    for (int i = 0; i < nV; ++i) { const double l = n.row(i).norm(); if (l > 0) n.row(i) /= l; }
+    return n;
+}
+
 VectorXd gaugeAngle(geometry::IntrinsicSurface& surface, const Mat3& d) {
     if (d.rows() != surface.nV()) throw std::invalid_argument("gaugeAngle: one direction per vertex of the surface");
     const geometry::TangentBasis b = surface.tangentBasis();

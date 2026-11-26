@@ -54,7 +54,7 @@ ng::PortType input_type(const std::string& name, const Json& spec, const Found& 
   t.typed = true;
   if (spec.contains("field")) {
     t.cls = ng::PortClass::field;
-    t.domain = dom({ng::manifold_id("sensors", name, ng::ManifoldKind::points, ng::Role::none, ng::CoordinateSystem{"head", "scs", "m"}), ng::time_line(name, 100.0)});
+    t.domain = dom({ng::manifold_id("sensors", name, ng::ManifoldKind::points, ng::CoordinateSystem{"head", "scs", "m"}), ng::time_line(name, 100.0)});
     t.quantity = "recording";
     t.axis = ng::Axis::samples;
     t.sfreq = 100.0;
@@ -63,7 +63,7 @@ ng::PortType input_type(const std::string& name, const Json& spec, const Found& 
   if (spec.contains("operator")) {
     t.cls = ng::PortClass::operator_;
     t.domain = dom({ng::restricted(rel(spec.at("from").get<std::string>(), found), "channels(" + name + ")")});
-    t.target = dom({ng::manifold_id("cortex", name, ng::ManifoldKind::surface, ng::Role::none, ng::CoordinateSystem{"head", "scs", "m"})});
+    t.target = dom({ng::manifold_id("cortex", name, ng::ManifoldKind::surface, ng::CoordinateSystem{"head", "scs", "m"})});
     t.value = ng::ValueType::vector3;
     t.quantity = "inverse kernel";
     return t;
@@ -120,7 +120,7 @@ ng::PortType input_type(const std::string& name, const Json& spec, const Found& 
     } else if (m == "welch") {
       ng::ManifoldRef ch = sens;
       if (kernel) for (const auto& n : found.order) if (found.types.at(n).cls == ng::PortClass::operator_) ch = ng::restricted(sens, "channels(" + n + ")");
-      t.domain = dom({ch, ng::manifold_id("frequency", name, ng::ManifoldKind::line, ng::Role::frequency)});
+      t.domain = dom({ch, ng::manifold_id("frequency", name, ng::ManifoldKind::line, ng::CoordinateSystem{"frequency", "hz", "Hz"}, 0, ng::Topology::path)});
     } else {
       t.domain = dom({ng::manifold_id("tiles", name)});
     }

@@ -17,10 +17,10 @@ target_sources(nxr_compute PRIVATE
   src/geometry/normalize_delaunay.cpp
   src/geometry/normals.cpp
   src/geometry/parametrization.cpp
+  src/geometry/point_set_mesh.cpp
   src/geometry/query_measure.cpp
   src/geometry/signed_heat.cpp
   src/geometry/smooth_field.cpp
-  src/geometry/stripe_patterns.cpp
   src/geometry/topology.cpp
   src/geometry/transport.cpp
   src/geometry/vector_heat.cpp
@@ -75,6 +75,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_transport test/test_transport.cpp)
   target_link_libraries(test_transport PRIVATE nxr_compute)
   add_test(NAME test_transport COMMAND test_transport)
+  add_executable(test_point_set_mesh test/test_point_set_mesh.cpp)
+  target_link_libraries(test_point_set_mesh PRIVATE nxr_compute)
+  add_test(NAME test_point_set_mesh COMMAND test_point_set_mesh)
   add_executable(test_glue test/test_glue.cpp)
   target_link_libraries(test_glue PRIVATE nxr_compute)
   target_compile_definitions(test_glue PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
@@ -83,4 +86,8 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   target_link_libraries(test_frames PRIVATE nxr_compute)
   target_compile_definitions(test_frames PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
   add_test(NAME test_frames COMMAND test_frames)
+  add_executable(test_vertex_normals_patch test/test_vertex_normals_patch.cpp)
+  target_link_libraries(test_vertex_normals_patch PRIVATE nxr_compute)
+  target_compile_definitions(test_vertex_normals_patch PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+  add_test(NAME test_vertex_normals_patch COMMAND test_vertex_normals_patch)
 endif()

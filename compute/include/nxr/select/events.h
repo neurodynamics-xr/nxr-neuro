@@ -13,7 +13,11 @@
 //   (a measurement of tiles over the tiles of each event is `nxr::measurement::merge` / `roll_values` over the event's groups of tiles, by the measure's merge rule)
 //   eventDurations, eventIntervalNext   the events' own geometry in seconds: stop - start, and the next event's start sharing a row minus this stop
 //   median, mad   the median, and the robust SD 1.4826 · median |x − median| (nxr spindle_envelope's baseline)
+//   overlapGroups the events joined by overlap (union-find): two events are one group when their time intervals overlap and, when frequency boxes are given, their boxes overlap too; the windows of
+//                 events found on several rows (a global window where at least one channel bursts: spec docs/specs/2026-11-20-gabor-bursts.md, piece 9)
 #include <cstdint>
+#include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,11 +39,42 @@ std::vector<Span> halfWaves(const Eigen::Ref<const Eigen::VectorXd>& x, std::int
 double median(const Eigen::Ref<const Eigen::VectorXd>& x);
 double mad(const Eigen::Ref<const Eigen::VectorXd>& x);
 
+/** per event, its group's number (0, 1, ... in the order of each group's first event): events i and j are joined when [start_i, stop_i) and [start_j, stop_j) overlap and, when `fLow` and `fHigh` are
+ *  given (one each an event, or both empty), [fLow_i, fHigh_i] and [fLow_j, fHigh_j] overlap too; joined events chain (a group is a connected component). */
+std::vector<std::int64_t> overlapGroups(const std::vector<double>& start, const std::vector<double>& stop, const std::vector<double>& fLow = {}, const std::vector<double>& fHigh = {});
+
 // An event as a run of tiles [first, stop) of a tile level, found on `row` (-1: the mean over the rows, so on every row). The tiles of an event are the group of members it merges.
 struct TileEvent { std::int64_t first = 0, stop = 0, row = -1; };
 /** the events' durations: (stop - first) * width, in the unit of `width` */
 std::vector<double> eventDurations(const std::vector<TileEvent>& events, double width);
 /** per event, the start of the next event that shares its row (any row for an event of row -1) minus its own stop, times `width`; NaN for the last */
 std::vector<double> eventIntervalNext(const std::vector<TileEvent>& events, double width);
+
+// THE BURSTS OF AN AMPLITUDE SERIES (Rheome's labelalpha → detect.spindle in envelope mode; nxr burst_stages / spindle_envelope): the robust baseline (median and
+// 1.4826 · MAD over the finite values, or the caller's), enter at median + enterSd · SD, extend while ≥ median + exitSd · SD (crossings), gaps joined (mergeSpans),
+// kept by length (keepSpans). The series is ANY amplitude (a sensor's envelope per sample, a tile measurement per tile, a region's mean); `step` is the time between
+// its samples in seconds (1/fs per sample, a tile's width per tile). A non-finite value (a bad sample or tile) ends a span and is left out of the baseline.
+// Durations in seconds are compared in whole samples: joined when the samples between two spans last ≤ mergeS; kept when minS ≤ length · step ≤ maxS.
+struct BurstOptions {
+  double enterSd = 1.5;                                          // robust SDs above the median to enter (labelalpha's hiSD)
+  double exitSd = 1.0;                                           // robust SDs above the median to extend (labelalpha's loSD)
+  double mergeS = 0.1;                                           // s: gaps up to this are joined
+  double minS = 0.4;                                             // s: the bursts kept last at least this
+  double maxS = std::numeric_limits<double>::infinity();         // s: and at most this (∞: no upper bound)
+};
+struct Baseline { double median = 0, sd = 0; };
+struct Bursts {
+  std::vector<Span> spans;                                       // [start, stop) in samples of the series, the peak sample and value
+  double median = std::numeric_limits<double>::quiet_NaN(), sd = std::numeric_limits<double>::quiet_NaN();   // the baseline used
+  double enter = std::numeric_limits<double>::quiet_NaN(), exit = std::numeric_limits<double>::quiet_NaN();   // the two levels, in the series' units
+  std::int64_t good = 0;                                         // finite values in the series
+  std::int64_t gap = 0, minLength = 0, maxLength = 0;            // the durations in samples as compared (maxLength: INT64_MAX when unbounded)
+  std::string skipped;                                           // empty, or why nothing was detected ("fewer than 2 good samples", "no spread (robust SD 0)")
+};
+/** The durations as compared, in samples of a series `step` s apart: gap (spans closer than this are joined), minLength, maxLength (INT64_MAX: unbounded). */
+struct BurstLengths { std::int64_t gap = 0, minLength = 0, maxLength = 0; };
+BurstLengths burstLengths(const BurstOptions& options, double step);
+/** `x` [n] the amplitude, `step` > 0 s between samples, `baseline` the caller's median and SD (none: computed over x's finite values). */
+Bursts detectBursts(const Eigen::Ref<const Eigen::VectorXd>& x, double step, const BurstOptions& options = {}, const std::optional<Baseline>& baseline = std::nullopt);
 
 }  // namespace nxr::select

@@ -5,10 +5,15 @@
 //   meeg.noise_covariance  accumulate  x [channels x samples]  ->  channels (the good channels of the imaging types, indices), covariance [M x M] (a statistic)
 //   meeg.spherical_head_model  array   channels (sensor geometry) + sources + meg/eeg surfaces  ->  gain (an operator), grid (the source positions)
 //   meeg.minimum_norm      array       forward (a head model) + covariance (a statistic on a pick)  ->  kernel, channels, covariance, whitener
+//   meeg.lcmv              array       forward + data covariance + noise covariance + source surface  ->  kernel (fixed, scalar), channels, whitener, data whitener
+//   meeg.region_pca_basis  array       kernel (fixed) + the span's covariance + partition + source surface  ->  basis (each region's component and peak source as channel weights)
+//   meeg.region_pca        accumulate  x + basis  ->  map (regions x channels), channels: each component signed by the span's extremes (the offsets in its provenance)
 #include "nxr/pipelines/meeg_steps.h"
 #include "nxr/pipelines/select_nodes.h"
 #include "nxr/selection/selection.h"
 
+#include <memory>
+#include <mutex>
 #include <algorithm>
 #include <optional>
 #include <cmath>
@@ -35,9 +40,13 @@
 #include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/wavelet.h"
 #include "nxr/meeg/inverse.h"
+#include "nxr/meeg/beamformer.h"
+#include "nxr/meeg/scouts.h"
+#include "nxr/geometry/frames.h"
 #include "nxr/meeg/forward.h"
 #include "nxr/meeg/sphere.h"
 #include "nxr/bst/inverse.h"
+#include "nxr/bst/projectors.h"
 
 namespace nxr::pipelines::graph {
 
@@ -198,12 +207,139 @@ ng::NodeSpec noise_covariance() {
 // Made: the kernel [3N x M] on the pick, the pick, the covariance it was computed with (re-referenced) and its symmetric whitener [M x M] (a PCA whitener is not stored).
 struct MinNormPrepared {
   Eigen::MatrixXd G, C;
+  std::optional<Eigen::MatrixXd> right;      // MNE-Python: the projector the kernel ends with (inv['proj']), [M x M]
   std::vector<std::int32_t> channels;
   std::vector<std::string> types;
   nxr::meeg::KernelOptions opt;
   bool averaged = false;
   std::string forward, covariance, conventions;
+  Json projectors = Json::object();          // which projectors went where (the provenance)
+  Json channels_matched;                     // the covariance's channel set matched to the head model's by name (the preparation's record), null: on the head model's own set
 };
+
+// the projectors handed with the covariance (the runner reads its channels' projector Operators, those the caller chose with the run's projectors option: `meta.projectors`)
+std::vector<nxr::bst::StoredProjector> projectors_of(const Json& meta) {
+  std::vector<nxr::bst::StoredProjector> out;
+  if (!meta.contains("projectors") || !meta["projectors"].is_array()) return out;
+  for (const auto& j : meta["projectors"]) {
+    nxr::bst::StoredProjector p;
+    p.name = j.value("name", std::string());
+    p.kind = j.value("kind", std::string("ssp"));
+    p.method = j.value("method", std::string());
+    p.order = j.value("order", 0);
+    p.status = j.value("status", 0);
+    p.m = j.value("m", std::size_t(0));
+    if (j.contains("vectors")) for (const auto& v : j["vectors"]) p.vectors.push_back(v.get<std::vector<double>>());
+    if (j.contains("matrix")) p.matrix = j["matrix"].get<std::vector<double>>();
+    out.push_back(std::move(p));
+  }
+  return out;
+}
+// the projectors a covariance's recording was read with (its run's provenance: producer.run.projectors.applied)
+std::vector<std::string> covariance_projectors_of(const Json& meta) {
+  std::vector<std::string> out;
+  if (meta.contains("producer") && meta["producer"].is_object() && meta["producer"].contains("run") && meta["producer"]["run"].is_object()) {
+    const Json& r = meta["producer"]["run"];
+    if (r.contains("projectors") && r["projectors"].is_object() && r["projectors"].contains("applied")) out = r["projectors"]["applied"].get<std::vector<std::string>>();
+  }
+  return out;
+}
+Eigen::MatrixXd dense(const std::vector<double>& m, std::size_t n) {
+  if (m.empty()) return Eigen::MatrixXd::Identity(static_cast<Eigen::Index>(n), static_cast<Eigen::Index>(n));
+  return Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(m.data(), static_cast<Eigen::Index>(n), static_cast<Eigen::Index>(n));
+}
+
+}  // namespace
+
+MinNormInputs minimum_norm_inputs(const Eigen::MatrixXd& F, const Eigen::MatrixXd& C, const std::vector<std::int32_t>& pick, const std::vector<std::string>& types,
+                                  const std::vector<nxr::bst::StoredProjector>& projectors, const std::vector<std::string>& covariance_projectors, const std::string& conventions,
+                                  bool average_reference) {
+  const Eigen::Index M = static_cast<Eigen::Index>(pick.size()), m = F.rows();
+  if (C.rows() != M || C.cols() != M || static_cast<Eigen::Index>(types.size()) != M) ng::refuse("meeg.minimum_norm: the covariance, its channels and their types do not agree");
+  for (const auto& q : projectors) if (static_cast<Eigen::Index>(q.m) != m) ng::refuse("meeg.minimum_norm: the projector " + q.name + " is on " + std::to_string(q.m) + " channels, the gain on " + std::to_string(m));
+  MinNormInputs out;
+  Json rec = Json::object();
+  // the average reference's families among the pick (EEG, sEEG, ECoG with at least two channels)
+  std::vector<std::vector<int>> families;
+  if (average_reference)
+    for (const char* fam : {"EEG", "SEEG", "ECOG"}) {
+      std::vector<int> idx;
+      for (int i = 0; i < static_cast<int>(M); ++i) if (types[static_cast<std::size_t>(i)] == fam) idx.push_back(i);
+      if (idx.size() >= 2) families.push_back(idx);
+    }
+  out.averaged = !families.empty();
+  if (conventions == "mne") {
+    // MNE-Python (make_inverse_operator: _prepare_forward, prepare_noise_cov / _smart_eigh, prepare_inverse_operator): the projector is made on the picked channels from
+    // EVERY projector of the info (active or not) with each vector cut to the pick and renormalised (_make_projector); the average reference is one of them (an EEG
+    // average-reference projector). The covariance is P C P^T with P from the info's projectors and the covariance's own; the gain is used as it is (the whitener's rows lie in
+    // the projected space, and the depth prior is computed on the gain as it is); the kernel ends with the info's projector (inv['proj']).
+    std::vector<nxr::bst::StoredProjector> info = projectors;
+    int order = 0;
+    for (const auto& q : info) order = std::max(order, q.order);
+    for (const auto& idx : families) {
+      nxr::bst::StoredProjector a;
+      a.name = "average reference (" + types[static_cast<std::size_t>(idx.front())] + ")";
+      a.kind = "ssp"; a.status = 1; a.order = ++order; a.m = static_cast<std::size_t>(m);
+      std::vector<double> v(static_cast<std::size_t>(m), 0.0);
+      for (int i : idx) v[static_cast<std::size_t>(pick[static_cast<std::size_t>(i)])] = 1.0;
+      a.vectors.push_back(v);
+      info.push_back(std::move(a));
+    }
+    std::vector<nxr::bst::StoredProjector> with_cov = info;
+    for (const auto& name : covariance_projectors)
+      for (const auto& q : projectors) if (q.name == name) { nxr::bst::StoredProjector c = q; c.order = ++order; with_cov.push_back(std::move(c)); }
+    nxr::bst::ProjectorRule rule;
+    rule.statuses = {0, 1, 2};
+    for (const auto c : pick) rule.channels.push_back(static_cast<std::size_t>(c));
+    rule.renormalise = true;
+    rule.zero_tiny = false;
+    std::vector<std::string> used_info, used_cov;
+    const Eigen::MatrixXd Pk = dense(nxr::bst::joint_projector(info, rule, &used_info), static_cast<std::size_t>(M));
+    const Eigen::MatrixXd Pc = dense(nxr::bst::joint_projector(with_cov, rule, &used_cov), static_cast<std::size_t>(M));
+    out.G.resize(M, F.cols());
+    for (Eigen::Index i = 0; i < M; ++i) out.G.row(i) = F.row(pick[static_cast<std::size_t>(i)]);
+    out.C = Pc * C * Pc.transpose();
+    if (!used_info.empty()) out.right = Pk;
+    out.info_projectors = info;
+    rec = Json{{"rule", "MNE-Python make_inverse_operator: every projector of the info (and the covariance's) on the picked channels, each vector renormalised; P C P^T; the kernel ends with P"},
+               {"covariance", used_cov}, {"kernel", used_info}};
+  } else {
+    // Brainstorm (process_inverse_2018): the channel file's projectors of status 1 and 2 (BuildProjector(Projector, [1 2])) on ALL channels, applied to the gain's rows that
+    // hold no NaN and to both sides of the noise covariance; then the good channels; then the average reference per family, on the gain and both sides of the covariance.
+    nxr::bst::ProjectorRule rule;
+    rule.statuses = {1, 2};
+    std::vector<std::string> used;
+    const std::vector<double> pv = nxr::bst::joint_projector(projectors, rule, &used);
+    std::vector<Eigen::Index> ok;
+    for (Eigen::Index r = 0; r < m; ++r) if (!F.row(r).hasNaN()) ok.push_back(r);
+    out.G.resize(M, F.cols());
+    if (pv.empty()) {
+      for (Eigen::Index i = 0; i < M; ++i) out.G.row(i) = F.row(pick[static_cast<std::size_t>(i)]);
+      out.C = C;
+    } else {
+      const Eigen::MatrixXd P = dense(pv, static_cast<std::size_t>(m));
+      Eigen::MatrixXd Pp(M, M);
+      for (Eigen::Index i = 0; i < M; ++i) {
+        const Eigen::Index r = pick[static_cast<std::size_t>(i)];
+        if (F.row(r).hasNaN()) { out.G.row(i) = F.row(r); }
+        else { out.G.row(i).setZero(); for (const Eigen::Index l : ok) if (P(r, l) != 0.0) out.G.row(i) += P(r, l) * F.row(l); }
+        for (Eigen::Index j = 0; j < M; ++j) Pp(i, j) = P(r, pick[static_cast<std::size_t>(j)]);
+      }
+      out.C = Pp * C * Pp.transpose();
+    }
+    if (out.averaged) {
+      Eigen::MatrixXd A = Eigen::MatrixXd::Identity(M, M);
+      for (const auto& idx : families) for (int a : idx) for (int b : idx) A(a, b) -= 1.0 / static_cast<double>(idx.size());
+      out.G = A * out.G;
+      out.C = A * out.C * A.transpose();
+    }
+    rec = Json{{"rule", "Brainstorm process_inverse_2018: the projectors of status 1 and 2 on all channels, applied to the gain and both sides of the noise covariance"}, {"applied", used}};
+  }
+  out.record = rec;
+  return out;
+}
+
+namespace {
 
 nxr::meeg::KernelOptions kernel_options(const Json& p) {
   using namespace nxr::meeg;
@@ -301,37 +437,28 @@ ng::NodeSpec minimum_norm() {
     pr.forward = F.meta.value("name", std::string());
     pr.covariance = S.meta.value("name", std::string());
     if (F.meta.value("to_manifold_id", std::string()) != S.meta.value("channels_manifold_id", std::string()))
-      ng::refuse("meeg.minimum_norm: " + pr.covariance + " is on other channels than " + pr.forward);
+      ng::refuse("meeg.minimum_norm: " + pr.covariance + " is on other channels than " + pr.forward + " (a covariance of another channel set is matched to the head model's by name when it is prepared)");
     if (F.cols % 3 != 0) ng::refuse("meeg.minimum_norm: " + pr.forward + ": the gain is not channels x 3N");
     pr.channels = S.meta.value("channels", std::vector<std::int32_t>());
     pr.types = S.meta.value("channel_types", std::vector<std::string>());
     const std::int64_t M = static_cast<std::int64_t>(pr.channels.size());
     if (M == 0 || S.rows != M || S.cols != M) ng::refuse("meeg.minimum_norm: " + pr.covariance + ": its array does not fit its channels");
-    pr.C = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(S.data.data(), M, M);
-    pr.G.resize(M, F.cols);
-    for (std::int64_t i = 0; i < M; ++i) {
-      const std::int32_t ch = pr.channels[static_cast<std::size_t>(i)];
-      if (ch < 0 || ch >= F.rows) ng::refuse("meeg.minimum_norm: a channel of " + pr.covariance + " is outside the gain's channels");
-      for (std::int64_t j = 0; j < F.cols; ++j) pr.G(i, j) = F.data[static_cast<std::size_t>(ch * F.cols + j)];
-    }
+    const Eigen::MatrixXd C = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(S.data.data(), M, M);
+    for (const std::int32_t ch : pr.channels) if (ch < 0 || ch >= F.rows) ng::refuse("meeg.minimum_norm: a channel of " + pr.covariance + " is outside the gain's channels");
+    const Eigen::MatrixXd Fall = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(F.data.data(), F.rows, F.cols);
     pr.opt = kernel_options(p);
     pr.conventions = p.value("conventions", std::string("brainstorm"));
-    if (p.value("average_reference", true)) {
-      Eigen::MatrixXd A = Eigen::MatrixXd::Identity(M, M);
-      for (const char* fam : {"EEG", "SEEG", "ECOG"}) {
-        std::vector<int> idx;
-        for (int i = 0; i < static_cast<int>(M); ++i) if (pr.types[static_cast<std::size_t>(i)] == fam) idx.push_back(i);
-        if (idx.size() < 2) continue;
-        for (int a : idx) for (int b : idx) A(a, b) -= 1.0 / static_cast<double>(idx.size());
-        pr.averaged = true;
-      }
-      if (pr.averaged) { pr.G = A * pr.G; pr.C = A * pr.C * A.transpose(); }
-    }
+    const std::vector<std::string> cov_projs = covariance_projectors_of(S.meta);
+    const MinNormInputs mi = minimum_norm_inputs(Fall, C, pr.channels, pr.types, projectors_of(S.meta), cov_projs, pr.conventions, p.value("average_reference", true));
+    pr.G = mi.G; pr.C = mi.C; pr.right = mi.right; pr.averaged = mi.averaged; pr.projectors = mi.record;
+    if (S.meta.contains("projectors_choice")) pr.projectors["choice"] = S.meta["projectors_choice"];
+    if (S.meta.contains("channels_matched")) pr.channels_matched = S.meta["channels_matched"];   // a covariance of another channel set, matched to the head model's by name   // which projectors the caller had handed (the run's --projectors), for the provenance
     return std::any(std::move(pr));
   };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
     const MinNormPrepared& pr = std::any_cast<const MinNormPrepared&>(prepared);
-    const nxr::meeg::Kernel ker = nxr::meeg::unconstrainedKernel(pr.G, pr.C, pr.types, pr.opt);
+    nxr::meeg::Kernel ker = nxr::meeg::unconstrainedKernel(pr.G, pr.C, pr.types, pr.opt);
+    if (pr.right) ker.K = ker.K * *pr.right;                            // MNE-Python's kernel ends with the projector (trans = eigen_fields . whitener . proj)
     const std::int64_t M = static_cast<std::int64_t>(pr.channels.size()), R = ker.K.rows(), N = R / 3;
     const Json options = kernel_options_record(pr.opt);
     const auto& w = pr.opt.whitener;
@@ -340,7 +467,8 @@ ng::NodeSpec minimum_norm() {
                          {"source_ori", "free"}, {"inverse_method", "minnorm"}, {"inverse_measure", "amplitude"}, {"source_orient", Json::array({"free"})},
                          {"use_depth", pr.opt.depth.enabled}, {"noise_method", w.regularisation == nxr::meeg::Regularisation::Ridge ? "reg" : w.regularisation == nxr::meeg::Regularisation::Diagonal ? "diag" : "none"},
                          {"snr_method", "fixed"}, {"snr_fixed", pr.opt.snr}, {"whitener_rank", ker.whitenerRank}, {"lambda", ker.lambda},
-                         {"computed", Json{{"options", options}, {"conventions", pr.conventions}, {"average_reference", pr.averaged}, {"forward", pr.forward}, {"noise_cov", pr.covariance}, {"notes", ker.notes}}}};
+                         {"computed", Json{{"options", options}, {"conventions", pr.conventions}, {"average_reference", pr.averaged}, {"projectors", pr.projectors}, {"forward", pr.forward}, {"noise_cov", pr.covariance}, {"notes", ker.notes}}}};
+    if (!pr.channels_matched.is_null()) producer["computed"]["noise_cov_channels"] = pr.channels_matched;
     if (pr.opt.depth.enabled) { producer["weight_exp"] = pr.opt.depth.exponent; producer["weight_limit"] = pr.opt.depth.limit; }
     if (w.regularisation == nxr::meeg::Regularisation::Ridge) producer["noise_reg"] = w.ridgeFraction;
     const std::optional<Json> inverse = nxr::bst::inverse_method_of(producer);   // the importer's shape, so a computed kernel is found as an imported one is
@@ -638,17 +766,31 @@ std::vector<std::int32_t> channels_picked(const ng::PortType& x, const ng::Array
     return it->second.meta.value("channels", std::vector<std::int32_t>());
   return good_channels(x, p.value("channel_types", Json::array()), who);
 }
+// the banks of the bands, one per block width (a bank is designed on its block's grid): designed the first time a width is met, then reused for every block of it
+struct AnalyticBanks {
+  std::mutex lock;
+  std::map<std::size_t, nxr::signal::timefilterbank::TimeFilterbank> byGrid;
+};
 struct AnalyticBands {
   nxr::signal::timefilterbank::Design design{nxr::signal::timefilterbank::Family::Meyer, 2.0, nxr::signal::timefilterbank::Sides::Analytic};
   std::vector<std::int32_t> channels;
   double sfreq = 0;
+  std::shared_ptr<AnalyticBanks> banks = std::make_shared<AnalyticBanks>();
+  const nxr::signal::timefilterbank::TimeFilterbank& bankFor(std::size_t width) const {
+    namespace tb = nxr::signal::timefilterbank;
+    const std::size_t grid = tb::gridLength(width, tb::Padding::FastLen);
+    std::lock_guard<std::mutex> guard(banks->lock);
+    auto it = banks->byGrid.find(grid);
+    if (it == banks->byGrid.end()) it = banks->byGrid.emplace(grid, tb::timeBank(design, grid, sfreq)).first;
+    return it->second;   // std::map never moves its elements: the reference stays valid while other widths are added
+  }
 };
 std::int64_t analytic_halo(const Json& p, double sfreq) {
   nxr::signal::timefilterbank::Design d(nxr::signal::timefilterbank::Family::Meyer, 2.0, nxr::signal::timefilterbank::Sides::Analytic);
   for (const auto& b : p.value("bands", Json::array())) d.bands.push_back({b.value("lo", b.value("lo_hz", 0.0)), b.value("hi", b.value("hi_hz", 0.0))});
-  const nxr::signal::timefilterbank::TimeFilterbank bank = nxr::signal::timefilterbank::design(d, std::size_t(1) << 15, sfreq);
+  const nxr::signal::timefilterbank::TimeFilterbank bank = nxr::signal::timefilterbank::timeBank(d, std::size_t(1) << 15, sfreq);
   std::size_t H = 0;
-  for (int m = 0; m < static_cast<int>(d.bands.size()); ++m) H = std::max(H, nxr::signal::timefilterbank::haloOf(bank, m));
+  for (int m = 0; m < static_cast<int>(d.bands.size()); ++m) H = std::max(H, nxr::signal::timefilterbank::haloOfTaps(bank, m));
   return static_cast<std::int64_t>(H);
 }
 ng::NodeSpec analytic_bands() {
@@ -696,7 +838,7 @@ ng::NodeSpec analytic_bands() {
     Eigen::MatrixXd block(M, b.width);
     for (std::int64_t i = 0; i < M; ++i) block.row(i) = all.row(a.channels[static_cast<std::size_t>(i)]).cast<double>();
     const std::int64_t left = b.left - keep, own = b.own() + 2 * keep;
-    const auto t = nxr::signal::wtBlock(a.design, block, a.sfreq, static_cast<std::size_t>(left), static_cast<std::size_t>(own));
+    const auto t = nxr::signal::wtBlock(a.bankFor(static_cast<std::size_t>(b.width)), block, static_cast<std::size_t>(left), static_cast<std::size_t>(own));
     const std::int64_t B = static_cast<std::int64_t>(t.own.size());
     ng::Block z;
     z.rows = B * M; z.width = own; z.left = keep; z.right = keep;
@@ -956,6 +1098,9 @@ nxr::signal::filters::FilterOptions filter_options(const Json& p, double sfreq) 
   if (p.contains("method") && !p["method"].is_null()) o.method = p["method"].get<std::string>() == "iir" ? Method::Iir : Method::Fir;
   if (const auto v = num("ripple")) o.ripple = *v;
   if (const auto v = num("transition")) o.transitionBandwidth = *v;
+  const std::string design = p.contains("design") && p["design"].is_string() ? p["design"].get<std::string>() : std::string("brainstorm");
+  if (design != "brainstorm" && design != "brainstorm_2018") ng::refuse("filter: design is brainstorm (the current release's rule) or brainstorm_2018 (the release of 2018-10-12), got '" + design + "'");
+  if (design == "brainstorm_2018") { o.transitionRule = TransitionRule::Brainstorm2018; o.edge = Edge::Zeros; }   // that release's transition bands, and its ends padded with zeros
   if (p.contains("edge") && !p["edge"].is_null()) o.edge = p["edge"].get<std::string>() == "zeros" ? Edge::Zeros : Edge::MeanOfTransient;
   if (const auto v = num("transient_energy")) o.transientEnergy = *v;
   if (const auto v = num("transient_samples")) o.transientSamples = static_cast<std::size_t>(*v);
@@ -981,6 +1126,8 @@ const std::vector<ng::ParamSpec>& filter_parameters() {
       {"method", Json(), "fir | iir; null: the reference's (FIR, but IIR for bandstop and notch)", "-", {"fir", "iir"}, true},
       {"ripple", Json(), "FIR: the passband and stopband deviation (linear); null: 1e-3", "-", {}, true},
       {"transition", Json(), "FIR: each transition band; null: the reference's rule", "Hz", {}, true},
+      {"design", Json("brainstorm"), "FIR: the reference's rule for the transition bands: brainstorm (the current release: 0.5 Hz, 1 Hz above a 5 Hz high-pass edge) | brainstorm_2018 (the release of 2018-10-12: stop edges at 0.5 x (0.85 x above 5 Hz) the high-pass edge and 1.15 x the low-pass edge, the ends padded with zeros)", "-", {"brainstorm", "brainstorm_2018"}, false},
+      {"ends", Json("recording"), "the record whose ends are padded: recording (the whole recording; a block reads its halo across the run's span) | span (the run's span is the record, as a reference that filters only the time window it loaded: nothing outside it is read, and the output is 0 outside it)", "-", {"recording", "span"}, false},
       {"edge", Json(), "FIR: the record's ends padded with the mean of the transient (mean_of_transient) or zeros", "-", {"mean_of_transient", "zeros"}, true},
       {"transient_energy", Json(), "FIR: the transient holds this fraction of the response's energy; null: 0.99", "-", {}, true},
       {"transient_samples", Json(), "FIR: the transient's length stated", "samples", {}, true},
@@ -993,7 +1140,7 @@ const std::vector<ng::ParamSpec>& filter_parameters() {
 
 // (filter.channel_mean is retired: `reduce` measure mean over the run's span, the preset channel_span_mean of the definition measure)
 
-struct FilterPrepared { nxr::signal::filters::FilterOptions options; nxr::signal::filters::Design design; Eigen::VectorXd mean; std::int64_t halo = 0; };
+struct FilterPrepared { nxr::signal::filters::FilterOptions options; nxr::signal::filters::Design design; Eigen::VectorXd mean; std::int64_t halo = 0; bool span = false; };
 ng::NodeSpec filter_apply() {
   ng::NodeSpec n;
   n.name = "signal.filter";
@@ -1033,19 +1180,34 @@ ng::NodeSpec filter_apply() {
     pr.design = d;
     pr.mean = mean;
     pr.halo = static_cast<std::int64_t>(std::max(d.lookBehind, d.lookAhead));
+    const std::string ends = p.value("ends", std::string("recording"));
+    if (ends != "recording" && ends != "span") ng::refuse("signal.filter: ends is recording or span, got '" + ends + "'");
+    pr.span = ends == "span";
     return std::any(std::move(pr));
   };
   n.chunk = [](const std::any& prepared, const ng::Blocks& in, std::int64_t keep, const ng::Place& at) {
     const FilterPrepared& pr = std::any_cast<const FilterPrepared&>(prepared);
     const ng::Block& b = in.at("x");
     const Eigen::Map<const RowMajorF> all(b.re.data(), b.rows, b.width);
-    const bool at_start = at.first - b.left == 0 && b.left < pr.halo + keep, at_end = b.right < pr.halo + keep;
     const std::int64_t left = b.left - keep, own = b.own() + 2 * keep;
-    const Eigen::MatrixXd yb = nxr::signal::filters::filter(all.cast<double>(), pr.options, pr.design, pr.mean, static_cast<std::size_t>(left), static_cast<std::size_t>(own), at_start, at_end);
     ng::Block y;
     y.rows = b.rows; y.width = own; y.left = keep; y.right = keep;
-    y.re.resize(static_cast<std::size_t>(b.rows * own));
-    for (std::int64_t r = 0; r < b.rows; ++r) for (std::int64_t c = 0; c < own; ++c) y.re[static_cast<std::size_t>(r * own + c)] = static_cast<float>(yb(r, c));
+    y.re.assign(static_cast<std::size_t>(b.rows * own), 0.0f);
+    if (!pr.span) {
+      const bool at_start = at.first - b.left == 0 && b.left < pr.halo + keep, at_end = b.right < pr.halo + keep;
+      const Eigen::MatrixXd yb = nxr::signal::filters::filter(all.cast<double>(), pr.options, pr.design, pr.mean, static_cast<std::size_t>(left), static_cast<std::size_t>(own), at_start, at_end);
+      for (std::int64_t r = 0; r < b.rows; ++r) for (std::int64_t c = 0; c < own; ++c) y.re[static_cast<std::size_t>(r * own + c)] = static_cast<float>(yb(r, c));
+      return ng::Blocks{{"y", std::move(y)}};
+    }
+    // THE SPAN IS THE RECORD: the block's columns outside [origin, end) are not read; the span's ends are padded as the option set says; the output outside the span is 0
+    const std::int64_t s0 = at.first - b.left;                                            // the block's first column on the recording's line
+    const std::int64_t c0 = std::clamp<std::int64_t>(at.origin - s0, 0, b.width), c1 = std::clamp<std::int64_t>(at.end - s0, 0, b.width);
+    const std::int64_t r0 = std::max(left, c0), r1 = std::min(left + own, c1);           // the output columns inside the span
+    if (r1 > r0) {
+      const Eigen::MatrixXd yb = nxr::signal::filters::filter(all.middleCols(c0, c1 - c0).cast<double>(), pr.options, pr.design, pr.mean, static_cast<std::size_t>(r0 - c0), static_cast<std::size_t>(r1 - r0),
+                                                              at.origin >= s0, at.end <= s0 + b.width);
+      for (std::int64_t r = 0; r < b.rows; ++r) for (std::int64_t c = r0; c < r1; ++c) y.re[static_cast<std::size_t>(r * own + (c - left))] = static_cast<float>(yb(r, c - r0));
+    }
     return ng::Blocks{{"y", std::move(y)}};
   };
   return n;
@@ -1212,7 +1374,7 @@ ng::NodeSpec speed_spectrum() {
     fb::DesignOptions dop; dop.voices = p.value("graph_voices", 3); dop.numFilters = p.value("graph_filters", 0);
     const fb::GraphFilterbank graph = fb::design(gfam, fb::Range::fromSpectrum(mu.array().square().matrix()), dop);
     tb::TimeFilterbank time;
-    try { time = tb::design(d, nfft, fs); } catch (const std::invalid_argument& e) { ng::refuse(std::string("signal.speed_spectrum: the time bank: ") + e.what()); }
+    try { time = tb::timeBank(d, nfft, fs); } catch (const std::invalid_argument& e) { ng::refuse(std::string("signal.speed_spectrum: the time bank: ") + e.what()); }
     nxr::signal::speedspectrum::Options so; so.speedBins = p.value("speed_bins", 40); so.speedMin = p.value("speed_min", 0.0); so.speedMax = p.value("speed_max", 0.0);
     const nxr::signal::speedspectrum::Result R = nxr::signal::speedspectrum::compute(graph, time, mu, std::vector<int>(kind.begin(), kind.begin() + K), ms, so);
     const std::int64_t P = static_cast<std::int64_t>(R.parts.size()), G = R.graphCentres.size(), T = R.timeCentres.size(), NB = R.speedCentres.size();
@@ -1247,11 +1409,604 @@ ng::NodeSpec speed_spectrum() {
   return n;
 }
 
+// ── the source model of MEG fingerprinting (docs/specs/2026-11-16-meg-fingerprinting.md, 11.2, steps 14 and 15) ──────────────────────────────────────────────────
+// The citation every stored result of these nodes carries (spec 11.5), with the method's own references.
+const Json& source_model_references() {
+  static const Json r = Json::array({
+      "Van Veen BD, van Drongelen W, Yuchtman M, Suzuki A (1997) Localization of brain electrical activity via linearly constrained minimum variance spatial filtering. IEEE Trans Biomed Eng 44:867",
+      "Tadel F, Baillet S, Mosher JC, Pantazis D, Leahy RM (2011) Brainstorm: a user-friendly application for MEG/EEG analysis. Comput Intell Neurosci 2011:879716; the 2016 source estimation "
+      "(bst_inverse_linear_2016: LCMV, pseudo neural activity index) and the scout function PCA (bst_scout_value) of the release of 2018-10-12, written from their documented behaviour, "
+      "their code run only to make the goldens",
+      "da Silva Castanheira J, Orozco Perez HD, Misic B, Baillet S (2021) Brief segments of neurophysiological activity enable individual differentiation. Nat Commun 12:5713, "
+      "doi:10.1038/s41467-021-25895-8; software: megFingerprinting v1.0.0 (06fdba8)"});
+  return r;
+}
+ng::Array matrix_array(const Eigen::MatrixXd& m) {
+  ng::Array a;
+  a.rows = m.rows(); a.cols = m.cols();
+  a.data.resize(static_cast<std::size_t>(m.size()));
+  for (Eigen::Index i = 0; i < m.rows(); ++i) for (Eigen::Index j = 0; j < m.cols(); ++j) a.data[static_cast<std::size_t>(i * m.cols() + j)] = m(i, j);
+  return a;
+}
+Eigen::MatrixXd matrix_of(const ng::Array& a) { return Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(a.data.data(), a.rows, a.cols); }
+const ng::Array& handed(const ng::Arrays& constants, const char* port, const char* who, const char* what) {
+  const auto it = constants.find(port);
+  if (it == constants.end() || it->second.meta.value("placeholder", false)) ng::refuse(std::string(who) + ": " + what + " was not handed over");
+  return it->second;
+}
+// the unit vertex normals of a surface handed as a constant (vertices [n x 3], faces in meta): the orientation of each source of a fixed-orientation model. `normals`: brainstorm (the
+// reference's VertNormals, nxr::geometry::vertexNormalsPatch) | corner_angle (nxr::geometry::vertexNormals)
+std::string normals_choice(const Json& p, const char* who) {
+  const std::string c = p.value("normals", std::string("brainstorm"));
+  if (c != "brainstorm" && c != "corner_angle") ng::refuse(std::string(who) + ": normals is brainstorm or corner_angle (not " + c + ")");
+  return c;
+}
+Eigen::MatrixXd surface_normals(const ng::Array& S, const char* who, const std::string& choice) {
+  const std::vector<std::int32_t> faces = S.meta.value("faces", std::vector<std::int32_t>());
+  if (S.cols != 3 || faces.empty() || faces.size() % 3) ng::refuse(std::string(who) + ": the source surface (" + S.meta.value("name", std::string()) + ") has no faces to orient its vertices");
+  const int nV = static_cast<int>(S.rows), nF = static_cast<int>(faces.size() / 3);
+  const nxr::geometry::Mat3 n = choice == "corner_angle" ? nxr::geometry::vertexNormals(S.data.data(), nV, faces.data(), nF) : nxr::geometry::vertexNormalsPatch(S.data.data(), nV, faces.data(), nF);
+  Eigen::MatrixXd out(n.rows(), 3);
+  for (Eigen::Index i = 0; i < n.rows(); ++i) {
+    const Eigen::Vector3d v(n(i, 0), n(i, 1), n(i, 2));
+    if (!(v.norm() > 0) || !v.allFinite()) ng::refuse(std::string(who) + ": vertex " + std::to_string(i) + " of " + S.meta.value("name", std::string()) + " has no normal (it is in no face)");
+    out.row(i) = v.normalized().transpose();
+  }
+  return out;
+}
+
+// ── meeg.lcmv ──────────────────────────────────────────────────────────────────────────────────────────────────
+// THE LCMV BEAMFORMER of a head model, from a DATA covariance (a statistic of the run: `run noisecov` on the recording itself, or on its band-passed copy) and a NOISE covariance (`run noisecov`
+// on the empty room), both over picks of the head model's channels; the kernel's channels are the data covariance's pick, the noise covariance is read on them in their order. Two conventions:
+//  - brainstorm (the default): Brainstorm process_inverse_2016 with LCMV, measure NAI, orientation fixed (nxr::meeg::lcmvKernel). The inputs are prepared as minimum_norm_inputs prepares them
+//    under Brainstorm's conventions (the projectors of status 1 and 2 on the gain and both sides of each covariance, then the average reference per family); the sources are oriented along
+//    the source surface's vertex normals. Made: the kernel [N x M], its channels, the noise whitener (Brainstorm's `Whitener`) and the data whitener the kernel used.
+//  - mne: MNE-Python's make_lcmv (nxr::meeg::rankWhitener, nxr::meeg::mneLcmvKernel). The noise covariance is optional (none: MNE-Python's ad hoc identity covariance); minimum_norm_inputs
+//    under MNE-Python's conventions gives the projected noise covariance (every projector of the data's recording, with the average reference of EEG, sEEG and ECoG, and the noise
+//    covariance's own), its whitener keeps per modality the rank 'info' (the channels less the projectors on them) or the rank given. Made: the kernel [N x M] or [3N x M] (free: x y z per
+//    source), its channels and the noise whitener the kernel ends with (none without a noise covariance: the whitener is then the projector); no data whitener.
+struct LcmvPrepared {
+  Eigen::MatrixXd G, Cd, Cn, orientations;
+  std::vector<std::int32_t> channels;
+  std::vector<std::string> types;
+  nxr::meeg::LcmvOptions opt;
+  bool averaged = false;
+  std::string forward, data_cov, noise_cov, surface, regularisation;
+  Json projectors = Json::object();
+  std::string normals;                         // brainstorm | corner_angle
+  Json channels_matched = Json::object();      // each covariance of another channel set matched to the head model's by name (the preparation's record)
+  std::string conventions = "brainstorm";
+  // mne
+  nxr::meeg::MneLcmvOptions mopt;
+  Eigen::MatrixXd Wn;                          // the noise whitener (MNE-Python's filters['whitener'])
+  int rank = 0;
+  Json ranks = Json::object();                 // the rank kept per modality, and where it came from
+};
+nxr::meeg::LcmvOptions lcmv_options(const Json& p, std::string* name = nullptr) {
+  const std::string r = p.value("regularisation", std::string("median"));
+  nxr::meeg::LcmvOptions o;
+  using R = nxr::meeg::TruncatedRegularisation;
+  if (r == "median") o.covariance.regularisation = R::Median;
+  else if (r == "ridge") o.covariance.regularisation = R::Ridge;
+  else if (r == "diagonal") o.covariance.regularisation = R::Diagonal;
+  else if (r == "none") o.covariance.regularisation = R::None;
+  else ng::refuse("meeg.lcmv: regularisation is median, ridge, diagonal or none (not " + r + ")");
+  o.covariance.ridgeFraction = p.value("ridge_fraction", 0.1);
+  if (!(o.covariance.ridgeFraction >= 0 && o.covariance.ridgeFraction <= 1)) ng::refuse("meeg.lcmv: ridge_fraction is in [0, 1]");
+  o.detectDiagonal = p.value("detect_diagonal", true);
+  if (name) *name = r;
+  return o;
+}
+std::string lcmv_conventions(const Json& p) {
+  const std::string c = p.value("conventions", std::string("brainstorm"));
+  if (c != "brainstorm" && c != "mne") ng::refuse("meeg.lcmv: conventions is brainstorm or mne (not " + c + ")");
+  // each convention's own options: the other's are refused when given, never silently ignored
+  auto given = [&](const char* k) { return p.contains(k) && !p[k].is_null(); };
+  if (c == "brainstorm") {
+    for (const char* k : {"reg", "pick_ori", "weight_norm", "rank"})
+      if (given(k)) ng::refuse(std::string("meeg.lcmv: ") + k + " is an option of conventions mne (MNE-Python's make_lcmv)");
+  } else {
+    if (p.value("regularisation", std::string("median")) != "median" || p.value("ridge_fraction", 0.1) != 0.1 || !p.value("detect_diagonal", true))
+      ng::refuse("meeg.lcmv: regularisation, ridge_fraction and detect_diagonal are options of conventions brainstorm; under mne the data covariance is loaded by reg");
+  }
+  return c;
+}
+// MNE-Python's options: reg (0.05), pick_ori (free), weight_norm (unit-noise-gain-invariant); null: MNE-Python's default
+nxr::meeg::MneLcmvOptions mne_lcmv_options(const Json& p) {
+  nxr::meeg::MneLcmvOptions o;
+  auto given = [&](const char* k) { return p.contains(k) && !p[k].is_null(); };
+  if (given("reg")) {
+    if (!p["reg"].is_number() || !(p["reg"].get<double>() >= 0)) ng::refuse("meeg.lcmv: reg is a number >= 0 (a fraction of the mean singular value of the whitened data covariance)");
+    o.reg = p["reg"].get<double>();
+  }
+  if (given("pick_ori")) {
+    const std::string v = p["pick_ori"].get<std::string>();
+    if (v == "free") o.orientation = nxr::meeg::LcmvOrientation::Free;
+    else if (v == "normal") o.orientation = nxr::meeg::LcmvOrientation::Normal;
+    else if (v == "max-power") o.orientation = nxr::meeg::LcmvOrientation::MaxPower;
+    else ng::refuse("meeg.lcmv: pick_ori is free, normal or max-power (not " + v + ")");
+  }
+  if (given("weight_norm")) {
+    const std::string v = p["weight_norm"].get<std::string>();
+    using W = nxr::meeg::LcmvWeightNorm;
+    if (v == "none") o.weightNorm = W::None;
+    else if (v == "unit-noise-gain") o.weightNorm = W::UnitNoiseGain;
+    else if (v == "unit-noise-gain-invariant") o.weightNorm = W::UnitNoiseGainInvariant;
+    else if (v == "nai") o.weightNorm = W::Nai;
+    else ng::refuse("meeg.lcmv: weight_norm is none, unit-noise-gain, unit-noise-gain-invariant or nai (not " + v + ")");
+  }
+  if (given("rank") && !(p["rank"].is_string() && p["rank"].get<std::string>() == "info") && !(p["rank"].is_number_integer() && p["rank"].get<std::int64_t>() > 0))
+    ng::refuse("meeg.lcmv: rank is info (the channels less the projectors on them) or a positive integer");
+  return o;
+}
+const char* orientation_name(nxr::meeg::LcmvOrientation o) { return o == nxr::meeg::LcmvOrientation::Free ? "free" : o == nxr::meeg::LcmvOrientation::Normal ? "normal" : "max-power"; }
+const char* weight_norm_name(nxr::meeg::LcmvWeightNorm w) {
+  using W = nxr::meeg::LcmvWeightNorm;
+  return w == W::None ? "none" : w == W::UnitNoiseGain ? "unit-noise-gain" : w == W::UnitNoiseGainInvariant ? "unit-noise-gain-invariant" : "nai";
+}
+const Json& mne_lcmv_references() {
+  static const Json r = Json::array({
+      "Van Veen BD, van Drongelen W, Yuchtman M, Suzuki A (1997) Localization of brain electrical activity via linearly constrained minimum variance spatial filtering. IEEE Trans Biomed Eng 44:867",
+      "Sekihara K, Nagarajan SS (2008) Adaptive spatial filters for electromagnetic brain imaging. Springer (the weight normalisations and the max-power orientation)",
+      "Gramfort A, Luessi M, Larson E, Engemann DA, Strohmeier D, Brodbeck C, Parkkonen L, Hamalainen MS (2014) MNE software for processing MEG and EEG data. NeuroImage 86:446; "
+      "mne.beamformer.make_lcmv of MNE-Python 1.13.2, written from its documented behaviour, run only to make the goldens"});
+  return r;
+}
+
+// Brainstorm's 2016 LCMV (nxr::meeg::lcmvKernel)
+ng::Arrays lcmv_run_brainstorm(const LcmvPrepared& pr) {
+  nxr::meeg::LcmvKernel ker;
+  try { ker = nxr::meeg::lcmvKernel(pr.G, pr.orientations, pr.Cd, pr.Cn, pr.types, pr.opt); } catch (const std::invalid_argument& e) { ng::refuse(std::string("meeg.lcmv: ") + e.what()); }
+  const std::int64_t M = static_cast<std::int64_t>(pr.channels.size()), N = ker.K.rows();
+  const std::string rule = ker.applied == pr.opt.covariance.regularisation ? pr.regularisation : std::string("diagonal");   // the diagonal rule of a diagonal noise covariance
+  // the producer record in the importer's keys (nxr::bst::inverse_method_of reads it the same: measure LCMV, solver lcmv, fixed), plus what a computed kernel adds
+  Json producer = Json{{"method", "LCMV"}, {"method_comment", "PNAI"}, {"units", "PNAI"}, {"n_channels", M}, {"n_sources", N}, {"n_components", 1},
+                       {"source_ori", "fixed"}, {"inverse_method", "lcmv"}, {"inverse_measure", "nai"}, {"source_orient", Json::array({"fixed"})}, {"function", "lcmvp"},
+                       {"use_depth", false}, {"noise_method", pr.regularisation}, {"noise_reg", pr.opt.covariance.ridgeFraction},
+                       {"references", source_model_references()},
+                       {"computed", Json{{"reference", "Brainstorm bst_inverse_linear_2016 (process_inverse_2016), the release of 2018-10-12"},
+                                         {"options", Json{{"regularisation", pr.regularisation}, {"ridge_fraction", pr.opt.covariance.ridgeFraction}, {"detect_diagonal", pr.opt.detectDiagonal}}},
+                                         {"rule_applied", rule}, {"average_reference", pr.averaged}, {"projectors", pr.projectors}, {"channels_matched", pr.channels_matched},
+                                         {"forward", pr.forward}, {"data_cov", pr.data_cov}, {"noise_cov", pr.noise_cov},
+                                         {"orientation", "fixed: the unit vertex normals of " + pr.surface}, {"normals", pr.normals},
+                                         {"data_ranks", ker.dataRanks}, {"noise_ranks", ker.noiseRanks}, {"notes", ker.notes},
+                                         {"warnings", Json::array({"an index, not a current: each source's output has unit variance on the data covariance it was made from (when nothing is regularised)",
+                                                                   "the noise covariance does not enter the kernel (the reference's 2016 LCMV); only its whitener is stored",
+                                                                   "correlated sources partly cancel (the beamformer's blind spot)"})}}}};
+  const std::optional<Json> inverse = nxr::bst::inverse_method_of(producer);
+  ng::Array K = matrix_array(ker.K);
+  K.meta["describe"] = Json{{"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"precision", "float32"}, {"params", inverse ? Json{{"inverse", *inverse}} : Json()}, {"producer", producer},
+                            {"description", "sensor field to source field on the cortex (LCMV beamformer, pseudo neural activity index, fixed orientation), " + std::to_string(N) + " sources"}};
+  ng::Array ch;
+  ch.rows = M; ch.cols = 1;
+  for (const auto c : pr.channels) ch.data.push_back(c);
+  ch.meta["describe"] = Json{{"description", "the " + std::to_string(M) + " channels the beamformer maps, in column order"}};
+  ng::Array W = matrix_array(ker.noiseWhitener), D = matrix_array(ker.dataWhitener);
+  W.meta["describe"] = Json{{"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"precision", "float64"}, {"producer", Json{{"rule", rule}, {"ranks", ker.noiseRanks}, {"references", source_model_references()}}},
+                            {"description", "the whitener of the beamformer's noise covariance (" + rule + "), on its " + std::to_string(M) + " channels"}};
+  D.meta["describe"] = Json{{"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"precision", "float64"}, {"producer", Json{{"rule", rule}, {"ranks", ker.dataRanks}, {"references", source_model_references()}}},
+                            {"description", "the whitener of the beamformer's data covariance (" + rule + "), on its " + std::to_string(M) + " channels: the one the kernel is made with"}};
+  return ng::Arrays{{"kernel", std::move(K)}, {"channels", std::move(ch)}, {"whitener", std::move(W)}, {"data_whitener", std::move(D)}};
+}
+
+// MNE-Python's make_lcmv (nxr::meeg::mneLcmvKernel): the operator apply_lcmv applies to the channels as recorded, filters['weights'] x filters['whitener']
+ng::Arrays lcmv_run_mne(const LcmvPrepared& pr) {
+  nxr::meeg::MneLcmvKernel ker;
+  try { ker = nxr::meeg::mneLcmvKernel(pr.G, pr.orientations, pr.Cd, pr.Wn, pr.rank, pr.mopt); } catch (const std::invalid_argument& e) { ng::refuse(std::string("meeg.lcmv: ") + e.what()); }
+  const std::int64_t M = static_cast<std::int64_t>(pr.channels.size()), R = ker.K.rows();
+  const bool free = pr.mopt.orientation == nxr::meeg::LcmvOrientation::Free;
+  const std::int64_t N = free ? R / 3 : R;
+  const std::string wn = weight_norm_name(pr.mopt.weightNorm), ori = orientation_name(pr.mopt.orientation);
+  const bool unit_gain = pr.mopt.weightNorm == nxr::meeg::LcmvWeightNorm::None;
+  Json warnings = Json::array({"correlated sources partly cancel (the beamformer's blind spot)", "the diagonal loading (reg) trades spatial resolution for stability"});
+  if (!unit_gain) warnings.push_back("weight-normalised (" + wn + "): an index in units of the projected noise, not a current; its scale depends on the data covariance's span");
+  if (free && pr.mopt.weightNorm == nxr::meeg::LcmvWeightNorm::UnitNoiseGain) warnings.push_back("unit-noise-gain with a free orientation depends on the frame of the x y z rows (the invariant form does not)");
+  if (pr.noise_cov.empty()) warnings.push_back("no noise covariance: the channels are whitened by an identity covariance (MNE-Python's ad hoc), so their units must be comparable");
+  Json computed{{"reference", "MNE-Python 1.13.2 mne.beamformer.make_lcmv (rank 'info', depth None, inversion 'matrix', reduce_rank False); the kernel is filters['weights'] @ filters['whitener']"},
+                {"options", Json{{"reg", pr.mopt.reg}, {"pick_ori", ori}, {"weight_norm", wn}, {"rank", pr.ranks}}},
+                {"loading", ker.loading}, {"rank", pr.rank}, {"average_reference", pr.averaged}, {"projectors", pr.projectors}, {"channels_matched", pr.channels_matched},
+                {"forward", pr.forward}, {"data_cov", pr.data_cov}, {"noise_cov", pr.noise_cov.empty() ? Json("none: an identity covariance on the projectors (MNE-Python's ad hoc)") : Json(pr.noise_cov)},
+                {"orientation", free ? std::string("free: x y z rows of the head model's frame") : pr.mopt.orientation == nxr::meeg::LcmvOrientation::Normal ? "the unit vertex normals of " + pr.surface
+                                                                                                                                                              : "max-power, its sign along the unit vertex normals of " + pr.surface},
+                {"normals", pr.normals}, {"notes", ker.notes}, {"warnings", warnings}};
+  if (pr.mopt.weightNorm == nxr::meeg::LcmvWeightNorm::Nai) computed["noise_level"] = ker.noise;
+  Json producer = Json{{"method", "LCMV"}, {"method_comment", "LCMV (MNE-Python, " + wn + ")"}, {"units", unit_gain ? "A.m" : wn}, {"n_channels", M}, {"n_sources", R}, {"n_components", free ? 3 : 1},
+                       {"source_ori", free ? "free" : "fixed"}, {"inverse_method", "lcmv"}, {"inverse_measure", wn}, {"source_orient", Json::array({free ? "free" : "fixed"})}, {"function", "make_lcmv"},
+                       {"use_depth", false}, {"noise_method", "mne"}, {"noise_reg", pr.mopt.reg}, {"references", mne_lcmv_references()}, {"computed", computed}};
+  const std::optional<Json> inverse = nxr::bst::inverse_method_of(producer);
+  ng::Array K = matrix_array(ker.K);
+  K.meta["describe"] = Json{{"from_value_type", "scalar"}, {"to_value_type", free ? "vector3" : "scalar"}, {"precision", "float32"}, {"params", inverse ? Json{{"inverse", *inverse}} : Json()}, {"producer", producer},
+                            {"description", "sensor field to source field on the cortex (LCMV beamformer, MNE-Python's conventions, " + ori + ", " + wn + "), " + std::to_string(N) + " sources"}};
+  ng::Array ch;
+  ch.rows = M; ch.cols = 1;
+  for (const auto c : pr.channels) ch.data.push_back(c);
+  ch.meta["describe"] = Json{{"description", "the " + std::to_string(M) + " channels the beamformer maps, in column order"}};
+  ng::Arrays out{{"kernel", std::move(K)}, {"channels", std::move(ch)}};
+  if (!pr.noise_cov.empty()) {
+    ng::Array W = matrix_array(pr.Wn);
+    W.meta["describe"] = Json{{"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"precision", "float64"}, {"producer", Json{{"rule", "MNE-Python: rank per modality, no regularisation"}, {"ranks", pr.ranks}, {"references", mne_lcmv_references()}}},
+                              {"description", "the whitener of the beamformer's noise covariance (MNE-Python's, the projectors in it), on its " + std::to_string(M) + " channels: the one the kernel ends with"}};
+    out["whitener"] = std::move(W);
+  } else {
+    ng::Array none; none.meta["absent"] = true;                          // no noise covariance: the whitener is the projector, not a statistic's
+    out["whitener"] = std::move(none);
+  }
+  ng::Array none; none.meta["absent"] = true;                            // MNE-Python does not whiten by the data covariance
+  out["data_whitener"] = std::move(none);
+  return out;
+}
+
+ng::NodeSpec lcmv() {
+  ng::NodeSpec n;
+  n.name = "meeg.lcmv";
+  n.kind = ng::Kind::array;
+  n.inputs = {{"forward", "the head model: a stored operator, its gain channels x 3 sources (x y z)", false},
+              {"data_covariance", "the data covariance: a stored statistic of the recording the kernel is for, over a pick of the head model's channels", false},
+              {"noise_covariance", "the noise covariance: a stored statistic (the empty room) over the same pick; optional under conventions mne (none: an identity covariance)", true},
+              {"sources", "the source surface (the head model's sources are its vertices): its vertex normals orient the sources", false}};
+  n.outputs = {{"kernel", "the beamformer, one row a source (three, x y z, for a free orientation) x the pick's channels (an operator from the channels to the sources)", false},
+               {"channels", "the channels the kernel maps, in column order (the covariances' pick)", false},
+               {"whitener", "the noise covariance's whitener (brainstorm: under the same rule, not used by the kernel; mne: the one the kernel ends with; absent without a noise covariance)", true},
+               {"data_whitener", "the data covariance's whitener, the one the kernel is made with (brainstorm only)", true}};
+  n.parameters = {
+      {"conventions", Json("brainstorm"), "brainstorm (Brainstorm 2016: fixed orientation, the pseudo neural activity index) | mne (MNE-Python's make_lcmv)", "-", {"brainstorm", "mne"}, false},
+      {"regularisation", Json("median"), "brainstorm: how each covariance is regularised after truncation to its rank, type by type: median (the eigenvalue tail set to the median) | ridge (a fraction of the largest eigenvalue) | diagonal | none", "-", {"median", "ridge", "diagonal", "none"}, false},
+      {"ridge_fraction", Json(0.1), "brainstorm: the ridge's fraction of the largest eigenvalue (used by ridge only; the reference passes 0.1 with median, where it has no effect)", "fraction", {}, false},
+      {"detect_diagonal", Json(true), "brainstorm: a diagonal noise covariance whitens both covariances by their diagonal (the reference's rule)", "-", {}, false},
+      {"reg", Json(), "mne: the diagonal loading of the whitened data covariance, a fraction of its mean singular value (MNE-Python's reg); null: 0.05", "fraction", {}, true},
+      {"pick_ori", Json(), "mne: free (three rows a source, x y z) | normal (along the source surface's normals) | max-power (each source's orientation of most power); null: free (MNE-Python's None)", "-", {"free", "normal", "max-power"}, true},
+      {"weight_norm", Json(), "mne: none (unit gain, A.m) | unit-noise-gain | unit-noise-gain-invariant | nai; null: unit-noise-gain-invariant (MNE-Python's default)", "-", {"none", "unit-noise-gain", "unit-noise-gain-invariant", "nai"}, true},
+      {"rank", Json(), "mne: the rank of the covariances, info (per modality, the channels less the projectors on them) or an integer (one modality only); null: info", "-", {}, true},
+      {"average_reference", Json(true), "apply the average reference of EEG, sEEG and ECoG (brainstorm: to the gain and both covariances, per family; mne: as a projector)", "-", {}, false},
+      {"normals", Json("brainstorm"), "the sources' orientations: brainstorm (the reference's VertNormals: minus the sum of the incident faces' unit normals, normalised) | corner_angle (geometry-central's corner-angle weighted normals)", "-", {"brainstorm", "corner_angle"}, false}};
+  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "solved in double; the kernel is stored as float32 like every operator");
+  n.matches = "Brainstorm's LCMV beamformer (process_inverse_2016 / bst_inverse_linear_2016, measure NAI, fixed orientation, the release of 2018-10-12), meeg nxr::meeg::lcmvKernel; "
+              "MNE-Python's mne.beamformer.make_lcmv (1.13.2), meeg nxr::meeg::rankWhitener + mneLcmvKernel";
+  n.description = "the LCMV beamformer from a head model, a data covariance and a noise covariance: Brainstorm's 2016 pseudo neural activity index, or MNE-Python's make_lcmv";
+  n.plan = [](const ng::Types& in, const Json& p) {
+    if (!in.count("forward") || in.at("forward").cls != ng::PortClass::operator_) ng::refuse("meeg.lcmv: forward is a stored operator (a head model)");
+    const std::string conv = lcmv_conventions(p);
+    for (const char* c : {"data_covariance", "sources"}) if (!in.count(c)) ng::refuse(std::string("meeg.lcmv: ") + c + " is not given");
+    if (conv == "brainstorm" && !in.count("noise_covariance")) ng::refuse("meeg.lcmv: the noise covariance is required under conventions brainstorm (give noise_cov)");
+    if (conv == "brainstorm") lcmv_options(p); else mne_lcmv_options(p);
+    ng::Planned out;
+    out.out["kernel"] = constant_port("operator");
+    out.out["channels"] = constant_port("selection");
+    out.out["whitener"] = constant_port("operator");
+    out.out["data_whitener"] = constant_port("operator");
+    return out;
+  };
+  n.prepare = [](const ng::Types&, const ng::Arrays& constants, const Json& p, ng::Shared&) {
+    const char* who = "meeg.lcmv";
+    LcmvPrepared pr;
+    pr.conventions = lcmv_conventions(p);
+    const bool mne = pr.conventions == "mne";
+    const ng::Array& F = handed(constants, "forward", who, "the head model");
+    const ng::Array& Sd = handed(constants, "data_covariance", who, "the data covariance");
+    const auto nit = constants.find("noise_covariance");
+    const ng::Array* Sn = nit == constants.end() || nit->second.meta.value("placeholder", false) ? nullptr : &nit->second;
+    if (!Sn && !mne) ng::refuse("meeg.lcmv: the noise covariance is required under conventions brainstorm (give noise_cov)");
+    const ng::Array& S = handed(constants, "sources", who, "the source surface");
+    pr.forward = F.meta.value("name", std::string());
+    pr.data_cov = Sd.meta.value("name", std::string());
+    pr.noise_cov = Sn ? Sn->meta.value("name", std::string()) : std::string();
+    pr.surface = S.meta.value("name", std::string());
+    for (const ng::Array* c : {&Sd, Sn})
+      if (c && F.meta.value("to_manifold_id", std::string()) != c->meta.value("channels_manifold_id", std::string()))
+        ng::refuse("meeg.lcmv: " + c->meta.value("name", std::string()) + " is on other channels than " + pr.forward + " (a covariance of another channel set is matched to the head model's by name when it is prepared)");
+    if (F.cols % 3 != 0) ng::refuse("meeg.lcmv: " + pr.forward + ": the gain is not channels x 3N");
+    // the kernel's channels are the data covariance's pick (the good channels of the run); the noise covariance is read on them, in that order (Brainstorm indexes both by the run's good channels)
+    pr.channels = Sd.meta.value("channels", std::vector<std::int32_t>());
+    pr.types = Sd.meta.value("channel_types", std::vector<std::string>());
+    const std::int64_t M = static_cast<std::int64_t>(pr.channels.size()), N = F.cols / 3;
+    const std::vector<std::int32_t> nch = Sn ? Sn->meta.value("channels", std::vector<std::int32_t>()) : std::vector<std::int32_t>();
+    for (const ng::Array* c : {&Sd, Sn})
+      if (c && (M == 0 || c->rows != c->cols || c->rows != static_cast<std::int64_t>(c == &Sd ? pr.channels.size() : nch.size())))
+        ng::refuse("meeg.lcmv: " + c->meta.value("name", std::string()) + ": its array does not fit its channels");
+    for (const std::int32_t ch : pr.channels) if (ch < 0 || ch >= F.rows) ng::refuse("meeg.lcmv: a channel of " + pr.data_cov + " is outside the gain's channels");
+    Eigen::MatrixXd Cn = Eigen::MatrixXd::Identity(M, M);              // no noise covariance (mne only): MNE-Python's ad hoc covariance, an identity (std 1 for every type)
+    if (Sn) {
+      std::map<std::int32_t, Eigen::Index> in_noise;
+      for (std::size_t i = 0; i < nch.size(); ++i) in_noise[nch[i]] = static_cast<Eigen::Index>(i);
+      std::vector<Eigen::Index> at;
+      for (const std::int32_t ch : pr.channels) {
+        const auto it = in_noise.find(ch);
+        if (it == in_noise.end()) ng::refuse("meeg.lcmv: channel " + std::to_string(ch) + " of " + pr.data_cov + " is not covered by " + pr.noise_cov + " (both covariances are read on the run's good channels)");
+        at.push_back(it->second);
+      }
+      const Eigen::MatrixXd Snall = matrix_of(*Sn);
+      for (Eigen::Index i = 0; i < M; ++i) for (Eigen::Index j = 0; j < M; ++j) Cn(i, j) = Snall(at[static_cast<std::size_t>(i)], at[static_cast<std::size_t>(j)]);
+    }
+    if (S.rows != N) ng::refuse("meeg.lcmv: " + pr.surface + " has " + std::to_string(S.rows) + " vertices, the head model " + std::to_string(N) + " sources");
+    pr.normals = normals_choice(p, who);
+    pr.orientations = surface_normals(S, who, pr.normals);
+    const Eigen::MatrixXd Fall = matrix_of(F);
+    const bool avg = p.value("average_reference", true);
+    if (!mne) {
+      std::string reg;
+      pr.opt = lcmv_options(p, &reg);
+      pr.regularisation = reg;
+      const MinNormInputs d = minimum_norm_inputs(Fall, matrix_of(Sd), pr.channels, pr.types, projectors_of(Sd.meta), {}, "brainstorm", avg);
+      const MinNormInputs z = minimum_norm_inputs(Fall, Cn, pr.channels, pr.types, projectors_of(Sn->meta), {}, "brainstorm", avg);
+      pr.G = d.G; pr.Cd = d.C; pr.Cn = z.C; pr.averaged = d.averaged;
+      pr.projectors = Json{{"data_covariance", d.record}, {"noise_covariance", z.record}};
+    } else {
+      // MNE-Python (make_lcmv): the info's projectors are the data's recording's (those the caller handed with the data covariance), with the average reference as a projector; the noise
+      // covariance is projected by them and by its own (its recording's), and whitened per modality on its rank; the gain and the data covariance are used as they are (the whitener holds
+      // the projectors). Without a noise covariance MNE-Python makes an identity covariance of all types, which it allows for one type only.
+      pr.mopt = mne_lcmv_options(p);
+      if (!Sn) {
+        std::set<std::string> kinds;
+        for (const auto& t : pr.types) kinds.insert(t == "MEG GRAD" ? "grad" : t == "EEG" ? "eeg" : t.rfind("MEG", 0) == 0 ? "mag" : t);
+        int sensor = 0;
+        for (const char* k : {"mag", "grad", "eeg"}) sensor += static_cast<int>(kinds.count(k));
+        if (sensor > 1) ng::refuse("meeg.lcmv: several sensor types (magnetometers, gradiometers, EEG) need a noise covariance to be whitened (give noise_cov), as MNE-Python requires");
+      }
+      const MinNormInputs z = minimum_norm_inputs(Fall, Cn, pr.channels, pr.types, projectors_of(Sd.meta), Sn ? covariance_projectors_of(Sn->meta) : std::vector<std::string>(), "mne", avg);
+      pr.G = z.G; pr.Cd = matrix_of(Sd); pr.Cn = z.C; pr.averaged = z.averaged;
+      // the rank per modality: 'info' (its channels less the dimension of the info's projectors restricted to them, each vector renormalised: MNE-Python's make_projector), or the caller's
+      const auto blocks = nxr::meeg::modalityBlocks(pr.types);
+      std::vector<int> ranks;
+      const bool given = p.contains("rank") && p["rank"].is_number_integer();
+      if (given && blocks.size() != 1) ng::refuse("meeg.lcmv: rank as an integer is for one modality; these channels have " + std::to_string(blocks.size()));
+      for (const auto& idx : blocks) {
+        const int n = static_cast<int>(idx.size());
+        if (given) { ranks.push_back(static_cast<int>(p["rank"].get<std::int64_t>())); continue; }
+        nxr::bst::ProjectorRule rule;
+        rule.statuses = {0, 1, 2};
+        for (const auto i : idx) rule.channels.push_back(static_cast<std::size_t>(pr.channels[static_cast<std::size_t>(i)]));
+        rule.renormalise = true;
+        rule.zero_tiny = false;
+        const std::vector<double> pv = nxr::bst::joint_projector(z.info_projectors, rule);
+        ranks.push_back(pv.empty() ? n : static_cast<int>(std::lround(dense(pv, idx.size()).trace())));
+      }
+      nxr::meeg::RankWhitening w;
+      try { w = nxr::meeg::rankWhitener(pr.Cn, pr.types, ranks); } catch (const std::invalid_argument& e) { ng::refuse(std::string("meeg.lcmv: ") + e.what()); }
+      pr.Wn = w.W;
+      pr.rank = 0;
+      for (std::size_t b = 0; b < ranks.size(); ++b) { pr.ranks[w.modalities[b]] = ranks[b]; pr.rank += ranks[b]; }
+      pr.ranks["from"] = given ? "given" : "info: the channels less the projectors on them";
+      pr.projectors = Json{{"noise_covariance", z.record}};
+    }
+    for (const auto& [key, c] : {std::pair<const char*, const ng::Array*>{"data_covariance", &Sd}, {"noise_covariance", Sn}}) {
+      if (!c) continue;
+      if (c->meta.contains("projectors_choice")) pr.projectors[key]["choice"] = c->meta["projectors_choice"];   // which projectors the caller had handed (the run's --projectors)
+      if (c->meta.contains("channels_matched")) pr.channels_matched[key] = c->meta["channels_matched"];        // a covariance of another channel set (the empty room's), matched by name
+    }
+    return std::any(std::move(pr));
+  };
+  n.run = [](const std::any& prepared, const ng::Arrays&) {
+    const LcmvPrepared& pr = std::any_cast<const LcmvPrepared&>(prepared);
+    return pr.conventions == "mne" ? lcmv_run_mne(pr) : lcmv_run_brainstorm(pr);
+  };
+  return n;
+}
+
+// ── meeg.region_pca_basis ─────────────────────────────────────────────────────────────────────────────────────
+// THE FIRST PRINCIPAL COMPONENT OF EACH REGION, from statistics made first (Brainstorm's scout function PCA with the sign flip, applied before the spectrum): the region's sources are the rows
+// of a fixed-orientation kernel K_R, their covariance over the span is K_R C K_R^T with C the channels' covariance over that span (a stored statistic: `run noisecov` over the span, one block,
+// its mean removed), never formed for the whole cortex. Each source's sign is flipped by its orientation (the source surface's normals) as the reference does. Made: a constant [2R x M] (the
+// R components as channel weights, then the R peak sources' flipped kernel rows), what the next node measures over the span to set each component's sign.
+struct RegionBasisPrepared {
+  Eigen::MatrixXd basis;
+  Json meta;
+};
+ng::NodeSpec region_pca_basis() {
+  ng::NodeSpec n;
+  n.name = "meeg.region_pca_basis";
+  n.kind = ng::Kind::array;
+  n.inputs = {{"kernel", "a fixed-orientation inverse kernel (one row a source), a stored operator", false},
+              {"covariance", "the channels' covariance over the span the components are for (a statistic: one block, its mean removed), on a pick holding the kernel's channels", false},
+              {"partition", "the regions: a partition (a set) of the kernel's sources", false},
+              {"sources", "the kernel's source surface: its vertex normals set the sign flip", false}};
+  n.outputs = {{"basis", "per region its first principal component as channel weights, then the flipped kernel row of its peak source: [2 regions x channels]", false}};
+  n.parameters = {{"sign_flip", Json(true), "flip each source's sign by its orientation before the component, as the reference's scouts do (false: the series as the kernel gives them)", "-", {}, false},
+                  {"normals", Json("brainstorm"), "the sources' orientations: brainstorm (the reference's VertNormals: minus the sum of the incident faces' unit normals, normalised) | corner_angle (geometry-central's corner-angle weighted normals)", "-", {"brainstorm", "corner_angle"}, false}};
+  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "a constant made once from stored statistics, in double");
+  n.matches = "Brainstorm's scout function PCA with the sign flip (bst_scout_value 'pca', isSignFlip, the release of 2018-10-12): its component from the region's covariance; meeg nxr::meeg::regionComponent";
+  n.description = "each region's first principal component (a linear map of the channels) from a kernel, the channels' covariance over a span, a partition and the sources' normals";
+  n.plan = [](const ng::Types& in, const Json&) {
+    if (!in.count("kernel") || in.at("kernel").cls != ng::PortClass::operator_) ng::refuse("meeg.region_pca_basis: kernel is a stored operator (an inverse kernel)");
+    for (const char* c : {"covariance", "partition", "sources"}) if (!in.count(c)) ng::refuse(std::string("meeg.region_pca_basis: ") + c + " is not given");
+    ng::Planned out;
+    out.out["basis"] = constant_port("statistic");
+    return out;
+  };
+  n.prepare = [](const ng::Types&, const ng::Arrays& constants, const Json& p, ng::Shared&) {
+    const char* who = "meeg.region_pca_basis";
+    const ng::Array& K = handed(constants, "kernel", who, "the kernel");
+    const ng::Array& S = handed(constants, "covariance", who, "the covariance");
+    const ng::Array& P = handed(constants, "partition", who, "the partition");
+    const ng::Array& surf = handed(constants, "sources", who, "the source surface");
+    const std::string kname = K.meta.value("name", std::string()), cname = S.meta.value("name", std::string()), pname = P.meta.value("name", std::string());
+    if (K.meta.value("to_value_type", std::string("vector3")) != "scalar")
+      ng::refuse("meeg.region_pca_basis: " + kname + " is a free-orientation kernel: the reference's component is of a fixed-orientation kernel's sources (one row a source)");
+    const std::int64_t N = K.rows, M = K.cols;
+    if (P.rows != N) ng::refuse("meeg.region_pca_basis: " + pname + " covers " + std::to_string(P.rows) + " elements, " + kname + " has " + std::to_string(N) + " sources");
+    if (surf.rows != N) ng::refuse("meeg.region_pca_basis: the source surface has " + std::to_string(surf.rows) + " vertices, " + kname + " " + std::to_string(N) + " sources");
+    // the covariance: one block over the span, its mean removed (the component is of the centred series over the span)
+    const Json prod = S.meta.value("producer", Json::object());
+    if (S.meta.value("measure", std::string()) != "covariance") ng::refuse("meeg.region_pca_basis: " + cname + " is not a covariance");
+    if (prod.value("n_blocks", std::int64_t(1)) != 1)
+      ng::refuse("meeg.region_pca_basis: " + cname + " has " + std::to_string(prod.value("n_blocks", std::int64_t(1))) + " blocks: the component needs the span's covariance as ONE block (run noisecov without block_seconds)");
+    if (!prod.contains("start_sample") || !prod.contains("stop_sample")) ng::refuse("meeg.region_pca_basis: " + cname + " does not say its span (a covariance made by noisecov does)");
+    // the kernel's channels in the covariance's pick
+    const std::vector<std::int32_t> kch = K.meta.value("channels", std::vector<std::int32_t>()), sch = S.meta.value("channels", std::vector<std::int32_t>());
+    std::map<std::int32_t, Eigen::Index> at;
+    for (std::size_t i = 0; i < sch.size(); ++i) at[sch[i]] = static_cast<Eigen::Index>(i);
+    std::vector<Eigen::Index> pick;
+    for (const auto c : kch) {
+      const auto it = at.find(c);
+      if (it == at.end()) ng::refuse("meeg.region_pca_basis: channel " + std::to_string(c) + " of " + kname + " is not covered by " + cname);
+      pick.push_back(it->second);
+    }
+    if (static_cast<std::int64_t>(pick.size()) != M || S.rows != static_cast<std::int64_t>(sch.size())) ng::refuse("meeg.region_pca_basis: " + cname + ": its array does not fit its channels");
+    const Eigen::MatrixXd Call = matrix_of(S);
+    Eigen::MatrixXd C(M, M);
+    for (Eigen::Index i = 0; i < M; ++i) for (Eigen::Index j = 0; j < M; ++j) C(i, j) = Call(pick[static_cast<std::size_t>(i)], pick[static_cast<std::size_t>(j)]);
+    const Eigen::MatrixXd Km = matrix_of(K);
+    const Eigen::MatrixXd normals = surface_normals(surf, who, normals_choice(p, who));
+    const bool flip_signs = p.value("sign_flip", true);
+    // the regions: the partition's members in order (an element of no member is left out)
+    const std::int64_t R = P.meta.value("n_members", std::int64_t(0));
+    if (R <= 0) ng::refuse("meeg.region_pca_basis: " + pname + " has no member");
+    std::vector<std::vector<Eigen::Index>> members(static_cast<std::size_t>(R));
+    for (std::int64_t v = 0; v < N; ++v) {
+      const std::int64_t m = static_cast<std::int64_t>(P.data[static_cast<std::size_t>(v)]);
+      if (m >= R) ng::refuse("meeg.region_pca_basis: " + pname + ": element " + std::to_string(v) + " is in member " + std::to_string(m) + " of " + std::to_string(R));
+      if (m >= 0) members[static_cast<std::size_t>(m)].push_back(v);
+    }
+    const Json codes = P.meta.value("member_codes", Json::array());
+    RegionBasisPrepared pr;
+    pr.basis.resize(2 * R, M);
+    Json regions = Json::array();
+    for (std::int64_t r = 0; r < R; ++r) {
+      const auto& iv = members[static_cast<std::size_t>(r)];
+      const Json label = r < static_cast<std::int64_t>(codes.size()) ? codes[static_cast<std::size_t>(r)] : Json(r);
+      if (iv.empty()) ng::refuse("meeg.region_pca_basis: region " + label.dump() + " of " + pname + " holds no source");
+      Eigen::MatrixXd Kr(static_cast<Eigen::Index>(iv.size()), M), Or(static_cast<Eigen::Index>(iv.size()), 3);
+      for (std::size_t i = 0; i < iv.size(); ++i) { Kr.row(static_cast<Eigen::Index>(i)) = Km.row(iv[i]); Or.row(static_cast<Eigen::Index>(i)) = normals.row(iv[i]); }
+      nxr::meeg::RegionComponent rc;
+      Eigen::VectorXd flip;
+      try {
+        flip = flip_signs ? nxr::meeg::scoutSignFlip(Or) : Eigen::VectorXd(Eigen::VectorXd::Ones(Kr.rows()));
+        rc = nxr::meeg::regionComponent(Kr, C, flip);
+      } catch (const std::invalid_argument& e) { ng::refuse("meeg.region_pca_basis: region " + label.dump() + ": " + e.what()); }
+      pr.basis.row(r) = rc.component;
+      pr.basis.row(R + r) = rc.peak;
+      regions.push_back(Json{{"member", r}, {"code", label}, {"n_sources", static_cast<std::int64_t>(iv.size())}, {"flipped", static_cast<std::int64_t>((flip.array() < 0).count())},
+                             {"peak_source", iv[static_cast<std::size_t>(rc.peakSource)]}, {"explained", rc.explained}});
+    }
+    pr.meta = Json{{"channels", kch}, {"kernel", kname}, {"normals", normals_choice(p, who)}, {"covariance", cname}, {"partition", pname}, {"regions", regions}, {"n_regions", R}, {"sign_flip", flip_signs},
+                   {"start_sample", prod["start_sample"]}, {"stop_sample", prod["stop_sample"]}};
+    return std::any(std::move(pr));
+  };
+  n.run = [](const std::any& prepared, const ng::Arrays&) {
+    const RegionBasisPrepared& pr = std::any_cast<const RegionBasisPrepared&>(prepared);
+    ng::Array a = matrix_array(pr.basis);
+    a.meta = pr.meta;
+    return ng::Arrays{{"basis", std::move(a)}};
+  };
+  return n;
+}
+
+// ── meeg.region_pca ───────────────────────────────────────────────────────────────────────────────────────────
+// THE SIGN OF EACH REGION'S COMPONENT, set by the data as the reference sets it, and the region map: the component z = w^T x and the peak source p of each region are measured over the span
+// (their maximum, minimum and mean: nxr::measurement::reduce over the span as one member of a time rule); then sign = nxr::meeg::regionComponentSign, and the region's signal is
+// y = sign w^T x + (mean p - sign mean z): a linear map of the channels [R x M] (stored as an operator) and a constant per region (its `offset`, recorded per region in the map's provenance:
+// a value per member of the partition would be a measurement, and it changes only the signal's mean). The span is the covariance's: a run over another span is refused.
+struct RegionPcaPrepared {
+  Eigen::MatrixXd basis;                    // [2R x M]
+  std::vector<std::int32_t> channels;
+  std::int64_t R = 0, start = 0, stop = 0;
+  nxr::selection::Rule span;
+  Json meta;
+};
+struct RegionPcaState {
+  nxr::measurement::Ingredients acc;
+  std::int64_t first = -1, samples = 0;
+};
+ng::NodeSpec region_pca() {
+  ng::NodeSpec n;
+  n.name = "meeg.region_pca";
+  n.kind = ng::Kind::accumulate;
+  n.inputs = {{"x", "the recording: channels x samples (streamed), over the span the components were made for", false},
+              {"basis", "the regions' components and peak sources (meeg.region_pca_basis)", false}};
+  n.outputs = {{"map", "each region's signal as channel weights: [regions x channels] (an operator from the channels to the regions)", false},
+               {"channels", "the channels the map reads, in column order (the kernel's)", false},
+               };
+  n.parameters = {};
+  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
+                             "the components' maximum, minimum and mean over the span are measurement ingredients folded across chunks (max, min, sum), in double");
+  n.matches = "Brainstorm's scout function PCA (bst_scout_value 'pca' PcaFirstMode: the sign from the data's extremes, the peak source's mean added back), the release of 2018-10-12; meeg nxr::meeg::regionComponentSign";
+  n.description = "each region's first principal component signed by the data over the span: the region map (channels to regions), each region's offset in its provenance";
+  n.plan = [](const ng::Types& in, const Json&) {
+    streamed(in, "x", "meeg.region_pca");
+    if (!in.count("basis")) ng::refuse("meeg.region_pca: basis is not given (meeg.region_pca_basis)");
+    ng::Planned out;
+    out.out["map"] = constant_port("operator");
+    out.out["channels"] = constant_port("selection");
+    return out;
+  };
+  n.prepare = [](const ng::Types&, const ng::Arrays& constants, const Json&, ng::Shared&) {
+    const ng::Array& B = handed(constants, "basis", "meeg.region_pca", "the basis");
+    RegionPcaPrepared pr;
+    pr.basis = matrix_of(B);
+    pr.meta = B.meta;
+    pr.channels = B.meta.value("channels", std::vector<std::int32_t>());
+    pr.R = B.meta.value("n_regions", std::int64_t(0));
+    pr.start = B.meta.value("start_sample", std::int64_t(0));
+    pr.stop = B.meta.value("stop_sample", std::int64_t(0));
+    if (pr.R <= 0 || pr.basis.rows() != 2 * pr.R || pr.basis.cols() != static_cast<Eigen::Index>(pr.channels.size())) ng::refuse("meeg.region_pca: the basis does not fit its regions and channels");
+    if (pr.stop <= pr.start) ng::refuse("meeg.region_pca: the basis's span is empty");
+    pr.span = nxr::selection::Rule{pr.start, pr.stop - pr.start, pr.stop - pr.start, 1, pr.stop};
+    return std::any(std::move(pr));
+  };
+  n.start = [](const std::any& prepared) {
+    const RegionPcaPrepared& pr = std::any_cast<const RegionPcaPrepared&>(prepared);
+    RegionPcaState s;
+    s.acc = nxr::measurement::Ingredients(2 * pr.R, 1);
+    return std::any(std::move(s));
+  };
+  n.step = [](const std::any& prepared, std::any state, const ng::Blocks& in, std::int64_t, const ng::Place& at) {
+    const RegionPcaPrepared& pr = std::any_cast<const RegionPcaPrepared&>(prepared);
+    RegionPcaState& s = std::any_cast<RegionPcaState&>(state);
+    const ng::Block& b = in.at("x");
+    for (const auto c : pr.channels) if (c < 0 || c >= b.rows) ng::refuse("meeg.region_pca: channel " + std::to_string(c) + " of the basis is not in the recording");
+    const Eigen::MatrixXd x = own_rows(b, pr.channels);
+    const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> z = pr.basis * x;   // [2R x samples], one row a series
+    nxr::measurement::Request req;
+    req.measures = {"max", "min", "mean"};
+    req.per_row = true;
+    nxr::measurement::reduce(s.acc, z.data(), z.rows(), z.cols(), at.first, pr.span, req);
+    if (s.first < 0) s.first = at.first;
+    s.samples += x.cols();
+    return std::make_pair(ng::Blocks{}, std::move(state));
+  };
+  n.finish = [](const std::any& prepared, std::any state) {
+    const RegionPcaPrepared& pr = std::any_cast<const RegionPcaPrepared&>(prepared);
+    const RegionPcaState& s = std::any_cast<const RegionPcaState&>(state);
+    if (s.first != pr.start || s.first + s.samples != pr.stop)
+      ng::refuse("meeg.region_pca: the components were made over samples [" + std::to_string(pr.start) + ", " + std::to_string(pr.stop) + ") (" + pr.meta.value("covariance", std::string()) +
+                 "), this run reads [" + std::to_string(s.first) + ", " + std::to_string(s.first + s.samples) + "): state the same span");
+    const std::int64_t R = pr.R, M = pr.basis.cols();
+    Eigen::MatrixXd W(R, M);
+    Json regions = pr.meta.value("regions", Json::array());
+    for (std::int64_t r = 0; r < R; ++r) {
+      auto v = [&](std::int64_t row, const char* m) { return nxr::measurement::value(s.acc, row, 0, m); };
+      const double sg = nxr::meeg::regionComponentSign(v(R + r, "max"), v(R + r, "min"), v(R + r, "mean"), v(r, "max"), v(r, "min"), v(r, "mean"));
+      W.row(r) = sg * pr.basis.row(r);
+      if (r < static_cast<std::int64_t>(regions.size())) {
+        regions[static_cast<std::size_t>(r)]["sign"] = sg;
+        regions[static_cast<std::size_t>(r)]["offset"] = v(R + r, "mean") - sg * v(r, "mean");   // the peak source's mean, less the signed component's: signal = map x + offset
+      }
+    }
+    const Json producer = Json{{"stage", "region pca"}, {"kernel", pr.meta.value("kernel", std::string())}, {"covariance", pr.meta.value("covariance", std::string())},
+                               {"partition", pr.meta.value("partition", std::string())}, {"sign_flip", pr.meta.value("sign_flip", true)}, {"normals", pr.meta.value("normals", std::string())}, {"start_sample", pr.start}, {"stop_sample", pr.stop},
+                               {"regions", regions}, {"references", source_model_references()},
+                               {"reference", "Brainstorm bst_scout_value 'pca' with the sign flip, applied before the spectrum (the release of 2018-10-12)"},
+                               {"warnings", Json::array({"the component is the direction of most variance within each region over THIS span: it can change between spans and people",
+                                                         "its share of the region's signal is `explained`; the rest of the region is left out",
+                                                         "its sign is a convention set by the span's extremes"})}};
+    ng::Array map = matrix_array(W);
+    map.meta["describe"] = Json{{"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"precision", "float32"}, {"producer", producer},
+                                {"description", "the channels to the first principal component of each of " + std::to_string(R) + " regions of " + pr.meta.value("partition", std::string()) +
+                                                    " through " + pr.meta.value("kernel", std::string()) + " (signal = map x + each region's offset, in the provenance)"}};
+    ng::Array ch;
+    ch.rows = M; ch.cols = 1;
+    for (const auto c : pr.channels) ch.data.push_back(c);
+    ch.meta["describe"] = Json{{"description", "the " + std::to_string(M) + " channels the region map reads, in column order"}};
+    return ng::Arrays{{"map", std::move(map)}, {"channels", std::move(ch)}};
+  };
+  return n;
+}
+
 }  // namespace
 
 void register_meeg_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model(), analytic_bands(), phase_gradient(), filter_apply(), hodge_weights(), speed_spectrum()})
+  for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model(), analytic_bands(), phase_gradient(), filter_apply(), hodge_weights(), speed_spectrum(),
+                         lcmv(), region_pca_basis(), region_pca()})
     if (!r.find(n.name)) r.add(std::move(n));
   register_quadrature_nodes();
 }

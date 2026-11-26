@@ -480,6 +480,9 @@ std::vector<Json> import_subjectimages(SubjectWriter& sub, const fs::path& anat_
     if (only && !only->empty() && std::find(only->begin(), only->end(), mri_name(p)) == only->end()) continue;
     try {
       images.push_back(read_subjectimage(p));
+    } catch (const UnreadableV73&) {   // a v7.3 image this build cannot read: skipped, named
+      note_skipped(py_path(p.string()), kUnreadableV73);
+      skip(n, kUnreadableV73);
     } catch (const nxr::io::Error& e) {
       if (std::string(e.code()) != code::invalid_argument) throw;
       skip(n, e.what());

@@ -1,5 +1,7 @@
 // Hodge-Dirac eigenmode power of source maps, the pipeline on a small synthetic dataset (an icosphere, its solved package, a free-orientation kernel on 20 channels):
 // the stored fields equal diag(B S B^T) from the cross-spectrum route computed here from the same package, a cache hit, a fixed-orientation kernel refused.
+// And the same package's FULL forms through the runner: `signal.phase_split` on the fixed kernel's band field (the runner binds the package's 2-form parts and its complex's options
+// in preparation): it runs, its energies are vertex fields, and over the whole sphere the timing energy is a share (0, 1] of the phase energy.
 #include <unistd.h>
 
 #include <cmath>
@@ -17,6 +19,8 @@
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg.h"
+#include "nxr/pipelines/runner.h"
+#include "nxr/io/yaml.h"
 #include "nxr/signal/spectral.h"
 #include "make_grids.h"
 
@@ -111,7 +115,7 @@ int main() {
   const std::int64_t Kn = h.n_modes();
   nxr::operators::Basis b;
   b.P.resize(Kn, N);
-  for (std::int64_t v = 0; v < N; ++v) for (std::int64_t k = 0; k < Kn; ++k) b.P(k, v) = h.eigenvectors[static_cast<std::size_t>(v * Kn + k)];
+  for (std::int64_t v = 0; v < N; ++v) for (std::int64_t k = 0; k < Kn; ++k) b.P(k, v) = pk.vertex_potentials[static_cast<std::size_t>(v * Kn + k)];
   b.mu = Eigen::Map<const Eigen::VectorXd>(h.mu.data(), Kn);
   for (auto k : h.kind) b.kind.push_back(k);
   b.positions = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(surf.vertices.data(), N, 3);
@@ -150,6 +154,38 @@ int main() {
   Json fx = set; fx["kernel"] = "fixed";
   try { nxrtest::run_definition(ds, sub, "hodgepower", fx); } catch (const std::exception& e) { refused = std::string(e.what()).find("not a free-orientation kernel") != std::string::npos; }
   CHECK(refused);
+  {   // the phase split through the runner, on the package's own surface
+    const std::string def = R"(pipeline: phase_split_test
+inputs:
+  recording: {field: recording, each: true, where: {name: rest}}
+  kernel: {operator: inverse kernel, from: recording.manifold.0, where: {name: fixed}}
+  package: {operator: eigenvectors, where: {name: hodgeDirac_eigenvectors}}
+steps:
+  chunks:
+    over: recording
+    do:
+      - {node: signal.analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}
+      - {node: meeg.apply_kernel, in: {x: z, kernel: kernel}, out: j}
+      - {node: signal.phase_split, in: {x: j, package: package}, with: {one_form: phase_gradient}, out: [potential, stream, propagation, lag, timing, rotation, misfit]}
+      - {node: measurement.estimate, in: {x: lag}, with: {method: sample}, out: e_lag}
+      - {node: measurement.estimate, in: {x: timing}, with: {method: sample}, out: e_timing}
+outputs:
+  e_lag: {kind: statistic}
+  e_timing: {kind: statistic}
+)";
+    nxr::pipelines::graph::RunOptions all;
+    all.chunks = "all";
+    const auto r = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::parse(parse_yaml(def, "ps.yaml"), "ps.yaml", def), Json::object(), all);
+    CHECK(r.size() == 1);
+    const std::string nl = "phase_split_test.e_lag.rest", nt = "phase_split_test.e_timing.rest";   // the default names: the definition, the output, the recording
+    const StoredStatistic lag = read_statistic(sub, nl), tim = read_statistic(sub, nt);
+    CHECK(!lag.shape.empty() && lag.shape[0] == N && tim.shape == lag.shape);
+    double sl = 0, st = 0;
+    for (const double v : lag.values) sl += v;
+    for (const double v : tim.values) st += v;
+    std::printf("  phase split through the runner: timing share of the mean phase energy over the sphere %.4f\n", st / sl);
+    CHECK(sl > 0 && st > 0 && st <= sl * (1 + 1e-6));
+  }
   ds.close();
   fs::remove_all(root);
   return nxrtest::finish("test_hodge_power");

@@ -49,7 +49,7 @@ Value vopt(const std::optional<std::int64_t>& x) { return x ? Value(*x) : Value(
 std::string fixed(double x, int d) { char b[64]; std::snprintf(b, sizeof b, "%.*f", d, x); return b; }
 std::string i2s(std::int64_t x) { return std::to_string(x); }
 
-bool is_span_member(const Description& m) { return m.type == Type::span && m.extents.size() == 1 && m.extents[0].axis == 0; }
+bool is_span_member(const Description& m) { return !m.profile && m.type == Type::span && m.extents.size() == 1 && m.extents[0].axis == 0; }
 bool is_level(const Description& m) { return m.type == Type::set && m.tiling && m.level >= 0; }
 template <class P>
 bool every(const std::vector<Description>& v, P pred) { return std::all_of(v.begin(), v.end(), pred); }
@@ -128,7 +128,7 @@ std::vector<std::int64_t> read_ints(const Store& store, const std::string& path)
 void require_member_storage(const Database& db) {
   const auto r = db.one("SELECT value FROM meta WHERE key = 'selection_storage'");
   if (!r || text(*r, "value") != kSelectionStorage)
-    throw Error(code::schema_version, "this dataset stores its selections in the form before member numbers: convert it first (migrate_selection_storage, `nxr-neuro package migrate-selections --dataset <folder>`)");
+    throw Error(code::schema_version, "this dataset stores its selections in the form before member numbers: convert it first (migrate_selection_storage, `nxr-neuro migrate selections --dataset <folder>`)");
 }
 
 Json tiling_json(const Tiling& t) { return Json{{"origin", t.origin}, {"width", t.width}, {"hop", t.hop}, {"count", t.count}}; }
@@ -642,6 +642,48 @@ void update_lookup(SubjectWriter& sub, const std::string& dictionary_id, const L
   });
 }
 
+// ── kernels ──────────────────────────────────────────────────────────────────────────────────────────────────────
+// A member with a profile is stored as type `kernel`: its ANCHOR as its own type stores it (a span: selection_extent rows; a point: center; a distance: center, radius, unit),
+// `params_json` = {anchor: point|span|distance, profile: {family, params}, chart, gain}, `weight_fn` = the family. io stores what it is given; compute resolves it.
+Saved save_kernel(SubjectWriter& sub, const Description& d, const Placement& at) {
+  const Profile& pr = *d.profile;
+  if (pr.family.empty()) refuse("selection " + at.name + ": a kernel states its profile family");
+  if (pr.chart.empty()) refuse("selection " + at.name + ": a kernel states its chart");
+  if (!std::isfinite(pr.gain)) refuse("selection " + at.name + ": a kernel states a finite gain");
+  Json params = at.params.is_object() ? at.params : Json::object();
+  Json pj = Json::object();
+  for (const auto& [k, v] : pr.params) pj[k] = v;
+  params["profile"] = Json{{"family", pr.family}, {"params", pj}};
+  params["chart"] = pr.chart;
+  params["gain"] = pr.gain;
+  SelectionSpec s;
+  Saved out;
+  if (d.type == Type::span) {
+    s = base(d, at, "kernel", "1");
+    for (const Extent& e : d.extents) {
+      if (!(e.stop >= e.start)) refuse("selection " + at.name + ": a kernel's span stop is not before its start");
+      s.extents.push_back(ExtentSpec{e.axis, e.start, e.stop});
+    }
+    params["anchor"] = "span";
+  } else if (d.type == Type::point) {
+    if (!d.center) refuse("selection " + at.name + ": a kernel anchored on a point has a centre element");
+    s = base(d, at, "kernel", "0");
+    s.cols.set("center", *d.center);
+    params["anchor"] = "point";
+  } else if (d.type == Type::distance) {
+    if (!d.center || !(d.radius >= 0)) refuse("selection " + at.name + ": a kernel anchored on a distance has a centre element and a radius >= 0");
+    s = base(d, at, "kernel", "0");
+    s.cols.set("center", *d.center).set("radius", d.radius);
+    params["anchor"] = "distance";
+  } else {
+    refuse("selection " + at.name + ": a kernel's anchor is a point, a span or a distance, not a " + type_name(d.type));
+  }
+  s.cols.set("weight_fn", pr.family);
+  params_of(s, params);
+  out.id = sub.selection(std::move(s));
+  return out;
+}
+
 // ── create ───────────────────────────────────────────────────────────────────────────────────────────────────────
 Saved save(SubjectWriter& sub, const Description& d, const Placement& at_in) {
   Placement at = at_in;
@@ -650,6 +692,7 @@ Saved save(SubjectWriter& sub, const Description& d, const Placement& at_in) {
     p["family"] = family_name(family_to_write(d));
     at.params = std::move(p);
   }
+  if (d.profile) return save_kernel(sub, d, at);
   Saved out;
   switch (d.type) {
     case Type::point: {
@@ -853,7 +896,28 @@ Description describe(const Database& db, const Store& store, const records::Sele
       for (const auto& m : e.members()) d.members.push_back(describe(db, store, m));
     }
   } else if (t == "kernel") {
-    refuse("selection " + row.name + ": a kernel is not a selection (it is the weights a measurement uses)");
+    const std::string anchor = p.is_object() ? p.value("anchor", std::string()) : std::string();
+    if (anchor == "span") {
+      d.type = Type::span;
+      for (const auto& x : e.extents()) d.extents.push_back(Extent{static_cast<int>(x.axis), x.start, x.stop});
+    } else if (anchor == "point") {
+      d.type = Type::point;
+      d.center = row.center;
+    } else if (anchor == "distance") {
+      d.type = Type::distance;
+      d.center = row.center;
+      d.radius = row.radius.value_or(0.0);
+    } else {
+      refuse("selection " + row.name + ": a kernel's anchor is not recorded (params_json.anchor)");
+    }
+    if (!p.contains("profile") || !p["profile"].is_object() || !p.contains("chart") || !p.contains("gain")) refuse("selection " + row.name + ": a kernel's profile, chart and gain are not recorded");
+    Profile pr;
+    pr.family = p["profile"].value("family", row.weight_fn.value_or(""));
+    if (p["profile"].contains("params") && p["profile"]["params"].is_object())
+      for (const auto& [k, v] : p["profile"]["params"].items()) pr.params[k] = v.get<double>();
+    pr.chart = p["chart"].get<std::string>();
+    pr.gain = p["gain"].get<double>();
+    d.profile = std::move(pr);
   } else {
     refuse("selection " + row.name + ": unknown type " + t);
   }
@@ -1149,6 +1213,7 @@ std::vector<Row> subject_span_rows(const Database& db, const std::string& subjec
 }
 
 std::vector<Row> subject_factor_rows(const Database& db, const std::string& subject_id) {
+  if (!has_table(db, "selection_factor")) return {};   // a dataset of schema 50 or 51, read as it is: no product has factors
   return db.all("SELECT f.* FROM selection_factor f JOIN selection s ON s.id = f.selection_id WHERE s.subject_id = ? ORDER BY f.selection_id, f.ordinal", {V(subject_id)});
 }
 
