@@ -15,8 +15,8 @@
 #include "mesh_helpers.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io/copy_nodes.h"
-#include "nxr/io/measures.h"
-#include "nxr/io/rollup.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/io/subject_api.h"
 #include "nxr/io/subject_package.h"
 #include "nxr/io/surface.h"
@@ -114,18 +114,21 @@ int main() {
     rows_sphere = nxr::pipelines::stored_eigensolve_rows(sub, es, 0, es.V + es.E + es.F);
     mu_helmet = nxr::pipelines::stored_eigensolve(sub, helmet_stem).mu;
     // a measurement of a DECLARED measure on the sphere (issue #280): a set of two members, a measure the registry does not know, declared `sum`
+    std::string halves;
     sub.compose([&] {
       SelectionSpec s;
       s.name = "halves"; s.type = "set"; s.manifold_id = id_of(sub, "sphere"); s.no_elements = true;
       s.cols.set("n_members", static_cast<std::int64_t>(2));
-      const std::string sel = sub.selection(std::move(s));
-      MeasureDeclaration d;
-      d.name = "copied_flow_thing"; d.merge = "sum"; d.description = "a synthetic additive measure";
-      declare_measure(sub.db(), d, std::string("test"));
-      Json rows = Json::array();
-      for (int m = 0; m < 2; ++m) rows.push_back(Json{{"selection_id", sel}, {"code", m}, {"measure", "copied_flow_thing"}, {"value", 1.5 + m}});
-      write_measurements(sub.db(), rows, std::string("test"));
+      halves = sub.selection(std::move(s));
     });
+    {
+      task::Unit u = task::Subject::of(sub).unit(task::By{"test", Json()});
+      u.declare_measure(Json{{"name", "copied_flow_thing"}, {"merge", "sum"}, {"description", "a synthetic additive measure"}});
+      Json rows = Json::array();
+      for (int m = 0; m < 2; ++m) rows.push_back(Json{{"selection_id", halves}, {"code", m}, {"measure", "copied_flow_thing"}, {"value", 1.5 + m}});
+      u.write_measurements(rows);
+      u.commit();
+    }
     w.close();
   }
   CHECK(!sphere_stem.empty() && !helmet_stem.empty());
@@ -177,9 +180,12 @@ int main() {
     const auto eh = nxr::pipelines::stored_eigensolve(sub, helmet_stem);
     CHECK(eh.mu == mu_helmet && eh.star1_floor == 1e-6);
     // the measure's declaration came with its measurement (issue #280): the target rolls it up by the same rule
-    const auto copied_decl = declared_measure(sub.db(), "copied_flow_thing");
-    CHECK(copied_decl.has_value() && (*copied_decl)["merge"] == "sum");
-    CHECK(measure_merge(sub.db(), "copied_flow_thing") == MergeRule::sum);
+    {
+      const nxr::io::testing::Probe probe(sub);
+      const auto decl = probe.rows("measure_declaration", {{"name", V("copied_flow_thing")}});
+      CHECK(decl.size() == 1 && text(decl.front(), "merge") == "sum");
+      CHECK(probe.rows("selection_measurement", {{"measure", V("copied_flow_thing")}}).size() == 2);
+    }
     CHECK(!nxr::pipelines::stored_vertex_potentials(sub, eh, nxr::pipelines::read_surface(sub, "helmet")).empty());
     // the same runs asked again on B: cache hits, nothing solved
     const auto again = nxrtest::run_definition(w, sub, "eigenmodes", Json{{"surface", "helmet"}, {"modes", 12}, {"star1_floor", 1e-6}});
@@ -229,7 +235,11 @@ int main() {
     make_subject(E, "declared", 1.0, true);
     DatasetWriter w = open_package_writer(E);
     SubjectWriter sub = SubjectWriter::open(w, "S1");
-    sub.compose([&] { MeasureDeclaration d; d.name = "copied_flow_thing"; d.merge = "none"; declare_measure(sub.db(), d, std::string("test")); });
+    {
+      task::Unit u = task::Subject::of(sub).unit(task::By{"test", Json()});
+      u.declare_measure(Json{{"name", "copied_flow_thing"}, {"merge", "none"}});
+      u.commit();
+    }
     CopyNodesOptions o;
     o.manifolds = {"sphere"};
     const std::string e = refusal([&] { copy_nodes(A, sub, o); });
