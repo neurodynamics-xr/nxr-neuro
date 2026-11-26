@@ -72,11 +72,44 @@ std::vector<std::string> channel_names_of(const Value* channel) {
   return out;
 }
 
+// the flags of a raw link (its `ChannelFlag`, else the sFile's `channelflag`, else every channel good) and the channel file's sha1 with them: the import's fingerprint (D121)
+std::vector<std::int64_t> raw_flags(const std::map<std::string, Value>& raw_mat, const std::map<std::string, Value>& chan) {
+  std::vector<std::int64_t> flags;
+  const Value* cf = nullptr;
+  if (auto it = raw_mat.find("ChannelFlag"); it != raw_mat.end()) cf = &it->second;
+  if (!cf) if (auto it = raw_mat.find("F"); it != raw_mat.end() && it->second.is_struct()) cf = it->second.field("channelflag");
+  if (cf && cf->is_numeric()) for (double x : cf->doubles()) flags.push_back(static_cast<std::int64_t>(x));
+  else { const auto ch = chan.find("Channel"); for (std::size_t i = 0; ch != chan.end() && i < ch->second.numel(); ++i) flags.push_back(1); }
+  return flags;
+}
+std::string channels_fingerprint(const fs::path& channel_file, const std::vector<std::int64_t>& flags) {
+  std::string flag_bytes;
+  for (auto f : flags) flag_bytes.push_back(static_cast<char>(static_cast<std::int8_t>(f)));
+  return source_fingerprint({channel_file}, flag_bytes);
+}
+
+// `import condition --replace-recording`: the condition's raw recording, already imported, gets its samples again from its file (replace_raw_timeseries); nothing else is read or written
+Json replace_condition_recording(SubjectWriter& sub, const std::string& condition, const ConditionPlan& plan, const ConvertOptions& opt, const Emit& progress) {
+  if (!plan.raw_data_file) value_error("--replace-recording replaces the samples of the condition's raw recording, and " + condition + " has none here (or --no-raw / --recording was given)");
+  if (!acquisition_rows(sub, condition)) value_error("acquisition " + condition + " is not in " + sub.name() + ": nothing to replace (import it first)");
+  const auto chan = read_all_variables(plan.channel_file);
+  const auto raw_mat = read_all_variables(*plan.raw_data_file);
+  const auto itF = raw_mat.find("F");
+  if (itF == raw_mat.end()) throw nxr::io::Error(code::no_such_row, "F");
+  const Value& sfile = itF->second;
+  if (!sfile.is_struct()) value_error(plan.raw_data_file->string() + " is not a raw link (F is a matrix)");
+  const fs::path bst = resolve_raw_binary(*plan.raw_data_file, sfile, progress);
+  const Json r = replace_raw_timeseries(sub, recording_node_name(*plan.raw_data_file), sfile, condition, bst, channels_fingerprint(plan.channel_file, raw_flags(raw_mat, chan)), progress,
+                                        opt.resample, *opt.replace_recording);
+  return Json{{"subject", sub.name()}, {"acquisition", condition}, {"replaced", r}};
+}
+
 }  // namespace
 
 Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::string& condition, const ConditionPlan& plan, const ConvertOptions& opt, const Emit& progress) {
   auto emit = [&](const Json& j) { if (progress) progress(j); };
   if (plan.data_files.empty() && !plan.raw_data_file) value_error("nothing to convert: no data files and no raw link");
+  if (opt.replace_recording) return replace_condition_recording(sub, condition, plan, opt, progress);
   if (acquisition_rows(sub, condition)) value_error("acquisition " + condition + " already exists in " + sub.name() + " \xe2\x80\x94 delete it first to re-import");
   const fs::path cond_dir = !plan.data_files.empty() ? plan.data_files[0].parent_path() : plan.channel_file.parent_path();
   const fs::path anat_dir_ = plan.surface_file.parent_path();
@@ -122,18 +155,12 @@ Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::
     for (double x : first->doubles()) flags.push_back(static_cast<std::int64_t>(x));
   } else {
     raw_mat = read_all_variables(*plan.raw_data_file);
-    const Value* cf = nullptr;
-    if (auto it = raw_mat->find("ChannelFlag"); it != raw_mat->end()) cf = &it->second;
-    if (!cf) if (auto it = raw_mat->find("F"); it != raw_mat->end() && it->second.is_struct()) cf = it->second.field("channelflag");
-    if (cf && cf->is_numeric()) for (double x : cf->doubles()) flags.push_back(static_cast<std::int64_t>(x));
-    else { const auto ch = chan.find("Channel"); for (std::size_t i = 0; ch != chan.end() && i < ch->second.numel(); ++i) flags.push_back(1); }
+    flags = raw_flags(*raw_mat, chan);
   }
   const auto entries = projector_entries(chan);
   Projection projection;                       // the record of the projectors: the samples are stored as recorded (the chunk service applies the active ones on load)
   // SESSION-SCOPED NAMES (D121): shared when the file and the flags are identical, qualified otherwise
-  std::string flag_bytes;
-  for (auto f : flags) flag_bytes.push_back(static_cast<char>(static_cast<std::int8_t>(f)));
-  const std::string chan_fp = source_fingerprint({plan.channel_file}, flag_bytes);
+  const std::string chan_fp = channels_fingerprint(plan.channel_file, flags);
   const auto [chan_name, chan_shared] = claim_node_name(sub, nxr::io::folder_for("points"), channel_node_name(plan.channel_file), acquisition, chan_fp);
   std::string channels_id;
   std::vector<std::string> ch_names;

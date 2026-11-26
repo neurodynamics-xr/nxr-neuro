@@ -531,7 +531,9 @@ export interface ImportConditionOptions {
   include_imported?: boolean;
   no_gain?: boolean;
   no_raw?: boolean;
+  note?: string | number;
   recording?: string | number;
+  replace_recording?: boolean;
   resample?: string | number;
   subject: string | number;
   surface?: string | number;

@@ -805,6 +805,8 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.include_imported = o.flag("include_imported");
     q.no_raw = o.flag("no_raw");
     q.extra_surface = o.maybe_list("extra_surface");
+    q.replace_recording = o.flag("replace_recording");
+    q.note = o.maybe("note");
     q.created_by = created_by;
     call([&] { return task::import_condition(q, progress); });
   } else if (c == "import surface") {

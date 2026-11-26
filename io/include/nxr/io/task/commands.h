@@ -476,7 +476,9 @@ struct ImportConditionRequest {
   std::optional<double> resample;
   bool no_gain = false, all_surfaces = false, include_imported = false, no_raw = false;
   std::optional<std::vector<std::string>> extra_surface;
- 
+  // replace the samples of the condition's raw recording, already imported into the subject, in place (nxr::bst::replace_raw_timeseries), with `note` saying why
+  bool replace_recording = false;
+  std::optional<std::string> note;
   std::string created_by;
 };
 CommandResult import_condition(const ImportConditionRequest& request, const Progress& progress = {});

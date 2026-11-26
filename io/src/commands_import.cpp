@@ -260,7 +260,9 @@ static CommandResult import_mri_work(const ImportMriRequest& rq, const Progress&
 
 static CommandResult import_condition_work(const ImportConditionRequest& rq, const Progress& progress);
 CommandResult import_condition(const ImportConditionRequest& rq, const Progress& progress) {
-  return recorded("import:condition", JobTarget{rq.dataset, "", rq.subject}, Json{{"protocol", rq.protocol}, {"subject", rq.subject}, {"condition", rq.condition}, {"resample", oj(rq.resample)}}, rq.created_by, [&] { return import_condition_work(rq, progress); });
+  Json params = Json{{"protocol", rq.protocol}, {"subject", rq.subject}, {"condition", rq.condition}, {"resample", oj(rq.resample)}};
+  if (rq.replace_recording) params["replace_recording"] = Json{{"note", oj(rq.note)}};
+  return recorded("import:condition", JobTarget{rq.dataset, "", rq.subject}, params, rq.created_by, [&] { return import_condition_work(rq, progress); });
 }
 
 static CommandResult import_condition_work(const ImportConditionRequest& rq, const Progress& progress) {
@@ -277,10 +279,17 @@ static CommandResult import_condition_work(const ImportConditionRequest& rq, con
   co.write_gain = !rq.no_gain;
   co.all_surfaces = rq.all_surfaces;
   if (rq.resample) co.resample = *rq.resample;
+  if (rq.replace_recording) {
+    if (!rq.note || rq.note->empty()) throw Refused("--replace-recording needs --note TEXT: why the samples are replaced, kept in the recording's provenance");
+    co.replace_recording = nxr::bst::ReplaceRecording{*rq.note, rq.created_by};
+  } else if (rq.note) {
+    throw Refused("--note is kept only with --replace-recording");
+  }
   const nxr::bst::SkippedFiles skipped;
   // the condition into the subject, which is made when the dataset has no such subject yet
   const auto convert = [&](DatasetWriter& ds) {
     std::optional<SubjectWriter> sub;
+    if (rq.replace_recording && !ds.subject(rq.subject)) throw Refused("--replace-recording: the dataset holds no subject " + rq.subject + ": nothing to replace");
     if (ds.subject(rq.subject)) {
       OpenSubjectOptions oo;
       oo.created_by = rq.created_by;
@@ -293,8 +302,10 @@ static CommandResult import_condition_work(const ImportConditionRequest& rq, con
     if (!ds.is_package()) write_catalog(ds.root());
     return r;
   };
-  if (is_catalogue_dataset(rq.dataset) && !listed_in_catalogue(rq.dataset, rq.subject))   // a catalogue without the subject: its package is made, filled, then registered
+  if (is_catalogue_dataset(rq.dataset) && !listed_in_catalogue(rq.dataset, rq.subject)) {  // a catalogue without the subject: its package is made, filled, then registered
+    if (rq.replace_recording) throw Refused("--replace-recording: the dataset's catalogue lists no subject " + rq.subject + ": nothing to replace");
     return result_of(with_skipped(into_new_member(rq.dataset, rq.subject, nxr::bst::subject_options(root, rq.subject, rq.created_by), rq.created_by, convert), skipped));
+  }
   DatasetWriter ds = open_dataset(rq.dataset, rq.subject, OpenOptions{}, progress);
   return result_of(with_skipped(convert(ds), skipped));
 }

@@ -81,6 +81,17 @@ Json add_derived_recording(nxr::io::SubjectWriter& sub, const std::string& sourc
 Json export_raw_timeseries(nxr::io::SubjectWriter& sub, const std::string& name, const Value& sfile, const Value* channel_flag, const std::string& acquisition,
                            const std::string& channels_id, const Value* comment, const std::filesystem::path& bst_path, const std::vector<std::string>& channel_names,
                            const Emit& progress, std::optional<double> resample, const Projection& projection = {});
+// REPLACE THE SAMPLES of a raw recording already imported, in place (`import condition --replace-recording`): the raw link read again as the import reads it (the BST-BIN
+// reader, `resample`), its samples and envelope rewritten while the recording's row, id, links, events, channel flags, projectors and every other node stay. Refused, with
+// nothing written: no such recording of the acquisition, other channels (count, and the channel file and flags' sha1 `channels_fingerprint` when the channels recorded one),
+// another shape or rate, no note. The stored samples and envelope are moved aside (`_replaced-<date>`), never deleted; the recording's producer_json gains an entry of
+// `replaced_samples` {utc, by, note, command, source {file, layout, declared_samples, read_samples}, channels_checked, from {samples digest, moved_aside}, to {samples digest}}.
+// The result lists the stored results whose provenance names the recording (`derived`): they were computed from the old samples.
+struct ReplaceRecording {
+  std::string note, by;
+};
+Json replace_raw_timeseries(nxr::io::SubjectWriter& sub, const std::string& name, const Value& sfile, const std::string& acquisition, const std::filesystem::path& bst_path,
+                            const std::string& channels_fingerprint, const Emit& progress, std::optional<double> resample, const ReplaceRecording& why);
 Json export_timeseries(nxr::io::SubjectWriter& sub, const std::string& name, const std::filesystem::path& data_file, const std::string& acquisition,
                        const std::string& channels_id, const std::vector<std::string>& channel_names, std::optional<double> resample, const Projection& projection = {});
 
@@ -106,6 +117,7 @@ Json write_recording_blocks(nxr::io::SubjectWriter& sub, const BlockRecording& r
 struct ConvertOptions {
   bool write_gain = true, all_surfaces = false;
   std::optional<double> resample;
+  std::optional<ReplaceRecording> replace_recording;   // replace the samples of the condition's raw recording, already imported, in place (nothing else is imported)
 };
 // The writers a map over time and a confounds matrix need (nxr.convert.timeseries `_recording` with `_write_blocks`, and `_time_line`): MapHooks over this file's recording writer.
 const MapHooks& recording_map_hooks();

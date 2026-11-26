@@ -58,7 +58,7 @@ export const COMMANDS = [
   ["export", "tsv", "", "field measures out* package* partition statistic"],
   ["export", "fif", "", "all! covariance field forward from inverse out* package* to"],
   ["export", "bids-derivatives", "", "all! from measurements out* package* results* run session space stc! task to with_surface!"],
-  ["import", "condition", "protocol", "all_surfaces! channel_file condition* dataset* extra_surface+ include_imported! no_gain! no_raw! recording resample subject* surface"],
+  ["import", "condition", "protocol", "all_surfaces! channel_file condition* dataset* extra_surface+ include_imported! no_gain! no_raw! note recording replace_recording! resample subject* surface"],
   ["import", "inverse", "", "acquisition* bst_root* channel_file channels_id dataset* file* forward_id name subject* surface_id"],
   ["import", "covariance", "", "condition* dataset* kind name protocol* replace! subject*"],
   ["import", "map", "", "acquisition bst_root* dataset* file*+ provenance replace! subject*"],

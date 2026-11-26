@@ -1061,7 +1061,7 @@ old: convert convert
 alias: refused
 summary: Import a Brainstorm condition (its recordings, channels and head models) into a dataset.
 pos: PROTOCOL
-opts: --all-surfaces --channel-file --condition* --dataset* --extra-surface+ --include-imported --no-gain --no-raw --recording --resample --subject* --surface
+opts: --all-surfaces --channel-file --condition* --dataset* --extra-surface+ --include-imported --no-gain --no-raw --note --recording --replace-recording --resample --subject* --surface
 )TBL",
 R"TBL(@ import inverse
 old: convert inverse
@@ -1482,6 +1482,8 @@ R"TBL(--begin@add field		Write the field in pieces, step 1: take its shape (--sh
 --name@edit operator	NAME	The projector operator to change, by name or id; another kind of operator is refused.	required	-
 --status@edit operator	0|1	The projector's status: 1 active (applied by --projectors active, the default of read field, run and run inverse), 0 inactive (not applied unless named); recorded in the operator's provenance.	required	-
 --note@edit operator	TEXT	Why the status is changed, kept in the edit entry of the operator's provenance.	none	-
+--note@import condition	TEXT	With --replace-recording: why the samples are replaced, kept in the recording's provenance (replaced_samples).	required with --replace-recording	-
+--replace-recording@import condition		Replace, in place, the samples of the condition's raw recording already imported into the subject: read again from its BST-BIN file (with the same --resample), the samples and envelope rewritten, the old ones moved aside; its row, id, events, flags, projectors and every other node kept. Refused for other channels, another shape or rate. Nothing else of the condition is read or written.	off	-
 --by@edit operator	TEXT	Who changes it, kept in the edit entry of the operator's provenance.	none	-
 )TBL",
 R"TBL(@ add product
