@@ -45,6 +45,9 @@ add_library(nxr_pipelines
   src/flow_steps.cpp
   src/form_steps.cpp
   src/sensor_flow_steps.cpp
+  src/bispectrum_steps.cpp
+  src/connectome_flow_steps.cpp
+  src/source_flow_steps.cpp
   src/spectral_steps.cpp
   src/verb_steps.cpp
   src/steps_measure.cpp
@@ -157,7 +160,7 @@ if(NXR_NEURO_BUILD_TESTS)
   target_include_directories(test_fingerprint_features_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
   add_test(NAME test_fingerprint_features_pipeline COMMAND test_fingerprint_features_pipeline)
   add_executable(test_face test/test_face.cpp)   # what the Python and MATLAB faces call (face.h): run, list, read, on a synthetic dataset; the same result as the command line's
-  target_link_libraries(test_face PRIVATE nxr_pipelines)
+  target_link_libraries(test_face PRIVATE nxr_pipelines matio)   # matio: writes the synthetic Brainstorm protocol of the import face's check (io/test/bst_protocol.h)
   target_include_directories(test_face PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test)
   if(NXR_NEURO_BUILD_CLI)
     add_dependencies(test_face nxr-neuro)
@@ -188,6 +191,10 @@ if(NXR_NEURO_BUILD_TESTS)
     target_compile_definitions(test_read_add PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_read_add COMMAND test_read_add)
+  add_executable(test_add_transition test/test_add_transition.cpp)   # `add operator` as a transition between two coordinate systems: stored, read back, listed, refused, deleted
+  target_link_libraries(test_add_transition PRIVATE nxr_pipelines)
+  target_include_directories(test_add_transition PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_add_transition COMMAND test_add_transition)
   add_executable(test_read_subject test/test_read_subject.cpp)   # `read subject` and `list <class>` (data-layer queries spec, step 1): descriptions, paging, filters, columns, counts, no schema column in a result
   target_link_libraries(test_read_subject PRIVATE nxr_pipelines)
   target_include_directories(test_read_subject PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
@@ -431,18 +438,22 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_phase_split PRIVATE nxr_pipelines)
   target_include_directories(test_phase_split PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_phase_split COMMAND test_phase_split)
-  add_executable(test_spectral_coefficients test/test_spectral_coefficients.cpp)   # the mode-space Fourier coefficients per tile, synthetic
-  target_link_libraries(test_spectral_coefficients PRIVATE nxr_pipelines)
-  target_include_directories(test_spectral_coefficients PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
-  add_test(NAME test_spectral_coefficients COMMAND test_spectral_coefficients)
-add_executable(test_flow_map test/test_flow_map.cpp)   # the flow maps of the cells of a joint filterbank, synthetic
-  target_link_libraries(test_flow_map PRIVATE nxr_pipelines)
-  target_include_directories(test_flow_map PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
-  add_test(NAME test_flow_map COMMAND test_flow_map)
 add_executable(test_sensor_flow test/test_sensor_flow.cpp)   # the sensor-space flow nodes: serving with overlap, chunk spectra, spectral flow, time cells, sign flip, aperiodic; synthetic
   target_link_libraries(test_sensor_flow PRIVATE nxr_pipelines)
   target_include_directories(test_sensor_flow PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_sensor_flow COMMAND test_sensor_flow)
+add_executable(test_connectome_flow test/test_connectome_flow.cpp)   # the fibre network and connectome flow nodes on a small surface with planted lags; synthetic
+  target_link_libraries(test_connectome_flow PRIVATE nxr_pipelines)
+  target_include_directories(test_connectome_flow PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_connectome_flow COMMAND test_connectome_flow)
+add_executable(test_sensor_bispectrum test/test_sensor_bispectrum.cpp)   # the bispectrum and flow-across-frequencies nodes on chunk spectra served from synthetic recordings on a sphere
+  target_link_libraries(test_sensor_bispectrum PRIVATE nxr_pipelines)
+  target_include_directories(test_sensor_bispectrum PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_sensor_bispectrum COMMAND test_sensor_bispectrum)
+add_executable(test_source_flow_nodes test/test_source_flow_nodes.cpp)   # the source-flow nodes: the MNE kernel projected onto the cortex's eigenmodes, options A and B, per hemisphere and glued; synthetic
+  target_link_libraries(test_source_flow_nodes PRIVATE nxr_pipelines)
+  target_include_directories(test_source_flow_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_source_flow_nodes COMMAND test_source_flow_nodes)
   add_executable(test_connectome_nodes test/test_connectome_nodes.cpp)
   target_link_libraries(test_connectome_nodes PRIVATE nxr_pipelines)
   target_include_directories(test_connectome_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
@@ -489,6 +500,10 @@ add_executable(test_sensor_flow test/test_sensor_flow.cpp)   # the sensor-space 
   target_link_libraries(test_sensor_surface PRIVATE nxr_pipelines)
   target_include_directories(test_sensor_surface PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
   add_test(NAME test_sensor_surface COMMAND test_sensor_surface)
+  add_executable(test_copy_nodes test/test_copy_nodes.cpp)   # a subject's solves copied from another package (io/copy_nodes.h), read and found again without a solve, synthetic
+  target_link_libraries(test_copy_nodes PRIVATE nxr_pipelines)
+  target_include_directories(test_copy_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_copy_nodes COMMAND test_copy_nodes)
   add_executable(test_headmodel test/test_headmodel.cpp)
   target_link_libraries(test_headmodel PRIVATE nxr_pipelines)
   target_include_directories(test_headmodel PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test)

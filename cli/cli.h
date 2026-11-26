@@ -52,11 +52,7 @@ inline Probe& probe() { static Probe p; return p; }
 
 inline Args parse(const std::string& prog, const std::vector<std::string>& argv, const std::set<std::string>& valued, const std::set<std::string>& flags,
                   const std::set<std::string>& required, std::size_t npos = 0, const std::set<std::string>& multi_in = {}, const std::string& pos_name = "FILE") {
-  // Every command that names a subject of a dataset (`--dataset` and `--subject`, both required) also takes `--templates DIR ...`: where to look for the released templates a
-  // subject package is registered to (the template search path; the environment variable NXR_TEMPLATE_PATH and the user setting follow it). A command that declares
-  // `--templates` itself keeps its own meaning of it.
   std::set<std::string> multi = multi_in;
-  if (required.count("--dataset") && required.count("--subject") && !valued.count("--templates") && !multi.count("--templates")) multi.insert("--templates");
   if (probe().on) {
     Probe& p = probe();
     p.valued = valued; p.flags = flags; p.multi = multi; p.required = required; p.npos = npos;
@@ -90,13 +86,6 @@ inline Args parse(const std::string& prog, const std::vector<std::string>& argv,
 
 namespace cli {
 
-// The template search path a command names (`--templates`, repeatable); the environment and the user setting are added by io.
-inline nxr::io::TemplateSearch template_search_of(const Args& a) {
-  nxr::io::TemplateSearch s;
-  if (const auto it = a.multi.find("--templates"); it != a.multi.end()) for (const auto& p : it->second) s.command_paths.push_back(p);
-  return s;
-}
-
 // THE DATASET A COMPUTATION RUNS ON. A dataset is a catalogue of subject packages (`create dataset`): the subject named by `--subject` is found through the catalogue
 // and its package is opened (io's `open_subject_package`), so everything the command writes goes into that package. A one-database dataset (`dataset.sqlite`, store
 // formats 50-52) still opens as it always did; `split dataset` makes it a catalogue.
@@ -105,7 +94,7 @@ inline nxr::io::DatasetWriter open_dataset(const Args& a, const nxr::io::OpenOpt
   if (nxr::io::is_catalogue_dataset(folder)) {
     const auto subject = a.maybe("--subject");
     if (!subject) throw Usage("error: " + folder + " is a catalogue of subject packages: name the subject to work on with --subject");
-    return nxr::io::open_subject_package(folder, *subject, o, template_search_of(a));
+    return nxr::io::open_subject_package(folder, *subject, o);
   }
   static bool told = false;
   if (!told && std::filesystem::is_regular_file(std::filesystem::path(folder) / "dataset.sqlite")) {

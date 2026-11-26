@@ -13,7 +13,7 @@
 #   stats.pca                   the across-member PCA of the stacked table: an EXACT thin SVD of the centred table (the release's scikit-learn PCA(k) is randomised and unseeded at this size,
 #                               so its numbers are matched only to that solver's tolerance)
 #   stats.identificationCurve   reconstruction at each k with the mean, accuracy both ways and the mean D_self; the best k (largest mean D_self); the edgewise statistics and D_self at it
-# Stored in the group's default subject (a catalogue: the group package named by `--into`), each a statistic of method `fingerprint` (the PCA's of method `pca`), OF the first member's target
+# Stored in the dataset's template (format 56: the template holds the cohort), each a statistic of method `fingerprint` (the PCA's of method `pca`), OF the first member's target
 # (the members and each one's inputs are in the provenance), names `<name>_correlation`, `_self`, `_accuracy`, `_edgewise`, `_curve`, `_reconstructed_self`, `_reconstructed_edgewise`, `_pca*`.
 # It cannot show: why the two measurements of a person are alike (anatomy, head position, the kernel, recurring artefacts and the day's noise are individual too); accuracy falls as the cohort
 # grows and depends on its make-up, so it is not comparable between cohorts; the curve and its best k are fitted on the data they score (optimistic); the edgewise statistics are on features
@@ -32,7 +32,6 @@ inputs:
 
 parameters:
   subjects: {default: null, meaning: "the cohort's members, by name, in order (A,B,C); no default: a group run without them is refused", unit: "-"}
-  into: {default: null, meaning: "catalogue datasets: the group package the results are written to", unit: "-"}
   target: {default: required, meaning: "the stored feature identified (the release's validation half): its name in every member", unit: "-"}
   database: {default: required, meaning: "the stored feature it is identified against (the release's training half): its name in every member", unit: "-"}
   vector: {default: flatten, meaning: "flatten = the stored values as they are, row-major (a region x bin spectrum) | upper-triangle = per trailing slice (band) the upper triangle WITH the diagonal of the leading square (a connectome), slices concatenated", unit: "-", choices: [flatten, upper-triangle]}

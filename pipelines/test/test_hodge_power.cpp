@@ -166,7 +166,7 @@ steps:
     do:
       - {node: signal.analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}
       - {node: meeg.apply_kernel, in: {x: z, kernel: kernel}, out: j}
-      - {node: signal.phase_split, in: {x: j, package: package}, out: [potential, stream, propagation, lag, timing, rotation, misfit]}
+      - {node: signal.phase_split, in: {x: j, package: package}, with: {one_form: phase_gradient}, out: [potential, stream, propagation, lag, timing, rotation, misfit]}
       - {node: measurement.estimate, in: {x: lag}, with: {method: sample}, out: e_lag}
       - {node: measurement.estimate, in: {x: timing}, with: {method: sample}, out: e_timing}
 outputs:

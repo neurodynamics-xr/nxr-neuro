@@ -454,14 +454,6 @@ nxr::io::SubjectOptions template_options(const fs::path& root, const std::string
   so.created_by = created_by;
   return so;
 }
-nxr::io::SubjectOptions group_options(const fs::path& root, const std::string& created_by) {
-  nxr::io::SubjectOptions so;
-  so.kind = "group";
-  so.source_format = "brainstorm";
-  so.source_path = py_path((root / "data" / "Group_analysis" / "@intra").string());
-  so.created_by = created_by;
-  return so;
-}
 
 namespace {
 // the subject an import fills: created in a one-database dataset; in a package (a catalogue's member made for this import, with the same row) the package's own subject
@@ -541,7 +533,12 @@ Json convert_template(nxr::io::DatasetWriter& ds, const fs::path& root, const st
 Json convert_group(nxr::io::DatasetWriter& ds, const fs::path& root, const Emit& emit, const std::string& created_by) {
   const fs::path src = root / "data" / "Group_analysis" / "@intra";
   if (!is_dir(src)) throw Error(code::not_found, py_path(src.string()) + ": not in this protocol");
-  SubjectWriter sub = subject_to_fill(ds, kGroupSubject, group_options(root, created_by));
+  // format 56: the group results go into the dataset's template (the template holds the cohort); a one-database dataset's template row, or the template's own package
+  const auto tpl = ds.template_();
+  if (!tpl) throw Error(code::not_found, "import group: the dataset has no template subject (import the template first): a cohort's results go into it");
+  nxr::io::OpenSubjectOptions oo;
+  oo.created_by = created_by;
+  SubjectWriter sub = SubjectWriter::open(ds, nxr::io::text(*tpl, "name"), oo);
   Json wrote = Json::array();
   sub.compose([&] {
     for (const auto& f : files_of(src, "timefreq_", ".mat"))

@@ -59,6 +59,23 @@ void apply_component_view(SurfaceInput& s, const Row& row) {
   s.faces = std::move(f);
 }
 
+// A manifold made ON a component (a hemisphere's intrinsic triangulation) shares the component's geometry, which is the union's arrays: its positions are the
+// component's vertex range (its faces are its own, already indexed from 0). Its own geometry row may point at the same arrays: the vertex count tells
+template <class Db>
+void apply_derived_component_view(SurfaceInput& s, const Row& row, const Db& db) {
+  if (!is_null(row, "component_of_id") || is_null(row, "derived_from_id") || is_null(row, "n_vertices")) return;
+  const std::int64_t n = integer(row, "n_vertices"), total = static_cast<std::int64_t>(s.vertices.size() / 3);
+  if (total <= n) return;
+  const auto parent = db.read("manifold", text(row, "derived_from_id"));
+  if (!parent || is_null(*parent, "component_of_id") || is_null(*parent, "from_index")) return;
+  const auto whole = db.read("manifold", text(*parent, "component_of_id"));             // the positions are the union's: as many as the surface the parent is a component of
+  if (!whole || integer(*whole, "n_vertices") != total) return;
+  const std::int64_t lo = integer(*parent, "from_index");
+  if (integer(*parent, "n_vertices") != n || lo < 0 || lo + n > total)
+    throw Error(code::invalid_argument, s.name + ": made on the component " + text(*parent, "name") + ", whose vertex range does not fit its " + std::to_string(n) + " vertices");
+  s.vertices = std::vector<double>(s.vertices.begin() + 3 * lo, s.vertices.begin() + 3 * (lo + n));
+}
+
 }  // namespace
 
 std::string hodge_package_stem(const SurfaceInput& S) {
@@ -98,6 +115,7 @@ SurfaceInput read_surface(SubjectWriter& sub, const std::optional<std::string>& 
   }
   s.faces = read_as<std::int32_t>(sub.store(), *faces);
   apply_component_view(s, *row);
+  apply_derived_component_view(s, *row, sub.db());
   return s;
 }
 
@@ -115,6 +133,7 @@ SurfaceInput read_surface(const SubjectPackage& pk, const std::string& name) {
   s.vertices = read_as<double>(pk.store(), text(*row, "positions_path"));
   s.faces = read_as<std::int32_t>(pk.store(), *faces);
   apply_component_view(s, *row);
+  apply_derived_component_view(s, *row, pk.db());
   return s;
 }
 

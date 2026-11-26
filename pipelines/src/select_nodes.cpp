@@ -806,16 +806,31 @@ KernelsPrepared kernels_of(const Json& p) {
   const char* who = "select.kernels";
   for (const char* k : {"profile", "chart", "quantity"}) need(p.contains(k) && p[k].is_string(), std::string(who) + ": " + k + " has no default: name it");
   const std::string profile = p["profile"], chart = p["chart"], quantity = p["quantity"];
-  need(profile == "gaussian" || profile == "box" || profile == "cos2_partition", std::string(who) + ": profile is gaussian, box or cos2_partition");
+  const bool band = profile == "morlet_band" || profile == "meyer_band", centred = profile == "gaussian" || profile == "box";
+  need(centred || band || profile == "cos2_partition" || profile == "mexican_hat",
+       std::string(who) + ": profile is gaussian, box, cos2_partition, morlet_band, meyer_band or mexican_hat (nxr::signal::kernelGains)");
   // cos2_partition: an amplitude partition in the log2 chart whose members' edges are their neighbours' centres (no width; gain 1: the gains sum to one at every point)
-  if (profile != "cos2_partition") for (const char* k : {"width", "gain"}) need(p.contains(k) && p[k].is_number(), std::string(who) + ": " + k + " has no default: name it");
-  else need(chart == "log2", std::string(who) + ": a cos2_partition lies in the log2 chart");
-  const std::string width_rule = p.contains("width_rule") && p["width_rule"].is_string() ? p["width_rule"].get<std::string>() : "absolute";
-  need(width_rule == "absolute" || width_rule == "proportional", std::string(who) + ": width_rule is absolute (the width as given) or proportional (the width times the member's centre)");
+  if (centred) need(p.contains("width") && p["width"].is_number(), std::string(who) + ": width has no default: name it");
+  if (profile != "cos2_partition") need(p.contains("gain") && p["gain"].is_number(), std::string(who) + ": gain has no default: name it");
+  if (profile == "meyer_band") need(p.contains("half_width") && p["half_width"].is_number(), std::string(who) + ": half_width (octaves) has no default: name it");
+  if (centred) need(p.contains("width_rule") && p["width_rule"].is_string(), std::string(who) + ": width_rule has no default: name it (absolute | proportional)");
+  const std::string width_rule = centred ? p["width_rule"].get<std::string>() : std::string();   // read for gaussian and box only
+  need(!centred || width_rule == "absolute" || width_rule == "proportional", std::string(who) + ": width_rule is absolute (the width as given) or proportional (the width times the member's centre)");
   need(chart == "log2" || chart == "linear", std::string(who) + ": chart is log2 (octaves) or linear");
   need(quantity == "frequency" || quantity == "wavelength" || quantity == "wavenumber", std::string(who) + ": quantity is frequency (Hz), wavelength (2 pi / mu) or wavenumber (mu)");
+  need(!band || quantity == "frequency", std::string(who) + ": a band profile (morlet_band, meyer_band) lies on a frequency line");
   std::vector<double> centres;
-  if (p.contains("centres") && p["centres"].is_array() && !p["centres"].empty()) {
+  std::vector<std::pair<double, double>> bands;
+  if (band) {
+    need(p.contains("bands") && p["bands"].is_array() && !p["bands"].empty(), std::string(who) + ": a band profile names its bands: [[lo, hi], ...] in Hz");
+    need(!(p.contains("centres") && p["centres"].is_array() && !p["centres"].empty()) && !p.contains("grid_from"), std::string(who) + ": a band profile takes bands, not centres or a grid");
+    for (const auto& b : p["bands"]) {
+      need(b.is_array() && b.size() == 2 && b[0].is_number() && b[1].is_number() && b[0].get<double>() >= 0 && b[1].get<double>() > b[0].get<double>(),
+           std::string(who) + ": a band is [lo, hi] with 0 <= lo < hi");
+      bands.emplace_back(b[0].get<double>(), b[1].get<double>());
+      centres.push_back(0.5 * (bands.back().first + bands.back().second));
+    }
+  } else if (p.contains("centres") && p["centres"].is_array() && !p["centres"].empty()) {
     for (const auto& c : p["centres"]) { need(c.is_number() && c.get<double>() > 0, std::string(who) + ": a centre is a positive number"); centres.push_back(c.get<double>()); }
   } else {
     need(p.contains("grid_from") && p.contains("grid_to") && p.contains("voices") && p["grid_from"].is_number() && p["grid_to"].is_number() && p["voices"].is_number_integer(),
@@ -833,12 +848,16 @@ KernelsPrepared kernels_of(const Json& p) {
   for (std::size_t i = 0; i < centres.size(); ++i) {
     const double at = quantity == "wavelength" ? 2.0 * M_PI / centres[i] : centres[i];          // the anchor on the line's own coordinate (a mode axis's: mu)
     char buf[64]; std::snprintf(buf, sizeof buf, "%.4g %s", centres[i], quantity == "frequency" ? "Hz" : quantity == "wavelength" ? "wavelength" : "mu");
-    Json params = profile == "cos2_partition" ? Json{{"partition", "amplitude, edges at the neighbouring centres"}} : Json{{"fwhm", p["width"]}};
-    if (width_rule == "proportional") params["width_rule"] = "proportional";
-    k.members.push_back(Json{{"start", at}, {"stop", at}, {"code", static_cast<std::int64_t>(i)}, {"family", profile}, {"chart", chart}, {"gain", profile == "cos2_partition" ? Json(1.0) : p["gain"]},
-                             {"params", params}, {"name", names.empty() ? std::string(buf) : names[i]}, {"centre", centres[i]}, {"unit", unit}});
+    // the profile's numbers (nxr::selection::Profile::params): the width as fwhm, or as fwhm_per_centre for a proportional (constant-Q) width; a Meyer band's half-width
+    Json params = Json::object();
+    if (centred) params[width_rule == "proportional" ? "fwhm_per_centre" : "fwhm"] = p["width"];
+    if (profile == "meyer_band") params["half_width"] = p["half_width"];
+    const double start = band ? bands[i].first : at, stop = band ? bands[i].second : at;   // the anchor: the band [lo, hi], or the centre (a span with start = stop)
+    k.members.push_back(Json{{"start", start}, {"stop", stop}, {"code", static_cast<std::int64_t>(i)}, {"family", profile}, {"chart", chart},
+                             {"gain", profile == "cos2_partition" ? Json(1.0) : p["gain"]}, {"params", params}, {"name", names.empty() ? std::string(buf) : names[i]},
+                             {"centre", centres[i]}, {"unit", unit}});
   }
-  k.params = Json{{"kernels", Json{{"quantity", quantity}, {"unit", unit}, {"profile", profile}, {"chart", chart}, {"width", p.value("width", Json())}, {"width_rule", width_rule}, {"gain", p.value("gain", Json())}, {"members", k.members}}},
+  k.params = Json{{"kernels", Json{{"quantity", quantity}, {"unit", unit}, {"profile", profile}, {"chart", chart}, {"width", p.value("width", Json())}, {"width_rule", centred ? Json(width_rule) : Json()}, {"gain", p.value("gain", Json())}, {"half_width", p.value("half_width", Json())}, {"members", k.members}}},
                   // a factor of a product (the cells of a joint filterbank): its member count; a regular ladder (voices per octave) is a grid, listed centres an irregular set
                   {"grid", Json{{"kind", "kernels"}, {"size", static_cast<std::int64_t>(k.members.size())}, {"quantity", quantity},
                                 {"family", p.contains("voices") && p["voices"].is_number_integer() && !(p.contains("centres") && p["centres"].is_array() && !p["centres"].empty()) ? "grid" : "irregular"}}}};
@@ -851,17 +870,19 @@ ng::NodeSpec select_kernels() {
   n.inputs = {{"line", "the line the kernels lie on (a stored frequency line, or a mode axis): its record", true}};
   n.outputs = {{"kernels", "the kernel set: one member a kernel (anchor on the line's coordinate, profile, chart, gain), named", false}};
   n.parameters = {{"quantity", Json(), "what the centres are: frequency (Hz) | wavelength (2 pi / mu, on a mode axis) | wavenumber (mu) (no default)", "-", {"frequency", "wavelength", "wavenumber"}, false},
-                  {"profile", Json(), "gaussian | box | cos2_partition (an amplitude partition in log2: sin² rising from the previous centre, cos² falling to the next, the first member flat below its centre, the last above: the gains sum to one) (no default)", "-", {"gaussian", "box", "cos2_partition"}, false},
+                  {"profile", Json(), "gaussian | box | cos2_partition (an amplitude partition in log2 whose gains sum to one; no width) | morlet_band | meyer_band (bands [lo, hi] Hz: the time bank's band shapes) | mexican_hat (the graph bank's hat at each centre) (no default; nxr::signal::kernelGains)", "-", {"gaussian", "box", "cos2_partition", "morlet_band", "meyer_band", "mexican_hat"}, false},
                   {"chart", Json(), "the chart the width is in: log2 (octaves) | linear (the quantity's unit) (no default)", "-", {"log2", "linear"}, false},
                   {"width", Json(), "each member's FWHM (gaussian) or full width (box), in the chart (no default; not read by cos2_partition)", "-", {}, true},
-                  {"width_rule", Json(), "absolute (the width as given; null means this) | proportional (the width times the member's centre: constant Q on a linear chart)", "-", {"absolute", "proportional"}, true},
+                  {"width_rule", Json(), "absolute (the width as given) | proportional (the width times the member's centre: constant Q on a linear chart); gaussian and box (no default)", "-", {"absolute", "proportional"}, true},
                   {"gain", Json(), "each member's peak amplitude g (no default; cos2_partition: 1)", "-", {}, true},
+                  {"half_width", Json(), "a Meyer band's transition half-width, octaves (meyer_band; no default)", "-", {}, true},
+                  {"bands", Json(), "the bands [[lo, hi], ...] in Hz of a band profile (morlet_band, meyer_band), instead of centres", "Hz", {}, true},
                   {"centres", Json(), "the members' centres, in the quantity's unit; or a grid (grid_from, grid_to, voices)", "-", {}, true},
                   {"grid_from", Json(), "a grid's first centre", "-", {}, true}, {"grid_to", Json(), "a grid's last centre (at most)", "-", {}, true},
                   {"voices", Json(), "a grid's members per octave (the grid resolution)", "-", {}, true},
                   {"names", Json(), "one name a member (none: the quantity as written)", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "a selection made from parameters: no data flows");
-  n.matches = "the selection system's kernel members (anchor + profile + chart; compute nxr::selection::resolve_weights); nxr's frequency and spatial filter banks (Gaussian on log2)";
+  n.matches = "the selection system's kernel members (anchor + profile + chart; compute nxr::signal::kernelGains); nxr's frequency and spatial filter banks (Gaussian on log2)";
   n.description = "a kernel set on a line (a frequency line, a mode axis): one selection whose members are kernels, every centre a quantity, every profile parameter the caller's";
   n.plan = [](const ng::Types&, const Json& p) {
     const KernelsPrepared k = kernels_of(p);

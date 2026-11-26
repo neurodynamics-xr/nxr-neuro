@@ -2105,51 +2105,6 @@ struct SubjectEntryRow {
   }
 };
 
-// table `template_reference`
-struct TemplateReferenceRow {
-  std::string name;
-  std::string edition;
-  std::string version;
-  std::string subject_id;
-  std::string content_hash;
-  std::optional<std::string> location_hint;
-  static constexpr const char* kTable = "template_reference";
-  static const std::vector<std::string>& columns() {
-    static const std::vector<std::string> c = {"name", "edition", "version", "subject_id", "content_hash", "location_hint"};
-    return c;
-  }
-  static TemplateReferenceRow from_row(const Row& r) {
-    TemplateReferenceRow x;
-    x.name = detail::take<std::string>(r, "name");
-    x.edition = detail::take<std::string>(r, "edition");
-    x.version = detail::take<std::string>(r, "version");
-    x.subject_id = detail::take<std::string>(r, "subject_id");
-    x.content_hash = detail::take<std::string>(r, "content_hash");
-    x.location_hint = detail::take_opt<std::string>(r, "location_hint");
-    return x;
-  }
-  static TemplateReferenceRow from_json(const Json& j) {
-    TemplateReferenceRow x;
-    x.name = detail::get<std::string>(j, "name");
-    x.edition = detail::get<std::string>(j, "edition");
-    x.version = detail::get<std::string>(j, "version");
-    x.subject_id = detail::get<std::string>(j, "subject_id");
-    x.content_hash = detail::get<std::string>(j, "content_hash");
-    x.location_hint = detail::get_opt<std::string>(j, "location_hint");
-    return x;
-  }
-  Json to_json() const {
-    Json j = Json::object();
-    detail::put(j, "name", name);
-    detail::put(j, "edition", edition);
-    detail::put(j, "version", version);
-    detail::put(j, "subject_id", subject_id);
-    detail::put(j, "content_hash", content_hash);
-    detail::put(j, "location_hint", location_hint);
-    return j;
-  }
-};
-
 // table `selection_factor`
 struct SelectionFactorRow {
   std::string selection_id;

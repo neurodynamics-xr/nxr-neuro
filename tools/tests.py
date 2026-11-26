@@ -9,18 +9,21 @@ A test's FINGERPRINT is what it ran: its executable (the build relinks exactly t
 calls it, the goldens and data of its library, and, for a script test (the layering guard), the tracked sources it reads. A test whose fingerprint is the
 one it last passed with is still GREEN: it does not need to run again. Only STALE (passed, but what it runs has changed), FAILED and NEW tests need a run.
 
-    tools/tests.py status REGEX         build ONLY the matching tests' targets, then list what is green, stale, failed or new (nothing is run)
-    tools/tests.py run REGEX            build ONLY the matching tests' targets, then run the stale, failed and new ones among them, and record them
+    tools/tests.py status REGEX         list what is green, stale, failed, new or NOT BUILT (nothing is built and nothing is run)
+    tools/tests.py run REGEX            run the stale, failed and new ones among the matching tests, and record them; it NEVER builds: a test whose
+                                        executable is out of date is listed as not built and left out, with the build command to ask for
+    tools/tests.py build REGEX          the ONLY command that compiles: the matching tests' targets (ask the PI first: RULE 1)
     tools/tests.py status --kind unit --kind golden REGEX   only tests of these kinds (repeatable); a --kind is a selector, so REGEX may be left out
     tools/tests.py run --kind unit --fast REGEX             --fast leaves out the tests labelled `slow`
     tools/tests.py run --all REGEX      run every matching test, green or not (say why: a change to a shared core)
-    tools/tests.py run --suite          the FULL suite: build every target, run every stale, failed and new test (end of a round only)
+    tools/tests.py build --suite        build every target (end of a round only, with the PI's OK)
+    tools/tests.py run --suite          run every stale, failed and new test of the full suite (end of a round only)
     tools/tests.py targets [--regex R] [--label-regex L] [--exclude-label slow]   print the build targets of a ctest selection (CI)
     tools/tests.py show TEST            the last result of one test and what it printed
 
-NO WASTE. A REGEX is required: it names the tests the change reaches, and only their executables (and the `nxr-neuro` command, for a test
-that calls it) are built. Nothing else is compiled or linked. The full build and the full suite run only with `--suite`, once, at the end of a
-round. Never loop build -> run over the whole tree; never rerun a test that is green.
+NO HIDDEN BUILDS (RULE 1, the PI, 2026-11-24). Only `build` compiles; `status` and `run` never do. Whether a test's executable is out of date is
+asked of the build tool without building (`ninja -n`: a dry run). A REGEX is required: it names the tests the change reaches, and `build` compiles
+only their executables (and the `nxr-neuro` command, for a test that calls it). Never loop build -> run over the whole tree; never rerun a green test.
 
 KINDS. Every test carries one kind label (tests/kinds.tsv, cmake/test_kinds.cmake): unit, golden, integration or guard (CONTRIBUTING.md, Test kinds).
 `--kind K` (repeatable) keeps the tests with that label, combined with REGEX; `--fast` drops the `slow` ones. The build stays scoped to the selected tests.
@@ -86,7 +89,15 @@ SEL: dict = {"kinds": None, "fast": False}   # set from the command line (--kind
 def registered_commands() -> dict[str, list[str]]:
     """name -> command of every add_test in the build's CTestTestfile.cmake files: ctest's JSON omits the command of a test whose executable is not built yet"""
     out: dict[str, list[str]] = {}
-    for f in BUILD.rglob("CTestTestfile.cmake"):
+    files, todo = [], [BUILD / "CTestTestfile.cmake"]      # follow ctest's own chain (subdirs(...)), never a walk of the whole build tree
+    while todo:                                            # (a walk of the build folder, its dependencies and scratch data, hung on a slow drive)
+        f = todo.pop()
+        if not f.exists():
+            continue
+        files.append(f)
+        todo += [f.parent / d for d in re.findall(r'^\s*subdirs\("([^"]+)"\)', f.read_text(errors="ignore"), re.M)]
+        todo = [d / "CTestTestfile.cmake" if d.is_dir() else d for d in todo]
+    for f in files:
         for m in re.finditer(r'^\s*add_test\(\[=\[(.+?)\]=\]\s+(.*?)\)\s*$', f.read_text(errors="ignore"), re.M):
             out[m.group(1)] = [x or y or z for x, y, z in re.findall(r'"([^"]*)"|\[=\[(.*?)\]=\]|(\S+)', m.group(2))]
     return out
@@ -125,6 +136,21 @@ def build(regex: str | None, suite: bool) -> None:
     r = sh(cmd)
     if r.returncode != 0:
         sys.exit("the build failed:\n" + "\n".join(r.stdout.splitlines()[-20:] + r.stderr.splitlines()[-20:]))
+
+
+def out_of_date(regex: str | None, suite: bool) -> list[str]:
+    """the build targets of the selection whose build is not up to date, asked of ninja WITHOUT building (a dry run, `ninja -n`)"""
+    tg = [] if suite else targets_of(regex or "")
+    if not suite and not tg:
+        return []
+    r = sh(["ninja", "-C", str(BUILD), "-n", *tg])
+    # the globbed-directory check (CMake's CONFIGURE_DEPENDS) is in every dry run and, unable to run it, ninja then lists a CMake re-run: neither is a build
+    # step of the targets (with them counted, every test read as out of date right after a build)
+    bookkeeping = ("Re-checking globbed directories", "Re-running CMake")
+    steps = [l for l in r.stdout.splitlines() if re.match(r"\[\d+/\d+\]", l) and not any(b in l for b in bookkeeping)]
+    if not steps:
+        return []
+    return tg or ["all"]
 
 
 def file_hash(p: Path, h: hashlib._Hash) -> None:
@@ -266,7 +292,9 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("status"); s.add_argument("regex", nargs="?"); s.add_argument("--suite", action="store_true")
     r = sub.add_parser("run"); r.add_argument("regex", nargs="?"); r.add_argument("--all", action="store_true"); r.add_argument("--suite", action="store_true")
-    for x in (s, r):
+    b = sub.add_parser("build", help="the only command that compiles: the matching tests' targets (RULE 1: ask the PI first)")
+    b.add_argument("regex", nargs="?"); b.add_argument("--suite", action="store_true")
+    for x in (s, r, b):
         x.add_argument("--kind", action="append", choices=KINDS, help="only tests of this kind (repeatable)")
         x.add_argument("--fast", action="store_true", help="leave out the tests labelled slow")
     w = sub.add_parser("show"); w.add_argument("test")
@@ -290,7 +318,17 @@ def main() -> None:
     if (a.regex or a.kind) and a.suite:
         sys.exit("--suite is the whole suite; give either a REGEX / --kind or --suite")
     SEL["kinds"], SEL["fast"] = a.kind, a.fast
-    build(a.regex, a.suite)
+    if a.cmd == "build":
+        build(a.regex, a.suite)
+        print("built: " + (" ".join(targets_of(a.regex or "")) if not a.suite else "every target"))
+        return
+    stale_build = out_of_date(a.regex, a.suite)
+    if stale_build:
+        ask = "tools/tests.py build " + ("--suite" if a.suite else repr(a.regex or ""))
+        print(f"NOT BUILT (out of date, nothing compiled): {' '.join(stale_build)}\n  these tests' results would be of old executables; "
+              f"to build them, ask the PI (RULE 1), then: {ask}")
+        if a.cmd == "run":
+            sys.exit(1)
     cls = classify(a.regex)
     if a.cmd == "status":
         by = {k: [n for n, s, _ in cls if s == k] for k in ("green", "stale", "failed", "new")}

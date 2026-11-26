@@ -741,11 +741,18 @@ std::vector<float> convolve(const Block& b, const std::vector<float>& taps, std:
 // meyerBand, half_width octaves); band null: all-pass, the plain Hilbert's)
 std::function<double(double)> band_gain(const Json& p) {
   if (p["band"].is_null()) return [](double) { return 1.0; };
-  const double lo = p["band"][0].get<double>(), hi = p["band"][1].get<double>(), hw = p["half_width"].get<double>();
-  if (p["shape"] == "morlet") return [lo, hi](double f) { return nxr::signal::graphfilterbank::morletBand(f, lo, hi); };
-  if (p["shape"] == "morlet_ladder")                                     // the band's members of a Morlet ladder, their squared gains summed (the reference Gabor detector's R² signal)
-    return nxr::signal::timefilterbank::morletLadderGain(lo, hi, p["ladder_min"].get<double>(), p["ladder_max"].get<double>(), p["voices"].get<int>());
-  return [lo, hi, hw](double f) { return nxr::signal::graphfilterbank::meyerBand(f, lo, hi, hw); };
+  namespace tb = nxr::signal::timefilterbank;
+  tb::BandShape shape;
+  shape.family = p["shape"].get<std::string>();
+  shape.lo = p["band"][0].get<double>();
+  shape.hi = p["band"][1].get<double>();
+  if (p.contains("half_width") && p["half_width"].is_number()) shape.halfWidth = p["half_width"].get<double>();
+  if (shape.family == "morlet_ladder") {                                    // the band's members of a Morlet ladder, their squared gains summed (the reference Gabor detector's R² signal)
+    shape.ladderMinimum = p["ladder_min"].get<double>();
+    shape.ladderMaximum = p["ladder_max"].get<double>();
+    shape.voices = p["voices"].get<int>();
+  }
+  return tb::bandGain(shape);
 }
 struct AnalyticTaps { std::vector<float> even, odd; };
 struct KernelState { std::shared_ptr<const Eigen::MatrixXd> K; Json resolved; };

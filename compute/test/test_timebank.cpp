@@ -3,6 +3,8 @@
 // (tight reconstruction, DC and Nyquist identical across gain, two-sided rotation sense, refusals). Synthetic data only.
 #include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/wavelet.h"
+#include "nxr/signal/decimation.h"
+using nxr::signal::downsample;
 #include "nxr/measurement/band_energy.h"
 using nxr::signal::wt; using nxr::signal::iwt; using nxr::signal::iwtComplex;
 #include "golden_io.h"

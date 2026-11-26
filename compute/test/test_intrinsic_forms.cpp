@@ -74,6 +74,14 @@ int main() {
     };
     const double eG = roundTrip(G), eR = roundTrip(R);
     EXPECT(eG < 0.02 && eR < 0.02, "sharp(flat(J)) = J for a gradient (" << eG << ") and a rotation (" << eR << ")");
+    {   // THE ONE SHARP: the sparse operator, built once, is the map `sharp` applies
+        Eigen::MatrixXd oneForms(c.nE, 2);
+        oneForms.col(0) = w; oneForms.col(1) = nxr::signal::flat(c, R).col(0);
+        const Eigen::SparseMatrix<double> sharpWeights = nxr::signal::sharpOperator(c);
+        const Eigen::MatrixXd byOperator = sharpWeights * oneForms, bySharp = nxr::signal::sharp(c, oneForms);
+        const double gap = (byOperator - bySharp).cwiseAbs().maxCoeff() / bySharp.cwiseAbs().maxCoeff();
+        EXPECT(sharpWeights.rows() == 3 * nV && sharpWeights.cols() == c.nE && gap < 1e-12, "sharpOperator(c) w = sharp(c, w) (relative gap " << gap << ")");
+    }
     const Eigen::MatrixXd one = Eigen::MatrixXd::Ones(nV, 1);
     const Eigen::MatrixXd s = nxr::signal::area2form(c, one), back = nxr::signal::vertexDensity(c, s);
     EXPECT(std::abs(s.sum() - c.star2.cwiseInverse().sum()) < 1e-9 && (back.array() - 1).abs().maxCoeff() < 1e-12, "a constant density: integrates to the area, comes back constant");

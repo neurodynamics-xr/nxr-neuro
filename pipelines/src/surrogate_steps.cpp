@@ -17,7 +17,7 @@
 #include <map>
 #include <memory>
 
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/registry.h"
 #include "nxr/synthesis/lagfree.h"
@@ -38,9 +38,12 @@ void statistic_input(const Value& t, const std::string& who, const std::string& 
   need(m == method && std::find(measures.begin(), measures.end(), me) != measures.end(), who + ": " + port + " " + nxr::io::text(*t.row, "name") + " is a statistic of method " + m + ", measure " + me + "; it must be method " + method + " (" + measures[0] + ")");
 }
 std::function<double(double)> gain_of(const Json& p) {
-  const double lo = p["band"][0].get<double>(), hi = p["band"][1].get<double>(), hw = p["half_width"].get<double>();
-  if (p["shape"] == "morlet") return [lo, hi](double f) { return nxr::signal::graphfilterbank::morletBand(f, lo, hi); };
-  return [lo, hi, hw](double f) { return nxr::signal::graphfilterbank::meyerBand(f, lo, hi, hw); };
+  nxr::signal::timefilterbank::BandShape shape;
+  shape.family = p["shape"].get<std::string>();
+  shape.lo = p["band"][0].get<double>();
+  shape.hi = p["band"][1].get<double>();
+  if (p.contains("half_width") && p["half_width"].is_number()) shape.halfWidth = p["half_width"].get<double>();
+  return nxr::signal::timefilterbank::bandGain(shape);
 }
 void band_params(const Json& p, const std::string& who, double rate) {
   const Json& b = p["band"];

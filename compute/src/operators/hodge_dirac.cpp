@@ -1,5 +1,7 @@
 // Hodge–Dirac d + δ on the intrinsic Delaunay triangulation, and its eigenmodes by the exact/coexact split.
 // Reference: nxr-cortical-flow hodgeDirac.ts (+ solve-lb-hodge.py, make-hodge-package.py); ⋆1 floor optional (default off, as nxr; Rheome PR #94 used 1e-6).
+#include <Eigen/Eigenvalues>
+#include <limits>
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/mesh.h"
 #include "nxr/geometry/curvature.h"
@@ -166,21 +168,44 @@ EigenResult hodgeLadder(const Eigen::SparseMatrix<double>& S, const Eigen::Spars
     return r;
 }
 
+// One ladder solved whole (the complete solve of a small mesh): every eigenpair of (S, M), ascending, M-orthonormal, λ clamped to >= 0.
+static EigenResult denseLadder(const Eigen::SparseMatrix<double>& S, const Eigen::SparseMatrix<double>& M) {
+    const Eigen::MatrixXd A(S), B(M);
+    Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> solver(A, B, Eigen::ComputeEigenvectors | Eigen::Ax_lBx);
+    if (solver.info() != Eigen::Success) throw Error(ErrorCode::EigensolveInvalidK, "hodgeLadders: the dense solve of a ladder did not converge");
+    EigenResult r;
+    r.eigenvalues = solver.eigenvalues().cwiseMax(0.0);
+    r.eigenvectors = solver.eigenvectors();
+    r.k = static_cast<int>(r.eigenvalues.size());
+    r.nConverged = r.k;
+    return r;
+}
+
 HodgeLadders hodgeLadders(const Eigen::SparseMatrix<double>& L0, const Eigen::SparseMatrix<double>& M0,
                           const Eigen::SparseMatrix<double>& S2, const Eigen::SparseMatrix<double>& M2,
                           int count, const HodgeSolveOptions& opt, const CancellationToken& cancel, const ProgressObserver& progress) {
     if (count < 1) throw Error(ErrorCode::EigensolveInvalidK, "hodgeLadders: count must be >= 1");
     const int nV = static_cast<int>(M0.rows()), nF = static_cast<int>(M2.rows());
-    const int want = count / 2 + 1;
-    const int k0 = std::min(want + 1, nV - 2), k2 = std::min(want + 1, nF - 2);
-    if (k0 < 1 || k2 < 1) throw Error(ErrorCode::EigensolveInvalidK, "hodgeLadders: the surface is too small for the solve");
     HodgeLadders out;
-    out.exact = hodgeLadder(L0, M0, k0, opt, cancel, progress);
-    out.coexact = hodgeLadder(S2, M2, k2, opt, cancel, progress);
+    out.dense = opt.denseLimit > 0 && nV <= opt.denseLimit && nF <= opt.denseLimit && count >= nV + nF - 2;
+    if (out.dense) {                                             // the complete solve of a small mesh: every eigenpair of each ladder
+        if (nV < 2 || nF < 1) throw Error(ErrorCode::EigensolveInvalidK, "hodgeLadders: the surface is too small for the solve");
+        out.exact = denseLadder(L0, M0);
+        out.coexact = denseLadder(S2, M2);
+    } else {
+        const int want = count / 2 + 1;
+        const int k0 = std::min(want + 1, nV - 2), k2 = std::min(want + 1, nF - 2);
+        if (k0 < 1 || k2 < 1) throw Error(ErrorCode::EigensolveInvalidK, "hodgeLadders: the surface is too small for the solve");
+        out.exact = hodgeLadder(L0, M0, k0, opt, cancel, progress);
+        out.coexact = hodgeLadder(S2, M2, k2, opt, cancel, progress);
+    }
     const Eigen::VectorXd& l0 = out.exact.eigenvalues;
     const Eigen::VectorXd& l2 = out.coexact.eigenvalues;
-    // the constants (μ = 0) out, per ladder: λ > 1e-6 · max λ of the ladder
-    const double c0 = 1e-6 * l0.maxCoeff(), c2 = 1e-6 * l2.maxCoeff();
+    // the constants (μ = 0) out, per ladder: λ > 1e-6 · max λ of the ladder (the reference rule, on the low part an iterative solve returns). The dense solve holds the
+    // whole ladder, whose top can be very large (an edge whose cotan weight is at its floor): there a null eigenvalue is at the solve's backward error, about n · eps · max λ,
+    // so the rule is λ > 10 · n · eps · max λ
+    const double eps = std::numeric_limits<double>::epsilon();
+    const double c0 = (out.dense ? 10.0 * eps * static_cast<double>(nV) : 1e-6) * l0.maxCoeff(), c2 = (out.dense ? 10.0 * eps * static_cast<double>(nF) : 1e-6) * l2.maxCoeff();
     std::vector<int> i0, i2;
     for (int i = 0; i < l0.size(); ++i) if (l0(i) > c0) i0.push_back(i);
     for (int i = 0; i < l2.size(); ++i) if (l2(i) > c2) i2.push_back(i);
@@ -188,13 +213,13 @@ HodgeLadders hodgeLadders(const Eigen::SparseMatrix<double>& L0, const Eigen::Sp
     double m0 = 0, m2 = 0;
     for (int i : i0) m0 = std::max(m0, l0(i));
     for (int i : i2) m2 = std::max(m2, l2(i));
-    out.top = std::min(m0, m2);                                  // ONE λ for both ladders: the band is complete
+    out.top = out.dense ? std::max(m0, m2) : std::min(m0, m2);   // ONE λ for both ladders: the band is complete (the dense solve: no cut, every mode)
     std::vector<HodgeLadders::Mode> all;
     for (int i : i0) if (l0(i) <= out.top) all.push_back({std::sqrt(l0(i)), 0, i});
     for (int i : i2) if (l2(i) <= out.top) all.push_back({std::sqrt(l2(i)), 2, i});
     double mmax = 0;
     for (const auto& m : all) mmax = std::max(mmax, m.mu);
-    all.erase(std::remove_if(all.begin(), all.end(), [&](const HodgeLadders::Mode& m) { return !(m.mu > 1e-6 * mmax); }), all.end());
+    if (!out.dense) all.erase(std::remove_if(all.begin(), all.end(), [&](const HodgeLadders::Mode& m) { return !(m.mu > 1e-6 * mmax); }), all.end());   // the dense solve's nulls are out above
     std::stable_sort(all.begin(), all.end(), [](const HodgeLadders::Mode& a, const HodgeLadders::Mode& b) { return a.mu < b.mu; });
     for (const auto& m : all) (m.kind == 0 ? out.nExact : out.nCoexact)++;
     out.modes = std::move(all);

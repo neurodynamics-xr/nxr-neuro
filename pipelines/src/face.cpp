@@ -18,6 +18,7 @@
 #include "nxr/io/errors.h"
 #include "nxr/io/finder.h"
 #include "nxr/io/npy.h"
+#include "nxr/io/task/commands.h"
 #include "nxr/io/task/dataset.h"
 #include "nxr/io/task/handle.h"
 #include "nxr/io/task/task.h"
@@ -52,12 +53,10 @@ namespace {
 
 
 // the dataset a run works on, as the command line opens it (cli.h open_dataset): a catalogue's subject package, or a one-database dataset
-DatasetWriter open_for(const fs::path& folder, const std::string& subject, bool lock, const std::vector<std::string>& templates = {}) {
+DatasetWriter open_for(const fs::path& folder, const std::string& subject, bool lock) {
   OpenOptions o;
   o.lock = lock;
-  TemplateSearch search;
-  for (const auto& t : templates) search.command_paths.push_back(t);
-  if (is_catalogue_dataset(folder)) return open_subject_package(folder, subject, o, search);
+  if (is_catalogue_dataset(folder)) return open_subject_package(folder, subject, o);
   return open_writer(folder, o);
 }
 
@@ -147,6 +146,54 @@ Json run(const fs::path& dataset, const std::string& subject, const RunRequest& 
   return Json{{"pipeline", rq.pipeline}, {"subject", subject}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
 }
 
+Json import_subject(const ImportSubjectRequest& rq, const Progress& progress) {
+  const Progress say = progress ? progress : Progress([](const Json&) {});
+  Json result = task::import_subject(task::ImportSubjectRequest{rq.protocol, rq.subject, rq.dataset, rq.resample, stamp()}, say).result;
+  if (!rq.sensor_mesh) { result["sensor_meshes_skipped"] = "--no-sensor-mesh"; return result; }
+  // the channels manifolds the import stored and the sensor types among their channels (read, then the subject closed before the runs open it)
+  std::vector<std::pair<std::string, std::string>> todo;   // (channels manifold, sensor type)
+  {
+    DatasetWriter ds = open_for(rq.dataset, rq.subject, true);
+    SubjectWriter sub = SubjectWriter::open(ds, rq.subject, OpenSubjectOptions{});
+    task::Want points{.cls = task::Cls::manifold};
+    points.type = "points";
+    for (const task::Node& m : task::Subject::of(sub).find_all(points)) {
+      const std::vector<std::string> types = channel_types_of(sub, m.id);
+      if (types.empty()) continue;                                         // coils, head points: not channels
+      const auto has = [&](std::initializer_list<const char*> names) {
+        return std::any_of(types.begin(), types.end(), [&](const std::string& t) { return std::any_of(names.begin(), names.end(), [&](const char* n) { return t == n; }); });
+      };
+      if (has({"MEG", "MEG MAG", "MEG GRAD"})) todo.emplace_back(m.name, "MEG");
+      if (has({"EEG"})) todo.emplace_back(m.name, "EEG");
+    }
+  }
+  Json meshes = Json::array();
+  if (!result.contains("skipped") || !result["skipped"].is_array()) result["skipped"] = Json::array();
+  for (const auto& [channels, sensor_type] : todo) {
+    const std::string what = "sensor mesh " + channels + " " + sensor_type;
+    std::string reason;
+    try {
+      RunRequest run_request;
+      run_request.pipeline = "sensor_mesh";
+      run_request.parameters = Json{{"channels", channels}, {"sensor_type", sensor_type}};
+      const Json r = run(rq.dataset, rq.subject, run_request, say);
+      std::string surface;
+      for (const Json& s : r.value("stored", Json::array())) if (s.value("output", std::string()) == "surface") surface = s.value("name", std::string());
+      meshes.push_back(Json{{"channels", channels}, {"sensor_type", sensor_type}, {"surface", surface}});
+      continue;
+    } catch (const Error& e) {
+      if (e.code() != code::invalid_argument && e.code() != code::not_found) throw;
+      reason = e.what();
+    } catch (const std::invalid_argument& e) {
+      reason = e.what();
+    }
+    result["skipped"].push_back(Json{{"what", what}, {"reason", reason}});
+    say(Json{{"stage", "skipped"}, {"what", what}, {"reason", reason}});
+  }
+  result["sensor_meshes"] = meshes;
+  return result;
+}
+
 Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progress& progress) {
   if (rq.subjects.empty()) refuse("a group run states its subjects (a list of names): there is no default group");
   if (!rq.parameters.is_object()) refuse("the parameters are a set of names and values");
@@ -156,21 +203,26 @@ Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progres
   if (d.scope != "group") refuse(d.name + " is not a group definition (scope " + d.scope + "): `run` takes it on one subject");
   OpenSubjectOptions oo;
   oo.created_by = stamp();
-  // the members are opened to be read, the group's default subject to be written; a catalogue dataset: each member's package, and the group package the caller names (`into`); a one-database dataset: its one writer
+  // the members are opened to be read, the dataset's template to be written (format 56: the template holds the cohort); a catalogue dataset: each member's package and
+  // the template's; a one-database dataset: its one writer
   std::vector<std::unique_ptr<DatasetWriter>> writers;
   std::vector<std::unique_ptr<SubjectWriter>> subjects;
   std::vector<g::GroupMember> members;
   DatasetWriter* group_ds = nullptr;
   std::string group_name;
   if (is_catalogue_dataset(dataset)) {
-    if (rq.into.empty()) refuse("a group run in a catalogue dataset names the group package its results go to (into)");
-    writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, rq.into, true)));
+    group_name = nxr::io::dataset_template(dataset).name;   // none or two: refused
+    writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, group_name, true)));
     group_ds = writers.back().get();
-    group_name = rq.into;
+    const nxr::io::Catalogue cat = nxr::io::Catalogue::open(dataset);
     for (const auto& name : rq.subjects) {
+      const auto e = cat.find(name);
+      if (!e) refuse(name + ": no such subject in the dataset");
+      if (e->kind != "subject") refuse(name + " is a " + e->kind + ", not a subject: a cohort holds subjects only");
       writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, name, false)));
       subjects.push_back(std::make_unique<SubjectWriter>(SubjectWriter::open(*writers.back(), name)));
-      members.push_back(g::GroupMember{name, writers.back().get(), subjects.back().get()});
+      // the member as the run reads it: its package's own content hash (a compute does not register a package again, so the catalogue's may lag)
+      members.push_back(g::GroupMember{name, writers.back().get(), subjects.back().get(), e->subject_id, nxr::io::SubjectPackage::open(cat.package_path(*e)).record().content_hash});
     }
   } else {
     writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, rq.subjects.front(), true)));
@@ -180,7 +232,7 @@ Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progres
     group_name = text(*tpl, "name");
     for (const auto& name : rq.subjects) {
       subjects.push_back(std::make_unique<SubjectWriter>(SubjectWriter::open(*group_ds, name)));
-      members.push_back(g::GroupMember{name, group_ds, subjects.back().get()});
+      members.push_back(g::GroupMember{name, group_ds, subjects.back().get(), subjects.back()->id(), std::string()});
     }
   }
   SubjectWriter group_sub = SubjectWriter::open(*group_ds, group_name, oo);
@@ -201,7 +253,7 @@ Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progres
           stored.push_back(Json{{"output", s.value("output", "")}, {"name", name}, {"id", s.value("id", "")}, {"path", s.value("path", "")}});
         }
   }
-  return Json{{"pipeline", rq.pipeline}, {"subjects", rq.subjects}, {"into", group_name}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
+  return Json{{"pipeline", rq.pipeline}, {"subjects", rq.subjects}, {"template", group_name}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
 }
 
 namespace {
@@ -578,12 +630,12 @@ Window window_of(const ReadRequest& rq, const std::string& node) {
 
 // A TIME-RESOLVED FIELD read through the chunk service (the one door, reading.h): the rows and samples asked, chunk by chunk, into one array in the field's stored precision
 Stored read_series(SubjectWriter& sub, const task::Subject& ts, const task::Node& n, const finder::Value& v, const ReadRequest& rq) {
-  if (rq.reading != "samples" && rq.reading != "shape") refuse("read: reading is samples or shape (got '" + rq.reading + "')");
+  if (rq.reading != "samples" && rq.reading != "shape" && rq.reading != "projection") refuse("read: reading is samples, shape or projection (got '" + rq.reading + "')");
   if (rq.start.has_value() != rq.stop.has_value()) refuse("read: a span of samples gives both start and stop, or neither (the whole field, read chunk by chunk)");
   if (rq.from.has_value() != rq.to.has_value()) throw task::Refused("--from and --to go together: give both");
   const int ranges = (rq.start ? 1 : 0) + (rq.from ? 1 : 0) + (rq.all ? 1 : 0);
   if (ranges > 1) throw task::Refused("give one time range: --from and --to (seconds), or --all");
-  if (ranges == 0 && rq.range_required && rq.reading != "shape")
+  if (ranges == 0 && rq.range_required && rq.reading == "samples")
     throw task::Refused("'" + n.name + "' is a time-resolved field: a time range is required: give --from SECONDS --to SECONDS, or --all for the whole field (read one chunk at a time)");
   if (!rq.region.empty()) throw task::Refused("'" + n.name + "' is a time-resolved field: its part is named by --rows and --from/--to, not --region");
   const Projectors projectors = projectors_from(rq.projectors);
@@ -611,6 +663,14 @@ Stored read_series(SubjectWriter& sub, const task::Subject& ts, const task::Node
   if (n.manifold_id) if (const auto m = ts.by_id(task::Cls::manifold, *n.manifold_id)) out.meta["manifold"] = m->name;
   if (const auto line = ts.by_id(task::Cls::manifold, *v.time)) out.meta["time"] = line->name;
   if (rq.reading == "shape") return out;
+  if (rq.reading == "projection") {   // the matrix every read under these projectors applies, over ALL the recording's channels (a caller composes it with its own operators)
+    if (const auto p = src.projection()) {
+      StoredArray m = doubles("projection", p->matrix);
+      m.shape = {p->n, p->n};
+      out.arrays.push_back(std::move(m));
+    }
+    return out;
+  }
   const bool single = dtype == "float32";
   {   // the budget, before the array is made: the samples asked of the rows asked
     const double bytes = static_cast<double>(rows) * static_cast<double>(width) * (single ? 4.0 : 8.0);
@@ -700,7 +760,7 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
 Stored read(const fs::path& dataset, const std::string& subject, const std::string& name, const ReadRequest& rq) {
   if (!rq.cls.empty() && rq.cls != "field" && rq.cls != "statistic" && rq.cls != "operator" && rq.cls != "selection" && rq.cls != "manifold")
     refuse("read: class '" + rq.cls + "' (field, statistic, operator, selection or manifold)");
-  task::Lease lease = task::open_reader(dataset.string(), subject, rq.templates);
+  task::Lease lease = task::open_reader(dataset.string(), subject);
   DatasetWriter& ds = *lease;
   SubjectWriter sub = SubjectWriter::open(ds, subject);
   const task::Subject ts = task::Subject::of(sub);
@@ -764,6 +824,25 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
       const auto f = ts.by_id_or_name(task::Cls::field, *of_field);
       if (!f) throw Error(code::no_such_row, "no field named '" + *of_field + "' in subject " + subject);
       q["ofFieldId"] = f->id;
+    }
+    {   // AN ARRAY A MEMBER (an array-backed measurement: a value a vertex, an edge, a mode for each member): the array, member first [members x rows], as it was given
+      std::optional<std::string> fid;
+      if (q.contains("ofFieldId")) fid = q["ofFieldId"].get<std::string>();
+      std::optional<MeasurementValues> mv;
+      try { mv = measurement_values(sub, sel->id, fid, std::nullopt, std::nullopt, *measure); } catch (const Error& e) { if (e.code() != code::no_such_row) throw; }
+      if (mv && mv->array_backed) {
+        std::vector<double> by_member(static_cast<std::size_t>(mv->rows * mv->members));
+        for (std::int64_t r = 0; r < mv->rows; ++r)
+          for (std::int64_t m = 0; m < mv->members; ++m) by_member[static_cast<std::size_t>(m * mv->rows + r)] = mv->values[static_cast<std::size_t>(r * mv->members + m)];
+        StoredArray values = doubles("values", by_member);
+        values.shape = {mv->members, mv->rows};
+        std::vector<double> code_v;
+        for (std::int64_t m = 0; m < mv->members; ++m) code_v.push_back(static_cast<double>(m));
+        out.arrays = {doubles("code", code_v), std::move(values)};
+        out.meta = Json{{"class", "measurements"}, {"name", name}, {"selection", sel->id}, {"measure", *measure}, {"array_backed", true}, {"members", mv->members},
+                        {"values_a_member", mv->rows}, {"unit", mv->unit ? Json(*mv->unit) : Json()}};
+        return out;
+      }
     }
     const Json rows = ts.read_measurements(q);
     std::vector<double> code_v, value, weight, members;
@@ -860,6 +939,13 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
     } else if (c == task::Cls::operator_) {         // the manifolds it maps between
       out.meta["from_manifold"] = manifold_name(n->from_manifold_id);
       out.meta["to_manifold"] = manifold_name(n->to_manifold_id);
+      const auto systems = ts.coordinate_systems();
+      for (const char* end : {"from", "to"}) {        // a transition: the two coordinate systems, `SPACE:NAME`; null for a map between manifolds
+        const Json id = n->fact(std::string(end) + "_coordinate_system_id");
+        Json key;
+        if (id.is_string()) for (const auto& [sid, k] : systems) if (sid == id.get<std::string>()) key = k;
+        out.meta[std::string(end) + "_coordinate_system"] = key;
+      }
       out.meta["layout"] = n->fact("layout");
     } else {
       out.meta["type"] = n->type ? Json(*n->type) : Json();
@@ -887,17 +973,17 @@ namespace {
 CommandResult read_class(const std::string& cls, const ReadNodeRequest& r) {
   ReadRequest rq;
   rq.cls = cls;
-  rq.templates = r.templates;
   rq.region = r.region;
   rq.budget = r.budget;
-  const bool series = r.from || r.to || r.all || !r.rows.empty() || r.projectors != "active" || r.shape_only;
+  const bool series = r.from || r.to || r.all || !r.rows.empty() || r.projectors != "active" || r.shape_only || r.projection_only;
   if (cls == "field") {
     rq.from = r.from;
     rq.to = r.to;
     rq.all = r.all;
     rq.rows = r.rows;
     rq.projectors = r.projectors;
-    rq.reading = r.shape_only ? "shape" : "samples";
+    if (r.shape_only && r.projection_only) throw task::Refused("--shape-only and --projection-only are alternatives");
+    rq.reading = r.shape_only ? "shape" : r.projection_only ? "projection" : "samples";
     rq.range_required = true;
   } else if (series) {
     throw task::Refused("a time range, rows, projectors and shape-only are options of `read field`");

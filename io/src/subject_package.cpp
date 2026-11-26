@@ -305,7 +305,7 @@ std::string package_prefix(const Database& db) {
 
 Json PackageRecord::to_json() const {
   return Json{{"subject_id", subject_id}, {"name", name}, {"kind", kind}, {"schema_version", schema_version}, {"store_format", store_format},
-              {"template_reference", template_reference}, {"release", release}, {"description", description}, {"registration", registration}, {"members", members}, {"content_hash", content_hash}, {"hashed_utc", hashed_utc}};
+              {"template_reference", template_reference}, {"release", release}, {"description", description}, {"content_hash", content_hash}, {"hashed_utc", hashed_utc}};
 }
 PackageRecord PackageRecord::from_json(const Json& j) {
   PackageRecord r;
@@ -313,11 +313,9 @@ PackageRecord PackageRecord::from_json(const Json& j) {
   r.subject_id = str("subject_id"); r.name = str("name"); r.kind = str("kind");
   r.schema_version = j.value("schema_version", 0);
   r.store_format = j.value("store_format", 0);
-  r.template_reference = j.contains("template_reference") ? j["template_reference"] : Json(nullptr);
+  r.template_reference = j.contains("template_reference") && j.value("kind", "") == "registration" ? j["template_reference"] : Json(nullptr);   // a subject's (format 55) is dropped
   r.release = j.contains("release") ? j["release"] : Json(nullptr);
   r.description = j.contains("description") ? j["description"] : Json(nullptr);
-  r.registration = j.contains("registration") ? j["registration"] : Json(nullptr);
-  r.members = j.contains("members") ? j["members"] : Json(nullptr);
   r.content_hash = str("content_hash"); r.hashed_utc = str("hashed_utc");
   return r;
 }
@@ -613,7 +611,6 @@ DatasetWriter create_package(const fs::path& folder_in, const std::string& subje
                                                 [&](Database& d) { return make_package_store(folder, d, prefix); }, before_close);
   try {
     SubjectOptions so = opt.subject;
-    so.default_template = false;
     SubjectWriter sub = SubjectWriter::create(w, subject_name, so);
     sub.complete();
     PackageRecord rec;
@@ -622,7 +619,6 @@ DatasetWriter create_package(const fs::path& folder_in, const std::string& subje
     rec.kind = so.kind;
     rec.schema_version = schema_version();
     rec.store_format = kStoreFormatPackage;
-    rec.template_reference = nullptr;
     write_package_record(w.db(), rec);
   } catch (...) {
     // nothing is left behind: the writer is closed without a hook, then the folder (made here) or the database goes

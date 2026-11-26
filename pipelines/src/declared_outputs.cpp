@@ -136,7 +136,12 @@ std::string default_manifold_id(nxr::io::SubjectWriter& sub, const std::string& 
     w.name = name;
     if (const auto m = task::Subject::of(sub.dataset(), text(*tpl, "id")).find(w)) return m->id;
   }
-  throw nxr::io::Error(nxr::io::code::no_such_row, sub.name() + ": the dataset's default subject has no manifold '" + name + "' (the shared line a band set lies on)");
+  {   // format 56: a subject package names no template; the line is the subject's own (a closed-form line, the same in every subject)
+    task::Want w{.cls = task::Cls::manifold};
+    w.name = name;
+    if (const auto m = task::Subject::of(sub.dataset(), sub.id()).find(w)) return m->id;
+  }
+  throw nxr::io::Error(nxr::io::code::no_such_row, sub.name() + ": no manifold '" + name + "' in the dataset's template or in the subject (the shared line a band set lies on)");
 }
 std::string link(const Plan& P, const std::string& ref, const MadeIds* made, const std::string& where) {
   if (ref.find('|') != std::string::npos) return link_first(P, ref, made, where);
@@ -1037,7 +1042,8 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
         task::KernelOut x;
         x.start = k.at("start").get<double>(); x.stop = k.at("stop").get<double>(); x.code = k.at("code").get<std::int64_t>();
         x.family = k.at("family").get<std::string>(); x.chart = k.at("chart").get<std::string>(); x.gain = k.value("gain", 1.0);
-        for (const auto& [pk, pv] : k.value("params", Json::object()).items()) x.params[pk] = pv.get<double>();
+        const Json params = k.value("params", Json::object());   // a local: iterating items() of the temporary k.value(...) read it after it was destroyed (a crash on Linux)
+        for (const auto& [pk, pv] : params.items()) x.params[pk] = pv.get<double>();
         s.kernels.push_back(std::move(x));
       }
       if (s.kernels.empty()) bad(o, "a kernel set needs its node's kernels (describe.kernels)");

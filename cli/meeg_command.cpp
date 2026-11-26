@@ -176,7 +176,6 @@ int crossspectrum_read_main(const std::vector<std::string>& rest) {   // dispatc
   rq.name = a.get("--name");
   rq.reading = a.maybe("--reading").value_or("coherency");
   rq.weights = a.maybe("--weights").value_or("coherence");
-  rq.templates = cli::values_of(a, "--templates");
   rq.created_by = cli::stamp();
   try {
     // the channels, recording channel indices: --pair A,B or --seed A

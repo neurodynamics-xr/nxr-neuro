@@ -1,5 +1,6 @@
 // nxr::signal jwt / ijwt — the bodies of jointfilterbank::analysis, analysisSpectrum, synthesis, synthesisComplex, synthesisSpectrum (moved, not edited): a joint bank only designs.
 #include "nxr/signal/jointwavelet.h"
+#include "nxr/signal/wavelet.h"
 #include "nxr/signal/graphtransforms.h"
 #include <algorithm>
 #include <cmath>

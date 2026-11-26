@@ -3,6 +3,7 @@
 // Each is one call into nxr_compute on arrays; the maths is the library's. A bank arrives as a dict of the library's design fields (bindings/common/access.h turns it
 // into the library's settings), spans as four arrays. Complex results are complex128; real ones are float64, except bandEnvelope, which follows the input's precision.
 #include <nanobind/stl/complex.h>
+#include <nanobind/stl/map.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/pair.h>
 #include <nanobind/stl/string.h>
@@ -12,6 +13,7 @@
 #include <complex>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -19,6 +21,8 @@
 
 #include "access.h"
 #include "arrays.h"
+#include "nxr/selection/selection.h"
+#include "nxr/signal/kernel_gains.h"
 #include "nxr/select/events.h"
 #include "nxr/select/risefall.h"
 
@@ -264,6 +268,27 @@ nb::tuple select_stagesOf(double t_on, double t_off, double tau_rise, double tau
 
 // ---- signal ----
 
+// THE GAINS OF A KERNEL SET (`nxr::signal::kernelGains`, the one evaluator): each member's anchor [start, stop] on the line (a point: start = stop; a band
+// family: [lo, hi]), one family, chart, parameters and peak gain for the set; the gains at the line's points [members x points], computed without storing anything
+nb::object signal_kernelGains(const std::string& family, const std::string& chart, const Array2<double>& anchors, const std::map<std::string, double>& params, double gain,
+                              const Array1<double>& line) {
+  if (anchors.shape(1) != 2) throw std::invalid_argument("kernelGains: anchors are [members x 2] (start, stop)");
+  std::vector<nxr::selection::Selection> listed;
+  for (std::size_t i = 0; i < anchors.shape(0); ++i) {
+    nxr::selection::Selection m = nxr::selection::span({{0, anchors(i, 0), anchors(i, 1)}}, static_cast<std::int64_t>(i));
+    m.profile = nxr::selection::Profile{family, params, chart, gain};
+    listed.push_back(m);
+  }
+  Eigen::VectorXd points(static_cast<Eigen::Index>(line.shape(0)));
+  for (Eigen::Index k = 0; k < points.size(); ++k) points(k) = line(static_cast<std::size_t>(k));
+  nxr::signal::KernelGains g;
+  {
+    nb::gil_scoped_release release;
+    g = nxr::signal::kernelGains(nxr::selection::set(listed), points, nxr::signal::NonPositiveCoordinates::zero);
+  }
+  return hand_over(std::move(g.gains));
+}
+
 nb::object signal_bandAnalytic(const Array2<double>& x, double sfreq, const Array2<double>& bands, const std::string& shape, double half_width) {
   const Eigen::MatrixXd X = real_matrix(x);
   const auto b = band_list(bands);
@@ -398,6 +423,7 @@ void bind_access(nb::module_& m) {
         arg("min_r2").none());
   m.def("select_stagesOf", &select_stagesOf, arg("t_on"), arg("t_off"), arg("tau_rise"), arg("tau_fall"));
   m.def("signal_bandAnalytic", &signal_bandAnalytic, arg("x"), arg("sfreq"), arg("bands"), arg("shape"), arg("half_width"));
+  m.def("signal_kernelGains", &signal_kernelGains, arg("family"), arg("chart"), arg("anchors"), arg("params"), arg("gain"), arg("line"));
   m.def("signal_bandEnvelope", &signal_bandEnvelope<double>, arg("x"), arg("sfreq"), arg("bands"), arg("shape"), arg("half_width"));
   m.def("signal_bandEnvelope", &signal_bandEnvelope<float>, arg("x"), arg("sfreq"), arg("bands"), arg("shape"), arg("half_width"));
   m.def("signal_timeBank", &signal_timeBank, arg("sfreq"), arg("n"), arg("bank"));

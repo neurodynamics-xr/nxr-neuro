@@ -68,7 +68,7 @@ CommandResult compile(const CompileRequest& rq) {
     // TYPES FROM THE STORED RECORDS: the subject opened to be read (no lock; nothing is migrated or written), every run planned as `run --dry-run` plans it
     OpenOptions o;
     o.lock = false;
-    DatasetWriter ds = is_catalogue_dataset(*rq.dataset) ? open_subject_package(*rq.dataset, *rq.subject, o, {}) : open_writer(*rq.dataset, o);
+    DatasetWriter ds = is_catalogue_dataset(*rq.dataset) ? open_subject_package(*rq.dataset, *rq.subject, o) : open_writer(*rq.dataset, o);
     SubjectWriter sub = SubjectWriter::open(ds, *rq.subject);
     const auto runs = refusing([&] { return g::plan_runs(d, sub, set, preset); });
     for (const auto& P : runs) {

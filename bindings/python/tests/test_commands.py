@@ -117,7 +117,7 @@ def test_every_command_has_its_function_with_the_same_options():
 def test_run_takes_the_command_lines_range_and_flags():
     params = inspect.signature(nn.run).parameters
     assert list(params)[:3] == ["pipeline", "dataset", "subject"]
-    for name in ("from_", "to", "all", "replace", "dry_run", "preset", "subjects", "into", "progress"):
+    for name in ("from_", "to", "all", "replace", "dry_run", "preset", "subjects", "progress"):
         assert params[name].kind == params[name].KEYWORD_ONLY, name
     assert ("compute", "") not in command_table()   # `compute` is reserved on the command line; nn.compute is the pure functions over arrays
     assert inspect.ismodule(nn.compute)

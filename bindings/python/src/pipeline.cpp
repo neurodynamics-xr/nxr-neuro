@@ -28,10 +28,10 @@ void bind_pipeline(nb::module_& m) {
   m.def(
       "_run",
       [](const std::string& dataset, const std::string& subject, const std::string& pipeline, const std::string& parameters, std::optional<double> from, std::optional<double> to,
-         bool all, bool replace, bool dry_run, const std::string& preset, const std::vector<std::string>& subjects, const std::string& into, nb::object progress,
+         bool all, bool replace, bool dry_run, const std::string& preset, const std::vector<std::string>& subjects, nb::object progress,
          HandlePtr handle) {
         Json args = Json{{"pipeline", pipeline}, {"dataset", dataset}, {"subject", subject}, {"parameters", Json::parse(parameters)}, {"all", all}, {"replace", replace},
-                         {"dry_run", dry_run}, {"preset", preset}, {"subjects", subjects}, {"into", into}};
+                         {"dry_run", dry_run}, {"preset", preset}, {"subjects", subjects}};
         if (from) args["from"] = *from;
         if (to) args["to"] = *to;
         face::Progress say;
@@ -45,7 +45,7 @@ void bind_pipeline(nb::module_& m) {
         return out;
       },
       nb::arg("dataset"), nb::arg("subject"), nb::arg("pipeline"), nb::arg("parameters"), nb::arg("from").none(), nb::arg("to").none(), nb::arg("all"), nb::arg("replace"),
-      nb::arg("dry_run"), nb::arg("preset"), nb::arg("subjects"), nb::arg("into"), nb::arg("progress").none(), nb::arg("handle").none() = nb::none());
+      nb::arg("dry_run"), nb::arg("preset"), nb::arg("subjects"), nb::arg("progress").none(), nb::arg("handle").none() = nb::none());
   m.def(
       "_synthetic_dataset",
       [](const std::string& datastore, const std::string& name, const std::string& subject, const std::string& recording, int channels, double sfreq, double seconds) {

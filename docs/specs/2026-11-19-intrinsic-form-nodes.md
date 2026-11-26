@@ -35,7 +35,7 @@ x  complex field on a surface, streamed [V (x3) x samples]
 │
 └── signal.phase_split {one_form: phase_gradient | phase_current, modes: the package}                            → potential   scalar vertex field (rad)
       constants (prepare, once): the package's intrinsic complex and its Modes (P, X2, mu, kind)          → stream      scalar vertex field (rad)
-      per block, per column: w = phaseGradient(c, x) [one_form: phase_gradient, default] | phaseCurrent(c, x); s = splitPhase(c, modes, w);                        → propagation vector3 vertex field (rad per length unit)
+      per block, per column: w = phaseGradient(c, x) [one_form: phase_gradient] | phaseCurrent(c, x) [one_form: phase_current] (no default: the definition states it); s = splitPhase(c, modes, w);                        → propagation vector3 vertex field (rad per length unit)
                              vertexEnergy(c, [w, s.exact, s.coexact, w − s.exact])                       → one_form_energy, exact_energy, coexact_energy, exact_misfit_energy
                                                                                                              scalar vertex fields (rad²)
       (optional, later) coefficients: s.coef on a made line with role `modes`                             → coefficients [K x samples]

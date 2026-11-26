@@ -1253,6 +1253,12 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
           const nxr::io::selection::ElementMembers em = nxr::io::selection::read_element_members(sub.db(), sub.store(), text(row, "id"));
           for (const std::int32_t c : em.member_of) a.data.push_back(c);
           a.meta["member_codes"] = em.member_codes;
+          if (const auto dictionary = nxr::io::opt_text(row, "dictionary_id"); dictionary && !dictionary->empty()) {   // each member's label NAME, in member order (a node that chooses by name: a channel's type, its quality)
+            const std::map<std::int64_t, std::string> names = nxr::io::selection::lookup_names(sub.db(), *dictionary);
+            Json member_names = Json::array();
+            for (const std::int64_t code : em.member_codes) { const auto it = names.find(code); member_names.push_back(it == names.end() ? std::string() : it->second); }
+            a.meta["member_names"] = member_names;
+          }
         } else {                                                           // a pick (indices): the element list as stored
           for (const std::int32_t c : bound.array_int32(text(row, "array_path"))) a.data.push_back(c);
         }
@@ -1390,6 +1396,11 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.meta["keep"] = h.basis.keep;
         a.meta["input_positions"] = h.input_positions;
         a.meta["input_surface_id"] = h.input_surface_id;
+        // a component surface (a hemisphere): the surface it is a part of and its first vertex there, so a node can SELECT a kernel's rows of that surface for it
+        if (const auto input = sub.db().read("manifold", h.input_surface_id); input && !nxr::io::is_null(*input, "component_of_id") && !nxr::io::is_null(*input, "from_index")) {
+          a.meta["input_component_of"] = text(*input, "component_of_id");
+          a.meta["input_from_index"] = nxr::io::integer(*input, "from_index");
+        }
         a.meta["name"] = h.stem; a.meta["id"] = h.id; a.meta["axis_id"] = h.axis_id;
         if (n.spec->reads_package_forms) {                                  // the full forms: the 2-form parts (as stored, float32 bytes) and the options of the package's complex
           const nxr::pipelines::HodgePackageForms f = nxr::pipelines::hodge_package_forms(sub, h);
@@ -1547,7 +1558,8 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         if (group->names.count(k) && i < group->names.at(k).size()) one["name"] = group->names.at(k)[i];
         in[k] = one;
       }
-      each.push_back(Json{{"subject", group->subjects[i]}, {"inputs", in}});
+      each.push_back(Json{{"subject", group->subjects[i]}, {"name", group->subjects[i]}, {"subject_id", i < group->subject_ids.size() ? group->subject_ids[i] : std::string()},
+                          {"content_hash", i < group->content_hashes.size() ? group->content_hashes[i] : std::string()}, {"inputs", in}});
     }
     producer["group"] = Json{{"subjects", group->subjects}, {"inputs", members}, {"members", each}};
   }
@@ -1868,7 +1880,7 @@ nxr::graph::Array stack_statistics(const std::vector<GroupMember>& members, cons
 // For each per-subject STATISTIC input, the members' stored statistics as rows (stack_statistics).
 GroupInputs stack_members(const std::vector<GroupMember>& members, const std::vector<Values>& found, const std::vector<std::string>& per, const Json& params, const std::string& pipeline) {
   GroupInputs g;
-  for (const auto& m : members) g.subjects.push_back(m.name);
+  for (const auto& m : members) { g.subjects.push_back(m.name); g.subject_ids.push_back(m.subject_id); g.content_hashes.push_back(m.content_hash); }
   std::string field_input;
   for (const auto& k : per) if (found.front().at(k).cls == "field") { field_input = k; break; }
   bool any_keyed = false, any_selection = false;

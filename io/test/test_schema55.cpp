@@ -26,7 +26,7 @@ int main() {
   const fs::path root = fs::path(tmp ? tmp : fs::temp_directory_path().string()) / ("nxr_test_schema55_" + std::to_string(::getpid()));
   fs::remove_all(root);
   struct Cleanup { fs::path p; ~Cleanup() { fs::remove_all(p); } } cleanup{root};
-  CHECK_EQ(schema_version(), 55);
+  CHECK_EQ(schema_version(), 56);
 
   fs::path file;
   std::string sid, mid;
@@ -44,7 +44,7 @@ int main() {
       mid = sub.manifold(t);
     });
     Database& db = sub.db();
-    CHECK_EQ(integer(*db.one("PRAGMA user_version"), "user_version"), 55);
+    CHECK_EQ(integer(*db.one("PRAGMA user_version"), "user_version"), 56);
     CHECK(inserts(db, sid, mid, mid, "0+1+2", "whole"));          // the whole complex, stacked
     CHECK(inserts(db, sid, mid, mid, "1,0", "product"));          // a product's key, as before
     CHECK(!inserts(db, sid, mid, mid, "0-1", "bad"));             // anything else refused
@@ -59,7 +59,7 @@ int main() {
     Database d = Database::open(file);
     d.with_writable_schema([&] {
       d.execute("UPDATE sqlite_master SET sql = replace(sql, '*[^0-3,*+]*', '*[^0-3,*]*') WHERE type = 'table' AND name = 'operator'");
-      d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'view'", {V("'schema_version', 55"), V("'schema_version', 54")});
+      d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'view'", {V("'schema_version', 56"), V("'schema_version', 54")});
       d.execute("PRAGMA schema_version = " + std::to_string(integer(*d.one("PRAGMA schema_version"), "schema_version") + 1));
     });
     d.execute("DELETE FROM meta WHERE key = 'schema_migrated:54->55'");
@@ -75,13 +75,13 @@ int main() {
   }
   {   // opened to write: migrated in place, the rows kept, the stacked key now accepted
     Database d = Database::open(file);
-    CHECK_EQ(integer(*d.one("PRAGMA user_version"), "user_version"), 55);
+    CHECK_EQ(integer(*d.one("PRAGMA user_version"), "user_version"), 56);
     CHECK(d.one("SELECT 1 FROM meta WHERE key = 'schema_migrated:54->55'").has_value());
     CHECK_EQ(text(*d.one("PRAGMA quick_check"), "quick_check"), std::string("ok"));
     CHECK_EQ(integer(*d.one("SELECT count(*) AS n FROM operator WHERE name = 'product'"), "n"), 1);
     CHECK(inserts(d, sid, mid, mid, "0+1+2", "whole"));
     CHECK(!inserts(d, sid, mid, mid, "0-1", "bad"));
-    CHECK(text(*d.one("SELECT attributes FROM subject_attributes LIMIT 1"), "attributes").find("\"schema_version\":55") != std::string::npos);
+    CHECK(text(*d.one("SELECT attributes FROM subject_attributes LIMIT 1"), "attributes").find("\"schema_version\":56") != std::string::npos);
   }
   {   // a second open changes nothing
     const std::string before = text(*Database::open(file).one("SELECT value FROM meta WHERE key = 'schema_migrated:54->55'"), "value");

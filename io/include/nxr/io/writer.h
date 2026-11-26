@@ -291,11 +291,9 @@ struct DictionarySpec {
 struct DictionaryResult { std::string id; std::vector<std::int64_t> codes; };
 
 struct SubjectOptions {
-  std::string kind = "subject";             // subject · template · group
+  std::string kind = "subject";             // subject · template · registration (a subject names no template: format 56)
   std::optional<std::string> folder;
   std::optional<std::string> source_format, source_path, created_by;
-  bool default_template = true;             // a `subject` points at the dataset's default subject (D127) …
-  std::optional<std::string> template_id;   // … or at this one
   bool immediate = false;                   // the whole procedure per node
 };
 struct OpenSubjectOptions { bool immediate = false; std::optional<std::string> created_by; };

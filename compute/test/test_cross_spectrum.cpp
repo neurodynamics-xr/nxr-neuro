@@ -7,6 +7,7 @@
 #include "nxr/signal/wavelet.h"
 #include <Eigen/Dense>
 #include <cmath>
+#include <map>
 #include <complex>
 #include <iostream>
 #include <random>
@@ -65,22 +66,31 @@ int main() {
     for (int m = 0; m < b.size(); ++m) if (std::abs(b.members[static_cast<std::size_t>(m)].lo - 8.0) < 1e-9 && std::abs(b.members[static_cast<std::size_t>(m)].hi - 12.0) < 1e-9) return m;
     return -1;
   };
-  const auto whole = nxr::signal::wtBlock(meyer, x, fs, 0, static_cast<std::size_t>(n));
-  const int band = bandOf(whole.bank);
+  namespace tb = nxr::signal::timefilterbank;
+  std::map<std::size_t, tb::TimeFilterbank> banks;                 // one bank per block width, designed once (as signal.analytic_bands does)
+  auto bankFor = [&](const tb::Design& design, Eigen::Index width) -> const tb::TimeFilterbank& {
+    const std::size_t grid = tb::gridLength(static_cast<std::size_t>(width), tb::Padding::FastLen);
+    auto it = banks.find(grid);
+    if (it == banks.end()) it = banks.emplace(grid, tb::timeBank(design, grid, fs)).first;
+    return it->second;
+  };
+  const tb::TimeFilterbank& wholeBank = bankFor(meyer, n);
+  const auto whole = nxr::signal::wtBlock(wholeBank, x, 0, static_cast<std::size_t>(n));
+  const int band = bandOf(wholeBank);
   EXPECT(band >= 0 && whole.own[static_cast<std::size_t>(band)].rows() == channels && whole.own[static_cast<std::size_t>(band)].cols() == n, "the Meyer band [8, 12] Hz: one member");
   if (band < 0) return 1;
-  const std::size_t H = nxr::signal::timefilterbank::haloOfTaps(whole.bank, band);
+  const std::size_t H = nxr::signal::timefilterbank::haloOfTaps(wholeBank, band);
   double worst = 0, scale = whole.own[static_cast<std::size_t>(band)].cwiseAbs().maxCoeff();
   for (Eigen::Index first = 0; first < n; first += chunk) {
     const Eigen::Index own = std::min(chunk, n - first), left = std::min<Eigen::Index>(static_cast<Eigen::Index>(H), first), right = std::min<Eigen::Index>(static_cast<Eigen::Index>(H), n - first - own);
     if (left < static_cast<Eigen::Index>(H) || right < static_cast<Eigen::Index>(H)) continue;   // the record's ends: no context there (zero-padded), compared below only inside
-    const auto t = nxr::signal::wtBlock(meyer, x.middleCols(first - left, left + own + right), fs, static_cast<std::size_t>(left), static_cast<std::size_t>(own));
+    const auto t = nxr::signal::wtBlock(bankFor(meyer, left + own + right), x.middleCols(first - left, left + own + right), static_cast<std::size_t>(left), static_cast<std::size_t>(own));
     worst = std::max(worst, (t.own[static_cast<std::size_t>(band)] - whole.own[static_cast<std::size_t>(band)].middleCols(first, own)).cwiseAbs().maxCoeff() / scale);
   }
   EXPECT(worst < 1e-3, "chunks of 4096 with the band's halo, haloOf = " << H << " samples == the whole record transformed at once (worst relative " << worst << ")");
   // the FFT route and the taps route: the same Meyer gain
   {
-    const auto gain = [](double f) { return nxr::signal::graphfilterbank::meyerBand(f, 8.0, 12.0, 1.0 / 3.0); };
+    const auto gain = [](double f) { return nxr::signal::timefilterbank::meyerBand(f, 8.0, 12.0, 1.0 / 3.0); };
     const auto h = nxr::signal::gainTaps(gain, fs, false), g = nxr::signal::gainTaps(gain, fs, true);
     std::vector<float> xf(static_cast<std::size_t>(channels * n));
     for (Eigen::Index c = 0; c < channels; ++c) for (Eigen::Index s = 0; s < n; ++s) xf[static_cast<std::size_t>(c * n + s)] = static_cast<float>(x(c, s));
@@ -98,13 +108,19 @@ int main() {
     for (Eigen::Index s = 0; s < 8000; ++s) tone(0, s) = 1.5 * std::cos(2 * M_PI * 10.0 * s / fs);
     nxr::signal::timefilterbank::Design morlet(nxr::signal::timefilterbank::Family::Morlet, 2.0, nxr::signal::timefilterbank::Sides::Analytic);
     morlet.centres = {10.0};
-    const auto t = nxr::signal::wtBlock(morlet, tone, fs, 2000, 4000);
+    const auto t = nxr::signal::wtBlock(tb::timeBank(morlet, tb::gridLength(8000, tb::Padding::FastLen), fs), tone, 2000, 4000);
     double lo = 1e9, hi = 0;
     for (Eigen::Index s = 0; s < 4000; ++s) { lo = std::min(lo, std::abs(t.own[0](0, s))); hi = std::max(hi, std::abs(t.own[0](0, s))); }
     EXPECT(t.own.size() == 1 && t.own[0].cols() == 4000 && std::abs(lo - 1.5) < 1e-3 && std::abs(hi - 1.5) < 1e-3, "Morlet at 10 Hz: a tone of amplitude 1.5 comes back with |c| in [" << lo << ", " << hi << "]");
   }
-  EXPECT([&] { try { nxr::signal::wtBlock(meyer, x.leftCols(100), fs, 50, 60); } catch (const std::invalid_argument&) { return true; } return false; }(), "own columns outside the block refused");
+  EXPECT([&] { try { nxr::signal::wtBlock(bankFor(meyer, 100), x.leftCols(100), 50, 60); } catch (const std::invalid_argument&) { return true; } return false; }(), "own columns outside the block refused");
 
+  {  // a bank designed for another block width is refused, the message naming both lengths
+    std::string message;
+    try { nxr::signal::wtBlock(wholeBank, x.leftCols(4096), 0, 4096); } catch (const std::invalid_argument& e) { message = e.what(); }
+    const std::string needed = std::to_string(tb::gridLength(4096, tb::Padding::FastLen)), designed = std::to_string(wholeBank.nfft);
+    EXPECT(message.find(needed) != std::string::npos && message.find(designed) != std::string::npos, "a bank on another grid refused, naming both lengths: " << message);
+  }
   std::cout << (failures ? "FAIL" : "PASS") << " test_cross_spectrum (" << failures << " failures)\n";
   return failures ? 1 : 0;
 }

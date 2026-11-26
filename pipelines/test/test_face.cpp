@@ -1,6 +1,8 @@
 // What the Python and MATLAB faces call (nxr/pipelines/face.h), on a small synthetic dataset made in a temp directory: the pipelines listed with their parameters, the
 // refusal of a run without a time range, `run psd` through the face, its stored result read back (a statistic, and the recording as a field), the lists, and, when the command is built,
-// the SAME result as `nxr-neuro run psd` (the same options: a cache hit on the face's own result, and the same bytes under another name).
+// the SAME result as `nxr-neuro run psd` (the same options: a cache hit on the face's own result, and the same bytes under another name). `import subject` through the face on a
+// synthetic Brainstorm protocol (three EEG channels): the import stands, its EEG sensor mesh is refused (fewer than four channels) and listed in `skipped`; with
+// sensor_mesh false nothing is run and the result says so.
 #include <map>
 #include <unistd.h>
 
@@ -10,7 +12,9 @@
 #include <functional>
 #include <iostream>
 
+#include "bst_protocol.h"
 #include "check.h"
+#include "nxr/io/task/commands.h"
 #include "nxr/io/errors.h"
 #include "nxr/pipelines/face.h"
 
@@ -158,6 +162,35 @@ int main() {
     CHECK(c.arrays.size() == 1 && c.arrays[0].bytes == s.arrays[0].bytes);
   }
 #endif
+  // import subject: the import, then the sensor meshes; a refused mesh is reported, never silent, and the import stands
+  {
+    const fs::path protocol = bst_protocol::protocol(root / "protocol");
+    auto import_into = [&](const std::string& name, bool sensor_mesh) {
+      nxr::io::task::CreateDatasetRequest create;
+      create.datastore = (root / "imports").string();
+      create.name = name;
+      create.created_by = "test";
+      nxr::io::task::create_dataset(create);
+      face::ImportSubjectRequest request;
+      request.protocol = protocol.string();
+      request.subject = "S01";
+      request.dataset = (root / "imports" / name).string();
+      request.sensor_mesh = sensor_mesh;
+      return face::import_subject(request);
+    };
+    const face::Json meshed = import_into("with_mesh", true);
+    CHECK(meshed.contains("sensor_meshes") && meshed["sensor_meshes"].empty());
+    bool reported = false;
+    for (const face::Json& skipped : meshed.value("skipped", face::Json::array()))
+      if (skipped.value("what", std::string()).find("sensor mesh") != std::string::npos && skipped.value("what", std::string()).find("EEG") != std::string::npos) {
+        std::printf("  import subject, EEG sensor mesh: %s\n", skipped.value("reason", std::string()).substr(0, 140).c_str());
+        reported = skipped.value("reason", std::string()).find("fewer than the four") != std::string::npos;
+      }
+    CHECK(reported);
+    const face::Json unmeshed = import_into("without_mesh", false);
+    CHECK(unmeshed.value("sensor_meshes_skipped", std::string()) == "--no-sensor-mesh");
+    CHECK(!unmeshed.contains("sensor_meshes"));
+  }
   fs::remove_all(root);
   return nxrtest::finish("test_face");
 }

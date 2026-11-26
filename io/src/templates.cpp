@@ -300,32 +300,6 @@ std::string template_manifold_id(const ResolvedTemplate& t, const std::string& m
   return text(*r, "id");
 }
 
-void register_to_template(DatasetWriter& w, const ResolvedTemplate& t, const std::vector<std::pair<std::string, std::string>>& roots) {
-  if (!w.is_package()) throw refuse("register_to_template: the writer is not over a subject package");
-  PackageRecord rec = read_package_record(w.db());
-  if (rec.kind != "subject") throw refuse("only a subject is registered to a template, not a package of kind '" + rec.kind + "'");
-  if (!t.record.release.is_object() || t.record.kind != "template") throw refuse("a subject is registered to a released template");
-  std::vector<std::pair<std::string, std::string>> all = {{"subject", t.record.subject_id}};
-  all.insert(all.end(), roots.begin(), roots.end());
-  add_anchor_rows(w.db(), t.folder, all);
-  w.db().execute("UPDATE subject SET template_id = ? WHERE id = ?", {t.record.subject_id, rec.subject_id});
-  TemplateRef ref;
-  ref.name = t.record.release.value("name", ""); ref.version = t.record.release.value("version", ""); ref.edition = t.record.release.value("edition", "full");
-  ref.content_hash = t.record.content_hash;
-  Json j = ref.to_json();
-  j["subject_id"] = t.record.subject_id;
-  rec.template_reference = j;
-  write_package_record(w.db(), rec);
-  drain(w.db(), w.node_store());
-}
-
-void record_registration(DatasetWriter& w, const TemplateRef& registration) {
-  PackageRecord rec = read_package_record(w.db());
-  if (rec.kind != "subject") throw refuse("only a subject records the registration it uses");
-  rec.registration = registration.to_json();
-  write_package_record(w.db(), rec);
-}
-
 // ══ a registration between two templates ═══════════════════════════════════════════════════════════════════════
 
 fs::path create_registration_package(const fs::path& path, const RegistrationSpec& spec, const std::function<void(SubjectWriter&, const RegistrationIds&)>& write_operators) {
@@ -335,7 +309,6 @@ fs::path create_registration_package(const fs::path& path, const RegistrationSpe
   const std::string from_id = template_manifold_id(from, spec.from_manifold), to_id = template_manifold_id(to, spec.to_manifold);
   CreatePackageOptions po = spec.package;
   po.subject.kind = "registration";
-  po.subject.default_template = false;
   DatasetWriter w = create_package(path, spec.name, po);
   try {
     add_anchor_rows(w.db(), from.folder, {{"subject", from.record.subject_id}, {"manifold", from_id}});

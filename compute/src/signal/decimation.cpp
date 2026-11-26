@@ -51,4 +51,14 @@ Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> decimated(const Eigen::Matrix<T
 Eigen::MatrixXd decimate(const Eigen::MatrixXd& x, int q, Eigen::Index left, Eigen::Index width, Eigen::Index offset, int order) { return decimated<double>(x, q, left, width, offset, order); }
 Eigen::MatrixXf decimate(const Eigen::MatrixXf& x, int q, Eigen::Index left, Eigen::Index width, Eigen::Index offset, int order) { return decimated<float>(x, q, left, width, offset, order); }
 
+
+Eigen::MatrixXcd downsample(const Eigen::MatrixXcd& Z, int d, int offset) {
+  if (d < 1) throw std::invalid_argument("downsample: the factor d is at least 1");
+  if (offset < 0 || offset >= d) throw std::invalid_argument("downsample: the offset is in [0, d)");
+  const Eigen::Index T = Z.cols(), n = T > offset ? (T - offset + d - 1) / d : 0;
+  Eigen::MatrixXcd out(Z.rows(), n);
+  for (Eigen::Index j = 0; j < n; ++j) out.col(j) = Z.col(offset + j * d);
+  return out;
+}
+
 }  // namespace nxr::signal

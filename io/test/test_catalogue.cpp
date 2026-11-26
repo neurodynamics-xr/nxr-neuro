@@ -26,8 +26,10 @@ std::string what_of(const std::function<void()>& f) {
 bool has(const std::string& s, const std::string& part) { return s.find(part) != std::string::npos; }
 
 // A package of one surface and one field, made for the dataset (so its home is the dataset).
-fs::path make_package(const Catalogue& cat, const fs::path& at, const std::string& name) {
-  DatasetWriter w = create_package(at, name, cat.package_options());
+fs::path make_package(const Catalogue& cat, const fs::path& at, const std::string& name, const std::string& kind = "subject") {
+  CreatePackageOptions po = cat.package_options();
+  po.subject.kind = kind;
+  DatasetWriter w = create_package(at, name, po);
   SubjectWriter sub = SubjectWriter::open(w, name);
   const std::vector<double> v(12, 1.0);
   const std::vector<std::int32_t> f = {0, 1, 2, 0, 2, 3};
@@ -298,25 +300,48 @@ int main() {
     CHECK(Database::open(ds / kIndexFile, false, "", true).one("SELECT 1 FROM field WHERE name = 'extra'").has_value());
   }
 
-  // a group package names its members and their hashes; a member changed later is seen
+  // THE TEMPLATE HOLDS THE COHORT (format 56): a group analysis writes into the dataset's one template; the members are read only and unchanged
   {
-    const auto members = select_subjects(ds, SubjectSelection{{"S1", "S3"}, std::nullopt});
-    const fs::path g = create_group_package(ds, "controls", members, reg);
-    CHECK(fs::exists(g / kPackageDatabaseFile));
-    const auto e = *Catalogue::open(ds).find("controls");
-    CHECK_EQ(e.kind, std::string("group"));
-    CHECK_EQ(e.status, std::string("registered"));
-    CHECK_EQ(SubjectPackage::open(g).record().members.size(), std::size_t(2));
-    for (const auto& s : group_member_status(ds, "controls")) CHECK(s.current);
-    CHECK(has(what_of([&] { create_group_package(ds, "controls", members, reg); }), "already holds"));
-    CHECK(has(what_of([&] { select_subjects(ds, SubjectSelection{{"controls"}, std::nullopt}); }), "is a group"));
-    CHECK(select_subjects(ds, SubjectSelection{{}, std::string("age >= 0")}).members.size() >= 1);    // a group is never a member of a cohort
+    CHECK(has(what_of([&] { GroupAnalysis::open(ds, {"S1", "S3"}, "test"); }), "no template subject"));
+    make_package(Catalogue::open(ds), ds / "T.nxr.zarr", "T", "template");
+    CHECK_EQ(register_packages(ds, {ds / "T.nxr.zarr"}, reg)[0].outcome, std::string("registered"));
+    CHECK_EQ(dataset_template(ds).name, std::string("T"));
+    const std::string h1 = Catalogue::open(ds).find("S1")->content_hash, h3 = Catalogue::open(ds).find("S3")->content_hash;
+    const std::string t_before = Catalogue::open(ds).find("T")->content_hash;
+    Json provenance;
+    {
+      GroupAnalysis a = GroupAnalysis::open(ds, {"S1", "S3"}, "test");
+      CHECK_EQ(a.template_name(), std::string("T"));
+      provenance = a.selected().provenance();
+      SubjectWriter t = SubjectWriter::open(a.template_writer(), "T");
+      const std::string mid = text(*a.template_writer().db().one("SELECT id FROM manifold WHERE name = 'cortex'"), "id");
+      const std::vector<float> v(4, 3.0f);
+      FieldSpec f; f.name = "cohort map"; f.path = "source/cohort_map"; f.kind = "map"; f.manifold_id = mid; f.data = view(v, {4});
+      t.field(f);
+      t.complete();
+      CHECK(a.finish() == "updated");
+    }
+    CHECK(SubjectPackage::open(ds / "T.nxr.zarr").db().one("SELECT 1 FROM field WHERE name = 'cohort map'").has_value());
+    CHECK(Catalogue::open(ds).find("T")->content_hash != t_before);
+    CHECK_EQ(Catalogue::open(ds).find("S1")->content_hash, h1);          // the members are untouched
+    CHECK_EQ(Catalogue::open(ds).find("S3")->content_hash, h3);
+    CHECK(!SubjectPackage::open(ds / "S1.nxr.zarr").db().one("SELECT 1 FROM anchor_row").has_value());   // a subject carries nothing of the template
+    for (const auto& e : Catalogue::open(ds).entries()) CHECK(e.kind == "subject" || e.kind == "template");
+    for (const auto& st : cohort_member_status(ds, provenance)) CHECK(st.current);
+    CHECK(has(what_of([&] { select_subjects(ds, SubjectSelection{{"T"}, std::nullopt}); }), "is a template"));   // a template is never a member of a cohort
+    // a member changed after the result: flagged, the result kept
     touch(ds / "S1.nxr.zarr", "S1");
     CHECK_EQ(register_packages(ds, {ds / "S1.nxr.zarr"}, reg)[0].outcome, std::string("updated"));
     int stale = 0;
-    for (const auto& s : group_member_status(ds, "controls")) if (!s.current) { ++stale; CHECK_EQ(s.name, std::string("S1")); }
+    for (const auto& st : cohort_member_status(ds, provenance)) if (!st.current) { ++stale; CHECK_EQ(st.name, std::string("S1")); }
     CHECK_EQ(stale, 1);
-    // the index folds the group in too
+    CHECK(SubjectPackage::open(ds / "T.nxr.zarr").db().one("SELECT 1 FROM field WHERE name = 'cohort map'").has_value());
+    // a second template is refused, naming both
+    make_package(Catalogue::open(ds), ds / "T2.nxr.zarr", "T2", "template");
+    CHECK_EQ(register_packages(ds, {ds / "T2.nxr.zarr"}, reg)[0].outcome, std::string("registered"));
+    const std::string two = what_of([&] { GroupAnalysis::open(ds, {"S1"}, "test"); });
+    CHECK(has(two, "T") && has(two, "T2") && has(two, "ONE template"));
+    // the index folds the template's cohort rows in too
     CHECK(build_index(ds).rebuilt);
   }
 

@@ -77,7 +77,6 @@ void make_old(const fs::path& datastore, const std::string& name) {
   DatasetWriter ds = create_dataset(datastore, name);
   SubjectOptions topt;
   topt.kind = "template";
-  topt.default_template = false;
   SubjectWriter t = SubjectWriter::create(ds, "@default_subject", topt);
   const std::string tm = add_surface(t, "cortex");
   add_field(t, "template_map", tm, 5000);
@@ -158,108 +157,45 @@ int main() {
   const auto template_arrays_before = arrays_of(ds / "@default_subject.nxr.zarr");
   auto has_under = [](const std::map<std::string, std::string>& m, const std::string& prefix) { for (const auto& [k, v] : m) if (k.rfind(prefix, 0) == 0) return true; return false; };
   CHECK(has_under(template_arrays_before, "source/cortex_tiles_L1/maps/mean/big/") && has_under(template_arrays_before, "source/cortex_tiles_L1/time/task__method__free/big/"));
-  fs::copy(ds, root / "crash", fs::copy_options::recursive);
 
-  // the plan names the move
+  // the plan moves nothing: a template keeps its group results (format 56: the template holds the cohort)
   {
     SplitOptions dry = so;
     dry.dry_run = true;
     const Json plan = split_dataset(ds, dry);
-    CHECK_EQ(plan["group_results_move"].size(), std::size_t(1));
-    CHECK(plan["group_results_move"][0]["to"] == "group" && plan["group_results_move"][0]["fields"] == 2);
+    CHECK(!plan.contains("group_results_move"));
   }
 
   // SPLIT
   const Json rep = split_dataset(ds, so);
-  CHECK_EQ(rep["group_results"].size(), std::size_t(1));
-  const Json& gr = rep["group_results"][0];
-  CHECK(gr["from"] == "@default_subject" && gr["to"] == "group");
-  CHECK(gr["field"]["rows"] == 2 && gr["field_contribution"]["rows"] == 4 && gr["selection_measurement"]["rows"] == 4);
+  CHECK(!rep.contains("group_results") && !rep.contains("template_references"));
   const Catalogue cat = Catalogue::open(ds);
-  CHECK_EQ(cat.find("group")->kind, std::string("group"));
-  CHECK_EQ(cat.entries().size(), std::size_t(4));                              // the template, S1, S2 and the group package
-  // the group package: whole, the group fields its own (owner changed), contributions and measurements, members named, template referenced, no foreign key open
-  {
-    const SubjectPackage g = SubjectPackage::open(ds / "group.nxr.zarr");
-    CHECK(g.verify().ok);
-    CHECK_EQ(g.record().kind, std::string("group"));
-    CHECK(g.record().template_reference["name"] == "demo-default");
-    CHECK_EQ(g.record().members.size(), std::size_t(2));
-    CHECK(g.db().all("PRAGMA foreign_key_check").empty());
-    CHECK(!list_all_keys(g.store(), "source/cortex_tiles_L1/maps/mean/s1").empty() && !list_all_keys(g.store(), "source/cortex_tiles_L1/time/task__method__free/w").empty());   // the small keys
-    const std::string gid = g.record().subject_id;
-    CHECK_EQ(integer(*g.db().one("SELECT count(*) AS n FROM field WHERE subject_id = ?", {gid}), "n"), 2);
-    CHECK_EQ(integer(*g.db().one("SELECT count(*) AS n FROM field WHERE subject_id <> ?", {gid}), "n"), 2);   // the members' source fields, held as anchors
-    CHECK_EQ(integer(*g.db().one("SELECT count(*) AS n FROM field_contribution"), "n"), 4);
-    CHECK_EQ(integer(*g.db().one("SELECT count(*) AS n FROM selection_measurement"), "n"), 4);
-    CHECK(g.db().one("SELECT 1 FROM anchor_row WHERE table_name = 'selection'").has_value());   // the default subject's partition
-    CHECK(g.db().one("SELECT 1 FROM anchor_row WHERE table_name = 'field'").has_value());       // the members' fields
-  }
-  // the template package: whole, without the group's rows and keys
+  CHECK_EQ(cat.entries().size(), std::size_t(3));                              // the template, S1 and S2: no group package
+  for (const auto& e : cat.entries()) CHECK(e.kind == "subject" || e.kind == "template");
+  // the template package: whole, its group fields its own, the members' source fields held as anchors (the template refers to its subjects)
   {
     const SubjectPackage t = SubjectPackage::open(ds / "@default_subject.nxr.zarr");
     CHECK(t.verify().ok);
-    CHECK_EQ(integer(*t.db().one("SELECT count(*) AS n FROM field WHERE subject_id = (SELECT id FROM subject WHERE kind = 'template')"), "n"), 1);   // template_map
-    CHECK_EQ(integer(*t.db().one("SELECT count(*) AS n FROM field_contribution"), "n"), 0);
-    for (const auto& k : list_all_keys(t.store())) CHECK(k.find("/maps/") == std::string::npos && k.find("/time/") == std::string::npos);
+    CHECK(t.db().all("PRAGMA foreign_key_check").empty());
+    const std::string tid = t.record().subject_id;
+    CHECK_EQ(integer(*t.db().one("SELECT count(*) AS n FROM field_contribution"), "n"), 4);
+    CHECK_EQ(integer(*t.db().one("SELECT count(*) AS n FROM selection_measurement"), "n"), 4);
+    CHECK(t.db().one("SELECT 1 FROM anchor_row WHERE table_name = 'field'").has_value());       // the members' fields
+    CHECK(arrays_of(ds / "@default_subject.nxr.zarr") == template_arrays_before);              // its arrays where they were, untouched
   }
-  // the arrays: in the group package, byte for byte what they were; the originals kept aside, not deleted; nothing left in the template's folder
-  {
-    const auto in_group = arrays_of(ds / "group.nxr.zarr");
-    const auto aside = arrays_of(ds / "_moved-aside" / "@default_subject.nxr.zarr");
-    CHECK(!aside.empty());
-    for (const auto& [k, h] : template_arrays_before) {
-      if (k.find("/maps/") == std::string::npos && k.find("/time/") == std::string::npos) continue;
-      CHECK(in_group.count(k) && in_group.at(k) == h);
-      CHECK(aside.count(k) && aside.at(k) == h);
-      CHECK(!fs::exists(ds / "@default_subject.nxr.zarr" / k));
-    }
+  // the subjects: no template link at all
+  for (const char* n : {"S1", "S2"}) {
+    const SubjectPackage p = SubjectPackage::open(ds / (std::string(n) + ".nxr.zarr"));
+    CHECK(p.verify().ok);
+    CHECK(p.record().template_reference.is_null());
+    CHECK(is_null(p.subject_row(), "template_id"));
+    CHECK(!p.db().one("SELECT 1 FROM anchor_row").has_value());
   }
-  // every row exactly once, in the owner the mapping assigns: the index from the packages is the original (with the owner changed back), checked by split itself, and again here
+  // JOIN: one database again, every subject in it
   {
-    Database idx = Database::open(ds / kIndexFile, false, "", true);
-    idx.execute("ATTACH DATABASE ? AS orig", {(ds / "dataset.sqlite.format52").string()});
-    CHECK_EQ(integer(*idx.one("SELECT count(*) AS n FROM main.subject"), "n"), integer(*idx.one("SELECT count(*) AS n FROM orig.subject"), "n") + 1);   // the group subject
-    CHECK_EQ(integer(*idx.one("SELECT count(*) AS n FROM main.field"), "n"), integer(*idx.one("SELECT count(*) AS n FROM orig.field"), "n"));
-    CHECK_EQ(integer(*idx.one("SELECT count(*) AS n FROM (SELECT id FROM main.field GROUP BY id HAVING count(*) > 1)"), "n"), 0);
-    CHECK_EQ(integer(*idx.one("SELECT count(*) AS n FROM main.field f JOIN orig.field o ON o.id = f.id WHERE o.subject_id <> f.subject_id"), "n"), 2);   // exactly the two moved
-    CHECK_EQ(integer(*idx.one("SELECT count(*) AS n FROM main.field_contribution"), "n"), integer(*idx.one("SELECT count(*) AS n FROM orig.field_contribution"), "n"));
-    CHECK_EQ(integer(*idx.one("SELECT count(*) AS n FROM main.selection_measurement"), "n"), integer(*idx.one("SELECT count(*) AS n FROM orig.selection_measurement"), "n"));
-  }
-
-  // A CRASH after the arrays were copied (and before the template's package): the same command again gives the same group package
-  {
-    const fs::path d = root / "crash";
-    SplitOptions stop = so;
-    stop.on_stage = [&](const std::string& st, const std::string&) { if (st == "group-arrays") throw Error(code::cancelled, "stopped at " + st); };
-    CHECK_EQ(what_of([&] { split_dataset(d, stop); }), std::string("stopped at group-arrays"));
-    CHECK(fs::exists(d / kDatasetFile));
-    const Json done = split_dataset(d, so);
-    CHECK_EQ(done["group_results"].size(), std::size_t(1));
-    const SubjectPackage g = SubjectPackage::open(d / "group.nxr.zarr");
-    CHECK(g.verify().ok);
-    CHECK(arrays_of(d / "group.nxr.zarr") == arrays_of(ds / "group.nxr.zarr"));
-    CHECK_EQ(g.record().members.size(), std::size_t(2));
-    std::string why;
-    CHECK(same_rows(d / kIndexFile, d / "dataset.sqlite.format52", why) || true);   // (the owner of the moved fields differs by design: split checked it with the mapping)
-  }
-
-  // JOIN: the original database, the group results back in the default subject, its folder as it was
-  {
-    const Json j = join_dataset(ds);
+    join_dataset(ds);
     CHECK(fs::exists(ds / kDatasetFile));
-    std::string why;
-    CHECK(same_rows(ds / kDatasetFile, root / "original.sqlite", why) || (std::printf("  %s\n", why.c_str()), false));
-    CHECK(same_rows(root / "original.sqlite", ds / kDatasetFile, why) || (std::printf("  %s\n", why.c_str()), false));
-    CHECK(arrays_of(ds / "@default_subject.nxr.zarr") == template_arrays_before);
-    CHECK(!fs::exists(ds / "group.nxr.zarr"));                                   // the group package is kept, renamed
-    bool kept = false;
-    for (const auto& e : fs::directory_iterator(ds)) if (e.path().filename().string().rfind("group.nxr.zarr.format53", 0) == 0) kept = true;
-    CHECK(kept);
-    DatasetWriter w = open_writer(ds);
-    CHECK_EQ(text_parity(w.db(), w.store()).mismatched, 0);
-    CHECK(j["subjects"].size() == 4);
+    CHECK_EQ(integer(*Database::open(ds / kDatasetFile, false, "", true).one("SELECT count(*) AS n FROM subject"), "n"), 3);
   }
-  fs::remove_all(root);
   return nxrtest::finish("split_groups");
 }

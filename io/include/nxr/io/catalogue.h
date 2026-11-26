@@ -1,16 +1,19 @@
 // nxr-io — the DATASET MODULE: a dataset is a light CATALOGUE of subject packages (docs/specs/2026-11-16-subject-centred-datasets.md sections 3, 5 and 6).
 //
 //   <dataset>/                    any path; addressed by its own path (there is no datastore and no catalog.json)
-//     catalogue.sqlite            the dataset: its subjects (by id, path, versions, content hash) and its template references
+//     catalogue.sqlite            the dataset: its members (by id, path, versions, content hash): subjects and the dataset's ONE template
 //     participants.sqlite         the participants table (participants.h): its own file, so it can be withheld; optional
 //     index.sqlite                a CACHE of every member's rows, built from the packages (dataset_index.h); deletable
 //     .writer.lock                held only while the dataset module's files are written, for seconds
-//     <group>.nxr.zarr/           group packages
 //     <subject>.nxr.zarr/         subject packages (subject_package.h)
 //
 // THE DEPENDENCY GOES ONE WAY: this module reads subject packages; a subject package never reads it. The catalogue holds the model's own `dataset` and `subject`
-// rows (a copy of each member's own row, refreshed at registration) and two tables of its own, `subject_entry` and `template_reference`; it holds no manifold,
-// field, selection or operator row and no participant variable.
+// rows (a copy of each member's own row, refreshed at registration) and one table of its own, `subject_entry`; it holds no manifold, field, selection or
+// operator row and no participant variable.
+//
+// THE TEMPLATE HOLDS THE COHORT (format 56): a subject names no template and carries nothing of it. The dataset's own template subject (`dataset_template`) holds each
+// subject's registration onto it, each subject's results carried onto it, and the averages and statistics over them; it refers to its subjects (their rows as
+// anchor rows, their arrays read from their own packages). A subject step that needs the template's definitions reads it read-only (`open_dataset_template`).
 //
 // REGISTERING replaces staging and merge: no array is read or moved; the package's record and rows are checked and one short transaction is written.
 //   the same subject id and content hash   -> `unchanged` (a rerun is a no-op)
@@ -70,8 +73,6 @@ class Catalogue {
   std::optional<CatalogueEntry> find(const std::string& name_or_id) const;
   // Where a member's package is.
   std::filesystem::path package_path(const CatalogueEntry& entry) const;
-  // The templates the dataset's subjects are registered to: {name, edition, version, subject_id, content_hash, location_hint}.
-  std::vector<Json> template_references() const;
   bool has_participants() const;
   // What to give `create_package` so a package made for this dataset carries this dataset as its home (its name, id and hint row).
   CreatePackageOptions package_options() const;
@@ -92,9 +93,6 @@ Catalogue create_catalogue_from(const std::filesystem::path& folder, const Row& 
 struct RegisterOptions {
   bool replace = false;                               // another subject id under a name the catalogue holds replaces it (the old package is moved aside)
   std::string registered_by;                          // the program or person recorded with each entry: required
-  // Where to find the released templates the packages name. When given, a package that names a template must find it there, by name, edition, version and hash, and every
-  // anchor row it carries must be the template's own, value for value (refused otherwise). When absent that check is not made.
-  std::optional<TemplateSearch> templates;
 };
 struct RegisterResult {
   std::filesystem::path package;
@@ -112,10 +110,19 @@ std::vector<std::filesystem::path> scan_packages(const std::filesystem::path& fo
 std::vector<CatalogueEntry> refresh_member_status(const std::filesystem::path& folder);
 
 // OPEN ONE SUBJECT of a catalogue dataset for computing: the subject's package, found through the catalogue (read only), opened as `open_package_writer` does (its own
-// writer lock; `opt.lock` false for a read), so every pipeline written for a dataset runs on it unchanged. The template the package is registered to (and the
-// registration it uses) is found through the catalogue's own members first (a dataset-local template), then the template search path, and only when one of its arrays
-// is read. Refused, by name: a dataset that is not a catalogue (`not_found`), an unknown subject, a member that is not `registered` or whose package is missing.
-DatasetWriter open_subject_package(const std::filesystem::path& dataset_folder, const std::string& subject, const OpenOptions& opt = {}, const TemplateSearch& templates = {});
+// writer lock; `opt.lock` false for a read), so every pipeline written for a dataset runs on it unchanged. A subject is self-contained: nothing is routed to a template.
+// The template itself is opened this way too (it is a member); a group analysis opens it as its writer. Refused, by name: a dataset that is not a catalogue
+// (`not_found`), an unknown subject, a member that is not `registered` or whose package is missing.
+DatasetWriter open_subject_package(const std::filesystem::path& dataset_folder, const std::string& subject, const OpenOptions& opt = {});
+// THE DATASET'S TEMPLATE: the one registered member of kind `template`. None: `not_found` ("<dataset>: no template subject"); more than one: `invalid_argument`, naming
+// them (a dataset has ONE template, its own copy).
+CatalogueEntry dataset_template(const std::filesystem::path& dataset_folder);
+// The dataset's template, read only (no lock): for a subject step that needs the template's definitions (its tiling, its sphere). What the step stores is the
+// subject's own; its provenance names the template (`producer.template = {name, subject_id}`).
+SubjectPackage open_dataset_template(const std::filesystem::path& dataset_folder);
+// The template of the dataset a member's package lies in (the package's folder is inside its dataset's), opened as `open_subject_package` does (`opt.lock` false
+// for a read). Refused when `member` is not a package or its folder is not inside a catalogue dataset.
+DatasetWriter open_template_of(const DatasetWriter& member, const OpenOptions& opt = {});
 // Whether the folder is a catalogue dataset (holds `catalogue.sqlite`); a one-database dataset holds `dataset.sqlite`.
 bool is_catalogue_dataset(const std::filesystem::path& dataset_folder);
 
@@ -136,28 +143,27 @@ struct SelectedSubjects {
 // a member that is not a subject (a template or a group is never a member of a cohort).
 SelectedSubjects select_subjects(const std::filesystem::path& folder, const SubjectSelection& selection);
 
-// A GROUP ANALYSIS (spec section 5): the members of a cohort read each from its own package, the result written into a GROUP PACKAGE of the dataset, one per analysis the
-// caller names. `open` selects the cohort through the catalogue (`select_subjects`: the same refusals, and members registered to different template versions are never
-// pooled), makes the group package (or opens the one of that name, a group, to replace its results), holds the writer lock of that one package only, and carries the
-// default subject's rows the results are on (its manifolds, selections and canonical frames) as ANCHOR rows, as a subject carries its template's. Each member's package
-// opens read-only (no lock), its template routed as `open_subject_package` does. `anchor_contributions` carries the members' rows a result's contributions name.
-// `finish` closes the group package (its record and content hash) and registers it again.
+// A GROUP ANALYSIS (format 56: the template holds the cohort): the members of a cohort read each from its own package (read only, no lock), the result written into
+// THE DATASET'S TEMPLATE (its writer lock: one cohort writer at a time). `open` selects the cohort through the catalogue (`select_subjects`: the same refusals) and
+// opens the dataset's template (`dataset_template`: none or two refused). `anchor_contributions` carries the members' rows a result's contributions name into the
+// template as anchor rows (the template refers to its subjects; a subject never refers to the template). `finish` closes the template (its record and content hash)
+// and registers it again. A result's provenance records the members and their content hashes (`producer.group`); `cohort_member_status` reads them back.
 class GroupAnalysis {
  public:
-  static GroupAnalysis open(const std::filesystem::path& dataset_folder, const std::string& group_name, const std::vector<std::string>& subjects, const TemplateSearch& templates,
-                            const std::string& registered_by);
+  static GroupAnalysis open(const std::filesystem::path& dataset_folder, const std::vector<std::string>& subjects, const std::string& registered_by);
   GroupAnalysis(GroupAnalysis&&) noexcept;
   GroupAnalysis& operator=(GroupAnalysis&&) noexcept;
   ~GroupAnalysis();
   // A member's package, read only; the first call opens it.
   DatasetWriter& member(const std::string& name);
-  DatasetWriter& group();
-  // The name of the default subject the members are registered to, as their rows give it.
+  // The dataset's template, open to write: where the cohort's results go.
+  DatasetWriter& template_writer();
+  // The template's name.
   const std::string& template_name() const;
   const SelectedSubjects& selected() const;
-  // (subject id, field id) pairs: each member's subject row and the source fields' rows, with what they name, carried into the group package. Run outside a transaction.
+  // (subject id, field id) pairs: each member's subject row and the source fields' rows, with what they name, carried into the template. Run outside a transaction.
   void anchor_contributions(const std::vector<std::pair<std::string, std::string>>& subject_and_field);
-  // Close the group package and register it (its content hash changed); returns the registration outcome.
+  // Close the template and register it again (its content hash changed); returns the registration outcome.
   std::string finish();
 
  private:
@@ -166,17 +172,12 @@ class GroupAnalysis {
   std::unique_ptr<Impl> impl_;
 };
 
-// The released or dataset-local template `ref` names: the catalogue's own member of that subject id and content hash first, then the template search path.
-ResolvedTemplate resolve_dataset_template(const std::filesystem::path& dataset_folder, const TemplateRef& ref, const TemplateSearch& search);
-
-
-// A GROUP PACKAGE: the package of a group analysis, of kind `group`, registered in the catalogue like any member. Its record names the subjects it was computed from
-// with each one's content hash, so a member changed later is seen. One package per analysis the caller names; a name already used is refused.
-std::filesystem::path create_group_package(const std::filesystem::path& folder, const std::string& group_name, const SelectedSubjects& members, const RegisterOptions& opt);
+// Each member a cohort result was made from, against the catalogue now: `producer_group` is the result's `producer.group` ({members: [{subject_id, name,
+// content_hash}], ...}). `current` false when the member is gone, replaced, or its package has changed since (re-run, re-imported): the result is FLAGGED, never deleted.
 struct GroupMemberStatus {
   std::string subject_id, name, recorded_hash, current_hash;   // current_hash empty when the member is gone from the catalogue
-  bool current = false;                                        // the member is as the group saw it
+  bool current = false;                                        // the member is as the result saw it
 };
-std::vector<GroupMemberStatus> group_member_status(const std::filesystem::path& folder, const std::string& group_name);
+std::vector<GroupMemberStatus> cohort_member_status(const std::filesystem::path& dataset_folder, const Json& producer_group);
 
 }  // namespace nxr::io

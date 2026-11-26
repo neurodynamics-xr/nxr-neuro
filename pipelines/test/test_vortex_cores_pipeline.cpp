@@ -33,7 +33,7 @@
 #include "store_at.h"
 #include "nxr/bst/entities.h"
 #include "nxr/select/cores.h"
-#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/forms.h"
 #include "nxr/stats/histogram.h"
 #include "nxr/io.h"
@@ -220,7 +220,7 @@ int main() {
   SpatialBandOptions sbo; sbo.transform = "exact"; sbo.spatial_shape = "mexhat"; sbo.glued = true;
   const SpatialBand sband = make_spatial_band(ds, sub, S, SL, sbo);
   const std::int64_t Vg = sband.glued_vertices;
-  const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 12.0); };
+  const auto gain = [&](double f) { return nxr::signal::timefilterbank::morletBand(f, 8.0, 12.0); };
   const auto h = nxr::signal::gainTaps(gain, sfreq, false);
   const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false);
   Eigen::MatrixXd Re(M, T);                                                      // the band-passed real signal (taps), for the power check below

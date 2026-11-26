@@ -1,0 +1,41 @@
+# DOES THE FLOW MOVE AT THE SAME SPEED AND IN THE SAME DIRECTION ACROSS FREQUENCIES? (spec docs/specs/2026-11-24-bispectrum.md, "The flow across frequencies"): a readout of the sensor
+# flow pipeline's own per-atom results, a statistic over the members of the atoms' level. It reads stored results, never the recording.
+#
+# THE GRAPH. before: the flow's stored per-atom sums (sensor_flow's <name>_flow_edges, <name>_flow_modes, <name>_flow_vertices: signal.spectral_flow's whole field) + the Hodge-Dirac
+# package + the atoms they were read with --[signal.flow_across_frequencies]--> per pair of atoms the cosines of their flows (edges in the Hodge inner product, travel coefficients,
+# rotation coefficients); per vertex the direction consistency across atoms (resultant length of the unit vertex phase currents) and the slope of log apparent speed against log
+# frequency (0: the same speed; 1: the same wavelength).
+# An event's flow is compared by the same node from the atoms' time cells within the event (graph in the spec; not wired here).
+#
+# What it cannot resolve: the apparent speed is an upper bound; a whole-run flow keeps the net quadrature only; one run gives descriptions, not a test (events or runs are the replicates).
+#
+#   nxr-neuro run sensor_flow_across_frequencies --dataset D --subject S --flow NAME --package hodgeDirac__SURFACE --atoms ATOMS
+pipeline: sensor_flow_across_frequencies
+version: 1
+description: whether the sensor flow moves at the same speed and direction across frequencies - the cosines of the atoms' flows, direction consistency and the slope of speed against frequency
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}, read: shape, hint: "the recording the sensor flow read (its measurements are of it)"}
+  edges:    {measurement: phase_current, of: recording, where: {name: $atoms}, hint: "the sensor flow's phase current per edge and atom (`nxr-neuro run sensor_flow` first)"}
+  modes:    {measurement: flow_coefficient, of: recording, where: {name: $atoms}, hint: "the sensor flow's Hodge-Dirac coefficients per atom"}
+  power:    {measurement: power, of: recording, where: {name: $atoms}, hint: "the sensor flow's power per vertex and atom"}
+  current_x: {measurement: vertex_phase_current_x, of: recording, where: {name: $atoms}}
+  current_y: {measurement: vertex_phase_current_y, of: recording, where: {name: $atoms}}
+  current_z: {measurement: vertex_phase_current_z, of: recording, where: {name: $atoms}}
+  package:  {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, hint: "the sensor surface's Hodge-Dirac solve the flow is on"}
+  atoms:    {selection: any, where: {name: $atoms}, hint: "the frequency atoms the flow was read with"}
+
+parameters:
+  recording: {default: none, meaning: "the recording the sensor flow read, or none: every recording of the subject, one run each", unit: "-"}
+  package: {default: null, meaning: "the Hodge-Dirac solve's stem", unit: "-"}
+  atoms: {default: null, meaning: "the frequency atoms' kernel set by name", unit: "-"}
+  name: {default: "{recording}_{package}_across_frequencies", meaning: "the stem of the stored statistics: <name>_atom_pairs, <name>_dispersion", unit: "-"}
+
+steps:
+  before:
+    - {node: signal.flow_across_frequencies, in: {edges: edges, modes: modes, power: power, current_x: current_x, current_y: current_y, current_z: current_z, package: package, frequency: atoms}, out: [atom_pairs, dispersion]}
+
+outputs:
+  atom_pairs: {kind: statistic, name: "{name}_atom_pairs", of: recording}
+  dispersion: {kind: statistic, name: "{name}_dispersion", of: recording}

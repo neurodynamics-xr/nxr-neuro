@@ -17,6 +17,7 @@
 #include "nxr/io/finder.h"
 #include "nxr/io/layout.h"
 #include "nxr/io/statistic.h"
+#include "nxr/io/subject_reads.h"
 #include "nxr/io/task/dataset.h"
 #include "nxr/io/writer.h"
 
@@ -261,9 +262,14 @@ Json describe_selection(const Ctx& c, const Row& s) {
 
 // ---- operators ----
 Json describe_operator(const Ctx& c, const Row& o) {
-  auto end = [&](const char* manifold, const char* selection) { return Json{{"manifold", c.ref("manifold", o, manifold)}, {"selection", c.ref("selection", o, selection)}}; };
+  // a TRANSITION operator's two ends are coordinate systems (`SPACE:NAME`); a manifold map's `coordinate_system` is null
+  auto end = [&](const char* manifold, const char* selection, const char* system) {
+    return Json{{"manifold", c.ref("manifold", o, manifold)}, {"selection", c.ref("selection", o, selection)},
+                {"coordinate_system", is_null(o, system) ? Json() : Json(coordinate_system_key(c.db, text(o, system)))}};
+  };
   return Json{{"id", Jt(o, "id")}, {"name", Jt(o, "name")}, {"kind", Jt(o, "kind")}, {"type", c.typed("operator", o)}, {"label", Jt(o, "label")}, {"acquisition", acquisition_of(c, o)},
-              {"description", Jt(o, "description")}, {"from", end("from_manifold_id", "from_selection_id")}, {"to", end("to_manifold_id", "to_selection_id")},
+              {"description", Jt(o, "description")}, {"from", end("from_manifold_id", "from_selection_id", "from_coordinate_system_id")},
+              {"to", end("to_manifold_id", "to_selection_id", "to_coordinate_system_id")},
               // how its values are read (D93): dense (one array), csr / csc (data, indices, indptr), or analytic (no values: evaluated from its method and parameters)
               {"layout", Jt(o, "layout")},
               {"method", Jt(o, "method")}, {"parameters", Jj(o, "params_json")}, {"shape", Json{{"rows", Jt(o, "n_rows")}, {"columns", Jt(o, "n_cols")}, {"nonzeros", Jt(o, "nnz")}}},
@@ -424,16 +430,16 @@ std::vector<Row> select_rows(const Ctx& c, const ClassDef& d, const Filter& f, s
 }
 
 // ---- the subjects of a database ----
-struct SubjectRef { std::string id, name, kind; std::optional<std::string> template_id; };
+struct SubjectRef { std::string id, name, kind; };
 std::optional<SubjectRef> find_subject_ref(const Database& db, const std::string& key) {
-  const auto r = db.one("SELECT id, name, kind, template_id FROM subject WHERE (name = ? OR id = ?) AND status = 'complete' ORDER BY (name = ?) DESC LIMIT 1", {V(key), V(key), V(key)});
+  const auto r = db.one("SELECT id, name, kind FROM subject WHERE (name = ? OR id = ?) AND status = 'complete' ORDER BY (name = ?) DESC LIMIT 1", {V(key), V(key), V(key)});
   if (!r) return std::nullopt;
-  return SubjectRef{text(*r, "id"), text(*r, "name"), text(*r, "kind"), opt_text(*r, "template_id")};
+  return SubjectRef{text(*r, "id"), text(*r, "name"), text(*r, "kind")};
 }
 std::vector<SubjectRef> all_subject_refs(const Database& db) {
   std::vector<SubjectRef> out;
-  for (const Row& r : db.all("SELECT id, name, kind, template_id FROM subject WHERE status = 'complete' ORDER BY name, id"))
-    out.push_back(SubjectRef{text(r, "id"), text(r, "name"), text(r, "kind"), opt_text(r, "template_id")});
+  for (const Row& r : db.all("SELECT id, name, kind FROM subject WHERE status = 'complete' ORDER BY name, id"))
+    out.push_back(SubjectRef{text(r, "id"), text(r, "name"), text(r, "kind")});
   return out;
 }
 
@@ -480,7 +486,7 @@ CommandResult read_subject(const ReadSubjectRequest& rq, const Progress& progres
     for (const auto& k : kSubjectClasses) if (std::find(classes.begin(), classes.end(), k) != classes.end()) ordered.push_back(k);
     classes = ordered;
   }
-  Lease lease = open_reader(rq.dataset, rq.subject, rq.templates, progress);
+  Lease lease = open_reader(rq.dataset, rq.subject, progress);
   const Database& db = (*lease).db();
   const auto subject = find_subject_ref(db, rq.subject);
   if (!subject) throw Error(code::no_such_row, "dataset " + rq.dataset + " holds no subject named '" + rq.subject + "'");
@@ -490,10 +496,7 @@ CommandResult read_subject(const ReadSubjectRequest& rq, const Progress& progres
   try { keys.emplace(SubjectWriter::open(*lease, subject->name)); } catch (const std::exception&) {}
   auto describe = [&](const SubjectRef& s) {
     const Ctx c(db, s.id, s.name, &rq.typer, keys && s.id == subject->id ? &keys->store() : nullptr);
-    Json out = Json{{"schema", kSubjectSchema}, {"subject", Json{{"id", s.id}, {"name", s.name}, {"kind", s.kind}, {"template", Json()}}}};
-    if (s.template_id) {
-      if (const auto t = db.one("SELECT name FROM subject WHERE id = ?", {V(*s.template_id)})) out["subject"]["template"] = text(*t, "name");
-    }
+    Json out = Json{{"schema", kSubjectSchema}, {"subject", Json{{"id", s.id}, {"name", s.name}, {"kind", s.kind}}}};   // format 56: a subject names no template
     for (const std::string& k : classes) {
       const ClassDef& d = def_of(k);
       Json rows = Json::array();
@@ -506,22 +509,21 @@ CommandResult read_subject(const ReadSubjectRequest& rq, const Progress& progres
   CommandResult r;
   r.result = describe(*subject);
   if (rq.related) {
-    // the subjects this one refers to: the template its anatomy is taken from, and the owners of the manifolds its operators map from and to and its fields lie on (a registration's source and target)
+    // the subjects this one refers to: the owners of the manifolds its operators map from and to and its fields lie on (a registration's source and target)
     std::vector<std::pair<std::string, std::string>> found;   // (subject id, relation)
     auto add = [&](const std::string& id, const std::string& relation) {
       if (id == subject->id) return;
       for (const auto& f : found) if (f.first == id && f.second == relation) return;
       found.push_back({id, relation});
     };
-    if (subject->template_id) add(*subject->template_id, "template");
     for (const Row& x : db.all("SELECT DISTINCT m.subject_id AS sid FROM operator o JOIN manifold m ON m.id = o.from_manifold_id WHERE o.subject_id = ? AND m.subject_id <> ?", {V(subject->id), V(subject->id)})) add(text(x, "sid"), "source");
     for (const Row& x : db.all("SELECT DISTINCT m.subject_id AS sid FROM operator o JOIN manifold m ON m.id = o.to_manifold_id WHERE o.subject_id = ? AND m.subject_id <> ?", {V(subject->id), V(subject->id)})) add(text(x, "sid"), "target");
     for (const Row& x : db.all("SELECT DISTINCT m.subject_id AS sid FROM field f JOIN manifold m ON m.id = f.manifold_id WHERE f.subject_id = ? AND m.subject_id <> ?", {V(subject->id), V(subject->id)})) add(text(x, "sid"), "domain");
     Json related = Json::array();
     for (const auto& [id, relation] : found) {
-      const auto row = db.one("SELECT id, name, kind, template_id FROM subject WHERE id = ?", {V(id)});
+      const auto row = db.one("SELECT id, name, kind FROM subject WHERE id = ?", {V(id)});
       if (!row) continue;
-      const SubjectRef s{text(*row, "id"), text(*row, "name"), text(*row, "kind"), opt_text(*row, "template_id")};
+      const SubjectRef s{text(*row, "id"), text(*row, "name"), text(*row, "kind")};
       // what the database holds of that subject: the whole description in a one-database dataset; a package holds only the anchor rows of its template
       related.push_back(Json{{"subject", s.name}, {"kind", s.kind}, {"relation", relation}, {"description", describe(s)}});
     }
@@ -541,7 +543,7 @@ CommandResult list_class(const ListClassRequest& rq, const Progress& progress) {
     throw Refused("list " + noun + ": --on names the manifold the nodes lie on (manifolds, fields, selections, operators, statistics)");
   const bool catalogue = is_catalogue_dataset(rq.dataset);
   if (catalogue && !rq.subject) throw Refused("list " + noun + ": a catalogue of subject packages is listed one subject at a time: name it with --subject", true);
-  Lease lease = open_reader(rq.dataset, rq.subject, rq.templates, progress);
+  Lease lease = open_reader(rq.dataset, rq.subject, progress);
   const Database& db = (*lease).db();
   std::vector<SubjectRef> subjects;
   bool dataset_wide_jobs = false;
@@ -662,7 +664,7 @@ Json class_counts(const std::string& dataset, const Progress& progress, Json* un
       }
     }
   } else {
-    Lease lease = open_reader(dataset, std::nullopt, {}, progress);
+    Lease lease = open_reader(dataset, std::nullopt, progress);
     const Database& db = (*lease).db();
     for (const SubjectRef& s : all_subject_refs(db)) add(db, s);
     if (has_table(db, "job")) total["jobs"] += static_cast<std::int64_t>(db.all("SELECT 1 FROM job WHERE subject_id IS NULL").size());

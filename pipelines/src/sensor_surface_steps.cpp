@@ -2,6 +2,7 @@
 // the channels. Pure functions of arrays from compute/ with their ports and parameters; they read no file, subject or database (the channels and the pick are bound
 // by the runner), and have no time axis, so they run once, before any chunk loop (kind `setup`).
 //
+//   meeg.good_channels_of_type  type, quality -> pick                        the good channels of one sensor type, MEG or EEG (nxr::meeg::goodChannelsOfType), ascending
 //   meeg.channel_positions      channels, pick -> positions, channel_index   each picked channel as one point (nxr::meeg::channelPositions: Brainstorm's rule), in the pick's order
 //   geometry.point_set_mesh     points -> faces                              the triangles of a point set on a cap, every point a vertex (nxr::geometry::pointset::pointSetMesh)
 //   geometry.surface_from_parts vertices, faces -> surface                   the two arrays as a surface to store (the inverse of geometry.surface_parts)
@@ -219,6 +220,53 @@ void add_sensor_surface_steps(std::vector<StepSpec>& r) {
       CI.rows = SI.rows = V.rows;
       Arrays o;
       o["vertices"] = std::move(V); o["faces"] = std::move(F); o["channel_index"] = std::move(CI); o["shape_index"] = std::move(SI);
+      return o;
+    };
+    r.push_back(std::move(s));
+  }
+
+  // ── meeg.good_channels_of_type ──
+  {
+    StepSpec s = setup_step("meeg.good_channels_of_type", {"type", "quality"}, {"pick"}, Json{{"sensor_type", "required"}},
+                            "The good channels of one sensor type, the channels a sensor surface is made of: type and quality (labellings of the channels: a member per channel, each "
+                            "member's name, e.g. MEG GRAD and good) -> pick [m] (an indices selection of the channels, ascending). sensor_type (required, no default) is MEG (MEG, MEG MAG, "
+                            "MEG GRAD; never MEG REF) or EEG; the two are never mixed. Refused: fewer than four channels chosen, a quality other than good or bad.",
+                            "no time axis: runs once on the channels' labellings", true);
+    s.matches = "nxr::meeg::goodChannelsOfType";
+    s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
+      need(ins.count("type") != 0, "good_channels_of_type: the input `type` (the channels' type labelling) is missing");
+      need(ins.count("quality") != 0, "good_channels_of_type: the input `quality` (the channels' good/bad labelling) is missing");
+      const std::string type = p.value("sensor_type", std::string("required"));
+      need(type == "MEG" || type == "EEG", "good_channels_of_type: sensor_type is MEG or EEG (required, no default), not '" + type + "'");
+      Values out;
+      out["pick"] = array_value("meeg.good_channels_of_type", "pick");
+      return out;
+    };
+    s.run = [](const std::any& st, const Arrays& ins, ExecContext&) {
+      const Json& p = std::any_cast<const Json&>(st);
+      auto names_per_channel = [](const Array& labelling, const std::string& what) {
+        const Json names = labelling.meta.value("member_names", Json::array());
+        need(names.is_array() && !names.empty(), "good_channels_of_type: the " + what + " labelling " + labelling.meta.value("name", std::string()) + " carries no member names");
+        std::vector<std::string> per_channel;
+        for (const double member : labelling.data) {
+          const auto k = static_cast<std::int64_t>(std::llround(member));
+          per_channel.push_back(k >= 0 && k < static_cast<std::int64_t>(names.size()) ? names[static_cast<std::size_t>(k)].get<std::string>() : std::string());
+        }
+        return per_channel;
+      };
+      const Array& types = ins.at("type");
+      const Array& quality = ins.at("quality");
+      const std::string sensor_type = p.value("sensor_type", std::string("required"));
+      std::vector<std::int32_t> chosen;
+      try {
+        chosen = nxr::meeg::goodChannelsOfType(names_per_channel(types, "type"), names_per_channel(quality, "quality"), sensor_type);
+      } catch (const std::invalid_argument& e) { refuse(std::string("good_channels_of_type: ") + e.what()); }
+      Array pick;
+      pick.rows = static_cast<std::int64_t>(chosen.size()); pick.cols = 1;
+      for (const auto c : chosen) pick.data.push_back(c);
+      pick.meta = Json{{"good_channels_of_type", Json{{"sensor_type", sensor_type}, {"type", types.meta.value("name", std::string())}, {"quality", quality.meta.value("name", std::string())}}}};
+      Arrays o;
+      o["pick"] = std::move(pick);
       return o;
     };
     r.push_back(std::move(s));

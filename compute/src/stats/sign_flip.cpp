@@ -82,6 +82,14 @@ std::uint64_t NumpyGenerator::nextRaw() {
   return (x >> rot) | (x << ((64u - rot) & 63u));
 }
 
+std::uint32_t NumpyGenerator::nextUint32() {
+  if (hasUint32_) { hasUint32_ = false; return uinteger_; }
+  const std::uint64_t next = nextRaw();
+  hasUint32_ = true;
+  uinteger_ = static_cast<std::uint32_t>(next >> 32);
+  return static_cast<std::uint32_t>(next & 0xffffffffu);
+}
+
 double NumpyGenerator::random() { return static_cast<double>(nextRaw() >> 11) * (1.0 / 9007199254740992.0); }
 
 SignFlipConsistency signFlipConsistency(const Eigen::MatrixXd& values, int components, std::int64_t patterns, NumpyGenerator& generator, std::int64_t cellsPerFlip) {
