@@ -1,7 +1,7 @@
 // Named-operator eigensolve: the single source of truth for
 // "operator → generalized eigenproblem (K, M, σ)", plus the Dirac ℍ-multiplet
 // reconstruction and the small-mesh dense verification path.
-// Design: docs/superpowers/specs/2026-06-15-operator-eigensolve-design.md.
+// Design: docs/archive/compute/superpowers/specs/2026-06-15-operator-eigensolve-design.md.
 
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/mesh.h"

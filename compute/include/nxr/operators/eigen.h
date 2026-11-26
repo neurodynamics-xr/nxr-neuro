@@ -140,7 +140,7 @@ EigenResult removeDC(const EigenResult& result, int* nRemoved = nullptr, double 
 // posed against); that pairing is library knowledge, not something every
 // consumer should re-derive. `eigenProblemFor` centralizes it; `eigenOperator`
 // assembles + eigensolves (+ optional ℍ-multiplet reconstruction / dense path).
-// Design: docs/superpowers/specs/2026-06-15-operator-eigensolve-design.md.
+// Design: docs/archive/compute/superpowers/specs/2026-06-15-operator-eigensolve-design.md.
 
 enum class EigenOperator {
     LaplacianCotan,   // (cotanL, mass)
