@@ -941,6 +941,13 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     }
     if (d.contains("band")) m.band = d["band"];                             // ONE band: the band's own, or the member of a band set (`within`)
     if (d.contains("attributes") && d["attributes"].is_object()) m.attributes = d["attributes"];   // the array describes its own axes
+    // what the node records of how it made the values (a flow's time cells: the grid and the span it measured, issue #291), in each row's producer record, as every other declared
+    // output keeps it; never over the run's own keys
+    if (d.contains("producer") && d["producer"].is_object()) {
+      m.producer = Json::object();
+      for (const auto& [pk, pv] : d["producer"].items())
+        if (!unit.by().producer.is_object() || !unit.by().producer.contains(pk)) m.producer[pk] = pv;
+    }
     if (typed_axes_of(P, o)) {                                              // a typed node's axes: the links to what each one is (the statistic table's axes_json form)
       if (!m.attributes.is_object()) m.attributes = Json::object();
       m.attributes["axes"] = axis_records(unit, P, made, o, "domain", vshape, d.value("axes", Json()));

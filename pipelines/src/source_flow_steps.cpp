@@ -483,7 +483,7 @@ ng::NodeSpec cortical_time_cells() {
     for (Eigen::Index r = 0; r < R; ++r)
       for (Eigen::Index a = 0; a < A; ++a) {
         readers::TileSums t = readers::tile_sums(s, pr.frequency.row(a), g, pr.readouts[static_cast<std::size_t>(r)], 3, cx.edges, &sharpWeights);
-        Eigen::MatrixXd x(V, g.count), y(V, g.count), z(V, g.count);
+        Eigen::MatrixXd x(V, g.tiles), y(V, g.tiles), z(V, g.tiles);
         for (Eigen::Index v = 0; v < V; ++v) { x.row(v) = t.vertexCurrent.row(3 * v); y.row(v) = t.vertexCurrent.row(3 * v + 1); z.row(v) = t.vertexCurrent.row(3 * v + 2); }
         const int k = own[static_cast<std::size_t>(a)];
         const Json group = Json{{"atom", a}, {"band", r - 1}, {"own_level", k}, {"own_samples", std::int64_t(1) << k}, {"own_seconds", static_cast<double>(std::int64_t(1) << k) / s.sfreq}};
