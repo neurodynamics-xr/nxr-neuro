@@ -56,7 +56,8 @@ int main() {
 
   // THE MERGE RULE IS DATA: the registry's table
   CHECK(measure_merge("sum") == MergeRule::sum && measure_merge("max") == MergeRule::max && measure_merge("min") == MergeRule::min && measure_merge("mean") == MergeRule::mean);
-  CHECK(measure_merge("median") == MergeRule::none && measure_merge("variance") == MergeRule::derived && measure_merge("envelope_max") == MergeRule::max && measure_merge("a_name_of_a_subject") == MergeRule::sum);
+  CHECK(measure_merge("median") == MergeRule::none && measure_merge("variance") == MergeRule::derived && measure_merge("envelope_max") == MergeRule::max);
+  CHECK_EQ(code_of([] { measure_merge("a_name_of_a_subject"); }), std::string(code::unsupported));   // neither declared nor registered: no rule, never a guessed sum
   const Json table = measure_merge_table();
   CHECK(table.at("sum") == "sum" && table.at("mean_square") == "mean" && table.at("median") == "none" && table.at("sd") == "derived");
   for (const auto& m : measure_registry()["measures"]) CHECK(m.contains("merge") && m["merge"].is_string());

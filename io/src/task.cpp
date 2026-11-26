@@ -427,11 +427,13 @@ bool Subject::has_measures(const std::string& selection_id, const std::string& o
   return selection::has_measurement(*impl_->db, selection_id, f);
 }
 
-bool Subject::has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id, const std::optional<std::string>& of_statistic_id) const {
+bool Subject::has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id, const std::optional<std::string>& of_statistic_id,
+                          const std::optional<std::string>& rows_manifold_id) const {
   selection::MeasurementFilter f;
   f.measure = measure;
   f.of_field_id = of_field_id;
   f.of_statistic_id = of_statistic_id;
+  f.rows_manifold_id = rows_manifold_id;
   return selection::has_measurement(*impl_->db, selection_id, f);
 }
 
@@ -490,6 +492,9 @@ NodeCounts Subject::node_counts() const {
   return NodeCounts{count("manifold"), count("field"), count("operator"), count("selection")};
 }
 
+Json Subject::measurement_provenance(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure) const {
+  return ::nxr::io::measurement_provenance(*impl_->db, selection_id, of_field_id, measure);
+}
 Json Subject::read_measurements(const Json& q) const {
   if (impl_->writer) return query_measurements(*impl_->db, impl_->writer->store(), q);
   if (q.contains("spaceLevel") || q.contains("timeLevel") || q.contains("band") || q.contains("spatialBand"))
@@ -549,8 +554,17 @@ std::int64_t Unit::write_measurements(const Json& rows) {
   if (named.is_array()) for (auto& r : named) if (r.is_object() && (!r.contains("computed_by") || r["computed_by"].is_null())) r["computed_by"] = by_.tool;
   return selection::save_measurements(*impl_->db, named, std::nullopt);
 }
-std::int64_t Unit::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure, const std::optional<std::string>& of_statistic_id) {
+std::int64_t Unit::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure, const std::optional<std::string>& of_statistic_id,
+                                       const std::optional<std::string>& rows_manifold_id) {
   if (!open_) throw Error(code::not_writable, "unit: closed");
+  if (rows_manifold_id) {
+    if (!has_column(*impl_->db, "selection_measurement", "rows_manifold_id")) return 0;
+    Json where{{"selectionId", selection_id}, {"rowsManifoldId", *rows_manifold_id}};
+    if (of_field_id) where["ofFieldId"] = *of_field_id;
+    if (of_statistic_id) where["ofStatisticId"] = *of_statistic_id;
+    if (measure) where["measure"] = *measure;
+    return delete_measurements(*impl_->db, where);
+  }
   return selection::remove_measurements(*impl_->db, selection_id, of_field_id, measure, of_statistic_id);
 }
 void Unit::set_params(const std::string& selection_id, const Json& params) {
@@ -784,9 +798,31 @@ std::string Unit::operator_(const OperatorOut& o) {
   return impl_->writer->operator_(std::move(op));
 }
 
+Json Unit::declare_measure(const Json& declaration) {
+  need_open(open_);
+  return ::nxr::io::declare_measure(*impl_->db, measure_declaration_of(declaration), by_.tool);
+}
+Json Unit::producer(const std::string& output, const Json& own) const { return producer_of(by_, output, own); }
+
 std::int64_t Unit::measurements(const MeasurementOut& m) {
   need_open(open_);
   SubjectWriter& sub = *impl_->writer;
+  for (const auto& x : m.measures)
+    if (x.declaration.is_object()) {
+      Json d = x.declaration;
+      d["name"] = x.measure;
+      if (!d.contains("unit") && !x.unit.empty()) d["unit"] = x.unit;
+      declare_measure(d);
+    }
+  const Json row_producer = producer_of(by_, m.output, m.producer);
+  ensure_measurement_producer(*impl_->db);
+  std::string rows_part;                            // the manifold the rows lie on: a folder of the arrays' path, so two manifolds' arrays of one measure stay apart (issue #264)
+  if (m.rows_manifold_id) {
+    ensure_measurement_rows_manifold(*impl_->db);
+    const auto r = impl_->db->one("SELECT name FROM manifold WHERE id = ?", {Value(*m.rows_manifold_id)});
+    if (!r) throw Error(code::no_such_row, "measurement: the manifold its rows lie on (" + *m.rows_manifold_id + ") is not in the subject");
+    rows_part = "/" + safe_name(text(*r, "name"));
+  }
   std::optional<Json> band;
   if (m.band.is_object()) band = nxr::bst::band_ref(*impl_->db, m.band.value("name", std::string()), m.band.value("lo_hz", 0.0), m.band.value("hi_hz", 0.0));
   std::int64_t n = 0;
@@ -796,7 +832,7 @@ std::int64_t Unit::measurements(const MeasurementOut& m) {
   if (m.components.is_array() && !m.components.empty()) attrs["components"] = m.components;
   if (m.level) attrs["level"] = *m.level;
   for (const auto& x : m.measures) {
-    const std::string path = m.path + "/" + x.measure;
+    const std::string path = m.path + rows_part + "/" + x.measure;
     ArrayView v = view_of(x.values, "measurement " + x.measure);
     // a measurement array is [rows x members x components] (the reader's layout, spec 6.1): a node's [members] or [rows x members] values are one component of it
     if (v.shape.size() == 1) v.shape = {1, v.shape[0], 1};
@@ -808,6 +844,8 @@ std::int64_t Unit::measurements(const MeasurementOut& m) {
     }
     Cols c;
     c.set("measure", x.measure).set("array_path", path).set("component", std::int64_t(0)).set("unit", x.unit).set("computed_by", by_.tool);
+    if (row_producer.is_object() && !row_producer.empty()) c.json("producer_json", row_producer);
+    if (m.rows_manifold_id) c.set("rows_manifold_id", *m.rows_manifold_id);
     if (!m.of_field_id.empty()) c.set("of_field_id", m.of_field_id);        // none: the members' own (a size)
     if (m.of_statistic_id) { c.set("of_statistic_id", *m.of_statistic_id); c.set("of_index", m.of_index.value_or(0)); }
     if (m.within_selection_id) { c.set("within_selection_id", *m.within_selection_id); if (m.within_code) c.set("within_code", *m.within_code); }

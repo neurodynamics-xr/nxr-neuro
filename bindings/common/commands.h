@@ -98,6 +98,21 @@ class CommandOptions {
     else out.push_back(text(k, j_[k]));
     return out;
   }
+  /** a JSON option: the command line's text, or (Python, MATLAB, JavaScript) an object or a list given as it is, made its text */
+  std::optional<std::string> json_text(const std::string& k) {
+    used_.insert(k);
+    if (!has(k)) return std::nullopt;
+    return j_[k].is_string() ? j_[k].get<std::string>() : j_[k].dump();
+  }
+  /** a repeatable JSON option: each text, or each object of a list (one object alone is one) */
+  std::vector<std::string> json_texts(const std::string& k) {
+    used_.insert(k);
+    std::vector<std::string> out;
+    if (!has(k)) return out;
+    if (j_[k].is_array()) { for (const auto& v : j_[k]) out.push_back(v.is_string() ? v.get<std::string>() : v.dump()); }
+    else out.push_back(j_[k].is_string() ? j_[k].get<std::string>() : j_[k].dump());
+    return out;
+  }
   std::optional<std::vector<std::string>> maybe_list(const std::string& k) {
     if (!has(k)) return std::nullopt;
     return list(k);
@@ -424,6 +439,8 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.partition = o.maybe("partition");
     q.unit = o.maybe("unit");
     q.description = o.maybe("description");
+    q.producer = o.json_text("producer");
+    q.declare = o.json_text("declare");
     q.replace = o.flag("replace");
     q.by = o.maybe("by");
     q.created_by = created_by;
@@ -431,13 +448,18 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
   } else if (c == "add measurements") {
     task::AddMeasurementsRequest q;
     q.dataset = o.str("dataset");
-    q.subject = o.str("subject");
-    q.selection = o.str("selection");
+    q.subject = o.maybe("subject").value_or("");
+    q.selection = o.maybe("selection").value_or("");
     q.field = o.maybe("field");
     q.unit = o.maybe("unit");
     q.measure_arrays = o.measure_arrays();
-    if (!o.has("measure") && q.measure_arrays.empty()) throw task::Refused(o.prog() + ": the following arguments are required: measure");
+    q.piece = o.piece();
+    if (const auto v = o.array("values")) q.measure_arrays.emplace_back("", *v);   // a write in pieces: the region's values of its one measure
+    if (!o.has("measure") && q.measure_arrays.empty() && !q.piece.active()) throw task::Refused(o.prog() + ": the following arguments are required: measure");
     q.measure = o.list("measure");
+    q.declare = o.json_texts("declare");
+    q.producer = o.json_text("producer");
+    q.rows_on = o.maybe("rows_on");
     q.replace = o.flag("replace");
     q.by = o.maybe("by");
     q.created_by = created_by;
@@ -709,6 +731,7 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     face::ReadNodeRequest q = node();
     q.measure = o.maybe("measure");
     q.field = o.maybe("field");
+    q.rows_on = o.maybe("rows_on");
     call([&] { return face::read_selection(q); });
   } else if (c == "read manifold") {
     face::ReadNodeRequest q = node();

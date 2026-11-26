@@ -8,7 +8,8 @@
 //   nxr-neuro add field --dataset D --subject S --name N --manifold M --values FILE.npy [--time LINE] [--value-type T] [--kind K] [--unit U] [--cell 0|1|2] [--derived-from F] [--description TEXT] [--replace]
 //   nxr-neuro add selection --dataset D --subject S --name N --manifold M --type partition|set|indices|spans (--members | --indices | --spans FILE.npy) [--entries A,B] [--description TEXT] [--replace]
 //   nxr-neuro add statistic --dataset D --subject S --name N --measure M --method X --values FILE.npy --axes NAME:MANIFOLD ... [--value-type T] [--of-field F] [--partition P] [--unit U] [--description TEXT] [--replace]
-//   nxr-neuro add measurements --dataset D --subject S --selection SEL --measure NAME=FILE.npy ... [--field F] [--unit U] [--replace]
+//   nxr-neuro add measurements --dataset D --subject S --selection SEL --measure NAME=FILE.npy ... [--declare JSON ...] [--producer JSON] [--field F] [--unit U] [--replace]
+//   (or ONE measure in pieces: --begin --measure NAME --shape N,... --dtype T; --append --write ID --region A:B,... --values R.npy; --commit --write ID)
 //   nxr-neuro add operator --dataset D --subject S --name N --from-manifold A --to-manifold B (--values FILE.npy | --data F --indices F --indptr F) [--kind K] [--description TEXT] [--replace]
 //   nxr-neuro add operator --dataset D --subject S --name N --from-manifold A --from-coordinate-system SPACE:NAME --to-coordinate-system SPACE:NAME --values AFFINE_3x4.npy   (a transition)
 //   nxr-neuro add points --dataset D --subject S --name N --positions FILE.npy [--coordinate-system KEY] [--description TEXT] [--replace]
@@ -156,7 +157,7 @@ int read_node_main(const std::vector<std::string>& argv) {
   std::set<std::string> valued = {"--dataset", "--subject", "--name", "--out", "--region", "--budget"}, flags;
   if (what == "field") { valued.insert({"--from", "--to", "--rows", "--projectors", "--onto"}); flags = {"--all", "--shape-only", "--projection-only"}; }
   else if (what == "operator") valued.insert("--onto");
-  else if (what == "selection") valued.insert({"--measure", "--field"});
+  else if (what == "selection") valued.insert({"--measure", "--field", "--rows-on"});
   else if (what == "manifold") valued.insert("--family");
   else if (what != "statistic" && what != "operator") throw Usage("nxr-neuro read: error: argument what: invalid choice: '" + what + "'");
   const Args a = parse(prog, rest, valued, flags, {"--dataset", "--subject", "--name"});
@@ -177,6 +178,7 @@ int read_node_main(const std::vector<std::string>& argv) {
   }
   rq.measure = a.maybe("--measure");
   rq.field = a.maybe("--field");
+  rq.rows_on = a.maybe("--rows-on");
   rq.family = a.maybe("--family");
   rq.onto = a.maybe("--onto");
   rq.out = a.maybe("--out");
@@ -255,7 +257,7 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.producer = a.maybe("--producer");
     r = call(prog, [&] { return task::add_selection(rq, progress()); });
   } else if (what == "statistic") {
-    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--measure", "--method", "--values", "--value-type", "--of-field", "--partition", "--unit", "--description", "--write", "--shape", "--dtype", "--region"},
+    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--measure", "--method", "--values", "--value-type", "--of-field", "--partition", "--unit", "--description", "--write", "--shape", "--dtype", "--region", "--producer", "--declare"},
                          {"--replace", "--begin", "--append", "--commit"}, {"--dataset"}, 0, {"--axes"});
     task::AddStatisticRequest rq;
     rq.dataset = a.get("--dataset");
@@ -274,15 +276,28 @@ int add_node_main(const std::vector<std::string>& argv) {
     rq.partition = a.maybe("--partition");
     rq.unit = a.maybe("--unit");
     rq.description = a.maybe("--description");
+    rq.producer = a.maybe("--producer");
+    rq.declare = a.maybe("--declare");
     r = call(prog, [&] { return task::add_statistic(rq, progress()); });
   } else if (what == "measurements") {
-    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--selection", "--field", "--unit"}, {"--replace"}, {"--dataset", "--subject", "--selection", "--measure"}, 0, {"--measure"});
+    const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--selection", "--field", "--unit", "--producer", "--values", "--write", "--shape", "--dtype", "--region", "--rows-on"},
+                         {"--replace", "--begin", "--append", "--commit"}, {"--dataset"}, 0, {"--measure", "--declare"});
     task::AddMeasurementsRequest rq;
-    common(a, rq);
-    rq.selection = a.get("--selection");
+    rq.dataset = a.get("--dataset");
+    rq.subject = a.maybe("--subject").value_or("");
+    rq.replace = a.flag.count("--replace") > 0;
+    rq.created_by = by;
+    rq.by = a.maybe("--by");
+    rq.piece = piece_of(prog, a);
+    rq.selection = a.maybe("--selection").value_or("");
     rq.field = a.maybe("--field");
     rq.unit = a.maybe("--unit");
     rq.measure = values_of(a, "--measure");
+    rq.declare = values_of(a, "--declare");
+    rq.producer = a.maybe("--producer");
+    rq.rows_on = a.maybe("--rows-on");
+    if (const auto v = a.maybe("--values")) rq.measure_arrays.emplace_back("", task::ArrayInput(*v));   // a write in pieces: the region's values of its one measure
+    if (rq.measure.empty() && rq.measure_arrays.empty() && !rq.piece.active()) throw Usage(prog + ": error: the following arguments are required: --measure");
     r = call(prog, [&] { return task::add_measurements(rq, progress()); });
   } else if (what == "operator") {
     const Args a = parse(prog, rest, {"--by", "--dataset", "--subject", "--name", "--kind", "--from-manifold", "--to-manifold", "--values", "--data", "--indices", "--indptr", "--description", "--layout", "--method", "--params", "--from-selection", "--from-coordinate-system", "--to-coordinate-system", "--producer"}, {"--replace"},

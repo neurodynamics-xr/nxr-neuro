@@ -1170,6 +1170,7 @@ R"TBL(--name@read operator	NAME	The stored operator to read, by name or id.	requ
 )TBL",
 R"TBL(--name@read selection	NAME	The stored selection to read, by name or id.	required	-
 --out@read selection	FILE.npy	Write its arrays as .npy files: one array to FILE itself; several (spans' start, stop and code; a measurement table's code, value, weight and members) as <stem>.<array>.npy.	none (the result only, as JSON)	-
+--rows-on@read selection	NAME	With --measure: the manifold the measurement's rows lie on (a hemisphere, an eigen line), when the measure is stored on several (two hemispheres' arrays of one measure).	none (the one manifold it is stored on)	-
 --measure@read selection	NAME	Read the selection's measurement table of this measure (code, value, weight, members a member) instead of its array or spans.	none (its array or spans)	-
 --field@read selection	NAME	With --measure: the field the measurement is of, when several are measured over the selection.	the only field measured	-
 )TBL",
@@ -1213,9 +1214,20 @@ R"TBL(--templates@add statistic	DIR	A folder of released templates to look in (r
 )TBL",
 R"TBL(--templates@add measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
 --selection@add measurements	NAME	The selection whose members are measured, by name or id.	required	-
---measure@add measurements	NAME=FILE.npy	A measure and its values in member order: [members] (one value a member, stored as float64 measurement rows), [members x N] (an array a member: a value a vertex, an edge, a mode) or [members x N x C] (C components a value), stored as an array-backed measurement as the pipelines store theirs (an array needs --field: it is a measurement of that field); float32 or float64; repeat or give several.	required	-
+--measure@add measurements	NAME=FILE.npy	A measure and its values in member order (in pieces: --begin names the one measure, NAME): [members] (one value a member, stored as float64 measurement rows), [members x N] (an array a member: a value a vertex, an edge, a mode) or [members x N x C] (C components a value), stored as an array-backed measurement as the pipelines store theirs (an array needs --field: it is a measurement of that field); float32 or float64; repeat or give several.	required	-
 --field@add measurements	NAME	The stored field the measurements are of, by name or id.	none (the members' own)	-
 --unit@add measurements	TEXT	The unit of the measures' values.	none	-
+--declare@add measurements	JSON	What a measure the registry does not know IS, one JSON object a measure: {"name", "merge" (sum, max, min, mean or none: how its values merge when members are rolled up), "form", "unit", "weight", "description"}; kept by the subject, so one name keeps one meaning (a declaration that contradicts the registry or the subject's earlier one is refused). A measure neither declared nor registered is stored but never rolled up. Repeatable.	none	-
+--producer@add measurements	JSON	What the maker says of how the values were made (the parameters, the inputs and their hashes), a JSON object kept in each row's producer record (not under the keys the command records itself: command, program, inputs, output, cache).	none	-
+--rows-on@add measurements	NAME	An array a member: the manifold its rows lie on (a hemisphere's vertices or edges, an eigen line's modes), by name; part of the measurement's key, so the same measure of one field over one selection on two manifolds is two measurements.	none	-
+--begin@add measurements		Write ONE measure in pieces, step 1: take its name (--measure NAME), its full shape (--shape: [members], [members x N] or [members x N x C]) and stored dtype (--dtype) with --selection, --field and its --declare, check them, and print a write id. Nothing is in the subject until --commit.	off	-
+--append@add measurements		Write in pieces, step 2: write the --values of one --region of the write named by --write. A region outside the shape, one written already or one that overlaps a written region is refused.	off	-
+--commit@add measurements		Write in pieces, step 3: store the measure of the write named by --write, as the one-shot command does, once every value of its shape was written (the regions missing are named).	off	-
+--write@add measurements	ID	The write id --begin printed (--append, --commit); through a handle, left out when the handle holds one unfinished write.	none	-
+--shape@add measurements	N,N,...	--begin: the full shape of the measure's values, as the one-shot command takes them: [members], [members x N] or [members x N x C].	required with --begin	-
+--dtype@add measurements	DTYPE	--begin: the dtype the values are staged in, float32 or float64 (measurement values are stored as float64).	required with --begin	-
+--region@add measurements	START:STOP,...	--append: the part of the shape the --values fill, START:STOP for each axis (STOP not included), comma separated.	required with --append	-
+--values@add measurements	FILE.npy	--append: the values of the region, of the begin's dtype.	required with --append	-
 )TBL",
 R"TBL(--templates@add operator	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
 --name@add operator	NAME	Name the operator is stored under in the subject; a name already used is refused unless --replace.	required	-
@@ -1267,7 +1279,7 @@ R"TBL(@ read selection
 old: __read selection
 summary: Read a stored selection by name: its per-element array, or its spans and dictionary, or its measurement table of a measure.
 example: nxr-neuro read selection --dataset /data/study --subject sub-01 --name rest_bad_segments --out bad.npy
-opts: --budget --dataset* --field --measure --name* --out --region --subject*
+opts: --budget --dataset* --field --measure --name* --out --region --rows-on --subject*
 )TBL",
 R"TBL(@ read manifold
 old: __read manifold
@@ -1291,13 +1303,13 @@ R"TBL(@ add statistic
 old: __add statistic
 summary: Store a statistic computed elsewhere (values on named axes, each along a manifold), from a .npy file, as one unit; or in pieces with --begin, --append and --commit.
 example: nxr-neuro add statistic --dataset /data/study --subject sub-01 --name psd --measure power_density --method welch --values psd.npy --axes channel:sensors frequency:freq --of-field rest
-opts: --append --axes+ --begin --by --commit --dataset* --description --dtype --measure --method --name --of-field --partition --region --replace --shape --subject --unit --value-type --values --write
+opts: --append --axes+ --begin --by --commit --dataset* --declare --description --dtype --measure --method --name --of-field --partition --producer --region --replace --shape --subject --unit --value-type --values --write
 )TBL",
 R"TBL(@ add measurements
 old: __add measurements
-summary: Store measurements computed elsewhere over a selection's members (one array a measure), from .npy files, as one unit.
-example: nxr-neuro add measurements --dataset /data/study --subject sub-01 --selection regions --field thickness --measure mean=mean.npy
-opts: --by --dataset* --field --measure+* --replace --selection* --subject* --unit
+summary: Store measurements computed elsewhere over a selection's members (one array a measure), from .npy files, as one unit, each measure the registry does not know declared (--declare); or one measure in pieces with --begin, --append and --commit.
+example: nxr-neuro add measurements --dataset /data/study --subject sub-01 --selection regions --field thickness --measure p=p.npy --declare '{"name": "p", "merge": "none"}'
+opts: --append --begin --by --commit --dataset* --declare+ --dtype --field --measure+ --producer --region --replace --rows-on --selection --shape --subject --unit --values --write
 )TBL",
 R"TBL(@ add operator
 old: __add operator
@@ -1450,6 +1462,8 @@ R"TBL(--begin@add field		Write the field in pieces, step 1: take its shape (--sh
 --write@add statistic	ID	The write id --begin printed (--append, --commit); through a handle, left out when the handle holds one unfinished write.	none	-
 --shape@add statistic	N,N,...	--begin: the full shape of the values (the manifold's elements first, then the time line's samples and a value type's components as add statistic takes its --values).	required with --begin	-
 --dtype@add statistic	DTYPE	--begin: the dtype the values are stored in, one of float32, float64, int32, int64, uint8, bool; each appended array is of this dtype.	required with --begin	-
+--declare@add statistic	JSON	What a measure or a method the statistics registry does not know IS: {"measure": {"description", "unit_rule"}, "method": {"description"}} (either part alone when the other is registered); kept in the statistic's producer record (declared). A declared unit_rule that contradicts the registry's, or another statistic's of the same measure in the subject, is refused.	none (the measure and the method registered)	-
+--producer@add statistic	JSON	What the maker says of how the statistic was made (a group statistic's members, their ids and the hashes of their inputs), a JSON object kept in its producer record (not under the keys the command records itself: command, program, inputs, output, cache).	none	-
 --region@add statistic	START:STOP,...	--append: the part of the shape the --values fill, START:STOP for each axis (STOP not included), comma separated, e.g. 0:5000,0:3.	required with --append	-
 --by-operator@add field	NAME	The stored operator that made the field (its lineage: a source estimate is an inverse kernel applied to a recording), by name or id.	none	-
 --contribution@add field	SUBJECT:FIELD[:WEIGHT]	A field this field is made from (a mapped field): the subject it lies in (by name), its name and an optional weight; repeat or give several.	none	-

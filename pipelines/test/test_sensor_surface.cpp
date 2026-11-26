@@ -280,6 +280,7 @@ int main() {
     CHECK(!nxrtest::run_definition(ds, sub, "select_kernel_product", Json{{"factors", 2}, {"first", "atoms"}, {"second", "bands"}, {"name", "atom_bands"}}).empty());
     Json flow = serve;
     flow["atoms"] = "atoms"; flow["bands"] = "bands"; flow["pairs"] = "atom_band_pairs"; flow["atom_bands"] = "atom_bands"; flow["patterns"] = 50; flow["name"] = "flow";
+    flow["aperiodic"] = true; flow["aperiodic_knee"] = true; flow["aperiodic_range"] = Json::array({4.0, 40.0});   // both aperiodic models in one run
     std::printf("  [flow] run sensor_flow\n");
     CHECK(!nxrtest::run_definition(ds, sub, "sensor_flow", flow).empty());
     std::printf("  [flow] reading the stored measurements\n");
@@ -287,6 +288,12 @@ int main() {
     auto selection_id = [&](const std::string& name) { const auto r = probe.rows("selection", {{"name", V(name)}}); return r.empty() ? std::string() : text(r.front(), "id"); };
     auto measured = [&](const std::string& over, const std::string& measure) { return probe.rows("selection_measurement", {{"selection_id", V(selection_id(over))}, {"measure", V(measure)}}).size(); };
     CHECK(measured("atoms", "phase_current") == 1 && measured("atoms", "power") == 1 && measured("atoms", "flow_coefficient") == 1);         // the whole field, per atom
+    // the measures the registry does not know are DECLARED by the nodes that write them: a coefficient sums, a consistency and a p value never do
+    auto declared = [&](const std::string& measure) { const auto r = probe.rows("measure_declaration", {{"name", V(measure)}}); return r.empty() ? std::string() : text(r.front(), "merge"); };
+    CHECK(declared("flow_coefficient") == "sum" && declared("consistency") == "none" && declared("familywise_p") == "none" && declared("cells") == "sum");
+    CHECK(declared("phase_current").empty());                                                                                                // registered: its entry is the registry's
+    // both aperiodic models from the one stored power, each its own statistic
+    CHECK(probe.rows("statistic", {{"name", V("flow_aperiodic")}}).size() == 1 && probe.rows("statistic", {{"name", V("flow_aperiodic_knee")}}).size() == 1);
     CHECK(measured("atom_band_pairs", "phase_current") == 1 && measured("atom_band_pairs", "power") == 1);                                   // every band pair, per atom
     CHECK(measured("atom_bands", "consistency") == 1 && measured("atom_bands", "threshold") == 1);                                         // the sign-flip test, per atom and band
     // the member axis of each stored measurement is its selection's members, in the product's code order (the first factor fastest: atom + A (band p + Q band q))

@@ -31,11 +31,18 @@ Value v(const Json& x) {
 }
 Json opt(const Json& j, const char* k) { return j.contains(k) ? j[k] : Json(nullptr); }
 
+// the reduction a read uses: the subject's declaration, else the registry's rule (`mean` for a derived one); "undeclared" for a measure in neither (read as stored, refused when merged)
+std::string read_reduction(const Database& db, const std::string& measure) {
+  const ReadRule r = measure_read_rule(db, measure);
+  if (!r.known) return "undeclared";
+  return r.rule == MergeRule::derived ? "mean" : merge_rule_name(r.rule);
+}
+
 Json stored_query(const Database& db, const Json& q, const std::string& measure, const std::string& reduction, bool threshold) {
   const std::int64_t shift = q.value("shift", static_cast<std::int64_t>(0));
   if (shift < 0) throw Error(code::invalid_argument, "measurements: shift must be a whole number \xe2\x89\xa5 0, got " + std::to_string(shift));
   // reduction "none" (the median within a member): the member's own value; rows of members cannot be merged, so a shift that groups members is refused below
-  const std::string value = reduction == "none" ? "max(value)" : reduction == "sum" ? "sum(value)" : reduction == "max" ? "max(value)" : reduction == "min" ? "min(value)"
+  const std::string value = reduction == "none" || reduction == "undeclared" ? "max(value)" : reduction == "sum" ? "sum(value)" : reduction == "max" ? "max(value)" : reduction == "min" ? "min(value)"
                                                 : "sum(value * coalesce(weight, 1.0)) / sum(coalesce(weight, 1.0))";
   std::vector<std::string> where = {"selection_id = ?", "code IS NOT NULL", "measure = ?"};
   std::vector<Value> args = {v(q.at("selectionId")), Value(measure)};
@@ -69,6 +76,9 @@ Json stored_query(const Database& db, const Json& q, const std::string& measure,
   if (threshold && q.contains("maxValue") && !q["maxValue"].is_null()) args.push_back(v(q["maxValue"]));
   Json out = Json::array();
   for (const Row& r : db.all(sql, args)) out.push_back(row_json(r));
+  if (reduction == "undeclared")      // neither declared nor registered: read as stored, never merged
+    for (const auto& r : out)
+      if (r["members"].get<std::int64_t>() > 1) throw Error(code::unsupported, undeclared_refusal(measure) + " (shift " + std::to_string(shift) + ")");
   if (reduction == "none")
     for (const auto& r : out)
       if (r["members"].get<std::int64_t>() > 1) throw Error(code::unsupported, "measure " + measure + " does not roll up: its value is a member's own (a median of two members together is no combination of their medians), so rows of members cannot be merged (shift " + std::to_string(shift) + ")");
@@ -90,6 +100,9 @@ std::int64_t write_measurements(Database& db, const Json& rows, const std::optio
   bool of_statistic = false;                                   // a row measuring a statistic's slice (of_statistic_id, of_index): the columns added in place first
   for (const auto& r : rows) of_statistic = of_statistic || (r.contains("of_statistic_id") && !r["of_statistic_id"].is_null());
   if (of_statistic) ensure_statistics(db);
+  bool with_producer = false;                                  // a row that says how it was made: the column added in place first
+  for (const auto& r : rows) with_producer = with_producer || (r.contains("producer_json") && r["producer_json"].is_object());
+  if (with_producer) ensure_measurement_producer(db);
   const std::string t = now_utc(true);
   std::vector<std::string> own;
   for (const auto& r : rows) if (!r.contains("code") || r["code"].is_null()) { const std::string s = r.value("selection_id", std::string()); if (std::find(own.begin(), own.end(), s) == own.end()) own.push_back(s); }
@@ -97,7 +110,17 @@ std::int64_t write_measurements(Database& db, const Json& rows, const std::optio
     for (const auto& m : rows) {
       const Json cu = m.contains("computed_utc") && !m["computed_utc"].is_null() ? m["computed_utc"] : Json(t);
       const Json cb = by ? Json(*by) : opt(m, "computed_by");
-      if (of_statistic)
+      if (with_producer)
+        db.execute("INSERT INTO selection_measurement (selection_id, code, of_field_id, measure, value, weight, within_selection_id, within_code, unit, computed_utc, computed_by, array_path, component" +
+                       std::string(of_statistic ? ", of_statistic_id, of_index" : "") + ", producer_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?" + (of_statistic ? ", ?, ?" : "") + ", ?)",
+                   [&] {
+                     std::vector<Value> a = {v(opt(m, "selection_id")), v(opt(m, "code")), v(opt(m, "of_field_id")), v(opt(m, "measure")), v(opt(m, "value")), v(opt(m, "weight")), v(opt(m, "within_selection_id")),
+                                             v(opt(m, "within_code")), v(opt(m, "unit")), v(cu), v(cb), v(opt(m, "array_path")), v(opt(m, "component"))};
+                     if (of_statistic) { a.push_back(v(opt(m, "of_statistic_id"))); a.push_back(v(opt(m, "of_index"))); }
+                     a.push_back(m.contains("producer_json") && m["producer_json"].is_object() ? Value(m["producer_json"].dump()) : Value(std::monostate{}));
+                     return a;
+                   }());
+      else if (of_statistic)
         db.execute("INSERT INTO selection_measurement (selection_id, code, of_field_id, measure, value, weight, within_selection_id, within_code, unit, computed_utc, computed_by, array_path, component, of_statistic_id, of_index) "
                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                    {v(opt(m, "selection_id")), v(opt(m, "code")), v(opt(m, "of_field_id")), v(opt(m, "measure")), v(opt(m, "value")), v(opt(m, "weight")), v(opt(m, "within_selection_id")),
@@ -113,17 +136,32 @@ std::int64_t write_measurements(Database& db, const Json& rows, const std::optio
   return static_cast<std::int64_t>(rows.size());
 }
 
+Json measurement_provenance(const Database& db, const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure) {
+  Json out = Json{{"declaration", nullptr}, {"declared", false}, {"producers", Json::array()}};
+  if (const auto d = declared_measure(db, measure)) { out["declaration"] = *d; out["declared"] = true; }
+  else if (const auto r = measure_spec(measure)) out["declaration"] = *r;
+  if (!has_column(db, "selection_measurement", "producer_json")) return out;
+  std::string sql = "SELECT DISTINCT producer_json FROM selection_measurement WHERE selection_id = ? AND measure = ? AND producer_json IS NOT NULL";
+  std::vector<Value> a{Value(selection_id), Value(measure)};
+  if (of_field_id) { sql += " AND of_field_id = ?"; a.push_back(Value(*of_field_id)); }
+  for (const Row& r : db.all(sql, a)) {
+    const Json j = Json::parse(text(r, "producer_json"), nullptr, false);
+    if (!j.is_discarded()) out["producers"].push_back(j);
+  }
+  return out;
+}
+
 Json query_measurements(const Database& db, const Json& q) {
   const std::string measure = q.at("measure");
   const auto spec = measure_spec(measure);
   if (!spec || (*spec)["derived_from"].is_null())
-    return stored_query(db, q, measure, q.contains("reduction") && q["reduction"].is_string() ? q["reduction"].get<std::string>() : measure_reduction(measure), true);
+    return stored_query(db, q, measure, q.contains("reduction") && q["reduction"].is_string() ? q["reduction"].get<std::string>() : read_reduction(db, measure), true);
   std::vector<std::string> from;
   for (const auto& x : (*spec)["derived_from"]) from.push_back(x);
   std::vector<std::map<std::int64_t, Json>> by_code;
   Json first;
   for (std::size_t i = 0; i < from.size(); ++i) {
-    const Json part = stored_query(db, q, from[i], measure_reduction(from[i]), false);
+    const Json part = stored_query(db, q, from[i], read_reduction(db, from[i]), false);
     if (i == 0) first = part;
     std::map<std::int64_t, Json> m;
     for (const auto& r : part) m[r["code"].get<std::int64_t>()] = r;
@@ -194,6 +232,7 @@ std::int64_t delete_measurements(Database& db, const Json& w) {
     }
   }
   if (w.contains("measure")) { sql += " AND measure = ?"; args.push_back(v(w["measure"])); }
+  if (w.contains("rowsManifoldId") && !w["rowsManifoldId"].is_null()) { sql += " AND rows_manifold_id = ?"; args.push_back(v(w["rowsManifoldId"])); }   // only the rows on that manifold (issue #264)
   // the rows the statement itself deleted (SQLite's changes(), as the Studio's `.run().changes`): not the sync jobs its trigger queues
   std::int64_t n = 0;
   db.tx([&] {
@@ -204,7 +243,8 @@ std::int64_t delete_measurements(Database& db, const Json& w) {
 }
 
 MeasurementValues measurement_values(SubjectWriter& sub, const std::string& selection_id, const std::optional<std::string>& of_field_id,
-                                     const std::optional<std::string>& of_statistic_id, const std::optional<std::int64_t>& of_index, const std::string& measure) {
+                                     const std::optional<std::string>& of_statistic_id, const std::optional<std::int64_t>& of_index, const std::string& measure,
+                                     const std::optional<std::string>& rows_manifold_id) {
   if (measure_is_derived(measure)) throw Error(code::invalid_argument, "measurements: '" + measure + "' is derived at read, never stored; summarize its ingredients");
   const Database& db = sub.db();
   std::string w = "selection_id = ? AND measure = ? AND within_selection_id IS NULL";
@@ -217,6 +257,23 @@ MeasurementValues measurement_values(SubjectWriter& sub, const std::string& sele
     w += of_field_id ? " AND of_field_id = ?" : " AND of_field_id IS NULL";
     if (of_field_id) a.push_back(Value(*of_field_id));
     if (stat_cols) w += " AND of_statistic_id IS NULL";
+  }
+  // THE MANIFOLD THE ROWS LIE ON (issue #264): named, only its array; not named, one array of the measure, or a refusal naming the manifolds
+  if (has_column(db, "selection_measurement", "rows_manifold_id")) {
+    if (rows_manifold_id) { w += " AND rows_manifold_id = ?"; a.push_back(Value(*rows_manifold_id)); }
+    else {
+      const auto on = db.all("SELECT DISTINCT rows_manifold_id FROM selection_measurement WHERE " + w + " AND array_path IS NOT NULL AND rows_manifold_id IS NOT NULL", a);
+      if (on.size() > 1) {
+        std::string names;
+        for (const Row& r : on) {
+          const auto n = db.one("SELECT name FROM manifold WHERE id = ?", {Value(text(r, "rows_manifold_id"))});
+          names += (names.empty() ? "" : ", ") + (n ? text(*n, "name") : text(r, "rows_manifold_id"));
+        }
+        throw Error(code::invalid_argument, "measurements: '" + measure + "' is stored on several manifolds (" + names + "): name the one its rows lie on");
+      }
+    }
+  } else if (rows_manifold_id) {
+    throw Error(code::no_such_row, "measurements: no stored '" + measure + "' on that manifold (the dataset names no manifold of a measurement's rows)");
   }
   MeasurementValues out;
   std::set<std::string> by;
@@ -425,13 +482,13 @@ Json query_measurements(const Database& db, const Store& store, const Json& q) {
   };
   Cells out;
   std::vector<double> weight_node, weight_tile;
-  const rollup::Merge op = measure_is_derived(measure) ? rollup::Merge::Sum : rollup::merge_of(measure);   // a derived measure has no merge of its own: its ingredients are merged (below)
+  const rollup::Merge op = measure_is_derived(measure) ? rollup::Merge::Sum : rollup::merge_of(measure_merge(db, measure), measure);   // a derived measure has no merge of its own: its ingredients are merged (below)
   if (const auto c = rolled(measure, op)) {
     out = *c;
     if (joint) { weight_node = areas(); weight_tile = samples(); }
   } else if (measure.size() > 8 && measure.compare(measure.size() - 8, 8, "_density") == 0) {
     const std::string base = measure.substr(0, measure.size() - 8);
-    if (rollup::merge_of(base) != rollup::Merge::Sum) throw Error(code::invalid_argument, "measurements: '" + measure + "': a density is a sum over area x samples; '" + base + "' is not a sum");
+    if (rollup::merge_of(measure_merge(db, base), base) != rollup::Merge::Sum) throw Error(code::invalid_argument, "measurements: '" + measure + "': a density is a sum over area x samples; '" + base + "' is not a sum");
     const auto c = rolled(base, rollup::Merge::Sum);
     if (!c) throw Error(code::no_such_row, "measurements: '" + measure + "' is derived from '" + base + "', which this selection holds no array-backed row of");
     // a joint (space x time) Selection: sum / (area x samples). A spatial partition alone (a leaf measurement with no frame axis: phase_power, phase_flux, phase_circulation, ...): sum / area
@@ -457,7 +514,7 @@ Json query_measurements(const Database& db, const Store& store, const Json& q) {
     for (const auto& x : (*dspec)["derived_from"]) from.push_back(x.get<std::string>());
     std::map<std::string, Cells> got;
     for (const std::string& f : from) {
-      const rollup::Merge mf = rollup::merge_of(f);
+      const rollup::Merge mf = rollup::merge_of(measure_merge(db, f), f);
       if (mf == rollup::Merge::Mean) throw Error(code::invalid_argument, "measurements: '" + measure + "' is derived from '" + f + "', which is a mean, not a sum: it is derived from stored sums only");
       const auto c = rolled(f, mf);
       if (!c) throw Error(code::no_such_row, "measurements: '" + measure + "' is derived from '" + f + "', which this selection holds no array-backed row of (for that field" + (band || spatial ? " and band" : "") + ")");

@@ -190,6 +190,7 @@ test_mass_variants	unit
 test_measure_pipeline	integration
 test_measurement	golden
 test_measurement_query	unit
+test_measure_declarations	unit
 test_measures	unit
 test_meeg_pipelines	integration
 test_projector_choice	integration

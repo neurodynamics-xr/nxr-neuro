@@ -107,6 +107,7 @@ Json measurement_query(const std::filesystem::path& dataset, const std::string& 
 /** What `read` is asked beyond the name. Every member is optional; an option that does not apply to what `name` is (a span of a manifold, a family of a field) is refused. */
 struct ReadRequest {
   std::optional<std::string> measure;      // `name` is a selection: its measurement table of this measure
+  std::optional<std::string> rows_on;      // ... whose rows lie on this manifold (by name)
   std::optional<std::string> of_field;     // ... of this field, when several are measured over the selection
   // A TIME-RESOLVED FIELD (a recording, a source series: [rows x samples] on its time line) is read through io's chunk service, one chunk at a time:
   std::optional<std::int64_t> start, stop; // the samples [start, stop) of its time axis (both, or neither: the whole recording, still read chunk by chunk)
@@ -162,6 +163,7 @@ struct ReadNodeRequest {
   bool shape_only = false;                 // field: its description only, no sample read
   bool projection_only = false;            // field: the projection the chosen projectors make [channels x channels] (every channel of the recording) and its record, no sample read
   std::optional<std::string> measure, field;   // selection: its measurement table of this measure (of this field)
+  std::optional<std::string> rows_on;      // selection: ... whose rows lie on this manifold, by name (two hemispheres' arrays of one measure: issue #264)
   std::optional<std::string> family;       // manifold: one labelling of it
   std::optional<std::string> out;          // the .npy file (or stem) the arrays are written to
  

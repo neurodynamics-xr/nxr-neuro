@@ -22,7 +22,7 @@ const Json& measure_registry();
 // One measure's entry, or nullopt for a name the registry does not know (a subject may add its own).
 std::optional<Json> measure_spec(const std::string& name);
 bool measure_is_derived(const std::string& name);
-// How a measure's values combine: its merge rule (below), `mean` for a derived one.
+// How a measure's values combine: its merge rule (below), `mean` for a derived one (registered names; Error(unsupported) for an unknown one).
 std::string measure_reduction(const std::string& name);
 
 // THE MERGE RULE IS DATA (schema/measures.json and measures_nxr.json, the key `merge`): the ONE definition of how a measure's values
@@ -34,8 +34,45 @@ std::string measure_reduction(const std::string& name);
 //   derived  not stored: computed at read from its ingredients, themselves merged first (a ratio of sums, never a sum of ratios)
 enum class MergeRule { sum, max, min, mean, none, derived };
 const char* merge_rule_name(MergeRule r);
-// A registered measure's merge rule; a name the registry does not know (a subject may add its own) follows nxr's `mergeOf`: `max` and `*_max` max, `min` min, anything else sum.
+// A REGISTERED measure's merge rule. A name the registry does not know has no rule here: Error(unsupported), naming the declaration it needs (never a guessed `sum`).
 MergeRule measure_merge(const std::string& name);
+
+// DECLARED MEASURES (docs/reference.md, "Declared measures"). The registry is a vocabulary of known names and their defaults, not a gate: any measure may be stored, and
+// the writer of its measurements DECLARES it (its merge rule, and its form, unit, weight measure and description where they apply). The declaration is kept in the subject's
+// `measure_declaration` table, one row a name, so one name keeps one meaning in a subject: a second declaration that differs is refused, and so is one that contradicts the
+// registry's entry for a known name (a declaration may leave out what the registry gives). `derived` is declared only for a registered name (its formula is io's).
+struct MeasureDeclaration {
+  std::string name;
+  std::optional<std::string> merge;            // sum · max · min · mean · none · derived; required for a name the registry does not know
+  std::optional<std::string> form, unit, weight, description;
+};
+// {name, merge, form?, unit?, weight?, description?} (the form a request and a producer record carry); Error(invalid_argument) for another shape or an unknown key
+MeasureDeclaration measure_declaration_of(const Json& j);
+Json measure_declaration_json(const MeasureDeclaration& d);
+// the table, added in place to a database made before it (additive; user_version unchanged); true when it was added
+bool ensure_measure_declarations(Database& db);
+// Check a declaration against the registry and the subject's earlier one, and store it (in the caller's transaction, or its own); returns the declaration as stored (the
+// registry's values filled in for a known name). Error(invalid_argument) for a contradiction, naming both values.
+Json declare_measure(Database& db, const MeasureDeclaration& d, const std::optional<std::string>& by);
+// the subject's declaration of a name, or nullopt
+std::optional<Json> declared_measure(const Database& db, const std::string& name);
+// THE RULE A ROLL-UP USES: the subject's declaration, else the registry's; a measure neither declared nor registered is Error(unsupported) (it is never summed by default)
+MergeRule measure_merge(const Database& db, const std::string& name);
+// the rule a READ at the stored level may use: as above, but a measure neither declared nor registered reads as `none` (each member its own value), `known` false;
+// a read that would merge its members is then refused with `undeclared_refusal`
+struct ReadRule { MergeRule rule; bool known; };
+ReadRule measure_read_rule(const Database& db, const std::string& name);
+std::string undeclared_refusal(const std::string& name);
+
+// THE PRODUCER OF A MEASUREMENT (`selection_measurement.producer_json`): the column added in place to a database made before it (additive; user_version unchanged); true when added.
+// write_measurements stores a row's `producer_json` (an object) when the row carries one.
+bool ensure_measurement_producer(Database& db);
+// THE MANIFOLD A MEASUREMENT'S ROWS LIE ON (`selection_measurement.rows_manifold_id`, issue #264): the column added in place and the store's key made again with it (additive; user_version
+// unchanged); true when added. Two measurements of one field over one selection with the same measure on two manifolds (the two hemispheres) are then two rows of the key.
+bool ensure_measurement_rows_manifold(Database& db);
+// What a measurement of a selection IS and how it was made, for a read: {declaration (the subject's, else the registry's entry, else null), declared (true when the
+// subject declares it), producers: [the distinct producer records of its rows]} (`read selection --measure` gives them beside the values)
+Json measurement_provenance(const Database& db, const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure);
 // {"<measure>": "sum" | "max" | "min" | "mean" | "none" | "derived", ...} for every registered measure: the table compute reads.
 Json measure_merge_table();
 
@@ -81,8 +118,10 @@ struct MeasurementValues {
   std::optional<std::string> unit;
   std::vector<std::string> computed_by;     // the producers of the rows read (their identity, for a cache key)
 };
+// `rows_manifold_id`: only the array whose rows lie on that manifold (issue #264); without it, arrays of the measure on several manifolds are refused, naming them.
 MeasurementValues measurement_values(SubjectWriter& sub, const std::string& selection_id, const std::optional<std::string>& of_field_id,
-                                     const std::optional<std::string>& of_statistic_id, const std::optional<std::int64_t>& of_index, const std::string& measure);
+                                     const std::optional<std::string>& of_statistic_id, const std::optional<std::int64_t>& of_index, const std::string& measure,
+                                     const std::optional<std::string>& rows_manifold_id = std::nullopt);
 
 // A DERIVED measure of ARRAY-BACKED or scalar-row ingredients, member by member as stored (no roll-up): each ingredient read by `measurement_values` (of the same Field or statistic), then the measure's formula applied
 // elementwise (a ratio of the stored sums, derived at read, never stored); NaN where an ingredient is NaN or the formula is undefined. Refuses a measure that is not derived.

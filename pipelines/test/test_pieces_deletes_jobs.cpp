@@ -313,6 +313,126 @@ int main() {
     CHECK_EQ(writes(), std::size_t(0));
   }
 
+  // ---- `add statistic --producer --declare`: a measure and a method the registry does not know, declared; refused without the declaration; the producer kept
+  {
+    std::vector<double> centroids(3 * 50, 0.25);
+    task::AddStatisticRequest s;
+    base(s, "states");
+    s.measure = "flow_state_centroid";
+    s.method = "kmeans";
+    s.axes = {"channel:sensors", "t:epoch_time"};
+    s.values = mem("float64", {3, 50}, centroids);
+    s.producer = R"J({"members": [{"subject": "S1", "sha256": "abc"}]})J";
+    CHECK(has(thrown([&] { task::add_statistic(s); }), "declare what it is"));
+    s.declare = R"J({"measure": {"description": "a state's centroid in the modes", "unit_rule": "(the coefficients' unit)"}, "method": {"description": "k-means on unit vectors"}})J";
+    task::add_statistic(s);
+    const Json rec = face::read_statistic(reading("states", false)).result;
+    CHECK(rec.dump().find("abc") != std::string::npos && rec.dump().find("k-means on unit vectors") != std::string::npos);
+    task::AddStatisticRequest odd = s;
+    odd.name = "states_odd";
+    odd.declare = R"J({"measure": {"description": "x", "unit_rule": "s"}, "method": {"description": "k-means"}})J";
+    CHECK(has(thrown([&] { task::add_statistic(odd); }), "one name keeps one meaning"));
+  }
+
+  // ---- `add measurements`: declared measures (refused at roll-up when `none`), the producer each row keeps, and ONE measure in pieces equal to the one-shot write
+  {
+    task::AddSelectionRequest g;
+    g.dataset = D; g.subject = "S1"; g.name = "channel_groups"; g.manifold = "sensors"; g.type = "partition"; g.created_by = by;
+    g.members = mem("int32", {3}, std::vector<std::int32_t>{0, 1, 2});
+    task::add_selection(g);
+    task::AddMeasurementsRequest m;
+    m.dataset = D; m.subject = "S1"; m.selection = "channel_groups"; m.created_by = by;
+    m.measure_arrays = {{"p_of_test", mem("float64", {3}, std::vector<double>{0.01, 0.5, 0.2})}};
+    m.declare = {R"J({"name": "p_of_test", "merge": "none", "description": "a p value"})J"};
+    m.producer = R"J({"parameters": {"draws": 1000}})J";
+    const Json r = task::add_measurements(m).result;
+    CHECK(r.contains("declared") && r["declared"][0]["merge"] == "none");
+    face::ReadNodeRequest rd = reading("channel_groups", false);
+    rd.measure = "p_of_test";
+    const Json meta = face::read_selection(rd).result;
+    CHECK(meta["declared"] == true && meta["declaration"]["merge"] == "none");
+    CHECK(meta["producers"].size() == 1 && meta["producers"][0]["parameters"]["draws"] == 1000 && meta["producers"][0]["command"] == "add measurements");
+    // a declaration of a measure not given, and one that contradicts the registry, are refused and store nothing
+    task::AddMeasurementsRequest bad = m;
+    bad.measure_arrays = {{"q_of_test", mem("float64", {3}, std::vector<double>{1, 2, 3})}};
+    CHECK(has(thrown([&] { task::add_measurements(bad); }), "not among the measures given"));
+    bad.measure_arrays = {{"median", mem("float64", {3}, std::vector<double>{1, 2, 3})}};
+    bad.declare = {R"J({"name": "median", "merge": "sum"})J"};
+    CHECK(has(thrown([&] { task::add_measurements(bad); }), "the registry 'none'"));
+
+    // one measure [members x rows] in pieces, against the one-shot write of the same values
+    std::vector<double> coefficients(3 * 4);
+    for (std::size_t i = 0; i < coefficients.size(); ++i) coefficients[i] = 0.5 * static_cast<double>(i) - 1.0;
+    task::AddMeasurementsRequest whole = m;
+    whole.field = "rest";
+    whole.measure_arrays = {{"coefficient_whole", mem("float64", {3, 4}, coefficients)}};
+    whole.declare = {R"J({"name": "coefficient_whole", "merge": "sum", "form": "mode"})J"};
+    task::add_measurements(whole);
+    task::AddMeasurementsRequest b;
+    b.dataset = D; b.subject = "S1"; b.selection = "channel_groups"; b.field = "rest"; b.created_by = by;
+    b.measure = {"coefficient_pieces"};
+    b.declare = {R"J({"name": "coefficient_pieces", "merge": "sum", "form": "mode"})J"};
+    b.piece.begin = true;
+    b.piece.shape = std::vector<std::int64_t>{3, 4};
+    b.piece.dtype = "float64";
+    const std::string w = task::add_measurements(b).result["write"].get<std::string>();
+    for (int part = 0; part < 3; ++part) {
+      task::AddMeasurementsRequest a;
+      a.dataset = D;
+      a.piece.append = true;
+      a.piece.write = w;
+      a.piece.region = std::vector<std::array<std::int64_t, 2>>{{part, part + 1}, {0, 4}};
+      a.measure_arrays = {{"", mem("float64", {1, 4}, std::vector<double>(coefficients.begin() + part * 4, coefficients.begin() + (part + 1) * 4))}};
+      task::add_measurements(a);
+    }
+    rd.measure = "coefficient_pieces";
+    rd.field = "rest";
+    CHECK(face::read_selection(rd).result["rows"] == 0);   // invisible until the commit
+    task::AddMeasurementsRequest c;
+    c.dataset = D; c.created_by = by;
+    c.piece.commit = true;
+    c.piece.write = w;
+    const Json cr = task::add_measurements(c).result;
+    CHECK(cr["step"] == "commit" && cr["regions"] == 3);
+    const task::CommandResult x = face::read_selection(rd);
+    rd.measure = "coefficient_whole";
+    const task::CommandResult y = face::read_selection(rd);
+    CHECK(x.result["declaration"]["merge"] == "sum" && x.arrays.size() == y.arrays.size());
+    if (x.arrays.size() == 2 && y.arrays.size() == 2) CHECK(x.arrays[1].bytes == y.arrays[1].bytes);
+    // ONE MEASURE ON TWO MANIFOLDS (issue #264): the manifold the rows lie on is part of the key; read without it, the two are named; with it, each its own
+    task::AddMeasurementsRequest on_a = whole, on_b = whole;
+    on_a.measure_arrays = {{"flow_on", mem("float64", {3, 4}, coefficients)}};
+    on_a.declare = {R"J({"name": "flow_on", "merge": "sum"})J"};
+    on_a.rows_on = "sensors";
+    std::vector<double> other(coefficients.size(), 7.0);
+    on_b.measure_arrays = {{"flow_on", mem("float64", {3, 4}, other)}};
+    on_b.declare.clear();
+    on_b.rows_on = "epoch_time";
+    task::add_measurements(on_a);
+    task::add_measurements(on_b);
+    CHECK(has(thrown([&] { task::add_measurements(on_b); }), "on epoch_time: pass --replace"));
+    face::ReadNodeRequest ro = reading("channel_groups", false);
+    ro.measure = "flow_on"; ro.field = "rest";
+    CHECK(has(thrown([&] { face::read_selection(ro); }), "stored on several manifolds"));
+    ro.rows_on = "sensors";
+    const task::CommandResult ra = face::read_selection(ro);
+    ro.rows_on = "epoch_time";
+    const task::CommandResult rb = face::read_selection(ro);
+    CHECK(ra.arrays.size() == 2 && rb.arrays.size() == 2);
+    if (ra.arrays.size() == 2 && rb.arrays.size() == 2 && y.arrays.size() == 2) CHECK(ra.arrays[1].bytes == y.arrays[1].bytes && rb.arrays[1].bytes != ra.arrays[1].bytes);
+    // a begin of two measures, or of a shape that is not [members ...], is refused
+    task::AddMeasurementsRequest two = b;
+    two.measure = {"x1", "x2"};
+    two.declare.clear();
+    CHECK(has(thrown([&] { task::add_measurements(two); }), "ONE measure"));
+    task::AddMeasurementsRequest shape = b;
+    shape.measure = {"x3"};
+    shape.declare.clear();
+    shape.piece.shape = std::vector<std::int64_t>{4, 4};
+    CHECK(has(thrown([&] { task::add_measurements(shape); }), "are [3]"));
+    CHECK_EQ(writes(), std::size_t(0));
+  }
+
 #ifdef NXR_TEST_CLI
   // ---- the command line: the write id works across separate processes (begin, append, append, commit), and `recover dataset` rolls an abandoned one back
   {

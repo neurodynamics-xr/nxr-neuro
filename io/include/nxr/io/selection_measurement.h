@@ -38,6 +38,7 @@ Json measurement_kinds_of(const Database& db, const std::string& selection_id);
 
 /** which measurement rows of a selection a question is about; a member left unset does not restrict */
 struct MeasurementFilter {
+  std::optional<std::string> rows_manifold_id;      // only the rows on that manifold (issue #264)
   std::optional<std::string> measure;
   std::optional<std::string> of_field_id;
   bool of_field_none = false;                       // only the members' own values (no field: a size, a count of streamlines)

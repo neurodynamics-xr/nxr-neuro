@@ -3,6 +3,7 @@
 
 #include "nxr/io/array_writer.h"
 #include "nxr/io/measures.h"
+#include "nxr/io/statistic.h"
 #include "nxr/io/records/records.h"
 
 namespace nxr::io::selection {
@@ -71,6 +72,10 @@ bool has_measurement(const Database& db, const std::string& selection_id, const 
   if (f.of_statistic_id) { sql += " AND of_statistic_id = ?"; a.push_back(V(*f.of_statistic_id)); }
   if (f.of_index) { sql += " AND of_index = ?"; a.push_back(V(*f.of_index)); }
   if (f.whole_only) sql += " AND within_code IS NULL";
+  if (f.rows_manifold_id) {
+    if (!has_column(db, "selection_measurement", "rows_manifold_id")) return false;
+    sql += " AND rows_manifold_id = ?"; a.push_back(V(*f.rows_manifold_id));
+  }
   return db.one(sql + " LIMIT 1", a).has_value();
 }
 

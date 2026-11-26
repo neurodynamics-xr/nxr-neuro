@@ -84,7 +84,12 @@ int main() {
   }
   std::printf("  %d roll-up cases against nxr's rollup\n", cases);
   CHECK(cases > 50);
-  CHECK(merge_of("envelope_max") == Merge::Max && merge_of("max") == Merge::Max && merge_of("min") == Merge::Min && merge_of("power_sum") == Merge::Sum && merge_of("tensor_12_re") == Merge::Sum && merge_of("maximum") == Merge::Sum);
+  CHECK(merge_of("envelope_max") == Merge::Max && merge_of("max") == Merge::Max && merge_of("min") == Merge::Min && merge_of("power_sum") == Merge::Sum && merge_of("tensor_12_re") == Merge::Sum);
+  {
+    bool refused = false;   // a name neither declared nor registered has no rule (never a guessed sum)
+    try { merge_of("maximum"); } catch (const std::exception&) { refused = true; }
+    CHECK(refused);
+  }
   auto refused = [](auto f) { try { f(); } catch (const std::invalid_argument&) { return true; } return false; };
   CHECK(refused([] { space({1, 2, 3, 4}, 1, 4, 3, 0, Merge::Sum); }));            // 4 leaves are not a whole number of pieces of 8
   CHECK(refused([] { space(std::vector<double>(16, 1.0), 1, 16, 3, 4, Merge::Sum); }));   // a level finer than the depth

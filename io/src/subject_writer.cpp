@@ -604,10 +604,10 @@ std::string SubjectWriter::statistic(StatisticSpec spec) {
   const std::string who = "statistic '" + spec.name + "'";
   if (spec.name.empty()) throw value_error("a statistic needs a name");
   auto names = [](const char* list) { std::string n; for (const auto& e : statistic_registry()[list]) n += (n.empty() ? "" : ", ") + e["name"].get<std::string>(); return n; };
-  // the statistics registry's measures, or a measurement's (a summary keeps the measure it summarises: amplitude, mean, …)
-  if (!statistic_measure_known(spec.measure) && !measure_spec(spec.measure))
-    throw value_error(who + ": measure '" + spec.measure + "' is in neither the statistics registry (" + names("measures") + ") nor the measure registry");
-  if (!statistic_method_known(spec.method)) throw value_error(who + ": method '" + spec.method + "' is not in the statistics registry (" + names("methods") + ")");
+  // the measure and the method: registered (the statistics registry's measures, or a measurement's: a summary keeps the measure it summarises), or DECLARED by the writer
+  // (producer_json.declared: {measure: {description, unit_rule?}, method: {description}}). Only a missing declaration is refused, never a new name.
+  (void)names;
+  check_statistic_declaration(*db_, spec.measure, spec.method, spec.producer.is_object() && spec.producer.contains("declared") ? spec.producer["declared"] : Json(), who);
   if (!spec.of_field_id && !spec.of_statistic_id && !spec.detached) throw value_error(who + ": a statistic is OF a field or of a statistic (of_field_id · of_statistic_id)");
   if (!spec.axes.is_array() || spec.axes.empty()) throw value_error(who + ": axes is a list of {name, size, …}, one per dimension of the values");
   if (spec.data.dtype != DType::Float32 && spec.data.dtype != DType::Float64) throw value_error(who + ": the values are float32 or float64");
