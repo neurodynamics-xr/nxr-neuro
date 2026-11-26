@@ -167,7 +167,8 @@ ng::NodeSpec node_of(const StepSpec& st, const std::shared_ptr<Binding>& binding
 // an operator's kind, a selection's type), an operator's source and target. Only a value whose every factor io described is typed; the others are checked by their nodes' plans.
 namespace {
 ng::ManifoldKind kind_of_manifold(const std::string& t) {
-  return t == "line" ? ng::ManifoldKind::line : t == "surface" ? ng::ManifoldKind::surface : t == "curve" ? ng::ManifoldKind::curve
+  // a graph manifold (`tile_network`'s fibre network) is typed a graph, never points (issue #298)
+  return t == "line" ? ng::ManifoldKind::line : t == "surface" ? ng::ManifoldKind::surface : t == "curve" ? ng::ManifoldKind::curve : t == "graph" ? ng::ManifoldKind::graph
          : (t == "volume" || t == "image" || t == "tetrahedral") ? ng::ManifoldKind::volume : ng::ManifoldKind::points;
 }
 std::optional<ng::ManifoldRef> stored_manifold(const Value& v, const std::string& id) {

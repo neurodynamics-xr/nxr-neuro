@@ -6,8 +6,8 @@
 // *1 floor named: the mode axis, both kinds of modes, the 0-, 1- and 2-form parts. `run sensor_mesh`: the good gradiometers (one flagged bad) chosen from the type and
 // quality labellings, the surface, its map and its stored channels, a cache hit on a second run, and the refusals (no sensor type; three good electrodes). `run sensor_flow` end to end
 // on the helmet, then on A SPAN (issue #291): a one-chunk canary (`--chunks 1`) on the same stored time grid equals the whole run on its tiles (NaN outside), is never a hit on the whole
-// run's measurements, records its span, and is a hit when asked again. THE FIBRE NETWORK: a bundle stored by `add fibres`, `tile_network` on the cortex's tiles and `connectome_flow` on the
-// canary's chunk spectra, their outputs stored.
+// run's measurements, records its span, stores only the span's tiles (issue #295: read in place, rolled up at read) and is a hit when asked again. THE FIBRE NETWORK: a bundle stored by
+// `add fibres`, `tile_network` on the cortex's tiles and `connectome_flow` on the canary's chunk spectra, their outputs stored, a hit when run again (#297), the network typed a graph (#298).
 #include "nxr/io/subject_api.h"
 #include <unistd.h>
 
@@ -24,9 +24,12 @@
 #include "nxr/bst/entities.h"
 #include "nxr/geometry/point_set_mesh.h"
 #include "nxr/io/array_reader.h"
+#include "nxr/io/measurement_query.h"
+#include "nxr/io/measures.h"
 #include "nxr/io/task/commands.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
+#include "nxr/pipelines/face.h"
 #include "nxr/pipelines/input.h"
 #include "make_grids.h"
 #include "run_definition.h"
@@ -373,11 +376,23 @@ int main() {
     std::printf("  [span] run sensor_flow --chunks 1\n");
     const auto spanRun = nxrtest::run_definition(ds, sub, "sensor_flow", canary, true, "1");
     CHECK(spanRun.size() == 1 && !spanRun[0].value("hit", false));
-    const auto [spanCurrent, spanProducer] = cells_of("phase_current");
-    const auto [spanPower, spanPowerProducer] = cells_of("power_sum");
-    CHECK(spanCurrent.size() == wholeCurrent.size() && spanPower.size() == wholePower.size());   // the same members: the grid's codes, not a new grid
+    const auto [spanCurrentHeld, spanProducer] = cells_of("phase_current");
+    const auto [spanPowerHeld, spanPowerProducer] = cells_of("power_sum");
     const std::int64_t tiles = n_members("rest tiles"), groups = n_members("atom_bands");
     CHECK(tiles == 64);
+    // ONLY THE SPAN'S TILES ARE STORED (issue #295): the arrays hold 8 of the grid's 64 tiles x the groups, so their size follows the span, not the line; the rows say which members
+    std::printf("  [span] stored cells: %zu values against the whole run's %zu\n", spanCurrentHeld.size(), wholeCurrent.size());
+    CHECK(spanCurrentHeld.size() * 8 == wholeCurrent.size() && spanPowerHeld.size() * 8 == wholePower.size());
+    CHECK(members_of("rest cells", "phase_current") == 8 * groups);
+    CHECK(spanProducer["held_members"] == Json({{"factor", 0}, {"first", 8}, {"count", 8}, {"radix", 64}, {"groups", groups}}));
+    // read as the product's members (measurement_values): the span's tiles in place, NaN elsewhere: the same members, the grid's codes, not a new grid
+    auto read_cells = [&](const std::string& measure) {
+      const MeasurementValues mv = member_measure_values(sub, selection_id("rest cells"), measure);
+      CHECK(mv.members == tiles * groups);
+      return mv.values;
+    };
+    const std::vector<double> spanCurrent = read_cells("phase_current"), spanPower = read_cells("power_sum");
+    CHECK(spanCurrent.size() == wholeCurrent.size() && spanPower.size() == wholePower.size());
     double worst = 0, scale = 0;
     bool outsideNaN = true, insideFinite = true;
     auto compare = [&](const std::vector<double>& part, const std::vector<double>& whole) {
@@ -394,6 +409,27 @@ int main() {
     compare(spanPower, wholePower);
     std::printf("  [span] chunk 1 against the whole run on its tiles: %.2e of %.3g\n", worst, scale);
     CHECK(insideFinite && outsideNaN && worst <= 1e-5 * scale);
+    {   // A ROLL-UP AT READ over the held members (the grid's factor, two tiles a cell): the span's coarse tiles 4..7 are the whole run's sums, the others NaN
+      const auto rows = probe.rows("selection_measurement", {{"selection_id", V(selection_id("rest cells"))}, {"measure", V("power_sum")}});
+      query::RollUp up;
+      up.shift = 1; up.factor = 0;
+      const MeasurementValues rolled = query::rolled_values(sub, selection_id("rest cells"), text(rows.front(), "of_field_id"), std::nullopt, std::nullopt, "power_sum", up);
+      CHECK(rolled.members == (tiles / 2) * groups);
+      const std::int64_t members = tiles * groups, half = tiles / 2, nrows = static_cast<std::int64_t>(wholePower.size()) / members;
+      double rworst = 0, rscale = 0;
+      bool rOutsideNaN = true;
+      for (std::int64_t r = 0; r < nrows; ++r)
+        for (std::int64_t q = 0; q < groups; ++q)
+          for (std::int64_t n = 0; n < half; ++n) {
+            const double v = rolled.values[static_cast<std::size_t>(r * half * groups + n + half * q)];
+            if (n >= 4 && n < 8) {
+              const double w = wholePower[static_cast<std::size_t>(r * members + 2 * n + tiles * q)] + wholePower[static_cast<std::size_t>(r * members + 2 * n + 1 + tiles * q)];
+              rworst = std::max(rworst, std::abs(v - w)); rscale = std::max(rscale, std::abs(w));
+            } else rOutsideNaN = rOutsideNaN && std::isnan(v);
+          }
+      std::printf("  [span] rolled up two tiles a cell against the whole run: %.2e of %.3g\n", rworst, rscale);
+      CHECK(rOutsideNaN && rworst <= 1e-5 * rscale);
+    }
     // the span in the producer: the run's (the chunk read) and the cells' grid (the tiles measured)
     const Json runSpan = spanProducer["run"]["span"];
     std::printf("  [span] run.span %s\n", runSpan.dump().substr(0, 200).c_str());
@@ -442,12 +478,34 @@ int main() {
     CHECK(probe.rows("operator", {{"name", V("hodgeDirac__net_eigenvectors")}}).size() == 1);   // the network's modes, made first as their own run
     {
       const auto rows = probe.rows("selection_measurement", {{"selection_id", V(selection_id("rest atom cells"))}, {"measure", V("power_sum")}});
-      const std::vector<double> cells = read_as<double>(sub, text(rows.front(), "array_path"));
-      const std::int64_t members = n_members("rest atom cells"), T = static_cast<std::int64_t>(cells.size()) / members;
-      bool spanOnly = true;
+      const std::vector<double> held = read_as<double>(sub, text(rows.front(), "array_path"));
+      const std::int64_t members = n_members("rest atom cells"), atomsN = members / 64;
+      CHECK(static_cast<std::int64_t>(held.size()) == 8 * 8 * atomsN);                         // stored: eight network tiles x the span's 8 grid tiles x the atoms, never the line's 64 (#295)
+      const MeasurementValues mv = member_measure_values(sub, selection_id("rest atom cells"), "power_sum");
+      const std::vector<double>& cells = mv.values;
+      const std::int64_t T = mv.rows;
+      bool spanOnly = mv.members == members;
       for (std::int64_t r = 0; r < T; ++r)
         for (std::int64_t m = 0; m < members; ++m) { const std::int64_t n = m % 64; const double v = cells[static_cast<std::size_t>(r * members + m)]; spanOnly = spanOnly && ((n >= 8 && n < 16) ? std::isfinite(v) && v >= 0 : std::isnan(v)); }
-      CHECK(T == 8 && spanOnly);                                                                // eight tiles of the network; chunk 1's grid tiles measured
+      CHECK(T == 8 && spanOnly);                                                                // eight tiles of the network; chunk 1's grid tiles measured, in place among the product's members
+    }
+    // RUN AGAIN with the same inputs and parameters: a cache hit, nothing refused (issue #297: every output is a measurement of the spectra, `of_statistic`)
+    std::printf("  [fibres] connectome_flow again\n");
+    const auto flowAgain = nxrtest::run_definition(ds, sub, "connectome_flow", cf);
+    CHECK(flowAgain.size() == 1 && flowAgain[0].value("hit", false));
+    // the network in `list manifolds`: its port type is a graph, as its row (issue #298)
+    {
+      nxr::io::task::ListClassRequest l;
+      l.cls = "manifolds"; l.dataset = (root / "demo").string(); l.subject = "S1"; l.name = "net";
+      Json listed = Json::array();                                          // (the name filter is a substring: the network's eigen line matches too)
+      const Json all = nxr::pipelines::face::list_class(l).result;
+      for (const auto& row : all.value("rows", Json::array())) if (row.value("name", std::string()) == "net") listed.push_back(row);
+      if (listed.size() != 1) { std::printf("  [fibres] list manifolds: %s\n", all.dump().substr(0, 600).c_str()); std::fflush(stdout); }
+      CHECK(listed.size() == 1);
+      if (listed.size() == 1) {
+        std::printf("  [fibres] list manifolds net: kind %s, type %s\n", listed[0].value("kind", std::string()).c_str(), listed[0]["type"].dump().substr(0, 160).c_str());
+        CHECK(listed[0].value("kind", std::string()) == "graph" && listed[0]["type"].value("kind", std::string()) == "graph");
+      }
     }
   }
   fs::remove_all(root);

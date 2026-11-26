@@ -456,29 +456,33 @@ TileSums tile_sums(const Spectra& s, const Eigen::RowVectorXd& gains, const Time
 }
 ng::Array cells_measurement(const std::vector<std::vector<Eigen::MatrixXd>>& values, const std::vector<std::string>& measures, const TimeGrid& g, const Json& groups, const char* rowsAre,
                             const Json& producer) {
-  const std::int64_t G = static_cast<std::int64_t>(values.size()), K = static_cast<std::int64_t>(measures.size()), N = g.count;
+  const std::int64_t G = static_cast<std::int64_t>(values.size()), K = static_cast<std::int64_t>(measures.size()), N = g.tiles;
   const std::int64_t rows = G > 0 && K > 0 ? values[0][0].rows() : 0, members = N * G;
   ng::Array a;
   a.rows = rows * members; a.cols = K;
-  // a tile outside the span is not measured: NaN (issue #291; the whole line: every tile measured, as before)
-  a.data.assign(static_cast<std::size_t>(rows * members * K), g.whole() ? 0.0 : std::numeric_limits<double>::quiet_NaN());
+  // ONLY THE SPAN'S TILES (issue #295): the array is [rows x span tiles x groups x measures], never the whole grid's (memory and the store follow the span, not the recording);
+  // on the whole line the span's tiles are the grid's, so the array is the product's members as before
+  a.data.assign(static_cast<std::size_t>(rows * members * K), 0.0);
   for (std::int64_t q = 0; q < G; ++q)
     for (std::int64_t k = 0; k < K; ++k) {
       const Eigen::MatrixXd& v = values[static_cast<std::size_t>(q)][static_cast<std::size_t>(k)];
       if (v.rows() != rows || v.cols() != g.tiles) ng::refuse("time cells: a member's sums do not fit the span's tiles of the grid");
       for (std::int64_t r = 0; r < rows; ++r)
         for (std::int64_t j = 0; j < g.tiles; ++j)                           // stored float32: the run reads what the store holds
-          a.data[static_cast<std::size_t>((r * members + g.first + j + N * q) * K + k)] = static_cast<double>(static_cast<float>(v(r, j)));
+          a.data[static_cast<std::size_t>((r * members + j + N * q) * K + k)] = static_cast<double>(static_cast<float>(v(r, j)));
     }
   Json ms = Json::array();
   for (const auto& m : measures) ms.push_back(Json{{"measure", m}});
   a.meta["producer"] = producer;
   a.meta["describe"] = Json{{"method", "time_cells"}, {"measures", ms}, {"shape", Json::array({rows, members, K})}, {"values_shape", Json::array({rows, members})}, {"values_f32", true},
                             {"producer", producer},
-                            {"attributes", Json{{"rows", rowsAre}, {"members", "the product of the time grid's tiles (fastest) with the groups: member n + tiles x group"},
+                            {"attributes", Json{{"rows", rowsAre},
+                                                {"members", g.whole() ? "the product of the time grid's tiles (fastest) with the groups: member n + tiles x group"
+                                                                      : "the span's tiles of the time grid (fastest; grid.span.first_tile + j) with the groups: member j + span tiles x group"},
                                                 {"grid", g.record()}, {"groups", groups},
-                                                {"sum_over", "a tile's samples (each sample once; a tile cut by a chunk's edge completed from the next chunk; the line's last tile as long as it is)"},
-                                                {"outside_span", "NaN: a tile outside the span the run read (grid.span) is not measured"}}}};
+                                                {"sum_over", "a tile's samples (each sample once; a tile cut by a chunk's edge completed from the next chunk; the line's last tile as long as it is)"}}}};
+  // a span holds a part of the product's members: its first factor (the grid's tiles) in [first, first + count), every member of the others; the store records it with the rows
+  if (!g.whole()) a.meta["describe"]["held_members"] = Json{{"factor", 0}, {"first", g.first}, {"count", g.tiles}, {"radix", g.count}, {"groups", G}};
   declare_flow_measures(a.meta["describe"]["measures"]);
   return a;
 }
@@ -494,7 +498,12 @@ StoredCells stored_cells(const ng::Array& cells, const char* who) {
   const Json span = at["grid"].value("span", Json::object());                // cells stored before spans: the whole line
   c.start = span.value("start_sample", std::int64_t(0)); c.stop = span.value("stop_sample", c.size);
   c.groups = at["groups"]; c.measures = d.value("measures", Json::array());
-  if (c.tiles * static_cast<std::int64_t>(c.groups.size()) != c.members) ng::refuse(std::string(who) + ": the cells' members are not the grid's tiles times their groups");
+  // the tiles the array holds (issue #295): a span's alone (held_members), else the whole grid's
+  const Json held = d.value("held_members", Json());
+  c.first = held.is_object() ? held.value("first", std::int64_t(0)) : 0;
+  c.held = held.is_object() ? held.value("count", c.tiles) : c.tiles;
+  if (c.first < 0 || c.first + c.held > c.tiles) ng::refuse(std::string(who) + ": the cells hold tiles outside their grid");
+  if (c.held * static_cast<std::int64_t>(c.groups.size()) != c.members) ng::refuse(std::string(who) + ": the cells' members are not the tiles they hold times their groups");
   return c;
 }
 std::int64_t StoredCells::measure_index(const std::string& name, const char* who) const {
@@ -516,7 +525,9 @@ Eigen::MatrixXd StoredCells::rolled(std::int64_t group, std::int64_t measure) co
   for (std::size_t i = 0; i < kept.size(); ++i) {
     const std::int64_t c = kept[i];
     for (std::int64_t e = cells.offsets[static_cast<std::size_t>(c)]; e < cells.offsets[static_cast<std::size_t>(c) + 1]; ++e) {
-      const std::int64_t member = cells.elements[static_cast<std::size_t>(e)] + tiles * group;
+      const std::int64_t tile = cells.elements[static_cast<std::size_t>(e)] - first;   // a kept cell lies inside the span: its tiles are held
+      if (tile < 0 || tile >= held) ng::refuse("time cells: a cell inside the span reaches a tile the cells do not hold");
+      const std::int64_t member = tile + held * group;
       for (std::int64_t r = 0; r < rows; ++r) out(static_cast<Eigen::Index>(i), r) += array->at(static_cast<std::size_t>((r * members + member) * K + measure));
     }
   }
