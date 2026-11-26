@@ -235,6 +235,7 @@ struct CorticalPrepared {
   Eigen::Index bands = 0;
   Json operatorMeta, p;
   double outsideModesShare = 0;              // the kernel's mass-weighted energy outside the kept cortical modes, as a share of its whole
+  ng::Array grid, wholeProduct, product;     // the time cells' stored grid and the products they are measured over (signal.cortical_time_cells)
 };
 
 CorticalPrepared prepare_cortical(const ng::Arrays& c, const Json& p, const char* who, bool needAtoms) {
@@ -411,6 +412,8 @@ ng::NodeSpec cortical_flow() {
 }
 
 // ── signal.cortical_time_cells ───────────────────────────────────────────────────────────────────────────────────
+// THE TIME CELLS ON A STORED GRID (G7): each atom and readout summed over the tiles of the stored time grid, stored as MEASUREMENTS over the grid x atoms (the whole field) and the
+// grid x atoms x bands (chunk_spectra_readers.h); the sign-flip test reads them rolled up to each atom's own window.
 const char* const kCells = "signal.cortical_time_cells";
 ng::NodeSpec cortical_time_cells() {
   ng::NodeSpec n;
@@ -421,70 +424,79 @@ ng::NodeSpec cortical_time_cells() {
               {"package", "the cortex's Hodge-Dirac package", false},
               {"operator", "the cortex mode operator (signal.source_mode_operator)", false},
               {"kernel_columns", "the kernel's rows on the cortex in the operator's columns (signal.source_mode_operator)", false},
-              {"frequency", "the atoms: a kernel set of Gaussians on the spectra's frequency line (their time width sets the cells)", false},
-              {"scale", "the cortical eigenvalue bands; each band's field is read on its own, after the whole field. Absent: the whole field only", true}};
-  n.outputs = {{"cells", "per atom x readout (the whole field, then each band; the atom fastest), per time cell of the atom's own width: the edge phase currents, the vertex phase currents (x y z), the power per vertex (sums over the cell, the components summed)", false}};
+              {"frequency", "the atoms: a kernel set of Gaussians on the spectra's frequency line (their time width sets each atom's own window)", false},
+              {"scale", "the cortical eigenvalue bands; each band's field is read on its own, after the whole field. Absent: the whole field only", true},
+              {"grid", "the stored time grid of the recording (`select_time_grid --rule tiles`): its tiles are the cells", false},
+              {"whole_product", "the product the whole field's cells are measured over: the grid x the atoms (`select_product --time-grid --atoms`)", false},
+              {"product", "the product the bands' cells are measured over: the grid x the atoms x the bands (`select_product --time-grid --atoms --scales`); with scale", true}};
+  n.outputs = {{"whole_edge_cells", "a MEASUREMENT over grid x atoms: the whole field's edge phase current summed over each tile", false},
+               {"whole_vertex_cells", "a MEASUREMENT over grid x atoms: the whole field's vertex phase current x y z and power summed over each tile (the three current components summed)", false},
+               {"edge_cells", "as whole_edge_cells, per band, over grid x atoms x bands; absent without bands", false},
+               {"vertex_cells", "as whole_vertex_cells, per band, over grid x atoms x bands; absent without bands", false}};
   n.parameters = {
       {"frequency_weighting", Json("kernels"), "kernels (the only weighting with atoms: the time cells are the atoms')", "-", {"kernels"}, false},
       {"frequency_normalisation", Json(), "sum_of_squared_gains | none: as signal.spectral_flow's (no default)", "-", {"sum_of_squared_gains", "none"}, false},
       {"support_floor", Json(), "with sum_of_squared_gains: as signal.spectral_flow's (no default)", "-", {}, true},
-      {"cell_width", Json(), "a time cell's width in the atom's time standard deviations (1 / (2 pi sigma_f)), snapped to the nearest power of two of samples (no default)", "-", {}, false}};
+      {"cell_width", Json(), "each atom's own window (a box): this many of the atom's time standard deviations (1 / (2 pi sigma_f)), snapped to the nearest dyadic level, not finer than the grid's (no default)", "-", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input,
-                             "once a run, chunk by chunk of the stored spectra: the atom's spectrum back in time on the columns' side (one inverse transform of the columns), then the readout per cell and its sums");
-  n.matches = "signal.atom_time_cells with the cortical readout in place of the sensor synthesis; compute nxr::signal::timeCellPairFlow, takeWholeCells";
-  n.description = "the cortical flow of each atom in the atom's own time cells, for the whole field and each band: per cell the sums of the edge and vertex phase currents and of the power";
+                             "once a run, chunk by chunk of the stored spectra: the atom's spectrum back in time on the columns' side (one inverse transform of the columns), then the readout per tile and its sums");
+  n.matches = "signal.atom_time_cells with the cortical readout in place of the sensor synthesis; compute nxr::signal::timeCellPairFlow; the cells are the stored grid's tiles";
+  n.description = "the cortical flow of each atom summed over the tiles of a stored time grid, for the whole field and each band: per tile the sums of the edge and vertex phase currents and of the power";
   n.plan = [](const ng::Types& in, const Json& p) {
-    for (const char* k : {"spectra", "package", "operator", "kernel_columns", "frequency"}) if (!in.count(k)) ng::refuse(std::string(kCells) + ": " + k + " is not given");
+    for (const char* k : {"spectra", "package", "operator", "kernel_columns", "frequency", "grid", "whole_product"}) if (!in.count(k)) ng::refuse(std::string(kCells) + ": " + k + " is not given");
+    if (in.count("scale") && !in.count("product")) ng::refuse(std::string(kCells) + ": with bands (scale) the product grid x atoms x bands is given (product)");
     text_param(p, "frequency_normalisation", kCells);
     if (!p.contains("cell_width") || !p["cell_width"].is_number() || !(p["cell_width"].get<double>() > 0)) ng::refuse(std::string(kCells) + ": cell_width has no default: name it (> 0)");
     ng::Planned out;
-    out.out["cells"] = statistic_port();
+    for (const char* o : {"whole_edge_cells", "whole_vertex_cells", "edge_cells", "vertex_cells"}) out.out[o] = measurement_port();
     return out;
   };
-  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) { return std::any(prepare_cortical(c, p, kCells, true)); };
+  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) {
+    CorticalPrepared pr = prepare_cortical(c, p, kCells, true);
+    pr.grid = constant_input(c, "grid", kCells);
+    pr.wholeProduct = constant_input(c, "whole_product", kCells);
+    if (pr.bands > 0) pr.product = constant_input(c, "product", kCells);
+    return std::any(std::move(pr));
+  };
   n.run = [](const std::any& prepared, const ng::Arrays& in) {
     const CorticalPrepared& pr = std::any_cast<const CorticalPrepared&>(prepared);
     const readers::Spectra s = readers::spectra_of(constant_input(in, "spectra", kCells), kCells);
     const nxr::signal::IntrinsicComplex& cx = *pr.package.complex;
     const Eigen::SparseMatrix<double> sharpWeights = nxr::signal::sharpOperator(cx);
-    const Eigen::Index V = cx.nV, E = cx.nE, A = pr.frequency.rows(), R = static_cast<Eigen::Index>(pr.readouts.size());
+    const Eigen::Index V = cx.nV, A = pr.frequency.rows(), R = static_cast<Eigen::Index>(pr.readouts.size()), Q = R - 1;
     if (static_cast<std::int64_t>(s.owns.size()) != s.chunks || static_cast<std::int64_t>(s.firsts.size()) != s.chunks) ng::refuse(std::string(kCells) + ": the spectra do not record each chunk's samples");
+    const readers::TimeGrid g = readers::time_grid_of(pr.grid, s, kCells);
+    readers::check_cells_product(pr.wholeProduct, g, {A}, kCells);
+    if (Q > 0) readers::check_cells_product(pr.product, g, {A, Q}, kCells);
     const double width = pr.p["cell_width"].get<double>();
-    ng::Array out;
-    out.cols = E + 4 * V;
-    Json groups = Json::array();
-    std::int64_t row = 0;
+    std::vector<int> own(static_cast<std::size_t>(A));
+    for (Eigen::Index a = 0; a < A; ++a) own[static_cast<std::size_t>(a)] = readers::own_level(width, pr.standardDeviations[static_cast<std::size_t>(a)], g, kCells);
+    std::vector<std::vector<Eigen::MatrixXd>> wholeEdges, wholeVertices, edges, vertices;
+    Json wholeGroups = Json::array(), groups = Json::array();
     for (Eigen::Index r = 0; r < R; ++r)
       for (Eigen::Index a = 0; a < A; ++a) {
-        const double sigmaT = 1.0 / (2.0 * M_PI * pr.standardDeviations[static_cast<std::size_t>(a)]);
-        const std::int64_t cell = std::int64_t(1) << static_cast<int>(std::lround(std::log2(width * sigmaT * s.sfreq)));
-        std::int64_t cells = 0;
-        nxr::signal::TimeCellPairFlow carried;                                               // a cell cut by a chunk's end, completed from the next chunk
-        for (std::int64_t t = 0; t < s.chunks; ++t) {
-          Eigen::MatrixXcd X(s.rows, s.bins);
-          for (std::int64_t k = 0; k < s.bins; ++k) for (std::int64_t c = 0; c < s.rows; ++c) X(c, k) = pr.frequency(a, k) * s.at(t, k, c);
-          const nxr::signal::TimeCellPairFlow part = nxr::signal::timeCellPairFlow(X, s.first, s.transform, s.overlap, s.owns[static_cast<std::size_t>(t)], s.firsts[static_cast<std::size_t>(t)],
-                                                                                   cell, pr.readouts[static_cast<std::size_t>(r)], 3, cx.edges, &sharpWeights);
-          const nxr::signal::TimeCellPairFlow f = nxr::signal::takeWholeCells(carried, part, cell);
-          for (Eigen::Index j = 0; j < f.power.cols(); ++j) {
-            for (Eigen::Index e = 0; e < E; ++e) out.single.push_back(static_cast<float>(f.pairImaginary(e, j)));
-            for (Eigen::Index i = 0; i < 3 * V; ++i) out.single.push_back(static_cast<float>(f.vertexCurrent(i, j)));
-            for (Eigen::Index v = 0; v < V; ++v) out.single.push_back(static_cast<float>(f.power(v, j)));
-          }
-          cells += f.power.cols();
-        }
-        groups.push_back(Json{{"atom", a}, {"band", r - 1}, {"first_row", row}, {"cells", cells}, {"cell_samples", cell}, {"cell_seconds", static_cast<double>(cell) / s.sfreq}});
-        row += cells;
+        readers::TileSums t = readers::tile_sums(s, pr.frequency.row(a), g, pr.readouts[static_cast<std::size_t>(r)], 3, cx.edges, &sharpWeights);
+        Eigen::MatrixXd x(V, g.count), y(V, g.count), z(V, g.count);
+        for (Eigen::Index v = 0; v < V; ++v) { x.row(v) = t.vertexCurrent.row(3 * v); y.row(v) = t.vertexCurrent.row(3 * v + 1); z.row(v) = t.vertexCurrent.row(3 * v + 2); }
+        const int k = own[static_cast<std::size_t>(a)];
+        const Json group = Json{{"atom", a}, {"band", r - 1}, {"own_level", k}, {"own_samples", std::int64_t(1) << k}, {"own_seconds", static_cast<double>(std::int64_t(1) << k) / s.sfreq}};
+        (r == 0 ? wholeEdges : edges).push_back({std::move(t.pairImaginary)});
+        (r == 0 ? wholeVertices : vertices).push_back({std::move(x), std::move(y), std::move(z), std::move(t.power)});
+        (r == 0 ? wholeGroups : groups).push_back(group);
       }
-    out.rows = row;
-    out.meta["describe"] = Json{{"method", "cortical_time_cells"}, {"measure", "time_cell_flow"}, {"shape", Json::array({row, E + 4 * V})}, {"axes", Json::array({indexed_axis("cell", row), indexed_axis("column", E + 4 * V)})},
-                                {"measures", Json::array({Json{{"measure", "phase_current"}, {"columns", Json::array({0, E})}}, Json{{"measure", "vertex_phase_current"}, {"columns", Json::array({E, E + 3 * V})}},
-                                                         Json{{"measure", "power"}, {"columns", Json::array({E + 3 * V, E + 4 * V})}}})},
-                                {"values_shape", Json::array({row, E + 4 * V})}, {"precision", "float32"},
-                                {"attributes", Json{{"groups", groups}, {"rows", "the time cells of each atom x readout (band -1: the whole field), in the groups' order; whole cells anchored at the recording's first sample, a cell cut by a chunk's edge completed from the next chunk, a part cell at the recording's ends left out"},
-                                                    {"columns", "the edges' phase currents, then each vertex's x y z phase current, then each vertex's power (the three current components summed)"},
-                                                    {"cell_width", width}, {"sum_over", "the cell's samples (each sample once)"}}}};
-    return ng::Arrays{{"cells", std::move(out)}};
+    const Json producer = Json{{"grid", g.record()}, {"cell_width", width}, {"own_window", "a box of cell_width time standard deviations of the atom, snapped to the nearest dyadic level"}};
+    const std::vector<std::string> vertexMeasures = {"vertex_phase_current_x", "vertex_phase_current_y", "vertex_phase_current_z", "power_sum"};
+    ng::Arrays out;
+    out["whole_edge_cells"] = readers::cells_measurement(wholeEdges, {"phase_current"}, g, wholeGroups, "the edges of the intrinsic complex", producer);
+    out["whole_vertex_cells"] = readers::cells_measurement(wholeVertices, vertexMeasures, g, wholeGroups, "the vertices of the cortex", producer);
+    if (Q > 0) {
+      out["edge_cells"] = readers::cells_measurement(edges, {"phase_current"}, g, groups, "the edges of the intrinsic complex", producer);
+      out["vertex_cells"] = readers::cells_measurement(vertices, vertexMeasures, g, groups, "the vertices of the cortex", producer);
+    } else {
+      ng::Array absent; absent.meta["absent"] = true;
+      out["edge_cells"] = absent; out["vertex_cells"] = absent;
+    }
+    return out;
   };
   return n;
 }

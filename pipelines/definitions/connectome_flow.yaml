@@ -4,7 +4,7 @@
 # THE GRAPH. before: the sensor surface's eigenvectors + its channel map --[signal.mode_analysis, modes exact_and_constant, unit_mass]--> the serving operator the spectra were served
 # with (as `sensor_flow` binds it); kernel + tiles + serving operator --[signal.tile_operator]--> ONE operator [3 tiles x coordinates] (the kernel averaged over each tile's vertices,
 # three components, composed with the synthesis of the coordinates back to the kernel's channels); spectra + operator + atoms --[signal.tile_flow]--> per atom the whole run's tile
-# cross-spectrum (the sensor chain's whole-run form, for comparison); --[signal.tile_time_cells]--> the sums per cell (nxr's 4 s segments by default) --[stats.network_sign_flip]--> nxr's nulls:
+# cross-spectrum (the sensor chain's whole-run form, for comparison); --[signal.tile_time_cells]--> the sums per tile of the STORED time grid (measurements over grid x atoms) --[stats.network_sign_flip]--> nxr's nulls on those cells rolled up to each atom's own window:
 # per pair the mean edge flow, its sign-flip p and family-wise p, the distance-matched control pairs, the phase; pairs + eigenmodes + mean edge flow --[meeg.network_flow]--> per atom divergence, graph potential (the 1/eigenvalue gain on the connectome eigenmodes) and its coefficients.
 # Derived at read: the edge flow Im S_ij / sqrt(S_ii S_jj), the lag -arg S_ij / (2 pi f), the speed (median length / |lag|), the gradient share, the counts over the edges and over the
 # distance-matched not-joined pairs. Every value below is a stated choice of this definition; the atoms are the sensor flow's (`select_kernels`), the kernel is the caller's.
@@ -13,7 +13,7 @@
 # does not by itself show that the fibres carry it (compare the distance-matched not-joined pairs); a whole-run cross-spectrum keeps the net quadrature only.
 #
 #   nxr-neuro run connectome_flow --dataset D --subject S --spectra REC_chunk_spectra --package hodgeDirac__SENSORS --channel-map SENSORS_map --atoms "ATOMS" \
-#       --kernel KERNEL --tiles "cortex tiles" --network BUNDLE_tiles32 --name REC_KERNEL_tiles32
+#       --kernel KERNEL --tiles "cortex tiles" --network BUNDLE_tiles32 --time-grid "REC time grid tiles 0.05 s" --time-atoms "REC grid x atoms" --name REC_KERNEL_tiles32
 pipeline: connectome_flow
 version: 1
 description: the flow through the fibre network - the tiles' cross-spectrum per atom from the stored chunk spectra, its time cells and sign-flip test, the network's divergence and graph potential in the connectome eigenmodes
@@ -28,6 +28,8 @@ inputs:
   tiles:       {selection: any, where: {name: $tiles}, hint: "the dyadic grid of the kernel's surface (`nxr-neuro run select_dyadic_surface` first)"}
   pairs:       {statistic: any, where: {name: "${network}_pairs"}, hint: "the fibre network (`nxr-neuro run tile_network` first)"}
   eigenmodes:  {statistic: any, where: {name: "${network}_eigenmodes"}, hint: "the network's connectome eigenmodes (`nxr-neuro run tile_network` first)"}
+  time_grid:   {selection: any, where: {name: $time_grid}, hint: "the recording's stored time grid, whose tiles are the time cells (`nxr-neuro run select_time_grid --rule tiles --duration D` first)"}
+  time_atoms:  {selection: any, where: {name: $time_atoms}, hint: "the product the time cells are measured over: the time grid x the atoms (`nxr-neuro run select_product --time-grid GRID --atoms ATOMS` first)"}
 
 parameters:
   spectra: {default: null, meaning: "the stored chunk spectra's name", unit: "-"}
@@ -41,9 +43,9 @@ parameters:
   min_streamlines: {default: 10, meaning: "a pair of tiles is an edge when at least this many streamlines join it: the network's eigenmodes' own (nxr: 10)", unit: streamlines}
   frequency_normalisation: {default: sum_of_squared_gains, meaning: "the atoms divided at each bin by the square root of their squared gains' sum (the sensor flow's) | none (nxr's gains as they are)", unit: "-", choices: [sum_of_squared_gains, none]}
   support_floor: {default: 0.001, meaning: "with sum_of_squared_gains: a bin whose atoms' squared gains sum to less than this fraction of their largest sum lies outside the atoms", unit: "-"}
-  cells: {default: segments, meaning: "the cells the test flips and the mean edge flow averages: segments (nxr's: non-overlapping segments of segment_seconds from the run's first sample, the same for every atom) | atom_width (each atom's own time cells, as the sensor flow's)", unit: "-", choices: [segments, atom_width]}
-  segment_seconds: {default: 4.0, meaning: "cells segments: a segment's length (nxr: 4 s)", unit: s}
-  cell_width: {default: 2.0, meaning: "cells atom_width: a cell's width in the atom's time standard deviations, snapped to a power of two of samples (the sensor flow's)", unit: "-"}
+  time_grid: {default: required, meaning: "the stored time grid of the spectra's recording by name (one level of its dyadic tiling): the time cells are its tiles, stored as measurements over time_atoms", unit: "-"}
+  time_atoms: {default: required, meaning: "the product time grid x atoms by name: the time cells are measured over its members", unit: "-"}
+  cell_width: {default: 2.0, meaning: "each atom's own window, the cells the test flips and the mean edge flow averages (a box): this many of the atom's time standard deviations, snapped to the nearest dyadic level of the grid's tiling (not finer than the grid); there is no fixed segment (nxr's 4 s segments are not kept)", unit: "-"}
   patterns: {default: 2000, meaning: "the sign-flip test's random patterns (nxr: 2000)", unit: "-"}
   seed: {default: 0, meaning: "the seed of numpy's default_rng, one for the run, drawn in nxr's order (per atom the flip, then the control's draws) (nxr: 0)", unit: "-"}
   distance_bin_edges: {default: [0, 0.03, 0.045, 0.06, 0.08, 0.1, 0.13, 0.17, 0.25], meaning: "the distance bins the control pairs are matched in, in the surface's unit (nxr: 0 30 45 60 80 100 130 170 250 mm)", unit: m}
@@ -54,12 +56,14 @@ steps:
     - {node: signal.mode_analysis, in: {package: package, channel_map: channel_map}, with: {modes: exact_and_constant, normalisation: unit_mass}, out: serving}
     - {node: signal.tile_operator, in: {kernel: kernel, tiles: tiles, serving: serving}, with: {tiles_per_piece: $tiles_per_piece}, out: operator}
     - {node: signal.tile_flow, in: {spectra: spectra, operator: operator, frequency: atoms}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor}, out: [pair_flow, tile_power]}
-    - {node: signal.tile_time_cells, in: {spectra: spectra, operator: operator, frequency: atoms}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cells: $cells, segment_seconds: $segment_seconds, cell_width: $cell_width}, out: cells}
-    - {node: stats.network_sign_flip, in: {cells: cells, pairs: pairs}, with: {patterns: $patterns, seed: $seed, min_streamlines: $min_streamlines, distance_bin_edges: $distance_bin_edges}, out: consistency}
+    - {node: signal.tile_time_cells, in: {spectra: spectra, operator: operator, frequency: atoms, grid: time_grid, product: time_atoms}, with: {frequency_normalisation: $frequency_normalisation, support_floor: $support_floor, cell_width: $cell_width}, out: [pair_cells, tile_cells]}
+    - {node: stats.network_sign_flip, in: {pair_cells: pair_cells, tile_cells: tile_cells, pairs: pairs}, with: {patterns: $patterns, seed: $seed, min_streamlines: $min_streamlines, distance_bin_edges: $distance_bin_edges}, out: consistency}
     - {node: meeg.network_flow, in: {pairs: pairs, eigenmodes: eigenmodes, flow: consistency}, with: {min_streamlines: $min_streamlines}, out: [network_tiles, network_modes, network_totals]}
 
 outputs:
-  # per atom: MEASUREMENTS of the chunk spectra over the atoms (the time cells are made and tested in the run, never stored)
+  # per atom: MEASUREMENTS of the chunk spectra over the atoms; the time cells over the time grid x the atoms (G7: stored, declared sum, rolled up at read)
+  pair_cells:     {kind: measurement, over: time_atoms, of_statistic: spectra}
+  tile_cells:     {kind: measurement, over: time_atoms, of_statistic: spectra}
   pair_flow:      {kind: measurement, over: atoms, of_statistic: spectra}
   tile_power:     {kind: measurement, over: atoms, of_statistic: spectra}
   consistency:    {kind: measurement, over: atoms, of_statistic: spectra}
