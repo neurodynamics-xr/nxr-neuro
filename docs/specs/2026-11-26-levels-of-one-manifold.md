@@ -96,7 +96,7 @@ and whose Laplacian is every fine operator's, the Hodge-Dirac modes included) or
 form and keyed by (samples, rate, k).
 
 **The time line** (`lineLevel(samples, rate, k)`): cells m = ceil(samples / 2^k), ⋆0 the tiles' durations, edges (m, m + 1), d0, ⋆1 = 1/dt, crossing the fine edge
-(2^k (m + 1) - 1, 2^k (m + 1)), no faces, halfedges m -> m + 1 and their twins (no next on a line). It equals `levelComplex` of the line's samples with the
+(2^k (m + 1) - 1, 2^k (m + 1)), no faces and so no halfedges (its neighbours are m - 1 and m + 1; twin and next are refused, naming why). It equals `levelComplex` of the line's samples with the
 partition i >> k (tested).
 
 ## 6. Reduction and expansion per measure (the vocabulary's words: reduction = restriction, expansion = prolongation)

@@ -305,6 +305,7 @@ the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subcl
 | `compute.signal.exactPotential(modes, coef)`, `coexactStream(complex, modes, coef)` | `nxr::signal::exactPotential`, `coexactStream` | the scalar potential Φ (d0 Φ = the exact part) and the stream function Ψ of the coexact part, at the vertices |
 | `compute.signal.splitPhase(complex, modes, w)` | `nxr::signal::splitPhase` | a 1-form on the intrinsic edges (a phase step, a phase current, any edge values) split by the modes into its exact (curl-free) and coexact (divergence-free) parts, POINTWISE only: the coefficients, the parts, the potential, the stream function, the propagation direction. The shares and the misfit share are derived measures of reductions (below). **Boundary condition (a fact of the method, not an option):** on an open surface the potential is Neumann (zero normal flux) and the stream function Dirichlet (zero on the rim); a closed surface has no boundary. **Reading:** for a phase-step input (`phaseGradient`) the exact part is the timing (its potential a time-of-arrival map, potential / ω) and the coexact part the rotation (winding at phase singularities); for an amplitude-weighted phase current (`phaseCurrent`) the exact part is the curl-free part of the current, not a timing. **What it cannot resolve:** a phase step per edge is taken in (−π, π], so a wave with more than half a cycle per edge aliases |
 | `compute.signal.vertexEnergy(complex, w)` | `nxr::signal::vertexEnergy` | the ⋆1 energy of a 1-form at the vertices (each edge's ⋆1 w² half at each end): a tile's energy is the SUM over its vertices. Summed over a partition's members, the energies of w, of the exact part, of the coexact part and of w − exact are the measures `one_form_energy`, `exact_energy`, `coexact_energy`, `exact_misfit_energy`; the derived measures `exact_share`, `coexact_share`, `residual_share` and `exact_misfit_share` are their ratios, computed at read |
+| `compute.select.dyadicLevel(d0, star0, star1, codes, depth, slots, level, d1=None)`, `vertexLevel`, `levelComplex`, `lineLevel(samples, rate, k)`, `productLevel(space, time, coupling=None)`, `subjectTree(vertices, faces, depth=-1)` | `nxr::select::dyadicLevel`, `vertexLevel`, `levelComplex`, `lineLevel`, `productLevel`, `subjectTree` | a level of one manifold as a navigable view (neighbours, twin, next, parent, children, area, d0, d1, stars, the crossing map, reduction and expansion by merge rule) and the product with a time level; the section *The levels of one manifold* |
 | `compute.select.median(x)`, `mad(x)` | `nxr::select::median`, `mad` | the median, and the robust SD 1.4826 * median absolute deviation, of a 1-D series |
 | `compute.select.crossings(x, entry, exit)`, `mergeSpans(spans, gap)`, `keepSpans(spans, min_length, max_length)` | `nxr::select::crossings`, `mergeSpans`, `keepSpans` | spans where a series is above a hysteresis threshold, joined across short gaps, kept by length (samples); a span is `start, stop, peak, value` arrays (0-based, stop exclusive) |
 | `compute.select.detectBursts(amplitude, step, enter_sd=1.5, exit_sd=1.0, merge_s=0.1, min_s=0.4, max_s=inf, baseline=None)` | `nxr::select::detectBursts` | the bursts of an amplitude series: robust baseline, hysteresis, merge, length; the spans with the baseline, levels and durations used |
@@ -2469,6 +2470,45 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
   `package migrate-measurements` (written; run only on the maintainers' word).
 - **Tests.** `test_select_makers` (the maker definitions, the quantity refusal, the glued cortex); the CLI test refuses every retired spelling naming its replacement.
 
+
+## The levels of one manifold: addressing and navigation at every level (`compute/include/nxr/select/levels.h`, `run level_complex`; spec `docs/specs/2026-11-26-levels-of-one-manifold.md`)
+
+**Why.** A measurement is stored at the level it is computed at and rolled up at read; navigating it (a tile's neighbours, the boundary between two tiles, a step to the next time tile, the
+level's operators) needs every level to be a cell complex in its own right. A level is never a manifold row and never a name of its own: the stored manifold is the finest (a surface's
+vertices, a recording's samples), and a level is COMPUTED from it and the grid's partition, keeping the grid's identities. The rule "a level is a partition, not a manifold" is amended
+accordingly (the partition stays the source of truth).
+
+- **Addressing.** A cell is (manifold, level, code): the level is a stored grid's label (a dyadic level l, 2^l tiles a piece, 0 the coarsest; a time level k, tiles of 2^k samples, 0 the
+  samples; a surface's own vertices are the level `kVertexLevel`), the code the grid's member number. Parent and children are the grids' closed forms (dyadic (l - 1, c >> 1) and
+  (l + 1, 2c, 2c + 1), the finest level's children its vertices; time (k + 1, m >> 1) and (k - 1, 2m, 2m + 1) inside the line). A joint cell of (surface level) x (time level) is
+  ((surface, l, code), (time, k, code)), packed by `selection::product_code` with space fastest.
+- **The level complex** (`levelComplex(fine, cellOf, cells)`, `dyadicLevel`, `vertexLevel`): the quotient of the fine complex (DEC's d0, d1, ⋆1 and the caller's ⋆0) by the partition.
+  Its edges are the pairs of cells a fine edge joins (tail < tip, pair order; on the input mesh exactly the stored `lc/L<l>/adjacency`); ⋆0 the summed vertex areas (the grid's `w`
+  with barycentric areas); ⋆1 the GALERKIN conductance, the summed fine cotan weights across a boundary, so d0ᵀ⋆1 d0 = Pᵀ L P exactly; the CROSSING map E with d0_fine P = E d0 (and
+  Pᵀ d0_fineᵀ = d0ᵀ Eᵀ: the boundary commutes on the crossing edges); the JUNCTION faces (a fine face across three cells) with d1_fine E = J d1. **Halfedges** (twin, next, outgoing)
+  exist only when the level is a valid surface complex: every edge on one or two faces of opposite orientation, every cell's faces one fan, V - E + F the fine mesh's; otherwise they are
+  refused with the reason (`why`) and the level stays a 1-complex on which neighbours and operators hold. ⋆1 is the raw cotan weight (never floored here); the record counts negative ones.
+  The fine mesh is the caller's: the operator mesh (intrinsic Delaunay, the default of the definition) or the input. Named alternative not built: a two-point metric.
+- **The time line** (`lineLevel(samples, rate, k)`): closed form; ⋆0 a tile's duration (samples / rate, the last tile as long as the line: the tile view, not DEC's half intervals at the
+  ends, so a level's ⋆0 is the sum of its samples'), ⋆1 = rate (one fine edge crosses each boundary, `crossingEdge`), no faces.
+- **Reduction and expansion** (`reductionOperator`, `expansionOperator`, `reduce`, by merge rule): `sum` Pᵀ and back split by ⋆0 share; `mean` ⋆0-weighted and back piecewise constant;
+  `max`, `min` through `roll_values` (no matrix, no expansion); `none`, `derived` refused. `reduce` IS `nxr::measurement::roll_values` over the level's groups (the one roll-up).
+- **The product** (`productLevel(space, time, coupling)`): separable, levels chosen independently; neighbours are `spaceTimePairs`'s graph; operators d0 = [space edges x time cells ;
+  space cells x time edges], ⋆0 and ⋆1 the products, so the product Laplacian is again the Galerkin projection of the fine product's. `Coupling` is a typed slot (`separable`,
+  `dispersion` with a speed in m/s and a sense); `dispersion` is refused until the relation is built.
+- **Stored** (`run level_complex --surface S --tiles G --spatial-scale "parts 16" [--mesh operator|input]`, the step `select.level_complex`): sparse operators ON THE SURFACE, no manifold
+  row: `<grid> L<l> d0`, `star1`, `crossing`, `d1`, with `from_selection` the grid and `{grid, level, mesh, metric}` in their params; the producer records the counts, the negative
+  conductances and whether the level is a valid complex. A rerun is a cache hit; a consumer names it with `made_by: level_complex`. Time levels store nothing.
+- **Python** (`nxr_neuro.compute.select`): `dyadicLevel(d0, star0, star1, codes, depth, slots, level, d1=)`, `vertexLevel`, `levelComplex`, `lineLevel`, `productLevel`, and
+  `subjectTree(vertices, faces)` (the grid's codes as `select_dyadic_surface --rule subject` makes them); the fine complex comes from `operators.assembleDECOperators`. A `Level` has
+  `cells`, `edges`, `d0`, `star0`, `star1`, `crossing`, `faces`, `junctions`, `d1`, `valid`, `why`, `neighbours`, `incidentEdges`, `outgoing`, `twin`, `next`, `tail`, `tip`, `parent`,
+  `children`, `area`, `star(rank)`, `cell`, `laplacian`, `cellMap`, `reductionOperator`, `expansionOperator`, `reduce`; a `ProductLevel` `jointCode`, `jointAddress`, `neighbours`,
+  `operators`.
+- **What it cannot resolve.** A level's Galerkin Laplacian is the energy of piecewise-constant functions on the tiles, not a finer discretisation; tiles are one piece but not always
+  discs, so coarse levels of an open surface (the sensor helmet) are often graphs without halfedges; the cortex (its glued surface, tiles that are not discs) and the dispersion relation
+  are later steps.
+- **Tests.** `test_levels` (compute, synthetic helmet, icosphere and line: every identity above, the halfedges or the refusal, the reductions against `roll_values`, the product),
+  `test_level_complex` (the definition on a synthetic subject: the stored operators, their key, a cache hit), `bindings/python/tests/test_levels.py`.
 
 ## Optical flow (`compute/include/nxr/opticalflow*.h`, `run flow_modes`)
 

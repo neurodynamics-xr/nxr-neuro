@@ -103,7 +103,7 @@ hop are resolved from the stated quantity:
 - COUPLING. A factor may be stated as a grid with a coupled level: `{grid: <surface grid>, level_of: band}` (the Weyl level of the band's centre,
   `space_level_of_band`) or `{grid: <time line>, level_of: band}` (`time_level_of_band`). With a band SET, the product is made per band member (each band
   its own levels), and the output is a list of products indexed by the band's code. Coupled levels are computed in closed form at plan time and are
-  never stored as selections of their own (section 6.2).
+  never stored as selections of their own (section 6.2). (2026-11-26: a level's navigation, its operators keyed by the grid and the level, is `level_complex`'s, never a selection or a manifold row: [2026-11-26-levels-of-one-manifold.md](2026-11-26-levels-of-one-manifold.md).)
 - Roll-ups only along grid factors (`rollup_refusal`).
 - Compute: `nxr::selection::product`, `joint`, `coarser_code` (exist).
 - Retires: `joint.cells`, the `joint` definition, `pyramid`'s joint step, the per-pair `cells` selections found by `params.joint.*`.

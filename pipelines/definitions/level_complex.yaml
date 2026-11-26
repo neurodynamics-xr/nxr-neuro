@@ -1,0 +1,37 @@
+# THE NAVIGATION OPERATORS OF ONE LEVEL OF A SURFACE'S DYADIC GRID (spec docs/specs/2026-11-26-levels-of-one-manifold.md): a level is no manifold of its own; it is the quotient of the
+# surface's fine complex by the grid's tiles at the level a stated scale sets, and its operators are stored ON THE SURFACE, keyed by (the surface, the grid, the level, the mesh, the metric):
+#   <grid> L<l> d0        its cells -> its edges (the pairs of tiles a fine edge joins, tail < tip, in pair order)
+#   <grid> L<l> star1     each edge's Galerkin conductance: the summed fine cotan weights across the boundary (the level's Laplacian d0' star1 d0 is the projected fine one)
+#   <grid> L<l> crossing  the surface's fine edges -> the level's edges (signed; d0_fine P = crossing d0)
+#   <grid> L<l> d1        its edges -> its junction faces (a fine face whose corners lie in three tiles)
+# star0 is the grid's own `w` (the tiles' barycentric areas). Whether the level makes a valid surface complex (halfedges with twin and next) and why not is in the producer record.
+# A consumer names it with `made_by: level_complex` (made once, when first needed). The time line's levels are closed form and store nothing.
+#
+# THE GRAPH. surface (vertices, faces) + tiles (the grid at the stated level) --[select.level_complex]--> d0, star1, crossing, d1.
+#
+#   nxr-neuro run select_dyadic_surface --dataset D --subject S --surface meg_surface --rule subject
+#   nxr-neuro run level_complex --dataset D --subject S --surface meg_surface --tiles "meg_surface tiles" --spatial-scale "parts 16"
+pipeline: level_complex
+version: 1
+description: the navigation operators of one level of a surface's dyadic grid (d0, the Galerkin star1, the crossing map, d1 of the junctions), stored on the surface and keyed by the grid and the level
+scope: subject
+
+inputs:
+  surface: {manifold: surface, where: {name: $surface}, hint: "name the surface (--surface)"}
+  tiles:   {selection: any, manifold: surface.manifold.0, where: {name: $tiles}, hint: "the surface's dyadic grid (`nxr-neuro run select_dyadic_surface` first)"}
+
+parameters:
+  surface:       {default: required, meaning: "the surface whose grid's level is navigated, by name", unit: "-"}
+  tiles:         {default: required, meaning: "the surface's dyadic grid, by name", unit: "-"}
+  spatial_scale: {default: required, meaning: "the level as a quantity: parts per piece (\"parts 16\", a power of two), a tile diameter (\"20 mm\") or an area (\"area 400 mm2\"); the run records the level and the snapped quantity", unit: "-"}
+  mesh:          {default: operator, meaning: "the fine complex the level coarsens: operator (the intrinsic Delaunay triangulation, whose Laplacian is every fine operator's) or input (the stored triangulation, whose 1-skeleton is the stored tile adjacency)", unit: "-", choices: [operator, input]}
+
+steps:
+  before:
+    - {step: select.level_complex, in: {surface: surface, tiles: tiles}, with: {spatial_scale: $spatial_scale, mesh: $mesh}, out: [d0, star1, crossing, d1]}
+
+outputs:
+  d0:       {kind: operator, operator_kind: exterior derivative, name: "{tiles} L{level} d0", from: surface.manifold.0, to: surface.manifold.0, from_selection: tiles}
+  star1:    {kind: operator, operator_kind: hodge star, name: "{tiles} L{level} star1", from: surface.manifold.0, to: surface.manifold.0, from_selection: tiles}
+  crossing: {kind: operator, operator_kind: crossing map, name: "{tiles} L{level} crossing", from: surface.manifold.0, to: surface.manifold.0, from_selection: tiles}
+  d1:       {kind: operator, operator_kind: exterior derivative, name: "{tiles} L{level} d1", from: surface.manifold.0, to: surface.manifold.0, from_selection: tiles}

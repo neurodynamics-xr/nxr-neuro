@@ -94,6 +94,7 @@ test_export_fif	golden
 test_export_gifti	golden
 test_export_tsv	unit
 test_extent	unit
+test_levels	unit
 test_face	integration
 test_face_gradient	unit
 test_factorization	unit
@@ -274,6 +275,7 @@ test_schema55	unit
 test_schema56	unit
 test_template_links	unit
 test_select_makers	integration
+test_level_complex	integration
 test_signal_design	golden
 test_signal_grid	golden
 test_small_file_store	unit
