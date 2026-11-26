@@ -509,9 +509,9 @@ add_executable(test_source_flow_nodes test/test_source_flow_nodes.cpp)   # the s
   target_link_libraries(test_migrate_eigensolve PRIVATE nxr_pipelines)
   target_include_directories(test_migrate_eigensolve PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_migrate_eigensolve COMMAND test_migrate_eigensolve)
-  add_executable(test_sensor_surface test/test_sensor_surface.cpp)   # the sensor surface (a derived manifold of the channels) and its Hodge-Dirac modes, synthetic
+  add_executable(test_sensor_surface test/test_sensor_surface.cpp)   # the sensor surface (a derived manifold of the channels) and its Hodge-Dirac modes, the sensor flow on it (a span: issue #291), the fibre network and its flow from `add fibres`; synthetic
   target_link_libraries(test_sensor_surface PRIVATE nxr_pipelines)
-  target_include_directories(test_sensor_surface PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  target_include_directories(test_sensor_surface PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_sensor_surface COMMAND test_sensor_surface)
   add_executable(test_copy_nodes test/test_copy_nodes.cpp)   # a subject's solves copied from another package (io/copy_nodes.h), read and found again without a solve, synthetic
   target_link_libraries(test_copy_nodes PRIVATE nxr_pipelines)

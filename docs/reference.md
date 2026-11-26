@@ -192,7 +192,8 @@ The fiber support of `compute connectome`: storing and reading a bundle and its 
 
 - **Stored** (io, through the task API): a bundle is a `curve` manifold `<name>` at `fibre/<name>` (fiber-major points, SCS metres, float32 or float64 as given; `producer_json` holds `points_per_component`, `precision` and, for a bundle that came from somewhere, its `origin`: source, citation, licence, terms). The ends on an end surface, per bundle and surface: the operator `<bundle>_ends_<surface>` (kind `fibre ends`, CSR [surface vertices x bundle points]: each fiber's first and last point on the nearest surface vertex; it does not depend on any gate) and the array `<curve>/end_distance_<surface>` ([2nF], metres, the fibers' precision; fiber f's first end at 2f, its last at 2f + 1). `derived_origin` copies a bundle's `origin` into what is derived from it (licence, attribution, and the ShareAlike notice), so a result made from the template's HCP-1065 bundle carries CC BY-SA 4.0 together with the WU-Minn HCP Data Use Terms.
 - **Imported**: `nxr::convert::import_trk` reads a DSI Studio / TrackVis `.trk` (the reader of the template importers), applies the caller's RAS-mm-to-SCS-metres transform (a choice of data: no default), resamples each streamline to a fixed number of points at equal arc length (ends exact) and stores the bundle with the origin the caller gives. The template importer writes the HCP-1065 bundle with its `origin`. `nxr::convert::import_trx` does the same for a TRX archive (`io/formats` `trx.h` over `zip.h`: stored and deflate entries, ZIP64, CRC-32 checked; positions float16, float32 or float64 in RAS mm, offsets N or N + 1; the archive's data per vertex, per streamline and groups are named in `not_imported`, not read). The ZIP container is read with zlib's raw deflate, already linked: no zip library.
-- **Tests**: `test_fibers` (io; synthetic octahedron and bundles: float32 and float64 stored and read back equal, the ends and distances in the stored order, the origin carried to a derived result, the refusals, a `.trk` and a `.trx` (float32 and float16) imported with a caller's transform and resampled), `test_formats_zip` and `test_formats_trx` (archives built byte by byte and by the writer: every half-precision value, both offset conventions, ZIP64, CRC and size checks, the refusals).
+- **Added** (`add fibres`, `task::add_fibres`; Python `nxr_neuro.add.fibres`): a bundle computed elsewhere (a tractography, a synthetic bundle) stored by the same writer, `store_bundle`, so its rows and arrays are the importers' (the curve manifold, its path-topology with one component a fibre, its SCS geometry, `points` in the precision given, `producer_json` with `points_per_component`, `precision`, `origin`, and `command: add fibres`); `tile_network` and `connectome` read it unchanged. The ends on a surface are not stored by the command (`tile_network` finds them). Refused: a name already used, fewer than 2 points a fibre, `[rows x 3]` without `--points-per-fibre` or not whole fibres, integer or non-finite points.
+- **Tests**: `test_fibers` (io; synthetic octahedron and bundles: float32 and float64 stored and read back equal, the ends and distances in the stored order, the origin carried to a derived result, the refusals, a `.trk` and a `.trx` (float32 and float16) imported with a caller's transform and resampled), `add fibres` with the `.trk` import's points against the import, row for row and byte for byte: manifold, topology, geometry, the points array, the producer's keys, read back by `read_bundle`), `test_formats_zip` and `test_formats_trx` (archives built byte by byte and by the writer: every half-precision value, both offset conventions, ZIP64, CRC and size checks, the refusals).
 
 ## The commands over subject packages (`cli/command_table.cpp`, `cli/package_command.cpp`)
 
@@ -761,6 +762,7 @@ condition's channel file, the surface its kernels index, a template's only corte
 | `nxr-neuro add line` | A closed-form line: `--n`, `--spacing`, `--origin`, `--unit`; `--dimension time` (seconds) makes a time line fields can be time-resolved on. With `--coordinates C.npy --dimension eigenvalue [--kinds K.npy]`, a line whose points are not evenly spaced. | |
 | `nxr-neuro add product` | The product manifold of stored factors (`--name N --factors A,B`: a line over time, a surface over time). | |
 | `nxr-neuro add dictionary` | A dictionary of codes of the dataset or a subject (`--name N --scope dataset\|subject --entries E.json`). | |
+| `nxr-neuro add fibres` | A fibre bundle computed elsewhere (`--name N --points P.npy`: [fibres x points x 3], or [fibres·points x 3] with `--points-per-fibre`; SCS metres, float32 or float64 as given), stored exactly as the template importers store one (a `curve` manifold at `fibre/<name>`, `nxr::io::fibers::store_bundle`); `--origin JSON`, `--source`, `--comment`, `--producer JSON`. | |
 
 ### `copy`: Copy a subject's stored nodes from another package of the same subject
 
@@ -1235,6 +1237,15 @@ holding the line's last part tile left out), and a grid coarser than an atom's o
 new recording: `run sensor_flow_bins` (no atoms: its chunk spectra make the frequency line `<time line>_freq_L<log2 transform>`), `run select_kernels` (the atoms on that
 line, the bands on the solve's eigenvalue line), `run select_kernel_product`, `run select_time_grid --rule tiles` (no coarser than the finest atom's own window) and
 `run select_product --kernels atoms_scales` (and `--kernels atoms` for the source flow's whole field and the connectome flow), `run sensor_flow`.
+**A span (2026-11-26, issue #291).** The flows run on any span of whole chunks (`--chunks K | A-B | all`, or `--start/--stop` snapped to whole tiles as every span is; the default is chunk 0): the stored
+time grid covers the whole line and is RESTRICTED to the span's tiles (its tiles inside the span keep their codes; no grid is made again). The span is what the chunk spectra cover (`time_grid_of`
+in `pipelines/src/sensor_flow_steps.cpp` reads it from their chunks: one run of consecutive chunks); its ends must be tile boundaries of the grid (a grid no coarser than a chunk), else refused.
+The cells measurement stays over the whole product (the same members): a tile outside the span is NaN, and the sign-flip tests read only the cells of each atom's own window wholly inside
+the span. The span is recorded twice: the run's `run.span` (the chunk service's) in every output's producer and in the run's cache key, and the cells' `grid.span` (`start_sample`,
+`stop_sample`, `first_tile`, `tiles`, `whole_line`) in their producer and attributes; so a span run is never read as the whole recording's and never shares its cache key (a whole run's
+stored measurements are kept until `--replace`). `source_flow --spectra` and `connectome_flow` read the span of the chunk spectra they are given (a one-chunk `sensor_flow` stores one chunk's
+spectra). A one-chunk canary: `run sensor_flow ... --chunks 0`. `--time-cells false` (sensor_flow, as source_flow) runs the whole-run flow alone, with no time grid. Memory: the cells are
+computed for the span's tiles only, but the stored measurement holds the whole grid's members (NaN outside), rows x tiles x members x measures (issue #295).
 Per hemisphere, each side's measurements name the manifold their rows lie on (`rows:` in the definitions: the cortex solve's triangulation for vertices, edges and the
 sign-flip test, its eigen line for the modes; the sensor flow's its own solve's), so both sides and the sensor flow keep the same measure names (2026-11-26, issue #264; the
 nodes' `measure_suffix` is no longer used by the shipped definitions, and results stored before keep their `_left` / `_right` names). Read one side with `read selection
@@ -1264,7 +1275,10 @@ parameter of the definition; the nodes default none. What it cannot resolve: the
 two sensor spacings; a whole-run cross-spectrum keeps the net quadrature only; an incomplete eigensolve leaves coordinates and flow modes out (issue #219); the
 flow depends on the eigenvalue bands (always stated). Memory: the chunk spectra (coordinates x bins x chunks complex float32, about 7 MB a chunk for 268 sensors
 and [0, 60) Hz at 1200 Hz) and, in the time cells, one atom's band signal of one chunk (vertices x transform samples complex). Tests: `test_spectral_flow`,
-`test_sign_flip` (golden: numpy and nxr's flip_test), `test_aperiodic` (golden: nxr), `test_sensor_flow` (the nodes on a synthetic sphere).
+`test_sign_flip` (golden: numpy and nxr's flip_test), `test_aperiodic` (golden: nxr), `test_sensor_flow` (the nodes on a synthetic sphere; a span: chunk 1's spectra alone equal the whole run on its
+tiles, NaN outside, the span in the producer, the sign-flip test on the span's cells, a grid coarser than the chunk refused), `test_sensor_surface` (the definition end to end on a synthetic
+helmet; a one-chunk canary `--chunks 1` equal to the whole run on its tiles, refused without `--replace` over the whole run's measurements, a cache hit when asked again; then `add fibres`,
+`tile_network` and `connectome_flow` on the canary's chunk spectra, their outputs stored).
 
 ## The bispectrum in eigenmode coordinates (`run sensor_bispectrum`; the node `signal.bispectrum`; compute `nxr/signal/bispectrum.h`; spec `docs/specs/2026-11-24-bispectrum.md`)
 
@@ -1341,7 +1355,7 @@ fibres of 100 points: 2.4 GB in double); the tile operator [3T x K]; per chunk t
 samples]. `run connectome_flow_replication` (`stats.run_replication`): per atom the correlation of two runs' mean edge flows over the joined and the not-joined pairs. Tests:
 `test_tile_network` (the graph Hodge-Dirac modes: a path's eigenvalues, orthonormality under the stars, the cycle space's size; the potential against a direct weighted solve,
 the coefficients synthesising the flow back, a gradient and a circulation), `test_graph_network` (a synthetic brain: the graph manifold, its metric, `eigenmodes --graph`, store on miss), `test_tile_flow` (a planted directed lag), `test_network_flip` (golden: numpy and nxr's
-flip and control), `test_connectome_flow` (the nodes on hand-made arrays with a planted lag).
+flip and control), `test_connectome_flow` (the nodes on hand-made arrays with a planted lag), `test_sensor_surface` (end to end on a synthetic subject: the bundle stored by `add fibres`, `tile_network`, `connectome_flow` on a one-chunk span's chunk spectra; issue #291).
 ## The source mapping of the flow (`run source_flow`, `run source_flow_bins`; the nodes `signal.source_mode_operator`, `signal.cortical_flow`, `signal.cortical_time_cells`; compute `nxr/signal/source_flow.h`; spec `docs/specs/2026-11-24-source-flow.md`)
 
 Why: the sensor-space flow describes the field on the helmet only. The source step carries the same cross-spectrum onto the cortex through an EXISTING minimum-norm kernel

@@ -82,6 +82,7 @@ export const COMMANDS = [
   ["add", "measurements", "", "append! begin! by commit! dataset* declare+ dtype field measure+ producer region replace! rows_on selection shape subject unit values write"],
   ["add", "operator", "", "by data dataset* description from_coordinate_system from_manifold* from_selection indices indptr kind layout method name* params producer replace! subject* to_coordinate_system to_manifold values"],
   ["add", "points", "", "by coordinate_system dataset* description name* positions* replace! subject*"],
+  ["add", "fibres", "", "by comment dataset* name* origin points* points_per_fibre producer source subject*"],
   ["add", "line", "", "by coordinates dataset* dimension kinds n name* origin replace! spacing subject* unit*"],
   ["list", "manifolds", "", "after columns dataset* kind limit name on subject"],
   ["list", "fields", "", "after columns dataset* kind limit name on subject"],

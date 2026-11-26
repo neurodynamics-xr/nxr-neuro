@@ -872,6 +872,20 @@ export interface AddPointsOptions {
   /** receives each progress line the command prints, as an object */
   progress?: (line: Record<string, unknown>) => void;
 }
+export interface AddFibresOptions {
+  by?: string | number;
+  comment?: string | number;
+  dataset: string | number;
+  name: string | number;
+  origin?: string | number;
+  points: ArrayInput | string;
+  points_per_fibre?: string | number;
+  producer?: string | number;
+  source?: string | number;
+  subject: string | number;
+  /** receives each progress line the command prints, as an object */
+  progress?: (line: Record<string, unknown>) => void;
+}
 export interface AddLineOptions {
   by?: string | number;
   coordinates?: ArrayInput | string;
@@ -1166,6 +1180,7 @@ export interface Verbs {
     measurements: (options: AddMeasurementsOptions) => Promise<Result>;
     operator: (options: AddOperatorOptions) => Promise<Result>;
     points: (options: AddPointsOptions) => Promise<Result>;
+    fibres: (options: AddFibresOptions) => Promise<Result>;
     line: (options: AddLineOptions) => Promise<Result>;
     product: (options: AddProductOptions) => Promise<Result>;
     dictionary: (options: AddDictionaryOptions) => Promise<Result>;
