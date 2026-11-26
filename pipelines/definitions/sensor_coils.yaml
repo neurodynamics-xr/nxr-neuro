@@ -1,0 +1,32 @@
+# THE SENSOR COILS: the coil shapes of the MEG channels as a surface manifold, drawn as Brainstorm draws them (figure_3d PlotCoils): one small quadrilateral patch per coil (the
+# first four integration points of a CTF / KIT / 4D / Ricoh channel; a Neuromag magnetometer's square scaled as Brainstorm does), each patch two triangles, at the coil's stored
+# position and orientation. Stored beside the sensor surface: the surface `<name>` and two integer fields on its vertices, `<name>_map` (the channel) and `<name>_shape` (the shape).
+# A viewer draws the shapes and colours them by `<name>_map`; it builds no mesh. The shape's centre is the channel position nxr uses (nxr::meeg::channelPositions) for CTF-like coils.
+# What it cannot resolve: a shape is the coil's integration points joined, not its winding; the sizes are what the channel file's points give.
+#
+#   nxr-neuro run sensor_coils --dataset <folder> --subject sub-01 --channels <channels manifold> --pick <indices selection of it> [--name NAME] [--system auto|ctf|vectorview306] [--details true]
+pipeline: sensor_coils
+version: 1
+description: the coil shapes of the picked channels as a surface manifold (Brainstorm's coil display), with the vertex-to-channel and vertex-to-shape maps
+scope: subject
+
+inputs:
+  channels: {manifold: points, where: {name: $channels}, hint: "name the channels manifold (--channels)"}
+  pick:     {selection: indices, manifold: channels.manifold.0, where: {name: $pick}, hint: "name an indices selection of the channels: which channels get a shape (--pick)"}
+
+parameters:
+  channels: {default: required, meaning: "the channels manifold (a points manifold, with its coils) by name", unit: "-"}
+  pick: {default: required, meaning: "an indices selection of the channels by name", unit: "-"}
+  name: {default: "{channels}_coils_surface", meaning: "the surface's name; its maps are <name>_map and <name>_shape", unit: "-"}
+  system: {default: auto, meaning: "how Brainstorm draws the system: ctf (CTF, KIT, 4D, Ricoh), vectorview306 (Neuromag), auto", unit: "-", choices: [auto, ctf, vectorview306]}
+  details: {default: false, meaning: "Brainstorm's detailed view: also the reference coils (ctf) and the planar gradiometers (vectorview306)", unit: "-"}
+
+steps:
+  before:
+    - {node: meeg.coil_shapes, in: {channels: channels, pick: pick}, with: {system: $system, details: $details}, out: [vertices, faces, channel_index, shape_index]}
+    - {node: geometry.surface_from_parts, in: {vertices: vertices, faces: faces}, out: surface}
+
+outputs:
+  surface:       {kind: manifold, type: surface, name: $name, derived_from: channels.manifold.0}
+  channel_index: {kind: field, kind_name: channel map, name: "{name}_map", on: surface}
+  shape_index:   {kind: field, kind_name: coil shape map, name: "{name}_shape", on: surface}
