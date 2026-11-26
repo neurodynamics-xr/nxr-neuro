@@ -3,15 +3,15 @@
 
 # `tile_network`
 
-the fibre network on the tiles of a surface's dyadic grid - streamline counts, median lengths and distances per pair of tiles, and the connectome Laplacian's eigenmodes.
+the fibre network on the tiles of a surface's dyadic grid - streamline counts, median lengths and distances per pair of tiles, and the network as a graph manifold with its metric.
 
-Version 1, scope `subject`. Run it with `nxr-neuro run tile_network --dataset <folder> --subject <id> ...`; `nxr-neuro run tile_network --help` prints the same options.
+Version 2, scope `subject`. Run it with `nxr-neuro run tile_network --dataset <folder> --subject <id> ...`; `nxr-neuro run tile_network --help` prints the same options.
 
 Examples:
 
 ```
 nxr-neuro run select_dyadic_surface --dataset D --subject S --surface cortex --rule subject --finest "parts 64"
-nxr-neuro run tile_network --dataset D --subject S --fibers BUNDLE --end-surface cortex --tiles "cortex tiles" --tiles-per-piece 32
+nxr-neuro run tile_network --dataset D --subject S --fibers BUNDLE --end-surface cortex --tiles "cortex tiles" --scale "parts 32"
 ```
 
 ## Inputs
@@ -31,12 +31,11 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `fibers` | `--fibers` | `required` | - |  | the fibre bundle's name (the subject's own: `curve/<name>`) |
 | `end_surface` | `--end-surface` | `required` | - |  | the surface the fibres' ends are placed on and the tiles lie on (the kernel's cortex) |
 | `tiles` | `--tiles` | `required` | - |  | the dyadic grid of the end surface, by name |
-| `tiles_per_piece` | `--tiles-per-piece` | `32` | parts |  | the tiles of each hemisphere (a power of two: the grid's level; nxr's flow through the fibres: 32, level 5) |
+| `scale` | `--scale` | `parts 32` | - |  | the tiles' level as a quantity: parts per hemisphere (a power of two), a tile diameter ("20 mm") or an area ("area 400 mm^2"); the run records the level and the snapped quantity (nxr's flow through the fibres: parts 32, level 5) |
 | `max_end_distance` | `--max-end-distance` | `none` | mm |  | a fibre with an end farther than this from the surface is left out; none: no gate (nxr's ends operator) |
 | `points_per_fiber` | `--points-per-fiber` | `0` | points |  | the points of each fibre (read from the bundle when 0) |
 | `min_streamlines` | `--min-streamlines` | `10` | streamlines |  | a pair of tiles is an edge of the network when at least this many streamlines join it (nxr: 10) |
-| `null_tolerance` | `--null-tolerance` | `1e-10` | - |  | an eigenvalue at most this fraction of the largest is a null mode (one per connected component) |
-| `name` | `--name` | `{fibers}_tiles{tiles_per_piece}` | - |  | the stem of the stored names |
+| `name` | `--name` | `{fibers}_tiles` | - |  | the network's name (the graph manifold) and the stem of its fields and statistics; name the scale in it when several are made |
 
 ## The chain of nodes
 
@@ -46,8 +45,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | before | [`meeg.nearest_vertex`](../nodes.md) | points=end_points, positions=surface |  | end_vertex, end_distance |
 | before | [`meeg.end_gate`](../nodes.md) | end_distance=end_distance | max_end_distance_mm=$max_end_distance | keep |
 | before | [`meeg.fiber_lengths`](../nodes.md) | fibers=fibers | points_per_fiber=$points_per_fiber | lengths |
-| before | [`meeg.tile_pairs`](../nodes.md) | end_vertex=end_vertex, keep=keep, lengths=lengths, tiles=tiles, surface=surface | tiles_per_piece=$tiles_per_piece | tiles_table, pairs |
-| before | [`meeg.laplacian_eigenmodes`](../nodes.md) | pairs=pairs | min_streamlines=$min_streamlines, null_tolerance=$null_tolerance | eigenmodes |
+| before | [`meeg.tile_pairs`](../nodes.md) | end_vertex=end_vertex, keep=keep, lengths=lengths, tiles=tiles, surface=surface | scale=$scale, min_streamlines=$min_streamlines | tiles_table, pairs, graph, area, conductance, streamlines, median_length |
 
 `before` steps run once, `chunks` steps run on every chunk of the recording, `after` steps run once on what the chunks accumulated.
 
@@ -57,7 +55,11 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 |---|---|
 | `tiles_table` | kind statistic, name {name}_tiles, of fibers |
 | `pairs` | kind statistic, name {name}_pairs, of fibers |
-| `eigenmodes` | kind statistic, name {name}_eigenmodes, of fibers |
+| `graph` | kind manifold, type graph, name {name}, derived_from surface.manifold.0 |
+| `area` | kind field, kind_name tile_area, name {name}_area, on graph, unit m^2 |
+| `conductance` | kind field, kind_name conductance, name {name}_conductance, on graph, unit 1/m |
+| `streamlines` | kind field, kind_name streamline_count, name {name}_streamlines, on graph, unit streamlines |
+| `median_length` | kind field, kind_name median_length, name {name}_median_length, on graph, unit m |
 
 ## Notes from the definition
 
@@ -65,17 +67,19 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 THE FIBRE NETWORK ON THE TILES OF A SURFACE, AND ITS CONNECTOME EIGENMODES (spec docs/specs/2026-11-24-connectome-flow.md): the network the flow through the fibres is read on
 (`connectome_flow`). A port of nxr's flow through the fibre network: the tiles of the surface's dyadic grid at a stated number of tiles per hemisphere are the nodes; every pair of
 tiles is an element, with the streamlines whose two ends lie in the two tiles, their median length, the tiles' centroid distance and whether they lie on different hemispheres;
-the edges are the pairs joined by at least `min_streamlines`; the connectome Laplacian of the edges (weights: their streamline counts) and ALL its eigenmodes (a dense solve).
+the network is stored as a GRAPH MANIFOLD (spec docs/specs/2026-11-26-graph-manifold-and-time-cells.md, G1): the tiles its vertices (at their centroids), the pairs joined by at least
+`min_streamlines` its edges (rank-1 cells), its metric as fields on its cells (the tiles' areas on the vertices, the edges' conductance = streamline count / median length). Its
+Hodge-Dirac modes are `run eigenmodes --graph <name>`'s (made once, on the first `connectome_flow` that reads them): this definition solves nothing.
 
 THE GRAPH. before: fibres --[meeg.fiber_ends, meeg.nearest_vertex, meeg.end_gate]--> each fibre's end vertices on the surface (the `connectome` definition's steps);
-fibres --[meeg.fiber_lengths]--> each fibre's length; ends + lengths + tiles + surface --[meeg.tile_pairs]--> the tiles and the pairs; --[meeg.laplacian_eigenmodes]--> the eigenmodes.
-Every value below is a stated choice of this definition: nxr's flow through the fibres used 32 tiles a hemisphere (level 5) and 10 streamlines, its ends the nearest vertex
+fibres --[meeg.fiber_lengths]--> each fibre's length; ends + lengths + tiles + surface --[meeg.tile_pairs]--> the tiles, the pairs, the graph and its metric.
+Every value below is a stated choice of this definition: nxr's flow through the fibres used 32 tiles a hemisphere (level 5, `--scale "parts 32"`) and 10 streamlines, its ends the nearest vertex
 with no distance gate (max_end_distance none).
 
 What it cannot resolve: tractography ends are not cortical terminations; an end's vertex is the nearest vertex of the surface, not a depth; the tiles' size sets the
 network's scale. The fibre bundle is read whole (10^6 fibres of 100 points: 2.4 GB in double): run it once per subject.
 
   nxr-neuro run select_dyadic_surface --dataset D --subject S --surface cortex --rule subject --finest "parts 64"
-  nxr-neuro run tile_network --dataset D --subject S --fibers BUNDLE --end-surface cortex --tiles "cortex tiles" --tiles-per-piece 32
+  nxr-neuro run tile_network --dataset D --subject S --fibers BUNDLE --end-surface cortex --tiles "cortex tiles" --scale "parts 32"
 ```
 

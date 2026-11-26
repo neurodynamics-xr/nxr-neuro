@@ -24,6 +24,8 @@ nxr-neuro run sensor_flow --dataset D --subject S --recording REC --all --packag
 | `bands` | selection any, where {"name": "$bands"} (the eigenvalue bands, a kernel set on the solve's eigenvalue line (`nxr-neuro run select_kernels --profile cos2_partition` first)) | yes |
 | `pairs` | selection any, where {"name": "$pairs"} (the band pairs' members: atoms x bands x bands (`nxr-neuro run select_kernel_product --factors 3 --first ATOMS --second BANDS --third BANDS` first)) | yes |
 | `atom_bands` | selection any, where {"name": "$atom_bands"} (the sign-flip test's members: atoms x bands (`nxr-neuro run select_kernel_product --factors 2 --first ATOMS --second BANDS` first)) | yes |
+| `time_grid` | selection any, manifold recording.time, where {"name": "$time_grid"} (the recording's stored time grid, whose tiles are the time cells (`nxr-neuro run select_time_grid --rule tiles --duration D` first: D no longer than the finest atom's own window)) | yes |
+| `time_atom_bands` | selection any, where {"name": "$time_atom_bands"} (the product the time cells are measured over: the time grid x the atoms x the bands (`nxr-neuro run select_product --time-grid GRID --atoms ATOMS --scales BANDS` first)) | yes |
 
 ## Parameters
 
@@ -43,13 +45,16 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `frequency_span` | `--frequency-span` | `[0, 60]` | Hz |  | [lo, hi) the bins kept of each chunk's transform (the physiological bands) |
 | `frequency_normalisation` | `--frequency-normalisation` | `sum_of_squared_gains` | - | sum_of_squared_gains, none | the atoms divided at each bin by the square root of their squared gains' sum (they add back to the whole span) \| none (nxr's flow analysis's gains as they are) |
 | `support_floor` | `--support-floor` | `0.001` | - |  | a bin whose atoms' squared gains sum to less than this fraction of their largest sum lies outside the atoms (gain 0) |
-| `cell_width` | `--cell-width` | `2.0` | - |  | a time cell's width in the atom's time standard deviations (1 / (2 pi sigma_f)), snapped to the nearest power of two of samples |
+| `time_grid` | `--time-grid` | `required` | - |  | the stored time grid of the recording by name (one level of its dyadic tiling): the time cells are its tiles, stored as measurements over time_atom_bands |
+| `time_atom_bands` | `--time-atom-bands` | `required` | - |  | the product time grid x atoms x bands by name: the time cells are measured over its members |
+| `cell_width` | `--cell-width` | `2.0` | - |  | each atom's own window for the sign-flip test (a box): this many of the atom's time standard deviations (1 / (2 pi sigma_f)), snapped to the nearest dyadic level of the grid's tiling (not finer than the grid) |
 | `flip_elements` | `--flip-elements` | `edges` | - | edges, vertices | the sign-flip test's elements: edges (the edge phase current) \| vertices (the vertex phase current, three components) |
 | `patterns` | `--patterns` | `2000` | - |  | the sign-flip test's random patterns (nxr's flow analysis's maps: 2000) |
 | `seed` | `--seed` | `0` | - |  | the seed of numpy's default_rng for the sign patterns (nxr's flow analysis: 0) |
 | `cells_per_flip` | `--cells-per-flip` | `1` | cells |  | consecutive time cells one sign flips together (1: each cell its own; the measured correlation of neighbouring cells is stored with the result as the check) |
 | `aperiodic` | `--aperiodic` | false | - |  | also fit each sensor's aperiodic background (a control) |
-| `aperiodic_knee` | `--aperiodic-knee` | false | - |  | the aperiodic model with a knee (nxr's flow analysis ran both: run once each) |
+| `aperiodic_fixed` | `--aperiodic-fixed` | true | - |  | with aperiodic: fit the model without a knee (offset - exponent log10 f), stored as {name}_aperiodic |
+| `aperiodic_knee` | `--aperiodic-knee` | false | - |  | with aperiodic: also fit the model with a knee (offset - log10(knee + f^exponent)), stored as {name}_aperiodic_knee: both models in one run, from the one stored power (nxr's flow analysis ran both) |
 | `aperiodic_range` | `--aperiodic-range` | `[1, 45]` | Hz |  | [low, high] the frequencies the aperiodic fit reads (nxr's flow analysis') |
 | `name` | `--name` | `{recording}_{package}` | - |  | the stem of the stored names |
 
@@ -61,10 +66,11 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | chunks over `recording` | [`signal.overlapped_spectrum`](../nodes.md) | x=recording, operator=operator | overlap_samples=$overlap_samples, transform_samples=$transform_samples, frequency_span=$frequency_span | spectrum |
 | chunks over `recording` | [`signal.chunk_spectra`](../nodes.md) | spectrum=spectrum, operator=operator |  | spectra |
 | after | [`signal.spectral_flow`](../nodes.md) | spectra=spectra, package=package, frequency=atoms, scale=bands | frequency_weighting=kernels, frequency_normalisation=$frequency_normalisation, support_floor=$support_floor | whole_vertices, whole_edges, whole_modes, pair_vertices, pair_edges, pair_modes |
-| after | [`signal.atom_time_cells`](../nodes.md) | spectra=spectra, package=package, frequency=atoms, scale=bands | frequency_normalisation=$frequency_normalisation, support_floor=$support_floor, cell_width=$cell_width | cells |
-| after | [`stats.sign_flip_consistency`](../nodes.md) | cells=cells | elements=$flip_elements, patterns=$patterns, seed=$seed, cells_per_flip=$cells_per_flip | consistency, consistency_summary, whole_consistency, whole_consistency_summary |
+| after | [`signal.atom_time_cells`](../nodes.md) | spectra=spectra, package=package, frequency=atoms, scale=bands, grid=time_grid, product=time_atom_bands | frequency_normalisation=$frequency_normalisation, support_floor=$support_floor, cell_width=$cell_width | edge_cells, vertex_cells |
+| after | [`stats.sign_flip_consistency`](../nodes.md) | edge_cells=edge_cells, vertex_cells=vertex_cells | elements=$flip_elements, patterns=$patterns, seed=$seed, cells_per_flip=$cells_per_flip | consistency, consistency_summary, whole_consistency, whole_consistency_summary |
 | after | [`signal.sensor_power`](../nodes.md) | spectra=spectra, package=package |  | power |
-| after | [`stats.aperiodic_fit`](../nodes.md) | power=power | knee=$aperiodic_knee, fit_range=$aperiodic_range, iterations=3, threshold=2.0 | aperiodic_fit |
+| after | [`stats.aperiodic_fit`](../nodes.md) | power=power | knee=false, fit_range=$aperiodic_range, iterations=3, threshold=2.0 | aperiodic_fit |
+| after | [`stats.aperiodic_fit`](../nodes.md) | power=power | knee=true, fit_range=$aperiodic_range, iterations=3, threshold=2.0 | aperiodic_fit_knee |
 
 `before` steps run once, `chunks` steps run on every chunk of the recording, `after` steps run once on what the chunks accumulated.
 
@@ -73,16 +79,19 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | output | stored as |
 |---|---|
 | `spectra` | kind statistic, name {name}_chunk_spectra, of recording, axes [{"name": "chunk", "on": "recording.time"}, {"name": "frequency", "line": "{recording}_freq_overlapped", "of_time": "recording.time"}, {"name": "coordinate", "on": "package.from"}] |
-| `whole_vertices` | kind measurement, over atoms, of recording |
-| `whole_edges` | kind measurement, over atoms, of recording |
-| `whole_modes` | kind measurement, over atoms, of recording |
-| `pair_vertices` | kind measurement, over pairs, of recording |
-| `pair_edges` | kind measurement, over pairs, of recording |
-| `pair_modes` | kind measurement, over pairs, of recording |
-| `consistency` | kind measurement, over atom_bands, of recording |
-| `consistency_summary` | kind measurement, over atom_bands, of recording |
+| `whole_vertices` | kind measurement, rows package.to, over atoms, of recording |
+| `whole_edges` | kind measurement, rows package.to, over atoms, of recording |
+| `whole_modes` | kind measurement, rows package.from, over atoms, of recording |
+| `pair_vertices` | kind measurement, rows package.to, over pairs, of recording |
+| `pair_edges` | kind measurement, rows package.to, over pairs, of recording |
+| `pair_modes` | kind measurement, rows package.from, over pairs, of recording |
+| `edge_cells` | kind measurement, rows package.to, over time_atom_bands, of recording |
+| `vertex_cells` | kind measurement, rows package.to, over time_atom_bands, of recording |
+| `consistency` | kind measurement, rows package.to, over atom_bands, of recording |
+| `consistency_summary` | kind measurement, rows package.to, over atom_bands, of recording |
 | `power` | kind statistic, name {name}_sensor_power, of recording, when $aperiodic |
-| `aperiodic_fit` | kind statistic, name {name}_aperiodic, of recording, when $aperiodic |
+| `aperiodic_fit` | kind statistic, name {name}_aperiodic, of recording, when {"aperiodic": true, "aperiodic_fixed": true} |
+| `aperiodic_fit_knee` | kind statistic, name {name}_aperiodic_knee, of recording, when {"aperiodic": true, "aperiodic_knee": true} |
 
 ## Notes from the definition
 
@@ -94,7 +103,7 @@ coordinates: the constant and the exact modes), bound once.
 chunks: recording, each chunk with an overlap of half a chunk on each side (reflected at the recording's ends) --[signal.overlapped_spectrum: one transform of 2^16 samples, no window, no
 taper, no zero padding, the bins of [0, 60) Hz]--> the chunk's spectrum --[signal.chunk_spectra]--> the cross-spectrum in its factored form, stored.
 after: --[signal.spectral_flow: the atoms (Gaussians normalised by the sum of their squared gains) x the cos² eigenvalue bands and their pairs]--> power, phase current per edge and
-per vertex, Hodge-Dirac flow coefficients, potential and stream; --[signal.atom_time_cells]--> the same per time cell of each atom (in the run only: never stored); --[stats.sign_flip_consistency]--> R1 per edge;
+per vertex, Hodge-Dirac flow coefficients, potential and stream; --[signal.atom_time_cells]--> the same summed over each tile of the STORED time grid (measurements over grid x atoms x bands); --[stats.sign_flip_consistency]--> R1 per edge on those cells rolled up to each atom's own window;
 optional (aperiodic: true): --[signal.sensor_power]--> --[stats.aperiodic_fit]--> each sensor's aperiodic background.
 Every value below is a stated choice of this definition (the nodes default nothing). The atoms and bands are kernel sets made first by `select_kernels` (nxr's flow analysis's atoms: centres
 4 x 2^(k/5) Hz, k = 0..16, gaussian, chart linear, width_rule proportional, width 0.19622 (FWHM = 2 sqrt(2 ln 2) / 12 x the centre: a standard deviation of centre / 12), gain 2;

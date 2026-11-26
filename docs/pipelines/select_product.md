@@ -11,6 +11,7 @@ Examples:
 
 ```
 nxr-neuro run select_product --dataset <folder> --subject sub-01 --recording rest --surface cortex --band-set "frequency bands" --couple '[{"factor": 1, "band": "alpha"}]'
+nxr-neuro run select_product --dataset <folder> --subject sub-01 --recording rest --time-grid "rest time grid tiles 0.05 s" --kernels atoms_scales --atoms "rest atoms" --scales "sensor bands" --name "rest cells"
 ```
 
 ## Inputs
@@ -18,10 +19,12 @@ nxr-neuro run select_product --dataset <folder> --subject sub-01 --recording res
 | input | what it is | required |
 |---|---|---|
 | `recording` | field recording, each true, where {"name": "$recording"}, required false | no |
-| `surface` | manifold surface, where {"name": "$surface"}, required false | no |
-| `space` | selection ladder, manifold surface.manifold.0, required false (the surface's whole grid (`nxr-neuro run select_dyadic_surface` first): its level is coupled by `couple`) | no |
+| `surface` | manifold surface, where {"name": "$surface"}, required false, when {"kernels": "none"} | no |
+| `space` | selection ladder, manifold surface.manifold.0, required false, when {"kernels": "none"} (the surface's whole grid (`nxr-neuro run select_dyadic_surface` first): its level is coupled by `couple`) | no |
 | `time` | selection any, manifold recording.time, where {"name": "$time_grid"}, required false (the line's time grid by name (`time_grid`; `nxr-neuro run select_time_grid --rule band --band 8-16Hz` first: a band's tiles are a time grid of their own, found by the rule's name)) | no |
-| `bands` | selection spans, where {"name": "$band_set"}, required false (a stored band set whose members couple the levels (`nxr-neuro run select_bands` first)) | no |
+| `bands` | selection spans, where {"name": "$band_set"}, required false, when {"kernels": "none"} (a stored band set whose members couple the levels (`nxr-neuro run select_bands` first)) | no |
+| `atoms` | selection any, where {"name": "$atoms"}, required false (kernels atoms or atoms_scales: the frequency atoms, a kernel set (`nxr-neuro run select_kernels` first)) | no |
+| `scales` | selection any, where {"name": "$scales"}, required false (kernels atoms_scales: the eigenvalue bands, a kernel set (`nxr-neuro run select_kernels` first)) | no |
 
 ## Parameters
 
@@ -35,6 +38,9 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `layout` | `--layout` | `product` | - | product, joint | product = mixed radix, first factor fastest \| joint = the atlas layout (tile << bits) \| frame, arrays [band x tile x frame] |
 | `time_grid` | `--time-grid` | none | - |  | the time grid of the line by name, e.g. the band 8-16 Hz grid of the recording (made by `select_time_grid --rule band`) |
 | `couple` | `--couple` | none | - |  | factors whose level is coupled in closed form: a list of {factor: index, band: name of a member of `band_set`, or a frequency band quantity "8-16 Hz"} for a time factor (its tile holds the band's cycles), {factor: index, scale: a quantity} for a surface factor (parts per hemisphere, a wavelength, an eigenvalue, an area), or {factor: index, band: name} with an eigenvalue band set |
+| `kernels` | `--kernels` | `none` | - | none, atoms, atoms_scales | the product's form: none (a surface grid x a time grid, the default) \| atoms (the time grid x the atoms: a flow's time cells) \| atoms_scales (the time grid x the atoms x the scales: a flow's time cells per band); the time grid is the first factor, fastest |
+| `atoms` | `--atoms` | none | - |  | kernels atoms or atoms_scales: the frequency atoms' kernel set by name |
+| `scales` | `--scales` | none | - |  | kernels atoms_scales: the eigenvalue bands' kernel set by name |
 | `name` | `--name` | `{recording} {surface} product` | - |  | the product's name |
 
 ## The chain of nodes
@@ -42,6 +48,8 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | phase | node | in | with | out |
 |---|---|---|---|---|
 | before | [`select.product`](../nodes.md) | first=space, second=time, bands=bands | layout=$layout, couple=$couple | product_space, product |
+| before | [`select.product`](../nodes.md) | first=time, second=atoms | layout=product | time_atoms_space, time_atoms |
+| before | [`select.product`](../nodes.md) | first=time, second=atoms, third=scales | layout=product | time_atoms_scales_space, time_atoms_scales |
 
 `before` steps run once, `chunks` steps run on every chunk of the recording, `after` steps run once on what the chunks accumulated.
 
@@ -49,8 +57,12 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 
 | output | stored as |
 |---|---|
-| `product_space` | kind manifold, type product, factors ["surface.manifold.0", "recording.time"] |
-| `product` | kind selection, type product, name $name, on product_space, factors ["space", "time"] |
+| `product_space` | kind manifold, type product, factors ["surface.manifold.0", "recording.time"], when {"kernels": "none"} |
+| `product` | kind selection, type product, name $name, on product_space, factors ["space", "time"], when {"kernels": "none"} |
+| `time_atoms_space` | kind manifold, type product, factors ["recording.time", "atoms.manifold.0"], when {"kernels": "atoms"} |
+| `time_atoms` | kind selection, type product, name $name, on time_atoms_space, factors ["time", "atoms"], when {"kernels": "atoms"} |
+| `time_atoms_scales_space` | kind manifold, type product, factors ["recording.time", "atoms.manifold.0", "scales.manifold.0"], when {"kernels": "atoms_scales"} |
+| `time_atoms_scales` | kind selection, type product, name $name, on time_atoms_scales_space, factors ["time", "atoms", "scales"], when {"kernels": "atoms_scales"} |
 
 ## Notes from the definition
 
@@ -65,5 +77,9 @@ factors (schema 53 `selection_factor.level`), never as selections of their own. 
 Every factor's level is a QUANTITY (a tile diameter, a wavelength, a duration, a band), never an index.
 
   nxr-neuro run select_product --dataset <folder> --subject sub-01 --recording rest --surface cortex --band-set "frequency bands" --couple '[{"factor": 1, "band": "alpha"}]'
+
+A FLOW'S TIME CELLS (G7): the stored time grid with kernel sets, the grid first (fastest): `--kernels atoms` (grid x atoms) or `--kernels atoms_scales` (grid x atoms x bands); the flows
+(sensor_flow, source_flow, connectome_flow) measure their time cells over it, and a coarser level of the grid is a roll-up at read:
+  nxr-neuro run select_product --dataset <folder> --subject sub-01 --recording rest --time-grid "rest time grid tiles 0.05 s" --kernels atoms_scales --atoms "rest atoms" --scales "sensor bands" --name "rest cells"
 ```
 

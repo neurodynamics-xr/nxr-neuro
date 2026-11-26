@@ -2397,11 +2397,14 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
 - **Quantities.** A range may be open: `>=0.4 s`, `<=5 s`; a duration may be in `cycles` of the band's centre (`>=3 cycles`).
 - **The makers (selections are made, never recomputed from parameters).** Each is a definition that also runs alone and stores its selection once (get-or-create):
   - `run select_dyadic_surface --rule subject|group|transfer`: the dyadic equal-area tiles of a surface as one grid with closed-form levels (was `tiles`, `group_tree`,
-    `group_tiles`); the finest tile is a quantity (`--finest "20 mm"`, `"parts 256"`, `"area 400 mm2"`), the level and its snapped quantity are recorded;
+    `group_tiles`); the finest tile is a quantity (`--finest "20 mm"`, `"parts 256"`, `"area 400 mm2"`), the level and its snapped quantity are recorded; rules subject and group store
+    `<surface> tiles`, rule transfer `<surface> tiles transfer`, so a subject holds its own grid and the group tree carried onto it side by side;
   - `run select_time_grid --rule tiles|band|frames|constant_q|segments|windows|chunks`: the dyadic time grid of a line (was `frametiling`, `constantq`). **Frame density and origin
     are options with their defaults in the YAML** (2026-11-17): `frames_per_cycle` (default 36, the 10 degree step of phase work) or `frames_per_tile`, and `origin` as a
-    point: `start` (the recording's first sample), `clock`, or `event` (a stored selection's first member). No method constant is hard-wired in compute;
-  - `run select_bands --rule frequency|eigenvalue|wavelength|parts|levels`: a band set on the dataset's Frequency or Eigenvalue line (was `pyramid_bands`, `spatial_bands`);
+    point: `start` (the recording's first sample), `clock`, or `event` (a stored selection's first member). No method constant is hard-wired in compute. Rules tiles, segments and windows
+    take the tile, segment or window as `--duration`; a window's `--step` defaults to the window (no overlap);
+  - `run select_bands --rule frequency|eigenvalue|wavelength|parts|levels`: a band set on the dataset's Frequency or Eigenvalue line (was `pyramid_bands`, `spatial_bands`); the rules that
+    take no grid need no `--surface`, and a line neither the template nor the subject holds is made in the subject (the same closed-form line in every subject);
   - `run select_product`: a product of grids and band sets (a box, a grid of cells, the joint partition), levels coupled to a band in closed form (was `joint`); `--kernels atoms|atoms_scales` the stored time grid x kernel sets (a flow's time cells, G7);
   - `select.events.spans|regions|cores|tracks`: irregular selections made by detection (nodes inside `band_bursts`, `global_bursts`, `patches`, `spatial_events`, `vortex_cores`).
 - **The glued cortex is made by its own definition** (2026-11-17; its result as selections, 2026-11-23): `run glue --surface cortex_pial [--hemispheres Structures] [--left "Cortex L"] [--right "Cortex R"]`

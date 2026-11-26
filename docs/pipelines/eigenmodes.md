@@ -3,7 +3,7 @@
 
 # `eigenmodes`
 
-the Hodge-Dirac eigenmodes of a stored surface on its intrinsic triangulation, each mode's mixed form one column of one operator.
+the Hodge-Dirac eigenmodes of a stored surface on its intrinsic triangulation, or of a stored graph under its node and edge weights, each mode's mixed form one column of one operator.
 
 Version 2, scope `subject`. Run it with `nxr-neuro run eigenmodes --dataset <folder> --subject <id> ...`; `nxr-neuro run eigenmodes --help` prints the same options.
 
@@ -11,14 +11,18 @@ Examples:
 
 ```
 nxr-neuro run eigenmodes --dataset <folder> --subject sub-01 --surface cortex_pial [--modes 3000] [--replace]   (a cortex of two hemispheres: `run glue` first, then --surface cortex_pial_glued)
+nxr-neuro run eigenmodes --dataset <folder> --subject sub-01 --graph BUNDLE_tiles
 ```
 
 ## Inputs
 
 | input | what it is | required |
 |---|---|---|
-| `surface` | manifold surface, where {"name": "$surface"} (name the surface (--surface)) | yes |
-| `intrinsic` | manifold surface, where {"name": "${surface}_intrinsic"}, made_by {"pipeline": "intrinsic", "with": {"surface": "$surface"}} (the surface's intrinsic triangulation (`run intrinsic`; made first when missing)) | yes |
+| `surface` | manifold surface, where {"name": "$surface"}, when $surface (name the surface (--surface)) | yes |
+| `intrinsic` | manifold surface, where {"name": "${surface}_intrinsic"}, made_by {"pipeline": "intrinsic", "with": {"surface": "$surface"}}, when $surface (the surface's intrinsic triangulation (`run intrinsic`; made first when missing)) | yes |
+| `graph` | manifold graph, where {"name": "$graph"}, when $graph (name the graph (--graph): a graph manifold (`nxr-neuro run tile_network` stores the fibre network)) | yes |
+| `area` | field any, where {"name": "${graph}_area"}, when $graph (the graph's vertex weights (*0), stored with it) | yes |
+| `conductance` | field any, where {"name": "${graph}_conductance"}, when $graph (the graph's edge weights (*1), stored with it) | yes |
 
 ## Parameters
 
@@ -26,7 +30,9 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 
 | parameter | option | default | unit | choices | meaning |
 |---|---|---|---|---|---|
-| `surface` | `--surface` | none | - |  | the subject's stored surface to solve on, by name |
+| `surface` | `--surface` | none | - |  | the subject's stored surface to solve on, by name (or graph) |
+| `graph` | `--graph` | none | - |  | the subject's stored graph to solve on, by name (or surface): its vertex weights <graph>_area and edge weights <graph>_conductance |
+| `null_tolerance` | `--null-tolerance` | `1e-10` | - |  | on a graph: an eigenvalue at most this fraction of the largest is a constant (one per connected component), left out |
 | `modes` | `--modes` | `3000` | modes |  | about this many positive modes are kept, half exact and half coexact |
 | `shift` | `--shift` | `absolute` | - | absolute, relative | how the shift-invert solve is shifted: absolute (one solve per ladder at sigma, the reference method) or relative (a ladder scaled to the spectrum) |
 | `sigma` | `--sigma` | none | 1/m^2 |  | the absolute shift (only with shift absolute); null: the reference method's -1e-3 |
@@ -40,6 +46,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | phase | node | in | with | out |
 |---|---|---|---|---|
 | before | [`operators.hodge_dirac`](../nodes.md) | surface=surface, intrinsic=intrinsic | modes=$modes, shift=$shift, sigma=$sigma, slice=$slice, normalize=$normalize, star1_floor=$star1_floor, dense_limit=$dense_limit | modes, eigenvalues, kinds, eigenvectors |
+| before | [`meeg.graph_hodge_dirac`](../nodes.md) | graph=graph, area=area, conductance=conductance | null_tolerance=$null_tolerance | graph_modes, graph_eigenvalues, graph_kinds, graph_eigenvectors |
 
 `before` steps run once, `chunks` steps run on every chunk of the recording, `after` steps run once on what the chunks accumulated.
 
@@ -47,10 +54,14 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 
 | output | stored as |
 |---|---|
-| `modes` | kind manifold, type points, name {stem}, derived_from surface.manifold.0 |
-| `eigenvalues` | kind field, kind_name eigenvalue, name {stem}_eigenvalues, on modes, of_operator eigenvectors, unit 1/m^2 |
-| `kinds` | kind selection, type partition, name {stem}_kinds, on modes |
-| `eigenvectors` | kind operator, operator_kind eigenvectors, name {stem}_eigenvectors, from modes, to intrinsic.manifold.0 |
+| `modes` | kind manifold, type points, name {stem}, derived_from surface.manifold.0, when $surface |
+| `eigenvalues` | kind field, kind_name eigenvalue, name {stem}_eigenvalues, on modes, of_operator eigenvectors, unit 1/m^2, when $surface |
+| `kinds` | kind selection, type partition, name {stem}_kinds, on modes, when $surface |
+| `eigenvectors` | kind operator, operator_kind eigenvectors, name {stem}_eigenvectors, from modes, to intrinsic.manifold.0, when $surface |
+| `graph_modes` | kind manifold, type points, name hodgeDirac__{graph}, derived_from graph.manifold.0, when $graph |
+| `graph_eigenvalues` | kind field, kind_name eigenvalue, name hodgeDirac__{graph}_eigenvalues, on graph_modes, of_operator graph_eigenvectors, unit 1/m^2, when $graph |
+| `graph_kinds` | kind selection, type partition, name hodgeDirac__{graph}_kinds, on graph_modes, when $graph |
+| `graph_eigenvectors` | kind operator, operator_kind eigenvectors, name hodgeDirac__{graph}_eigenvectors, from graph_modes, to graph.manifold.0, when $graph |
 
 ## Notes from the definition
 
@@ -81,5 +92,12 @@ What it cannot resolve: the modes are the discrete operator's on the mollified, 
 the bridge of a glued surface is not cortex.
 
   nxr-neuro run eigenmodes --dataset <folder> --subject sub-01 --surface cortex_pial [--modes 3000] [--replace]   (a cortex of two hemispheres: `run glue` first, then --surface cortex_pial_glued)
+
+ON A GRAPH (`--graph NAME`; spec docs/specs/2026-11-26-graph-manifold-and-time-cells.md, G1): a graph manifold (the fibre network `tile_network` stores) is a 1-complex, d0 = its incidence,
+*0 its vertices' weights (`<graph>_area`), *1 its edges' weights (`<graph>_conductance`), no 2-cells. Its Hodge-Dirac modes are the exact (gradient) modes of B^T *1 B psi = lambda *0 psi
+(the constants out) and the harmonic (cycle) modes, the kernel of B^T *1 (no coexact mode on a graph); ALL of them, one dense solve (a graph is small), stored in the same four classes
+(stem `hodgeDirac__<graph>`; the kinds exact 0, harmonic 1; the eigenvectors operator to the graph's cells 0+1, rows 0-forms then 1-forms). `connectome_flow` names them with
+`made_by`: they are solved once, when they are not stored.
+  nxr-neuro run eigenmodes --dataset <folder> --subject sub-01 --graph BUNDLE_tiles
 ```
 

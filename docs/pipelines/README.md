@@ -13,12 +13,12 @@ Every pipeline `nxr-neuro run <name>` knows, one page each: what it measures, it
 | [`bandstop`](bandstop.md) | a zero-phase band-stop filter (IIR by default), written as a new recording |
 | [`cellquadrature`](cellquadrature.md) | the quadrature ingredients per spatial tile (and tile pair), per time tile and per burst, from an analytic cross-spectrum |
 | [`connectome`](connectome.md) | the fiber counts between the regions of a partition of the end surface (a measurement over the partition), from a fiber bundle's ends |
-| [`connectome_flow`](connectome_flow.md) | the flow through the fibre network - the tiles' cross-spectrum per atom from the stored chunk spectra, its time cells and sign-flip test, the network's divergence and graph potential in the connectome eigenmodes |
+| [`connectome_flow`](connectome_flow.md) | the flow through the fibre network - the tiles' cross-spectrum per atom from the stored chunk spectra, its time cells and sign-flip test, the network's divergence, graph potential and flow coefficients on its stored Hodge-Dirac modes |
 | [`connectome_flow_replication`](connectome_flow_replication.md) | the run-to-run replication of the flow through the fibre network - per atom the correlation of two runs' edge flows over the joined and the not-joined pairs |
 | [`connectome_vertices`](connectome_vertices.md) | the connection weights between the vertices of the end surface, from a fiber bundle's ends, with the largest connected component |
 | [`cortical_band`](cortical_band.md) | a recording's band read on the cortex through the inverse kernel with the spatial band folded in, a pointwise complex field cortex x bands x time |
 | [`crossspectrum`](crossspectrum.md) | the sensor cross-spectral density per band (Welch), on a kernel's channels or the good imaging channels |
-| [`eigenmodes`](eigenmodes.md) | the Hodge-Dirac eigenmodes of a stored surface on its intrinsic triangulation, each mode's mixed form one column of one operator |
+| [`eigenmodes`](eigenmodes.md) | the Hodge-Dirac eigenmodes of a stored surface on its intrinsic triangulation, or of a stored graph under its node and edge weights, each mode's mixed form one column of one operator |
 | [`fingerprint`](fingerprint.md) | the identification of individuals across a cohort from two stored measurements each (brain fingerprinting), with the correlation, accuracy, self-identifiability, edgewise reliability and the PCA reconstruction curve |
 | [`fingerprint_band`](fingerprint_band.md) | one band's features of a person over a span (MEG fingerprinting, steps 17 and 19), the region spectrum and the amplitude envelope correlation of its region signals |
 | [`fingerprint_features`](fingerprint_features.md) | a person's spectral and connectome features over a span (MEG fingerprinting, steps 18 and 19), assembled from the bands' stored spectra and envelope correlations |
@@ -78,6 +78,6 @@ Every pipeline `nxr-neuro run <name>` knows, one page each: what it measures, it
 | [`surrogate_lagfree_pairs`](surrogate_lagfree_pairs.md) | per burst, the lagged share of its sensors' second moment against lag-free Wishart draws of its own zero-lag second moment |
 | [`surrogate_lagfree_spatial_events`](surrogate_lagfree_spatial_events.md) | one draw of the lag-free surrogate of the spatial events (the same graph on a lag-free surrogate of the recording), its home map and patch summary as statistics |
 | [`surrogate_lagfree_vortex`](surrogate_lagfree_vortex.md) | one draw of the lag-free surrogate of the vortex chain (the same graph on a lag-free surrogate of the recording), its tile crossings over the level's tiles as a statistic |
-| [`tile_network`](tile_network.md) | the fibre network on the tiles of a surface's dyadic grid - streamline counts, median lengths and distances per pair of tiles, and the connectome Laplacian's eigenmodes |
+| [`tile_network`](tile_network.md) | the fibre network on the tiles of a surface's dyadic grid - streamline counts, median lengths and distances per pair of tiles, and the network as a graph manifold with its metric |
 | [`vortex_core_threshold`](vortex_core_threshold.md) | the distribution of \|hatted curl\| over the burst frames (4096 log bins), a statistic from which the cores' threshold is read |
 | [`vortex_cores`](vortex_cores.md) | the vortex cores of a band's hatted curl over the burst frames, from the stored threshold, stored as point events |

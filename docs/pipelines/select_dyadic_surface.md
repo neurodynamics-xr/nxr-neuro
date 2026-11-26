@@ -46,7 +46,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 
 | output | stored as |
 |---|---|
-| `grid` | kind selection, type grid, on surface.manifold.0, name {surface} tiles |
+| `grid` | kind selection, type grid, on surface.manifold.0, name {surface} {tiles} |
 
 ## Notes from the definition
 
@@ -58,7 +58,8 @@ is resolved from it, and the run records the stated quantity, its chart, the res
 
   rule subject   the surface's own tiles (tree subject)
   rule group     the default subject's tiles as the dataset's GROUP TREE, with the atlas definitions (the atlas leaf, the resolution, the default bands, the default trajectory scales)
-  rule transfer  the subject's vertices on the group tree through the registered spheres, keeping the template's codes (a tile no vertex reaches is an empty member)
+  rule transfer  the subject's vertices on the group tree through the registered spheres, keeping the template's codes (a tile no vertex reaches is an empty member), stored as `<surface> tiles transfer`
+                 beside the subject's own `<surface> tiles`
 
 Per level the stored attributes are {area_m2, diameter_mm, weyl_band_per_m2}. The Levi-Civita connection between neighbouring tiles is NOT part of the grid: it is a measurement over the product of a level with itself,
 made by `measure` with the measure `levi_civita` over `select_product`.
