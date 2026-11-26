@@ -99,6 +99,21 @@ double exactDistance(
     int vEnd
 );
 
+/** The exact geodesic distance and log map FROM A SURFACE POINT to every
+ *  vertex. The source is a vertex (`face < 0`, `vertex` the index) or a
+ *  point in a face (`face` the face index, `bary` its barycentric
+ *  coordinates in the face's vertex order, non-negative, summing to 1). */
+struct ExactSource {
+    int vertex = -1;
+    int face = -1;
+    Eigen::Vector3d bary = Eigen::Vector3d::Zero();
+};
+struct ExactFromPoint {
+    Eigen::VectorXd distance;  // [nV] exact polyhedral distance, mesh units
+    Eigen::MatrixXd log;       // [nV, 2] log map in the source point's tangent space (geometry-central's convention)
+};
+ExactFromPoint exactFromPoint(const SurfaceArrays& surface, const ExactSource& source);
+
 // ── Locus primitives (D11) ───────────────────────────────────
 //
 // `query::*` returns the geometric locus itself (the "where"); the

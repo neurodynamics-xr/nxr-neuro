@@ -318,6 +318,7 @@ python	signal_graphBank	nxr::signal::graphfilterbank::graphBank	ok
 wasm	geometry.bff	nxr::geometry::parametrization::bff	ok
 wasm	geometry.curvatures	nxr::geometry::curvatures	ok
 wasm	geometry.exactDistance	nxr::geometry::query::exactDistance	ok
+wasm	geometry.exactFromPoint	nxr::geometry::query::exactFromPoint	ok
 wasm	geometry.extendScalar	nxr::geometry::transport::extendScalar	ok
 wasm	geometry.findCenter	nxr::geometry::transport::findCenter	ok
 wasm	geometry.frames	nxr::geometry::frames	ok

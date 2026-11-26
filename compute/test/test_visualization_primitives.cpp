@@ -226,6 +226,32 @@ int main() try {
                   << " <= flip-out " << pathLength << ")" << std::endl;
     }
 
+    // ── 2d. Exact distance from a surface point on a flat grid = Euclidean ──
+    {
+        const int nGrid = 5;
+        std::vector<double> V; std::vector<int32_t> F;
+        buildGrid(nGrid, V, F);
+        const auto g = surfaceOf(V.data(), nGrid * nGrid, F.data(), static_cast<int>(F.size() / 3));
+        // face 0 is (0,0)-(1/4,0)-(1/4,1/4); a point inside it
+        ExactSource src;
+        src.face = 0;
+        src.bary << 0.2, 0.5, 0.3;
+        Eigen::Vector3d p = 0.2 * Eigen::Vector3d(V[0], V[1], V[2]) + 0.5 * Eigen::Vector3d(V[3], V[4], V[5])
+                          + 0.3 * Eigen::Vector3d(V[18], V[19], V[20]);
+        auto r = exactFromPoint(g, src);
+        double worst = 0, worstLog = 0;
+        for (int v = 0; v < nGrid * nGrid; v++) {
+            Eigen::Vector3d q(V[3 * v], V[3 * v + 1], V[3 * v + 2]);
+            worst = std::max(worst, std::abs(r.distance[v] - (q - p).norm()));
+            worstLog = std::max(worstLog, std::abs(r.log.row(v).norm() - (q - p).norm()));
+        }
+        REQUIRE(worst < 1e-9, "exactFromPoint: flat-grid distance equals Euclidean");
+        REQUIRE(worstLog < 1e-9, "exactFromPoint: log map length equals the distance");
+        ExactSource vsrc; vsrc.vertex = 7;
+        REQUIRE(exactFromPoint(g, vsrc).distance[7] == 0.0, "exactFromPoint: vertex source, distance 0 at itself");
+        std::cout << "  [2d] exactFromPoint ✓ (max |d - euclid| " << worst << ")" << std::endl;
+    }
+
     // ── 3. BFF parametrization on a flat grid ────────────────
     //
     // The grid has a single boundary loop (the square perimeter).

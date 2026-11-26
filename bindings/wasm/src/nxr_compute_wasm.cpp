@@ -872,6 +872,26 @@ double exactDistanceJS(val surfaceVal, int vStart, int vEnd) {
     return guarded([&] { return geom::query::exactDistance(valToSurface(surfaceVal), vStart, vEnd); });
 }
 
+// geometry.exactFromPoint(surface, face, bary, vertex): the source is a vertex (face < 0) or a face point (bary a Float64Array [3]).
+// → { distance: Float64Array [nV], log: Float64Array [2 nV] } (row-major).
+val exactFromPointJS(val surfaceVal, int face, val bary, int vertex) {
+    return guarded([&] {
+        geom::query::ExactSource src;
+        src.face = face;
+        src.vertex = vertex;
+        if (face >= 0) {
+            std::vector<double> b = emscripten::convertJSArrayToNumberVector<double>(bary);
+            if (b.size() != 3) throw std::runtime_error("exactFromPoint: bary must have 3 entries");
+            src.bary << b[0], b[1], b[2];
+        }
+        geom::query::ExactFromPoint r = geom::query::exactFromPoint(valToSurface(surfaceVal), src);
+        val out = val::object();
+        out.set("distance", eigenVectorToVal(r.distance));
+        out.set("log", eigenMatrixToVal(r.log));
+        return out;
+    });
+}
+
 // ── geometry: vector heat method ─────────────────────────────
 //
 // Each call builds the solver on the surface and drops it on return; the batch forms (Arrays of source sets / sources) share one solver and one factorization.
@@ -1128,6 +1148,7 @@ EMSCRIPTEN_BINDINGS(nxr_compute_wasm) {
     emscripten::function("geometry.heat", &heatJS);
     emscripten::function("geometry.tracePath", &tracePathJS);
     emscripten::function("geometry.exactDistance", &exactDistanceJS);
+    emscripten::function("geometry.exactFromPoint", &exactFromPointJS);
     emscripten::function("geometry.parallel", &parallelJS);
     emscripten::function("geometry.extendScalar", &extendScalarJS);
     emscripten::function("geometry.logMap", &logMapJS);

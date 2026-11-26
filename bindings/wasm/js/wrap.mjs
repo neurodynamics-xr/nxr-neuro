@@ -22,7 +22,7 @@ const RENAMED = {
   operatorInfo: 'operators.operatorById', fieldInfo: 'operators.fieldById',
   hodge: 'signal.hodge', isoline: 'signal.isoline', streamline: 'signal.streamline', whitney: 'signal.whitney',
   curvatures: 'geometry.curvatures', bff: 'geometry.bff', frames: 'geometry.frames', vertexFrames: 'geometry.vertexFrames', normals: 'geometry.normals',
-  heat: 'geometry.heat', tracePath: 'geometry.tracePath', exactDistance: 'geometry.exactDistance', parallel: 'geometry.parallel',
+  heat: 'geometry.heat', tracePath: 'geometry.tracePath', exactDistance: 'geometry.exactDistance', exactFromPoint: 'geometry.exactFromPoint', parallel: 'geometry.parallel',
   extendScalar: 'geometry.extendScalar', logMap: 'geometry.logMap', findCenter: 'geometry.findCenter', signedHeat: 'geometry.signedHeat',
   smoothFace: 'geometry.smoothFace', smoothVertex: 'geometry.smoothVertex',
   heatDiffusion: 'synthesis.heatDiffusion', dampedWave: 'synthesis.dampedWave', randomDecomposed1Form: 'synthesis.randomDecomposed1Form',
@@ -126,6 +126,10 @@ export function wrap(mod) {
     'geometry.heat': (surface, sources, { tCoef = 1.0, mesh = 'intrinsic' } = {}) => mod['geometry.heat'](surface, asI32s(sources), tCoef, mesh),
     'geometry.tracePath': (surface, vStart, vEnd) => mod['geometry.tracePath'](surface, vStart, vEnd),
     'geometry.exactDistance': (surface, vStart, vEnd) => mod['geometry.exactDistance'](surface, vStart, vEnd),
+    // source: a vertex index (number) or { face, bary: [b0, b1, b2] }
+    'geometry.exactFromPoint': (surface, source) => typeof source === 'number'
+      ? mod['geometry.exactFromPoint'](surface, -1, [0, 0, 0], source)
+      : mod['geometry.exactFromPoint'](surface, source.face, Array.from(source.bary), -1),
     // Vector heat method (Sharp, Soliman, Crane 2019): one set, or Arrays of sets (the batch form)
     'geometry.parallel': (surface, sourceVerts, sourceVectors, tCoef = 1.0) =>
       mod['geometry.parallel'](surface, asI32s(sourceVerts), asF64s(sourceVectors), tCoef),

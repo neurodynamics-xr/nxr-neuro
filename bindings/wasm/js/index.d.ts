@@ -355,6 +355,8 @@ export interface NxrCompute {
   'geometry.heat'(surface: Surface, sources: Ints[], options?: { tCoef?: number; mesh?: 'intrinsic' | 'input' }): Float64Array[]
   'geometry.tracePath'(surface: Surface, vStart: number, vEnd: number): PolylineResult & { vertices: Int32Array; weights: Float64Array; length: number }
   'geometry.exactDistance'(surface: Surface, vStart: number, vEnd: number): number
+  /** exact distance [nV] and log map [2 nV, row-major] from a vertex (index) or a face point (barycentrics in the face's vertex order) to every vertex */
+  'geometry.exactFromPoint'(surface: Surface, source: number | { face: number; bary: ArrayLike<number> }): { distance: Float64Array; log: Float64Array }
   'geometry.parallel'(surface: Surface, sourceVerts: Ints, sourceVectors: Floats, tCoef?: number): Float64Array
   'geometry.parallel'(surface: Surface, sourceVerts: Ints[], sourceVectors: Floats[], tCoef?: number): Float64Array[]
   'geometry.extendScalar'(surface: Surface, sourceVerts: Ints, sourceValues: Floats, tCoef?: number): Float64Array
