@@ -131,6 +131,7 @@ node	synthesis.lagfree	-	composite
 node	synthesis.lagfree_mixing	-	composite
 node	synthesis.lagfree_pairs	-	composite
 node	select.tile_crossings	-	composite
+node	select.level_complex	-	composite
 addon	geometry.curvatures	nxr::geometry::curvatures	ok
 addon	geometry.exactDistance	nxr::geometry::query::exactDistance	ok
 addon	geometry.extendScalar	nxr::geometry::transport::extendScalar	ok
@@ -218,6 +219,12 @@ mex	synthesis.delta	nxr::synthesis::delta	ok
 mex	synthesis.heatDiffusion	nxr::synthesis::heatDiffusion	ok
 mex	synthesis.randomDecomposed1Form	nxr::synthesis::randomDecomposed1Form	ok
 mex	version	-	legacy
+python	select_levelComplex	nxr::select::levelComplex	ok
+python	select_vertexLevel	nxr::select::vertexLevel	ok
+python	select_dyadicLevel	nxr::select::dyadicLevel	ok
+python	select_lineLevel	nxr::select::lineLevel	ok
+python	select_productLevel	nxr::select::productLevel	ok
+python	select_subjectTree	nxr::select::subjectTree	ok
 python	operators_eigen	nxr::operators::eigen	ok
 python	geometry_surfaceArrays	nxr::geometry::surfaceArrays	ok
 python	geometry_complex	nxr::geometry::complex	ok

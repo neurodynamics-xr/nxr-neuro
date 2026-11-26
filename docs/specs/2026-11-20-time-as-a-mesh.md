@@ -28,7 +28,7 @@ space-time analysis.
 | `frequency` | a spectrum's axis | a line in Hz, made from a time line by a transform (relation recorded) |
 | `frames` | a time line or a line of windows | a line in seconds made from a time line by tiling (relation `tiled`, its window and step); "time or frames" is "a line in seconds" |
 | `modes` | an eigenmode axis | points with an eigenvalue coordinate (`spectrum:<operator>`), no topology of rank 1 |
-| `time_tiles`, `levels` | the dyadic tile pyramid | not manifolds: a level is a partition, held by the selection system (its levels and members, as today) |
+| `time_tiles`, `levels` | the dyadic tile pyramid | not manifold ROWS: a level is a partition, held by the selection system (its levels and members, as today). **Amended 2026-11-26** ([2026-11-26-levels-of-one-manifold.md](2026-11-26-levels-of-one-manifold.md)): computed from that partition, each level is also a cell complex in its own right (neighbours, boundary, d0, ⋆0, ⋆1, halfedges where valid), addressed (manifold, level, code), never a manifold row or a name of its own |
 | the factor a stream walks | the last factor when its role was time or frames | the run's: the chunk service walks the factor the field's port declares `streamed`; the checker requires that factor to be a line in seconds |
 
 ## 3. Signatures

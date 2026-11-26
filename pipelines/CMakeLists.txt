@@ -59,6 +59,7 @@ add_library(nxr_pipelines
   src/cores_steps.cpp
   src/tracks_steps.cpp
   src/crossings_steps.cpp
+  src/level_steps.cpp
   src/connectome_steps.cpp
   src/montage_steps.cpp
   src/sensor_surface_steps.cpp
@@ -336,6 +337,10 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_select_makers PRIVATE nxr_pipelines)
   target_include_directories(test_select_makers PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_select_makers COMMAND test_select_makers)
+  add_executable(test_level_complex test/test_level_complex.cpp)
+  target_link_libraries(test_level_complex PRIVATE nxr_pipelines)
+  target_include_directories(test_level_complex PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_level_complex COMMAND test_level_complex)
   add_executable(test_glue_onto test/test_glue_onto.cpp)
   target_link_libraries(test_glue_onto PRIVATE nxr_pipelines)
   target_include_directories(test_glue_onto PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
