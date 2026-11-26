@@ -497,7 +497,10 @@ int main() {
     {
       nxr::io::task::ListClassRequest l;
       l.cls = "manifolds"; l.dataset = (root / "demo").string(); l.subject = "S1"; l.name = "net";
-      const Json listed = nxr::pipelines::face::list_class(l).result["rows"];
+      Json listed = Json::array();                                          // (the name filter is a substring: the network's eigen line matches too)
+      const Json all = nxr::pipelines::face::list_class(l).result;
+      for (const auto& row : all.value("rows", Json::array())) if (row.value("name", std::string()) == "net") listed.push_back(row);
+      if (listed.size() != 1) { std::printf("  [fibres] list manifolds: %s\n", all.dump().substr(0, 600).c_str()); std::fflush(stdout); }
       CHECK(listed.size() == 1);
       if (listed.size() == 1) {
         std::printf("  [fibres] list manifolds net: kind %s, type %s\n", listed[0].value("kind", std::string()).c_str(), listed[0]["type"].dump().substr(0, 160).c_str());
