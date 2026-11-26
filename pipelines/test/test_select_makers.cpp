@@ -2,6 +2,8 @@
 //   - `select_dyadic_surface` (rule subject): the grid's finest tile is a QUANTITY; "parts N" resolves to level log2(N) exactly, any other power of two is refused with the reason, a bare number (a level
 //     index) is refused; the grid is stored once as `<surface> tiles` and a rerun is a cache hit
 //   - `select_bands` (rule levels): one span of the Eigenvalue line per level of the grid, contiguous octaves of lambda
+//   - `select_time_grid` rules windows and segments from a `duration`; `select_dyadic_surface` rule transfer as `<surface> tiles transfer` beside the subject's own grid; `select_bands` rule frequency with
+//     no surface, on a dataset whose template has no Frequency line
 //   - `glue` makes the glued surface as a manifold of its own, with its map and its bridge selection
 #include <unistd.h>
 
@@ -75,7 +77,7 @@ int main() {
   // the glued cortex: its own manifold, its map to the original (-1 on the bridge) and the bridge as a labelled selection
   nxrtest::run_definition(ds, sub, "glue", Json{{"surface", "cortex"}});
   const auto glued = ts.find({.cls = tk::Cls::manifold, .name = "cortex_glued", .type = "surface"});
-  const auto bridge = ts.find({.cls = tk::Cls::selection, .name = "cortex_glued_bridge"});
+  const auto bridge = ts.find({.cls = tk::Cls::selection, .name = "cortex_glued_hemispheres"});   // the hemispheres labelling carries the bridge as an entry (no bridge selection since the glue's result became selections)
   CHECK(glued.has_value() && bridge.has_value());
   CHECK(glued->n_vertices.value_or(0) > 0);
 
@@ -109,6 +111,16 @@ int main() {
       rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, std::int64_t(4096)}; rec.array.compress = false; rec.cols.set("unit", "A");
       sub.field(std::move(rec));
     });
+    // rules windows and segments take the window or segment as `duration`, as the definition passes it (the node read `window` and `segment`, so every duration was refused); a null step is the window
+    nxrtest::make_time_grids(ds, sub, "windows", Json{{"duration", "2 s"}});
+    const auto win = ts.find({.cls = tk::Cls::selection, .name = "rest time grid windows 2 s step 2 s"});
+    CHECK(win.has_value() && win->n_members.value_or(0) == 8);                          // 2 s at 250 Hz snaps to 512 samples: 4096 / 512 windows, no overlap
+    nxrtest::make_time_grids(ds, sub, "windows", Json{{"duration", "2 s"}, {"step", "1 s"}});
+    const auto win2 = ts.find({.cls = tk::Cls::selection, .name = "rest time grid windows 2 s step 1 s"});
+    CHECK(win2.has_value() && win2->n_members.value_or(0) == 15);                       // a step of 256 samples: (4096 - 512) / 256 + 1
+    nxrtest::make_time_grids(ds, sub, "segments", Json{{"duration", "2 s"}});
+    const auto seg = ts.find({.cls = tk::Cls::selection, .name = "rest time grid segments 2 s overlap 0.5"});
+    CHECK(seg.has_value() && seg->n_members.value_or(0) > 1);
     nxrtest::make_time_grids(ds, sub, "band", Json{{"band", "8-16 Hz"}});               // the band's time tiles (the Studio's fitLevelOf), named by their rule
     const auto tl = ts.find({.cls = tk::Cls::selection, .name = "rest time grid band 8-16 Hz"});
     CHECK(tl.has_value());
@@ -122,6 +134,36 @@ int main() {
       CHECK(!f[1].contains("level") && f[1]["members"] == 32);                            // the band's tiles: 4096 samples in tiles of 128 (4 cycles of 12 Hz at 250 Hz, a power of two)
       CHECK(pr->params["radices"] == Json::array({8, 32}) && pr->params["factors_snapped"][0]["snapped"]["parts_per_hemisphere"] == 4);
     }
+  }
+
+  // rule transfer: the group tree carried onto the subject is stored as `<surface> tiles transfer`, BESIDE the subject's own `cortex tiles` (both were `<surface> tiles`, so the older grid blocked the other)
+  {
+    SubjectWriter tpl = SubjectWriter::open(ds, "default_template");
+    tpl.compose([&] { SurfaceOptions so; so.name = "cortex"; so.sphere = b.Sph; add_surface(tpl, so, b.P, b.F); });
+    nxr::pipelines::run_shipped(ds, tpl, "select_dyadic_surface", Json{{"surface", "cortex"}, {"rule", "group"}, {"finest", "parts 8"}}, false);
+  }
+  nxr::pipelines::run_shipped(ds, sub, "select_dyadic_surface", Json{{"surface", "cortex"}, {"rule", "transfer"}}, false);
+  const auto own = ts.find({.cls = tk::Cls::selection, .name = "cortex tiles", .type = "ladder"});
+  const auto carried = ts.find({.cls = tk::Cls::selection, .name = "cortex tiles transfer", .type = "ladder"});
+  CHECK(own.has_value() && own->id == id0);                                          // the subject's own grid untouched
+  CHECK(carried.has_value() && carried->id != id0 && carried->n_members.value_or(0) == 4);   // the template's levels 0..3
+  nxr::pipelines::run_shipped(ds, sub, "select_dyadic_surface", Json{{"surface", "cortex"}, {"rule", "transfer"}}, false);   // a rerun: a cache hit
+  CHECK(ts.find({.cls = tk::Cls::selection, .name = "cortex tiles transfer", .type = "ladder"})->id == carried->id);
+
+  // rule frequency needs no surface (the optional `grid` input relates to the absent `surface`: it is absent too), and a dataset whose template holds no Frequency line gets the line in the subject
+  {
+    DatasetWriter bare = create_dataset(root / "bare", "bare");
+    { SubjectWriter t = SubjectWriter::create(bare, "T", [] { SubjectOptions o; o.kind = "template"; return o; }()); }
+    SubjectWriter s1 = SubjectWriter::create(bare, "S1");
+    const Json rhythms = Json{{"rule", "frequency"}, {"bands", Json::array({"1-4 Hz", "4-7 Hz", "7-13 Hz"})}, {"name", "rhythms"}};
+    nxr::pipelines::run_shipped(bare, s1, "select_bands", rhythms, false);
+    const auto bs = tk::Subject::of(s1);
+    const auto set = bs.find({.cls = tk::Cls::selection, .name = "rhythms", .type = "spans"});
+    CHECK(set.has_value() && set->n_members.value_or(0) == 3);
+    const auto line = bs.find({.cls = tk::Cls::manifold, .name = "Frequency", .type = "line"});
+    CHECK(line.has_value() && line->n_vertices.value_or(0) == 1001);
+    nxr::pipelines::run_shipped(bare, s1, "select_bands", rhythms, false);          // a rerun: the same set on the same line
+    CHECK(bs.find({.cls = tk::Cls::selection, .name = "rhythms", .type = "spans"})->id == set->id);
   }
 
   std::printf("test_select_makers: ok\n");

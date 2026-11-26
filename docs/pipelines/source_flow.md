@@ -11,6 +11,7 @@ Examples:
 
 ```
 nxr-neuro run source_flow --dataset D --subject S --recording REC --all --kernel KERNEL --cortex per_hemisphere --left LEFT --right RIGHT --columns channels --atoms ATOMS --bands BANDS
+nxr-neuro run source_flow --dataset D --subject S --recording REC --spectra REC_HELMET_chunk_spectra --columns sensor_coordinates --sensor-package HELMET --channel-map MAP ...
 ```
 
 ## Inputs
@@ -27,6 +28,10 @@ nxr-neuro run source_flow --dataset D --subject S --recording REC --all --kernel
 | `atoms` | selection any, where {"name": "$atoms"} (the frequency atoms, a kernel set (`nxr-neuro run select_kernels --profile gaussian --chart linear --width-rule proportional` first)) | yes |
 | `pairs` | selection any, where {"name": "$pairs"} (the band pairs' members: atoms x bands x bands (`nxr-neuro run select_kernel_product --factors 3 --first ATOMS --second BANDS --third BANDS` first)) | yes |
 | `atom_bands` | selection any, where {"name": "$atom_bands"} (the sign-flip test's members per band: atoms x bands (`nxr-neuro run select_kernel_product --factors 2` first)) | yes |
+| `spectra` | statistic any, where {"name": "$spectra"}, when $spectra (the chunk spectra stored before: the sensor flow's (`nxr-neuro run sensor_flow` first: <recording>_<package>_chunk_spectra; option A) or an earlier source flow's (option B)) | yes |
+| `time_grid` | selection any, manifold recording.time, where {"name": "$time_grid"}, when {"time_cells": true} (the recording's stored time grid, whose tiles are the time cells (`nxr-neuro run select_time_grid --rule tiles --duration D` first)) | yes |
+| `time_atoms` | selection any, where {"name": "$time_atoms"}, when {"time_cells": true} (the whole field's cells' product: the time grid x the atoms (`nxr-neuro run select_product --time-grid GRID --atoms ATOMS` first)) | yes |
+| `time_atom_bands` | selection any, where {"name": "$time_atom_bands"}, when {"time_cells": true} (the bands' cells' product: the time grid x the atoms x the bands (`nxr-neuro run select_product --time-grid GRID --atoms ATOMS --scales BANDS` first)) | yes |
 | `bands` | selection any, where {"name": "$bands"} (the cortical eigenvalue bands, a kernel set (`nxr-neuro run select_kernels --profile cos2_partition`; centres as wavelengths in the surface's unit)) | yes |
 
 ## Parameters
@@ -35,6 +40,7 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 
 | parameter | option | default | unit | choices | meaning |
 |---|---|---|---|---|---|
+| `spectra` | `--spectra` | none | - |  | the stored chunk spectra by name, read instead of the recording (the sensor flow's for option A, an earlier source flow's for option B); null: the recording is read and its chunk spectra stored |
 | `pairs` | `--pairs` | none | - |  | the product atoms x bands x bands by name: the band pairs are measured over its members |
 | `atom_bands` | `--atom-bands` | none | - |  | the product atoms x bands by name: the sign-flip test per band is measured over its members (the whole field's over the atoms) |
 | `recording` | `--recording` | `none` | - |  | the recording's name, or none: every recording of the subject, one run each |
@@ -54,7 +60,10 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `frequency_normalisation` | `--frequency-normalisation` | `sum_of_squared_gains` | - | sum_of_squared_gains, none | the atoms divided at each bin by the square root of their squared gains' sum \| none, as sensor_flow |
 | `support_floor` | `--support-floor` | `0.001` | - |  | a bin whose atoms' squared gains sum to less than this fraction of their largest sum lies outside the atoms (gain 0) |
 | `time_cells` | `--time-cells` | true | - |  | also read each atom's time cells on the cortex and test them (sign flip): a GEMM per cell of 3 x vertices x the columns x the cell's samples, about 0.5 T multiply-adds per chunk, atom and band on a 20 000-vertex cortex (a GPU's work) |
-| `cell_width` | `--cell-width` | `2.0` | - |  | a time cell's width in the atom's time standard deviations, snapped to the nearest power of two of samples |
+| `time_grid` | `--time-grid` | none | - |  | with time_cells: the stored time grid of the recording by name (one level of its dyadic tiling): the time cells are its tiles, stored as measurements |
+| `time_atoms` | `--time-atoms` | none | - |  | with time_cells: the product time grid x atoms by name (the whole field's cells) |
+| `time_atom_bands` | `--time-atom-bands` | none | - |  | with time_cells: the product time grid x atoms x bands by name (the bands' cells) |
+| `cell_width` | `--cell-width` | `2.0` | - |  | each atom's own window for the sign-flip test (a box): this many of the atom's time standard deviations, snapped to the nearest dyadic level of the grid's tiling (not finer than the grid) |
 | `flip_elements` | `--flip-elements` | `edges` | - | edges, vertices | the sign-flip test's elements: edges \| vertices |
 | `patterns` | `--patterns` | `2000` | - |  | the sign-flip test's random patterns |
 | `seed` | `--seed` | `0` | - |  | the seed of numpy's default_rng for the sign patterns |
@@ -77,15 +86,15 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | before | [`signal.source_mode_operator`](../nodes.md) | cortex_operator=glued_cortex, kernel=kernel, package=glued | columns=channels | glued_operator, glued_kernel_columns, serving |
 | chunks over `recording` | [`signal.overlapped_spectrum`](../nodes.md) | x=recording, operator=serving | overlap_samples=$overlap_samples, transform_samples=$transform_samples, frequency_span=$frequency_span | spectrum |
 | chunks over `recording` | [`signal.chunk_spectra`](../nodes.md) | spectrum=spectrum, operator=serving |  | spectra |
-| after | [`signal.cortical_flow`](../nodes.md) | spectra=spectra, package=left, operator=left_operator, kernel_columns=left_kernel_columns, frequency=atoms, scale=bands | measure_suffix=_left, frequency_weighting=kernels, frequency_normalisation=$frequency_normalisation, support_floor=$support_floor | left_whole_vertices, left_whole_edges, left_whole_modes, left_pair_vertices, left_pair_edges, left_pair_modes |
-| after | [`signal.cortical_time_cells`](../nodes.md) | spectra=spectra, package=left, operator=left_operator, kernel_columns=left_kernel_columns, frequency=atoms, scale=bands | frequency_normalisation=$frequency_normalisation, support_floor=$support_floor, cell_width=$cell_width | left_cells |
-| after | [`stats.sign_flip_consistency`](../nodes.md) | cells=left_cells | measure_suffix=_left, elements=$flip_elements, patterns=$patterns, seed=$seed, cells_per_flip=$cells_per_flip | left_consistency, left_consistency_summary, left_whole_consistency, left_whole_consistency_summary |
-| after | [`signal.cortical_flow`](../nodes.md) | spectra=spectra, package=right, operator=right_operator, kernel_columns=right_kernel_columns, frequency=atoms, scale=bands | measure_suffix=_right, frequency_weighting=kernels, frequency_normalisation=$frequency_normalisation, support_floor=$support_floor | right_whole_vertices, right_whole_edges, right_whole_modes, right_pair_vertices, right_pair_edges, right_pair_modes |
-| after | [`signal.cortical_time_cells`](../nodes.md) | spectra=spectra, package=right, operator=right_operator, kernel_columns=right_kernel_columns, frequency=atoms, scale=bands | frequency_normalisation=$frequency_normalisation, support_floor=$support_floor, cell_width=$cell_width | right_cells |
-| after | [`stats.sign_flip_consistency`](../nodes.md) | cells=right_cells | measure_suffix=_right, elements=$flip_elements, patterns=$patterns, seed=$seed, cells_per_flip=$cells_per_flip | right_consistency, right_consistency_summary, right_whole_consistency, right_whole_consistency_summary |
-| after | [`signal.cortical_flow`](../nodes.md) | spectra=spectra, package=glued, operator=glued_operator, kernel_columns=glued_kernel_columns, frequency=atoms, scale=bands | measure_suffix=_glued, frequency_weighting=kernels, frequency_normalisation=$frequency_normalisation, support_floor=$support_floor | glued_whole_vertices, glued_whole_edges, glued_whole_modes, glued_pair_vertices, glued_pair_edges, glued_pair_modes |
-| after | [`signal.cortical_time_cells`](../nodes.md) | spectra=spectra, package=glued, operator=glued_operator, kernel_columns=glued_kernel_columns, frequency=atoms, scale=bands | frequency_normalisation=$frequency_normalisation, support_floor=$support_floor, cell_width=$cell_width | glued_cells |
-| after | [`stats.sign_flip_consistency`](../nodes.md) | cells=glued_cells | measure_suffix=_glued, elements=$flip_elements, patterns=$patterns, seed=$seed, cells_per_flip=$cells_per_flip | glued_consistency, glued_consistency_summary, glued_whole_consistency, glued_whole_consistency_summary |
+| after | [`signal.cortical_flow`](../nodes.md) | spectra=spectra, package=left, operator=left_operator, kernel_columns=left_kernel_columns, frequency=atoms, scale=bands | frequency_weighting=kernels, frequency_normalisation=$frequency_normalisation, support_floor=$support_floor | left_whole_vertices, left_whole_edges, left_whole_modes, left_pair_vertices, left_pair_edges, left_pair_modes |
+| after | [`signal.cortical_time_cells`](../nodes.md) | spectra=spectra, package=left, operator=left_operator, kernel_columns=left_kernel_columns, frequency=atoms, scale=bands, grid=time_grid, whole_product=time_atoms, product=time_atom_bands | frequency_normalisation=$frequency_normalisation, support_floor=$support_floor, cell_width=$cell_width | left_whole_edge_cells, left_whole_vertex_cells, left_edge_cells, left_vertex_cells |
+| after | [`stats.sign_flip_consistency`](../nodes.md) | whole_edge_cells=left_whole_edge_cells, whole_vertex_cells=left_whole_vertex_cells, edge_cells=left_edge_cells, vertex_cells=left_vertex_cells | elements=$flip_elements, patterns=$patterns, seed=$seed, cells_per_flip=$cells_per_flip | left_consistency, left_consistency_summary, left_whole_consistency, left_whole_consistency_summary |
+| after | [`signal.cortical_flow`](../nodes.md) | spectra=spectra, package=right, operator=right_operator, kernel_columns=right_kernel_columns, frequency=atoms, scale=bands | frequency_weighting=kernels, frequency_normalisation=$frequency_normalisation, support_floor=$support_floor | right_whole_vertices, right_whole_edges, right_whole_modes, right_pair_vertices, right_pair_edges, right_pair_modes |
+| after | [`signal.cortical_time_cells`](../nodes.md) | spectra=spectra, package=right, operator=right_operator, kernel_columns=right_kernel_columns, frequency=atoms, scale=bands, grid=time_grid, whole_product=time_atoms, product=time_atom_bands | frequency_normalisation=$frequency_normalisation, support_floor=$support_floor, cell_width=$cell_width | right_whole_edge_cells, right_whole_vertex_cells, right_edge_cells, right_vertex_cells |
+| after | [`stats.sign_flip_consistency`](../nodes.md) | whole_edge_cells=right_whole_edge_cells, whole_vertex_cells=right_whole_vertex_cells, edge_cells=right_edge_cells, vertex_cells=right_vertex_cells | elements=$flip_elements, patterns=$patterns, seed=$seed, cells_per_flip=$cells_per_flip | right_consistency, right_consistency_summary, right_whole_consistency, right_whole_consistency_summary |
+| after | [`signal.cortical_flow`](../nodes.md) | spectra=spectra, package=glued, operator=glued_operator, kernel_columns=glued_kernel_columns, frequency=atoms, scale=bands | frequency_weighting=kernels, frequency_normalisation=$frequency_normalisation, support_floor=$support_floor | glued_whole_vertices, glued_whole_edges, glued_whole_modes, glued_pair_vertices, glued_pair_edges, glued_pair_modes |
+| after | [`signal.cortical_time_cells`](../nodes.md) | spectra=spectra, package=glued, operator=glued_operator, kernel_columns=glued_kernel_columns, frequency=atoms, scale=bands, grid=time_grid, whole_product=time_atoms, product=time_atom_bands | frequency_normalisation=$frequency_normalisation, support_floor=$support_floor, cell_width=$cell_width | glued_whole_edge_cells, glued_whole_vertex_cells, glued_edge_cells, glued_vertex_cells |
+| after | [`stats.sign_flip_consistency`](../nodes.md) | whole_edge_cells=glued_whole_edge_cells, whole_vertex_cells=glued_whole_vertex_cells, edge_cells=glued_edge_cells, vertex_cells=glued_vertex_cells | elements=$flip_elements, patterns=$patterns, seed=$seed, cells_per_flip=$cells_per_flip | glued_consistency, glued_consistency_summary, glued_whole_consistency, glued_whole_consistency_summary |
 
 `before` steps run once, `chunks` steps run on every chunk of the recording, `after` steps run once on what the chunks accumulated.
 
@@ -93,37 +102,52 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 
 | output | stored as |
 |---|---|
-| `spectra` | kind statistic, name {name}_chunk_spectra, of recording |
-| `left_whole_vertices` | kind measurement, over atoms, of recording, when {"cortex": "per_hemisphere"} |
-| `left_whole_edges` | kind measurement, over atoms, of recording, when {"cortex": "per_hemisphere"} |
-| `left_whole_modes` | kind measurement, over atoms, of recording, when {"cortex": "per_hemisphere"} |
-| `left_pair_vertices` | kind measurement, over pairs, of recording, when {"cortex": "per_hemisphere"} |
-| `left_pair_edges` | kind measurement, over pairs, of recording, when {"cortex": "per_hemisphere"} |
-| `left_pair_modes` | kind measurement, over pairs, of recording, when {"cortex": "per_hemisphere"} |
-| `left_consistency` | kind measurement, over atom_bands, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
-| `left_consistency_summary` | kind measurement, over atom_bands, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
-| `left_whole_consistency` | kind measurement, over atoms, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
-| `left_whole_consistency_summary` | kind measurement, over atoms, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
-| `right_whole_vertices` | kind measurement, over atoms, of recording, when {"cortex": "per_hemisphere"} |
-| `right_whole_edges` | kind measurement, over atoms, of recording, when {"cortex": "per_hemisphere"} |
-| `right_whole_modes` | kind measurement, over atoms, of recording, when {"cortex": "per_hemisphere"} |
-| `right_pair_vertices` | kind measurement, over pairs, of recording, when {"cortex": "per_hemisphere"} |
-| `right_pair_edges` | kind measurement, over pairs, of recording, when {"cortex": "per_hemisphere"} |
-| `right_pair_modes` | kind measurement, over pairs, of recording, when {"cortex": "per_hemisphere"} |
-| `right_consistency` | kind measurement, over atom_bands, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
-| `right_consistency_summary` | kind measurement, over atom_bands, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
-| `right_whole_consistency` | kind measurement, over atoms, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
-| `right_whole_consistency_summary` | kind measurement, over atoms, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
-| `glued_whole_vertices` | kind measurement, over atoms, of recording, when {"cortex": "glued"} |
-| `glued_whole_edges` | kind measurement, over atoms, of recording, when {"cortex": "glued"} |
-| `glued_whole_modes` | kind measurement, over atoms, of recording, when {"cortex": "glued"} |
-| `glued_pair_vertices` | kind measurement, over pairs, of recording, when {"cortex": "glued"} |
-| `glued_pair_edges` | kind measurement, over pairs, of recording, when {"cortex": "glued"} |
-| `glued_pair_modes` | kind measurement, over pairs, of recording, when {"cortex": "glued"} |
-| `glued_consistency` | kind measurement, over atom_bands, of recording, when {"cortex": "glued", "time_cells": true} |
-| `glued_consistency_summary` | kind measurement, over atom_bands, of recording, when {"cortex": "glued", "time_cells": true} |
-| `glued_whole_consistency` | kind measurement, over atoms, of recording, when {"cortex": "glued", "time_cells": true} |
-| `glued_whole_consistency_summary` | kind measurement, over atoms, of recording, when {"cortex": "glued", "time_cells": true} |
+| `left_operator` | kind operator, operator_kind mode_analysis, name {kernel}__in__{left}, from recording.manifold.0, to left.from, derived_from kernel, when {"cortex": "per_hemisphere", "columns": "channels"} |
+| `right_operator` | kind operator, operator_kind mode_analysis, name {kernel}__in__{right}, from recording.manifold.0, to right.from, derived_from kernel, when {"cortex": "per_hemisphere", "columns": "channels"} |
+| `glued_operator` | kind operator, operator_kind mode_analysis, name {kernel}__in__{glued}, from recording.manifold.0, to glued.from, derived_from kernel, when {"cortex": "glued", "columns": "channels"} |
+| `spectra` | kind statistic, name {name}_chunk_spectra, of recording, when !$spectra |
+| `left_whole_vertices` | kind measurement, rows left.to, over atoms, of recording, when {"cortex": "per_hemisphere"} |
+| `left_whole_edges` | kind measurement, rows left.to, over atoms, of recording, when {"cortex": "per_hemisphere"} |
+| `left_whole_modes` | kind measurement, rows left.from, over atoms, of recording, when {"cortex": "per_hemisphere"} |
+| `left_pair_vertices` | kind measurement, rows left.to, over pairs, of recording, when {"cortex": "per_hemisphere"} |
+| `left_pair_edges` | kind measurement, rows left.to, over pairs, of recording, when {"cortex": "per_hemisphere"} |
+| `left_pair_modes` | kind measurement, rows left.from, over pairs, of recording, when {"cortex": "per_hemisphere"} |
+| `left_whole_edge_cells` | kind measurement, rows left.to, over time_atoms, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `left_whole_vertex_cells` | kind measurement, rows left.to, over time_atoms, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `left_edge_cells` | kind measurement, rows left.to, over time_atom_bands, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `left_vertex_cells` | kind measurement, rows left.to, over time_atom_bands, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `left_consistency` | kind measurement, rows left.to, over atom_bands, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `left_consistency_summary` | kind measurement, rows left.to, over atom_bands, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `left_whole_consistency` | kind measurement, rows left.to, over atoms, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `left_whole_consistency_summary` | kind measurement, rows left.to, over atoms, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `right_whole_vertices` | kind measurement, rows right.to, over atoms, of recording, when {"cortex": "per_hemisphere"} |
+| `right_whole_edges` | kind measurement, rows right.to, over atoms, of recording, when {"cortex": "per_hemisphere"} |
+| `right_whole_modes` | kind measurement, rows right.from, over atoms, of recording, when {"cortex": "per_hemisphere"} |
+| `right_pair_vertices` | kind measurement, rows right.to, over pairs, of recording, when {"cortex": "per_hemisphere"} |
+| `right_pair_edges` | kind measurement, rows right.to, over pairs, of recording, when {"cortex": "per_hemisphere"} |
+| `right_pair_modes` | kind measurement, rows right.from, over pairs, of recording, when {"cortex": "per_hemisphere"} |
+| `right_whole_edge_cells` | kind measurement, rows right.to, over time_atoms, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `right_whole_vertex_cells` | kind measurement, rows right.to, over time_atoms, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `right_edge_cells` | kind measurement, rows right.to, over time_atom_bands, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `right_vertex_cells` | kind measurement, rows right.to, over time_atom_bands, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `right_consistency` | kind measurement, rows right.to, over atom_bands, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `right_consistency_summary` | kind measurement, rows right.to, over atom_bands, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `right_whole_consistency` | kind measurement, rows right.to, over atoms, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `right_whole_consistency_summary` | kind measurement, rows right.to, over atoms, of recording, when {"cortex": "per_hemisphere", "time_cells": true} |
+| `glued_whole_vertices` | kind measurement, rows glued.to, over atoms, of recording, when {"cortex": "glued"} |
+| `glued_whole_edges` | kind measurement, rows glued.to, over atoms, of recording, when {"cortex": "glued"} |
+| `glued_whole_modes` | kind measurement, rows glued.from, over atoms, of recording, when {"cortex": "glued"} |
+| `glued_pair_vertices` | kind measurement, rows glued.to, over pairs, of recording, when {"cortex": "glued"} |
+| `glued_pair_edges` | kind measurement, rows glued.to, over pairs, of recording, when {"cortex": "glued"} |
+| `glued_pair_modes` | kind measurement, rows glued.from, over pairs, of recording, when {"cortex": "glued"} |
+| `glued_whole_edge_cells` | kind measurement, rows glued.to, over time_atoms, of recording, when {"cortex": "glued", "time_cells": true} |
+| `glued_whole_vertex_cells` | kind measurement, rows glued.to, over time_atoms, of recording, when {"cortex": "glued", "time_cells": true} |
+| `glued_edge_cells` | kind measurement, rows glued.to, over time_atom_bands, of recording, when {"cortex": "glued", "time_cells": true} |
+| `glued_vertex_cells` | kind measurement, rows glued.to, over time_atom_bands, of recording, when {"cortex": "glued", "time_cells": true} |
+| `glued_consistency` | kind measurement, rows glued.to, over atom_bands, of recording, when {"cortex": "glued", "time_cells": true} |
+| `glued_consistency_summary` | kind measurement, rows glued.to, over atom_bands, of recording, when {"cortex": "glued", "time_cells": true} |
+| `glued_whole_consistency` | kind measurement, rows glued.to, over atoms, of recording, when {"cortex": "glued", "time_cells": true} |
+| `glued_whole_consistency_summary` | kind measurement, rows glued.to, over atoms, of recording, when {"cortex": "glued", "time_cells": true} |
 
 ## Notes from the definition
 
@@ -140,7 +164,7 @@ chunks: as `sensor_flow`: each chunk with an overlap of half a chunk on each sid
 (in sensor field coordinates for option A, in channels for option B).
 after: --[signal.cortical_flow: the atoms x the cortical cos² bands (the last the complement: the kernel minus every other band) and their pairs]--> power, phase current per edge and per
 vertex, Hodge-Dirac flow coefficients on the cortex's stored edge rows, potential and stream, and the remainder beyond the kept modes (split by sparse Poisson solves); per hemisphere
-or glued; --[signal.cortical_time_cells]--> the same per time cell of each atom, for the whole field and each band; --[stats.sign_flip_consistency]--> R1 per edge.
+or glued; --[signal.cortical_time_cells]--> the same summed over each tile of the STORED time grid, for the whole field (grid x atoms) and each band (grid x atoms x bands), stored as measurements; --[stats.sign_flip_consistency]--> R1 per edge on those cells rolled up to each atom's own window.
 Every value below is a stated choice of this definition or the caller's (the nodes default nothing).
 
 What it cannot resolve: the same estimate as the kernel, in other coordinates (its point spread, depth bias and field spread are inherited; flow at cortical wavelengths the kernel
@@ -148,5 +172,11 @@ cannot resolve is leakage, not travel); rank at most the sensor coordinates (opt
 per hemisphere: no flow across the midline; glued: no medial-wall sources; the apparent speed derived at read is an upper bound.
 
   nxr-neuro run source_flow --dataset D --subject S --recording REC --all --kernel KERNEL --cortex per_hemisphere --left LEFT --right RIGHT --columns channels --atoms ATOMS --bands BANDS
+
+THE STORED CHUNK SPECTRA: with --spectra NAME the run reads the chunk spectra stored before instead of the recording, as connectome_flow does: the sensor flow's
+(`<recording>_<sensor package>_chunk_spectra`, in the sensor surface's field coordinates: option A, --columns sensor_coordinates with the same --sensor-package) or an earlier
+source flow's own (option B, in channels). Nothing is read from the recording and no spectrum is stored again; the measurements stay of the recording.
+
+  nxr-neuro run source_flow --dataset D --subject S --recording REC --spectra REC_HELMET_chunk_spectra --columns sensor_coordinates --sensor-package HELMET --channel-map MAP ...
 ```
 

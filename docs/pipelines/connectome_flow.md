@@ -3,9 +3,9 @@
 
 # `connectome_flow`
 
-the flow through the fibre network - the tiles' cross-spectrum per atom from the stored chunk spectra, its time cells and sign-flip test, the network's divergence and graph potential in the connectome eigenmodes.
+the flow through the fibre network - the tiles' cross-spectrum per atom from the stored chunk spectra, its time cells and sign-flip test, the network's divergence, graph potential and flow coefficients on its stored Hodge-Dirac modes.
 
-Version 1, scope `subject`. Run it with `nxr-neuro run connectome_flow --dataset <folder> --subject <id> ...`; `nxr-neuro run connectome_flow --help` prints the same options.
+Version 2, scope `subject`. Run it with `nxr-neuro run connectome_flow --dataset <folder> --subject <id> ...`; `nxr-neuro run connectome_flow --help` prints the same options.
 
 Examples:
 
@@ -23,8 +23,13 @@ nxr-neuro run connectome_flow --dataset D --subject S --spectra REC_chunk_spectr
 | `atoms` | selection any, where {"name": "$atoms"} (the frequency atoms, a kernel set on the spectra's frequency line (the sensor flow's)) | yes |
 | `kernel` | operator inverse kernel, where {"name": "$kernel"} (a free-orientation inverse kernel on the tiles' surface, over the spectra's channels) | yes |
 | `tiles` | selection any, where {"name": "$tiles"} (the dyadic grid of the kernel's surface (`nxr-neuro run select_dyadic_surface` first)) | yes |
-| `pairs` | statistic any, where {"name": "${network}_pairs"} (the fibre network (`nxr-neuro run tile_network` first)) | yes |
-| `eigenmodes` | statistic any, where {"name": "${network}_eigenmodes"} (the network's connectome eigenmodes (`nxr-neuro run tile_network` first)) | yes |
+| `pairs` | statistic any, where {"name": "${network}_pairs"} (the fibre network's tile pairs (`nxr-neuro run tile_network` first)) | yes |
+| `network` | manifold graph, where {"name": "$network"} (the fibre network, a graph manifold (`nxr-neuro run tile_network` first)) | yes |
+| `conductance` | field any, where {"name": "${network}_conductance"} (the network's edge weights (`nxr-neuro run tile_network` stores them)) | yes |
+| `modes` | operator eigenvectors, where {"name": "hodgeDirac__${network}_eigenvectors"}, made_by {"pipeline": "eigenmodes", "with": {"graph": "$network"}} (the network's Hodge-Dirac modes (`nxr-neuro run eigenmodes --graph NETWORK`; made first when not stored)) | yes |
+| `eigenvalues` | field any, where {"name": "hodgeDirac__${network}_eigenvalues"} (the network's Hodge-Dirac eigenvalues (with its modes)) | yes |
+| `time_grid` | selection any, where {"name": "$time_grid"} (the recording's stored time grid, whose tiles are the time cells (`nxr-neuro run select_time_grid --rule tiles --duration D` first)) | yes |
+| `time_atoms` | selection any, where {"name": "$time_atoms"} (the product the time cells are measured over: the time grid x the atoms (`nxr-neuro run select_product --time-grid GRID --atoms ATOMS` first)) | yes |
 
 ## Parameters
 
@@ -38,14 +43,14 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `atoms` | `--atoms` | none | - |  | the frequency atoms' kernel set by name |
 | `kernel` | `--kernel` | none | - |  | the inverse kernel's name (the caller's choice; free orientation) |
 | `tiles` | `--tiles` | none | - |  | the dyadic grid of the kernel's surface, by name |
-| `network` | `--network` | none | - |  | the stem of the fibre network's stored names (tile_network's name) |
-| `tiles_per_piece` | `--tiles-per-piece` | `32` | parts |  | the tiles of each hemisphere: the network's own (nxr: 32) |
-| `min_streamlines` | `--min-streamlines` | `10` | streamlines |  | a pair of tiles is an edge when at least this many streamlines join it: the network's eigenmodes' own (nxr: 10) |
+| `network` | `--network` | none | - |  | the fibre network's name (tile_network's: the graph manifold and the stem of its fields and pairs) |
+| `scale` | `--scale` | `parts 32` | - |  | the tiles' level as a quantity: the network's own (nxr: parts 32) |
+| `min_streamlines` | `--min-streamlines` | `10` | streamlines |  | a pair of tiles is joined when at least this many streamlines join it: the network's own (nxr: 10); the sign-flip test's control reads the not-joined pairs |
 | `frequency_normalisation` | `--frequency-normalisation` | `sum_of_squared_gains` | - | sum_of_squared_gains, none | the atoms divided at each bin by the square root of their squared gains' sum (the sensor flow's) \| none (nxr's gains as they are) |
 | `support_floor` | `--support-floor` | `0.001` | - |  | with sum_of_squared_gains: a bin whose atoms' squared gains sum to less than this fraction of their largest sum lies outside the atoms |
-| `cells` | `--cells` | `segments` | - | segments, atom_width | the cells the test flips and the mean edge flow averages: segments (nxr's: non-overlapping segments of segment_seconds from the run's first sample, the same for every atom) \| atom_width (each atom's own time cells, as the sensor flow's) |
-| `segment_seconds` | `--segment-seconds` | `4.0` | s |  | cells segments: a segment's length (nxr: 4 s) |
-| `cell_width` | `--cell-width` | `2.0` | - |  | cells atom_width: a cell's width in the atom's time standard deviations, snapped to a power of two of samples (the sensor flow's) |
+| `time_grid` | `--time-grid` | `required` | - |  | the stored time grid of the spectra's recording by name (one level of its dyadic tiling): the time cells are its tiles, stored as measurements over time_atoms |
+| `time_atoms` | `--time-atoms` | `required` | - |  | the product time grid x atoms by name: the time cells are measured over its members |
+| `cell_width` | `--cell-width` | `2.0` | - |  | each atom's own window, the cells the test flips and the mean edge flow averages (a box): this many of the atom's time standard deviations, snapped to the nearest dyadic level of the grid's tiling (not finer than the grid); there is no fixed segment (nxr's 4 s segments are not kept) |
 | `patterns` | `--patterns` | `2000` | - |  | the sign-flip test's random patterns (nxr: 2000) |
 | `seed` | `--seed` | `0` | - |  | the seed of numpy's default_rng, one for the run, drawn in nxr's order (per atom the flip, then the control's draws) (nxr: 0) |
 | `distance_bin_edges` | `--distance-bin-edges` | `[0, 0.03, 0.045, 0.06, 0.08, 0.1, 0.13, 0.17, 0.25]` | m |  | the distance bins the control pairs are matched in, in the surface's unit (nxr: 0 30 45 60 80 100 130 170 250 mm) |
@@ -56,11 +61,11 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | phase | node | in | with | out |
 |---|---|---|---|---|
 | before | [`signal.mode_analysis`](../nodes.md) | package=package, channel_map=channel_map | modes=exact_and_constant, normalisation=unit_mass | serving |
-| before | [`signal.tile_operator`](../nodes.md) | kernel=kernel, tiles=tiles, serving=serving | tiles_per_piece=$tiles_per_piece | operator |
+| before | [`signal.tile_operator`](../nodes.md) | kernel=kernel, tiles=tiles, serving=serving | scale=$scale | operator |
 | before | [`signal.tile_flow`](../nodes.md) | spectra=spectra, operator=operator, frequency=atoms | frequency_normalisation=$frequency_normalisation, support_floor=$support_floor | pair_flow, tile_power |
-| before | [`signal.tile_time_cells`](../nodes.md) | spectra=spectra, operator=operator, frequency=atoms | frequency_normalisation=$frequency_normalisation, support_floor=$support_floor, cells=$cells, segment_seconds=$segment_seconds, cell_width=$cell_width | cells |
-| before | [`stats.network_sign_flip`](../nodes.md) | cells=cells, pairs=pairs | patterns=$patterns, seed=$seed, min_streamlines=$min_streamlines, distance_bin_edges=$distance_bin_edges | consistency |
-| before | [`meeg.network_flow`](../nodes.md) | pairs=pairs, eigenmodes=eigenmodes, flow=consistency | min_streamlines=$min_streamlines | network_tiles, network_modes, network_totals |
+| before | [`signal.tile_time_cells`](../nodes.md) | spectra=spectra, operator=operator, frequency=atoms, grid=time_grid, product=time_atoms | frequency_normalisation=$frequency_normalisation, support_floor=$support_floor, cell_width=$cell_width | pair_cells, tile_cells |
+| before | [`stats.network_sign_flip`](../nodes.md) | pair_cells=pair_cells, tile_cells=tile_cells, pairs=pairs | patterns=$patterns, seed=$seed, min_streamlines=$min_streamlines, distance_bin_edges=$distance_bin_edges | consistency |
+| before | [`meeg.network_flow`](../nodes.md) | pairs=pairs, network=network, conductance=conductance, modes=modes, eigenvalues=eigenvalues, flow=consistency |  | network_tiles, network_modes, network_totals |
 
 `before` steps run once, `chunks` steps run on every chunk of the recording, `after` steps run once on what the chunks accumulated.
 
@@ -68,11 +73,13 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 
 | output | stored as |
 |---|---|
+| `pair_cells` | kind measurement, over time_atoms, of_statistic spectra |
+| `tile_cells` | kind measurement, over time_atoms, of_statistic spectra |
 | `pair_flow` | kind measurement, over atoms, of_statistic spectra |
 | `tile_power` | kind measurement, over atoms, of_statistic spectra |
 | `consistency` | kind measurement, over atoms, of_statistic spectra |
-| `network_tiles` | kind measurement, over atoms, of_statistic spectra |
-| `network_modes` | kind measurement, over atoms, of_statistic spectra |
+| `network_tiles` | kind measurement, rows network.manifold.0, over atoms, of_statistic spectra |
+| `network_modes` | kind measurement, rows modes.from, over atoms, of_statistic spectra |
 | `network_totals` | kind measurement, over atoms, of_statistic spectra |
 
 ## Notes from the definition
@@ -84,8 +91,9 @@ nxr's flow through the fibre network, read from the sensor flow's stored chunk s
 THE GRAPH. before: the sensor surface's eigenvectors + its channel map --[signal.mode_analysis, modes exact_and_constant, unit_mass]--> the serving operator the spectra were served
 with (as `sensor_flow` binds it); kernel + tiles + serving operator --[signal.tile_operator]--> ONE operator [3 tiles x coordinates] (the kernel averaged over each tile's vertices,
 three components, composed with the synthesis of the coordinates back to the kernel's channels); spectra + operator + atoms --[signal.tile_flow]--> per atom the whole run's tile
-cross-spectrum (the sensor chain's whole-run form, for comparison); --[signal.tile_time_cells]--> the sums per cell (nxr's 4 s segments by default) --[stats.network_sign_flip]--> nxr's nulls:
-per pair the mean edge flow, its sign-flip p and family-wise p, the distance-matched control pairs, the phase; pairs + eigenmodes + mean edge flow --[meeg.network_flow]--> per atom divergence, graph potential (the 1/eigenvalue gain on the connectome eigenmodes) and its coefficients.
+cross-spectrum (the sensor chain's whole-run form, for comparison); --[signal.tile_time_cells]--> the sums per tile of the STORED time grid (measurements over grid x atoms) --[stats.network_sign_flip]--> nxr's nulls on those cells rolled up to each atom's own window:
+per pair the mean edge flow, its sign-flip p and family-wise p, the distance-matched control pairs, the phase; the network (a graph manifold) + its conductance + its STORED Hodge-Dirac modes
+(`run eigenmodes --graph`: made first, once, when not stored) + the mean edge flow --[meeg.network_flow]--> per atom divergence, graph potential, the flow's coefficient on every mode.
 Derived at read: the edge flow Im S_ij / sqrt(S_ii S_jj), the lag -arg S_ij / (2 pi f), the speed (median length / |lag|), the gradient share, the counts over the edges and over the
 distance-matched not-joined pairs. Every value below is a stated choice of this definition; the atoms are the sensor flow's (`select_kernels`), the kernel is the caller's.
 
@@ -93,6 +101,6 @@ What it cannot resolve: a tile's current is the kernel's mean over its vertices;
 does not by itself show that the fibres carry it (compare the distance-matched not-joined pairs); a whole-run cross-spectrum keeps the net quadrature only.
 
   nxr-neuro run connectome_flow --dataset D --subject S --spectra REC_chunk_spectra --package hodgeDirac__SENSORS --channel-map SENSORS_map --atoms "ATOMS" \
-      --kernel KERNEL --tiles "cortex tiles" --network BUNDLE_tiles32 --name REC_KERNEL_tiles32
+      --kernel KERNEL --tiles "cortex tiles" --network BUNDLE_tiles --time-grid "REC time grid tiles 0.05 s" --time-atoms "REC grid x atoms" --name REC_KERNEL_tiles
 ```
 

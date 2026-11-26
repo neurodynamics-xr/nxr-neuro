@@ -51,6 +51,10 @@ std::pair<double, double> hz_band(const Json& j, const std::string& who) {
   return q.chart == "log10" ? std::pair<double, double>{std::pow(10.0, q.lo), std::pow(10.0, q.hi)} : std::pair<double, double>{q.lo, q.hi};
 }
 
+// the window of rule windows and the segment of rule segments: the definition passes them as `duration` (as rule tiles); `window` and `segment` are the node's older names, read when `duration` is not given
+const Json& window_of(const Json& p) { return p["duration"].is_null() && p.contains("window") ? p["window"] : p["duration"]; }
+const Json& segment_of(const Json& p) { return p["duration"].is_null() && p.contains("segment") ? p["segment"] : p["duration"]; }
+
 // ── select.time_grid ─────────────────────────────────────────────────────────────────────────────────────────────
 struct TimeGridState {
   std::string rule, recording, line_name;
@@ -156,19 +160,21 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
     level_grid(15);                                                        // the chunk grid (io's chunk service: 2^15 samples)
     s.snapped = Json{{"chunk_width", s.width}};
   } else if (s.rule == "windows") {
-    const nxr::quantity::Quantity w = parse_q(p["window"], who, "window"), h = parse_q(p["step"], who, "step");
-    need(w.unit == "s" && h.unit == "s", who + ": window and step are in seconds");
+    // the window is the definition's `duration` (`window` is the node's older name for it, still read); a null step is the window (no overlap), as the definition says
+    const Json& wj = window_of(p);
+    const nxr::quantity::Quantity w = parse_q(wj, who, "duration"), h = p["step"].is_null() ? w : parse_q(p["step"], who, "step");
+    need(w.unit == "s" && h.unit == "s", who + ": the window (duration) and the step are in seconds");
     const auto rw = nxr::select::level_of_duration(w.hi, s.rate), rh = nxr::select::level_of_duration(h.hi, s.rate);   // width and hop snapped to 2^k samples
     s.level = rw.level;
     s.width = std::int64_t(1) << rw.level;
     s.hop = std::int64_t(1) << rh.level;
     s.hop_exact = static_cast<double>(s.hop); s.width_exact = static_cast<double>(s.width);
     s.count = room < s.width ? 0 : (room - s.width) / s.hop + 1;
-    s.stated = Json{{"window", p["window"]}, {"step", p["step"]}};
+    s.stated = Json{{"duration", wj}, {"step", p["step"].is_null() ? wj : p["step"]}};
     s.snapped = Json{{"window_s", rw.snapped}, {"step_s", rh.snapped}};
   } else if (s.rule == "segments") {
     // members OVERLAP (a family, not a partition): width as Welch's presets resolve it, hop = width - floor(width x overlap) (compute's time_rule)
-    const nxr::quantity::Quantity d = parse_q(p["segment"], who, "segment");
+    const nxr::quantity::Quantity d = parse_q(segment_of(p), who, "duration");   // the definition's `duration` (`segment`: the node's older name, still read)
     need(d.unit == "s", who + ": segment is a duration in seconds");
     need(p["overlap"].is_number() && p["overlap"].get<double>() >= 0 && p["overlap"].get<double>() < 1, who + ": overlap is a fraction in [0, 1)");
     nxr::select::TimeRule tr;
@@ -184,7 +190,7 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
     s.hop = made.hop_samples;
     s.hop_exact = static_cast<double>(s.hop);
     s.count = made.grid.tiling->count;
-    s.stated = Json{{"segment", p["segment"]}, {"overlap", p["overlap"]}, {"preset", tr.segment_rule}};
+    s.stated = Json{{"duration", segment_of(p)}, {"overlap", p["overlap"]}, {"preset", tr.segment_rule}};
     s.snapped = Json{{"segment_s", static_cast<double>(s.width) / s.rate}, {"hop_s", static_cast<double>(s.hop) / s.rate}};
   } else if (s.rule == "constant_q") {
     // the ladder's levels: one per distinct window, each carrying the Studio's ConstantQLevelInfo attributes (rule 24: low_hz, high_hz, centre, window, ...)
@@ -217,8 +223,8 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
   else if (s.rule == "frames")
     s.rule_name = "frames " + band_text(p["band"]) + (p["frames_per_tile"].is_number() ? " " + g(p["frames_per_tile"].get<double>()) + " per tile" : " " + g(p["frames_per_cycle"].get<double>()) + " per cycle");
   else if (s.rule == "constant_q") s.rule_name = "constant_q " + g(s.design["f_min"].get<double>()) + "-" + g(s.design["f_max"].get<double>()) + " Hz " + g(s.design["voices"].get<double>()) + " voices";
-  else if (s.rule == "segments") s.rule_name = "segments " + seconds_text(p["segment"], "segment") + " overlap " + g(p["overlap"].get<double>());
-  else if (s.rule == "windows") s.rule_name = "windows " + seconds_text(p["window"], "window") + " step " + seconds_text(p["step"], "step");
+  else if (s.rule == "segments") s.rule_name = "segments " + seconds_text(segment_of(p), "duration") + " overlap " + g(p["overlap"].get<double>());
+  else if (s.rule == "windows") s.rule_name = "windows " + seconds_text(window_of(p), "duration") + " step " + seconds_text(p["step"].is_null() ? window_of(p) : p["step"], "step");
   else s.rule_name = s.rule;
   if (s.origin != 0) s.rule_name += " from sample " + std::to_string(s.origin);
   return s;
