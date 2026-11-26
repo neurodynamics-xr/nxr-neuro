@@ -74,8 +74,10 @@ void check_cells_product(const nxr::graph::Array& product, const TimeGrid& g, co
 struct TileSums { Eigen::MatrixXd power, pairReal, pairImaginary, vertexCurrent; std::vector<std::int64_t> samples; };
 TileSums tile_sums(const Spectra& s, const Eigen::RowVectorXd& gains, const TimeGrid& g, const Eigen::MatrixXd& readout, int components, const std::vector<std::int32_t>& pairs,
                    const Eigen::SparseMatrix<double>* sharp);
-/** a cells MEASUREMENT over the product (rows x members x measures, members = tile + tiles x group): `values[g][k]` the group's [rows x the span's tiles] of measure k (stored
- *  float32); a tile outside the span is NaN (not measured); `groups` [{atom, band, own_level, ...}] in the product's member order; declared by flow_measures.h */
+/** a cells MEASUREMENT over the product (rows x members x measures): `values[g][k]` the group's [rows x the span's tiles] of measure k (stored float32); `groups` [{atom, band,
+ *  own_level, ...}] in the product's member order; declared by flow_measures.h. It HOLDS ONLY THE SPAN'S MEMBERS (issue #295): members = j + span tiles x group, j the span's tile
+ *  g.first + j; on the whole line that is every member of the product (tile + tiles x group). A span's array says so in `describe.held_members` (the product's first factor held
+ *  in [first, first + count) of its `radix` codes, `groups` the other factors' members), which the store records with the rows, so a reader of the product's members puts them in place */
 nxr::graph::Array cells_measurement(const std::vector<std::vector<Eigen::MatrixXd>>& values, const std::vector<std::string>& measures, const TimeGrid& g, const nxr::graph::Json& groups,
                                     const char* rowsAre, const nxr::graph::Json& producer);
 /** a cells measurement read back (made in the run or as stored): the grid, its groups and their measures; `rolled` one group's measure summed over each whole cell of the
@@ -85,6 +87,7 @@ struct StoredCells {
   const nxr::graph::Array* array = nullptr;
   std::int64_t rows = 0, members = 0, K = 0, tiles = 0, width = 0, size = 0;
   std::int64_t start = 0, stop = 0;                                          // the span measured (samples; the whole line for cells stored before spans): only cells inside it are whole
+  std::int64_t first = 0, held = 0;                                          // the grid's tiles the array holds: first .. first + held - 1 (issue #295; the whole grid: 0, tiles)
   int level = 0;
   nxr::graph::Json groups, measures;
   Eigen::MatrixXd rolled(std::int64_t group, std::int64_t measure) const;

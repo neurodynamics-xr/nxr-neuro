@@ -815,7 +815,15 @@ std::int64_t Unit::measurements(const MeasurementOut& m) {
       if (!d.contains("unit") && !x.unit.empty()) d["unit"] = x.unit;
       declare_measure(d);
     }
-  const Json row_producer = producer_of(by_, m.output, m.producer);
+  Json row_producer = producer_of(by_, m.output, m.producer);
+  if (m.held_members.is_object()) {                 // a part of the members (issue #295): the rows say which, so a reader puts them in place
+    for (const char* k : {"first", "count", "radix", "groups"})
+      if (!m.held_members.contains(k) || !m.held_members[k].is_number_integer()) throw Error(code::invalid_argument, "measurement: held_members names " + std::string(k));
+    if (m.held_members.value("factor", 0) != 0) throw Error(code::unsupported, "measurement: held_members restricts the first factor only");
+    const std::int64_t f = m.held_members["first"], c = m.held_members["count"], N = m.held_members["radix"], G = m.held_members["groups"];
+    if (f < 0 || c < 1 || f + c > N || G < 1) throw Error(code::invalid_argument, "measurement: held_members [first, first + count) is not inside the factor's radix");
+    row_producer["held_members"] = m.held_members;
+  }
   ensure_measurement_producer(*impl_->db);
   std::string rows_part;                            // the manifold the rows lie on: a folder of the arrays' path, so two manifolds' arrays of one measure stay apart (issue #264)
   if (m.rows_manifold_id) {
@@ -832,6 +840,7 @@ std::int64_t Unit::measurements(const MeasurementOut& m) {
   if (m.value_type != "scalar") attrs["value_type"] = m.value_type;
   if (m.components.is_array() && !m.components.empty()) attrs["components"] = m.components;
   if (m.level) attrs["level"] = *m.level;
+  if (m.held_members.is_object()) attrs["held_members"] = m.held_members;
   for (const auto& x : m.measures) {
     const std::string path = m.path + rows_part + "/" + x.measure;
     ArrayView v = view_of(x.values, "measurement " + x.measure);

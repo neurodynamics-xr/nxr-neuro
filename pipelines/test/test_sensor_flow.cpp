@@ -226,7 +226,7 @@ int main() {
     CHECK(worst < 1e-5 * scale);
   }
   // ── A SPAN (issue #291): the spectra of chunk 1 alone (samples [256, 512)) on the same stored grid. Its tiles inside the span (codes 32..63 at 8 samples) equal the whole run's
-  // for every measure, the same codes; the tiles outside are NaN; the producer records the span; the sign-flip test reads only the span's whole cells ──
+  // for every measure, the same codes; only they are held (issue #295); the producer records the span; the sign-flip test reads only the span's whole cells ──
   {
     ng::NodeCall g1 = ng::NodeCall::prepare(gtypes, operatorInput, sp, shared);
     ng::dispatch(gather, g1);
@@ -243,29 +243,30 @@ int main() {
     const ng::Arrays spanCells = run_array(ng::registry().at("signal.atom_time_cells"), spanInputs, cp);
     const ng::Array& sce = spanCells.at("edge_cells");
     const ng::Array& scv = spanCells.at("vertex_cells");
-    CHECK(sce.rows == tce.rows && scv.rows == tcv.rows);                                   // the same members: the grid's codes, not a new grid
+    // ONLY THE SPAN'S TILES (issue #295): the arrays hold the span's 32 of the grid's 96 tiles x the 6 groups, so memory follows the span, not the line; they say which
+    CHECK(sce.rows * 3 == tce.rows && scv.rows * 3 == tcv.rows);
+    CHECK(sce.meta.at("describe").at("held_members") == Json({{"factor", 0}, {"first", 32}, {"count", 32}, {"radix", 96}, {"groups", 6}}));
+    CHECK(sce.meta.at("describe").at("shape").at(1) == 32 * 6 && !tce.meta.at("describe").contains("held_members"));
     const Json span = sce.meta.at("describe").at("attributes").at("grid").at("span");
     CHECK(span.at("start_sample") == chunk && span.at("stop_sample") == 2 * chunk && span.at("first_tile") == 32 && span.at("tiles") == 32 && span.at("whole_line") == false);
     CHECK(sce.meta.at("producer").at("grid").at("span") == span);                         // in the producer: never read as the whole recording's
     CHECK(tce.meta.at("producer").at("grid").at("span").at("whole_line") == true);
     double worst = 0, scale = 0;
-    bool outsideNaN = true, insideFinite = true;
-    auto compare = [&](const ng::Array& part, const ng::Array& whole, std::int64_t rows, std::int64_t K) {
+    bool insideFinite = true;
+    auto compare = [&](const ng::Array& part, const ng::Array& whole, std::int64_t rows, std::int64_t K) {   // the span's tile j is the grid's tile 32 + j
       for (std::int64_t r = 0; r < rows; ++r)
         for (std::int64_t q = 0; q < 6; ++q)
-          for (std::int64_t n = 0; n < 96; ++n)
+          for (std::int64_t j = 0; j < 32; ++j)
             for (std::int64_t k = 0; k < K; ++k) {
-              const std::size_t at = static_cast<std::size_t>(((r * 576) + n + 96 * q) * K + k);
-              if (n >= 32 && n < 64) {
-                insideFinite = insideFinite && std::isfinite(part.data[at]);
-                worst = std::max(worst, std::abs(part.data[at] - whole.data[at])); scale = std::max(scale, std::abs(whole.data[at]));
-              } else outsideNaN = outsideNaN && std::isnan(part.data[at]);
+              const double v = part.data[static_cast<std::size_t>(((r * 192) + j + 32 * q) * K + k)], w = whole.data[static_cast<std::size_t>(((r * 576) + 32 + j + 96 * q) * K + k)];
+              insideFinite = insideFinite && std::isfinite(v);
+              worst = std::max(worst, std::abs(v - w)); scale = std::max(scale, std::abs(w));
             }
     };
     compare(sce, tce, cx.nE, 1);
     compare(scv, tcv, nV, 4);
     std::printf("  a span (chunk 1) against the whole run on its tiles: %.2e of %.3g\n", worst, scale);
-    CHECK(insideFinite && outsideNaN && worst <= 1e-6 * scale);
+    CHECK(insideFinite && worst <= 1e-6 * scale);
     // the sign-flip test on the span's cells: only the cells of each atom's own window wholly inside the span (5 Hz: 32 samples, so 256 / 32 = 8 cells)
     const ng::Arrays spanFlip = run_array(ng::registry().at("stats.sign_flip_consistency"), ng::Arrays{{"edge_cells", sce}, {"vertex_cells", scv}}, Json{{"elements", "edges"}, {"patterns", 200}, {"seed", 0}, {"cells_per_flip", 1}});
     const ng::Array& sfs = spanFlip.at("consistency_summary");

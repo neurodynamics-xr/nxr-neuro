@@ -625,7 +625,8 @@ triangulation's `0+1+2`). An operator's `layout` is a key: it says how its value
 | acquisition | `name` (its label), `session`, `task`, `run`, `acq`, `processing`, `split`, `recordings` (how many), `seconds` (what they hold); no `type` |
 
 `provenance` is {source, comment, created_utc, created_by, modified_utc, modified_by, producer}: `producer` is the node's producer record as `read <class>` gives it (the command or pipeline that made it, the program, its inputs, and what the maker gave with `--producer`; null when none; a selection's is kept in its parameters, a statistic's provenance has no source or comment). `type` is built by the pipelines' face (`face::read_subject`, `face::list_class`); io reads and pages
-the rows (a build without the pipelines gives `"type": null`; a node the type system refuses to type, such as a tangent field with no gauge record, gives `"type": {"refused": "<why>"}`).
+the rows (a build without the pipelines gives `"type": null`; a node the type system refuses to type, such as a tangent field with no gauge record, gives `"type": {"refused": "<why>"}`). A manifold's type names its kind as its row's `kind` does (line, surface, curve, volume for image and tetrahedral, graph; points otherwise): a graph
+manifold (`tile_network`'s) is typed `graph` (issue #298).
 
 `--related` adds `"related": [{subject, kind, relation, description}]`: the subjects this one refers to, with `relation` `template` (the template its anatomy is taken from), `source` and
 `target` (the owners of the manifolds its operators map from and to: a registration's two templates) and `domain` (of the manifolds its fields lie on), each with its description as far as
@@ -1240,12 +1241,16 @@ line, the bands on the solve's eigenvalue line), `run select_kernel_product`, `r
 **A span (2026-11-26, issue #291).** The flows run on any span of whole chunks (`--chunks K | A-B | all`, or `--start/--stop` snapped to whole tiles as every span is; the default is chunk 0): the stored
 time grid covers the whole line and is RESTRICTED to the span's tiles (its tiles inside the span keep their codes; no grid is made again). The span is what the chunk spectra cover (`time_grid_of`
 in `pipelines/src/sensor_flow_steps.cpp` reads it from their chunks: one run of consecutive chunks); its ends must be tile boundaries of the grid (a grid no coarser than a chunk), else refused.
-The cells measurement stays over the whole product (the same members): a tile outside the span is NaN, and the sign-flip tests read only the cells of each atom's own window wholly inside
-the span. The span is recorded twice: the run's `run.span` (the chunk service's) in every output's producer and in the run's cache key, and the cells' `grid.span` (`start_sample`,
+The cells measurement is over the whole product (the same members, the grid's codes) but HOLDS ONLY THE SPAN'S TILES (issue #295): its arrays are [rows x span tiles x groups x measures]
+(member j + span tiles x group is the grid's tile `first_tile + j`), and each row's producer record and the arrays' attributes say which (`held_members` {factor 0, first, count, radix,
+groups}: the product's first factor held in [first, first + count) of its radix codes, every member of the others). `measurement_values` (and so `read selection --measure`, the
+query's roll-ups and every run that reads them) puts them in place among the product's members, NaN elsewhere, so a coarser level is a roll-up at read as before and a roll-up cell
+reaching outside the span is NaN. The sign-flip tests read only the cells of each atom's own window wholly inside the span, from the held tiles. The span is recorded twice: the run's `run.span` (the chunk service's) in every output's producer and in the run's cache key, and the cells' `grid.span` (`start_sample`,
 `stop_sample`, `first_tile`, `tiles`, `whole_line`) in their producer and attributes; so a span run is never read as the whole recording's and never shares its cache key (a whole run's
 stored measurements are kept until `--replace`). `source_flow --spectra` and `connectome_flow` read the span of the chunk spectra they are given (a one-chunk `sensor_flow` stores one chunk's
 spectra). A one-chunk canary: `run sensor_flow ... --chunks 0`. `--time-cells false` (sensor_flow, as source_flow) runs the whole-run flow alone, with no time grid. Memory: the cells are
-computed for the span's tiles only, but the stored measurement holds the whole grid's members (NaN outside), rows x tiles x members x measures (issue #295).
+computed, held and stored for the span's tiles only, rows x span tiles x groups x measures, so a canary holds what it measures, not the recording (issue #295; a read of the product's
+members by `measurement_values` is the product's size, NaN outside the span).
 Per hemisphere, each side's measurements name the manifold their rows lie on (`rows:` in the definitions: the cortex solve's triangulation for vertices, edges and the
 sign-flip test, its eigen line for the modes; the sensor flow's its own solve's), so both sides and the sensor flow keep the same measure names (2026-11-26, issue #264; the
 nodes' `measure_suffix` is no longer used by the shipped definitions, and results stored before keep their `_left` / `_right` names). Read one side with `read selection
@@ -1276,9 +1281,10 @@ two sensor spacings; a whole-run cross-spectrum keeps the net quadrature only; a
 flow depends on the eigenvalue bands (always stated). Memory: the chunk spectra (coordinates x bins x chunks complex float32, about 7 MB a chunk for 268 sensors
 and [0, 60) Hz at 1200 Hz) and, in the time cells, one atom's band signal of one chunk (vertices x transform samples complex). Tests: `test_spectral_flow`,
 `test_sign_flip` (golden: numpy and nxr's flip_test), `test_aperiodic` (golden: nxr), `test_sensor_flow` (the nodes on a synthetic sphere; a span: chunk 1's spectra alone equal the whole run on its
-tiles, NaN outside, the span in the producer, the sign-flip test on the span's cells, a grid coarser than the chunk refused), `test_sensor_surface` (the definition end to end on a synthetic
-helmet; a one-chunk canary `--chunks 1` equal to the whole run on its tiles, refused without `--replace` over the whole run's measurements, a cache hit when asked again; then `add fibres`,
-`tile_network` and `connectome_flow` on the canary's chunk spectra, their outputs stored).
+tiles, only the span's tiles held (a third of the whole run's array, `held_members`), the span in the producer, the sign-flip test on the span's cells, a grid coarser than the chunk refused), `test_sensor_surface` (the definition end to end on a synthetic
+helmet; a one-chunk canary `--chunks 1` equal to the whole run on its tiles, its stored cells an eighth of the whole run's (the span's 8 of 64 tiles), read in place and rolled up at
+read equal to the whole run's sums, refused without `--replace` over the whole run's measurements, a cache hit when asked again; then `add fibres`, `tile_network` and `connectome_flow`
+on the canary's chunk spectra, their outputs stored (the cells the span's tiles alone), a cache hit when run again (#297), the network typed a graph in `list manifolds` (#298)).
 
 ## The bispectrum in eigenmode coordinates (`run sensor_bispectrum`; the node `signal.bispectrum`; compute `nxr/signal/bispectrum.h`; spec `docs/specs/2026-11-24-bispectrum.md`)
 
@@ -1355,7 +1361,10 @@ fibres of 100 points: 2.4 GB in double); the tile operator [3T x K]; per chunk t
 samples]. `run connectome_flow_replication` (`stats.run_replication`): per atom the correlation of two runs' mean edge flows over the joined and the not-joined pairs. Tests:
 `test_tile_network` (the graph Hodge-Dirac modes: a path's eigenvalues, orthonormality under the stars, the cycle space's size; the potential against a direct weighted solve,
 the coefficients synthesising the flow back, a gradient and a circulation), `test_graph_network` (a synthetic brain: the graph manifold, its metric, `eigenmodes --graph`, store on miss), `test_tile_flow` (a planted directed lag), `test_network_flip` (golden: numpy and nxr's
-flip and control), `test_connectome_flow` (the nodes on hand-made arrays with a planted lag), `test_sensor_surface` (end to end on a synthetic subject: the bundle stored by `add fibres`, `tile_network`, `connectome_flow` on a one-chunk span's chunk spectra; issue #291).
+flip and control), `test_connectome_flow` (the nodes on hand-made arrays with a planted lag), `test_sensor_surface` (end to end on a synthetic subject: the bundle stored by `add fibres`, `tile_network`, `connectome_flow` on a one-chunk span's chunk spectra; issue #291; a rerun is a
+cache hit, issue #297). Every output of `connectome_flow` is a measurement of the chunk spectra (`of_statistic`): the runner's hit check finds it by the rows over (selection, the
+statistic) made by the run's key, as it finds a measurement `of:` a field by (selection, field); before #297 a rerun was refused (`already exists; pass --replace`). The network is
+typed a graph (its port type's kind `graph`, as its row's; before #298 `list manifolds` printed `points`).
 ## The source mapping of the flow (`run source_flow`, `run source_flow_bins`; the nodes `signal.source_mode_operator`, `signal.cortical_flow`, `signal.cortical_time_cells`; compute `nxr/signal/source_flow.h`; spec `docs/specs/2026-11-24-source-flow.md`)
 
 Why: the sensor-space flow describes the field on the helmet only. The source step carries the same cross-spectrum onto the cortex through an EXISTING minimum-norm kernel
