@@ -472,7 +472,11 @@ class Subject {
   // array-backed measurement rolled up at read to the levels `q` names (that needs the subject's store: a Subject made from a writer)
   Json read_measurements(const Json& q) const;
   // what a measurement IS and how it was made (measures.h measurement_provenance): {declaration, declared, producers}
-  Json measurement_provenance(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure) const;
+  Json measurement_provenance(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure, const std::optional<std::string>& of_statistic_id = std::nullopt) const;
+  // what an array-backed measure over the selection is OF when the caller names neither key (selection_reads.h measured_of): its one (field, statistic) key, or nothing when
+  // no array of it is stored; refused (invalid_argument) naming each when it is stored of several, with the option that picks it (`--field`, `--of-statistic`)
+  struct MeasuredOfKey { std::optional<std::string> of_field_id, of_statistic_id; };
+  std::optional<MeasuredOfKey> measured_of(const std::string& selection_id, const std::string& measure) const;
   // the same measurements as a TABLE with filters and roll-ups, in SQL (nxr/io/measurement_query.h `query::members`, where the filter and roll-up structs are): through a grid's hierarchy and across subjects.
   // The query API is io's; the face (pipelines) applies nothing of its own.
 

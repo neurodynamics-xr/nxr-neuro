@@ -157,7 +157,7 @@ int read_node_main(const std::vector<std::string>& argv) {
   std::set<std::string> valued = {"--dataset", "--subject", "--name", "--out", "--region", "--budget"}, flags;
   if (what == "field") { valued.insert({"--from", "--to", "--rows", "--projectors", "--onto"}); flags = {"--all", "--shape-only", "--projection-only"}; }
   else if (what == "operator") valued.insert("--onto");
-  else if (what == "selection") valued.insert({"--measure", "--field", "--rows-on"});
+  else if (what == "selection") valued.insert({"--measure", "--field", "--of-statistic", "--rows-on"});
   else if (what == "manifold") valued.insert("--family");
   else if (what != "statistic" && what != "operator") throw Usage("nxr-neuro read: error: argument what: invalid choice: '" + what + "'");
   const Args a = parse(prog, rest, valued, flags, {"--dataset", "--subject", "--name"});
@@ -178,6 +178,7 @@ int read_node_main(const std::vector<std::string>& argv) {
   }
   rq.measure = a.maybe("--measure");
   rq.field = a.maybe("--field");
+  rq.of_statistic = a.maybe("--of-statistic");
   rq.rows_on = a.maybe("--rows-on");
   rq.family = a.maybe("--family");
   rq.onto = a.maybe("--onto");

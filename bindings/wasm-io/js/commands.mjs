@@ -74,7 +74,7 @@ export const COMMANDS = [
   ["read", "field", "", "all! budget dataset* from name* onto out projection_only! projectors region rows shape_only! subject* to"],
   ["read", "statistic", "", "budget dataset* name* out region subject*"],
   ["read", "operator", "", "budget dataset* name* onto out region subject*"],
-  ["read", "selection", "", "budget dataset* field measure name* out region rows_on subject*"],
+  ["read", "selection", "", "budget dataset* field measure name* of_statistic out region rows_on subject*"],
   ["read", "manifold", "", "budget dataset* family name* out region subject*"],
   ["add", "field", "", "append! begin! by by_operator cell commit! contribution+ dataset* derived_from description dtype kind manifold name producer region replace! shape subject time unit value_type values write"],
   ["add", "selection", "", "by dataset* description entries indices manifold* members name* of_field producer replace! spans subject* type* weights"],

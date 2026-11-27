@@ -73,5 +73,9 @@ struct MeasuredOf {
 };
 /** the distinct (computed_by, unit) of the rows of `measure` on the selection of that kind */
 std::vector<Row> computed_by_and_unit(const Database& db, const std::string& selection_id, const std::string& measure, const MeasuredOf& of);
+/** what the ARRAY-BACKED `measure` over the selection is of, when the caller names neither its field nor its statistic: the one (field, statistic) key its arrays are stored
+ *  under (`statistic_id` with index 0: a statistic's measurements are of its whole, `of_index` 0). No array of it: nothing. Held of several (a field and a statistic, two statistics):
+ *  refused (invalid_argument), naming each by name and the key that picks it (`--field NAME`, `--of-statistic NAME`). */
+std::optional<MeasuredOf> measured_of(const Database& db, const std::string& selection_id, const std::string& measure);
 
 }  // namespace nxr::io::selection

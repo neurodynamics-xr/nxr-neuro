@@ -135,6 +135,34 @@ std::vector<std::string> computed_by_over_statistic(const Database& db, const st
   return out;
 }
 
+std::optional<MeasuredOf> measured_of(const Database& db, const std::string& selection_id, const std::string& measure) {
+  const bool stat_cols = has_column(db, "selection_measurement", "of_statistic_id");
+  const auto rows = db.all(std::string("SELECT DISTINCT of_field_id") + (stat_cols ? ", of_statistic_id" : "") + " FROM selection_measurement WHERE selection_id = ? AND measure = ? AND array_path IS NOT NULL",
+                           {V(selection_id), V(measure)});
+  auto key_of = [&](const Row& r) {
+    MeasuredOf k;
+    if (!is_null(r, "of_field_id")) k.field_id = text(r, "of_field_id");
+    if (stat_cols && !is_null(r, "of_statistic_id")) { k.statistic_id = text(r, "of_statistic_id"); k.index = 0; }
+    return k;
+  };
+  if (rows.empty()) return std::nullopt;
+  if (rows.size() == 1) return key_of(rows[0]);
+  std::string names;
+  for (const Row& r : rows) {
+    const MeasuredOf k = key_of(r);
+    std::string one = "stored of neither a field nor a statistic";
+    if (k.statistic_id) {
+      const auto n = db.one("SELECT name FROM statistic WHERE id = ?", {V(*k.statistic_id)});
+      one = "--of-statistic " + (n ? text(*n, "name") : *k.statistic_id);
+    } else if (k.field_id) {
+      const auto n = db.one("SELECT name FROM field WHERE id = ?", {V(*k.field_id)});
+      one = "--field " + (n ? text(*n, "name") : *k.field_id);
+    }
+    names += (names.empty() ? "" : ", ") + one;
+  }
+  throw Error(code::invalid_argument, "measurements: '" + measure + "' over the selection is stored of several fields or statistics (" + names + "): name the one it is of");
+}
+
 std::optional<std::string> within_selection_of(const Database& db, const std::string& selection_id) {
   const auto r = db.one("SELECT DISTINCT within_selection_id FROM selection_measurement WHERE selection_id = ? AND within_selection_id IS NOT NULL", {V(selection_id)});
   if (!r) return std::nullopt;
