@@ -28,7 +28,7 @@ const Shipped kShipped[] = {
 
 const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw", "kind", "plans", "one_of"}, kSections = {"inputs", "parameters", "presets", "steps", "outputs"};
 const std::vector<std::string> kInputClasses = {"field", "operator", "selection", "measurement", "statistic", "manifold"};
-const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint", "read", "per_subject", "of", "over", "within", "made_by"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
+const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint", "read", "per_subject", "of", "over", "within", "made_by", "match"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
                             kOutputKeys = {"kind", "unit", "description", "types",   // types: a span set's event type (outputs of kind spans)
                                            // DECLARED OUTPUTS (docs/specs/2026-11-17-definition-outputs.md, section 3): where and of what; what the values are, the node says
                                            "name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors",
@@ -449,6 +449,9 @@ Definition parse(const Json& written, const std::string& source, const std::stri
       }
     }
     if (spec.contains("where")) params_used(spec["where"], w, params);
+    // `match: by_name`: an operator input whose `from:` channel set may be another of the subject's, its columns matched to `from`'s channels by name when the runner binds it
+    if (spec.contains("match") && !(spec["match"] == "by_name" && spec.contains("operator") && spec.contains("from")))
+      err(w, "match: by_name (an operator input with from: a channel set; its columns are matched to that set's channels by name)");
     // `made_by: {pipeline: NAME, with: {...}}`: when nothing matches, the runner runs that shipped definition first, as its OWN run (its own provenance and cache key), says so, and finds again
     if (spec.contains("made_by")) {
       const Json& mb = spec["made_by"];

@@ -835,6 +835,14 @@ std::optional<std::string> channels_matched_to(nxr::io::SubjectWriter& sub, cons
   return std::nullopt;
 }
 
+// A CHANNEL SET'S NAMES, each to its channel: the one index both matches by name read (a covariance's rows, an operator's columns); a name that is not unique is refused
+std::map<std::string, std::int64_t> channel_index_by_name(const std::vector<std::string>& names, const std::string& set_name) {
+  std::map<std::string, std::int64_t> index;
+  for (std::size_t i = 0; i < names.size(); ++i)
+    if (!index.emplace(names[i], static_cast<std::int64_t>(i)).second) refuse("steps: " + set_name + ": the channel name '" + names[i] + "' is not unique");
+  return index;
+}
+
 // THE MATCH BY NAME: the statistic [channels x channels] over its pick of `from` (its own channel set) restricted and reordered to the channels of `to` (the operator's set), in `to`'s order:
 // a permutation and selection of its rows and columns, nothing computed. Every channel of `to` of a type the statistic covers must be in `from` (else refused, naming the missing ones); the
 // statistic's channels not in `to` are dropped; channels of `to` that `from` holds but its pick left out (bad in the statistic's recording) are not covered. The match is in meta.channels_matched.
@@ -851,9 +859,8 @@ void match_channels_by_name(nxr::io::SubjectWriter& sub, nxr::graph::Array& a, c
   if (from_names.empty() || to_names.empty())
     refuse("steps: " + stat + " is on the channel set " + from_name + ", not " + to_name + ", and " + (from_names.empty() ? from_name : to_name) + " stores no channel names to match them by");
   if (to_types.size() != to_names.size()) refuse("steps: " + to_name + ": its channels' types and names do not agree");
-  std::map<std::string, std::int64_t> in_set, in_pick;                    // a name -> its channel in `from`; a name -> its place in the statistic's pick
-  for (std::size_t i = 0; i < from_names.size(); ++i)
-    if (!in_set.emplace(from_names[i], static_cast<std::int64_t>(i)).second) refuse("steps: " + from_name + ": the channel name '" + from_names[i] + "' is not unique");
+  const std::map<std::string, std::int64_t> in_set = channel_index_by_name(from_names, from_name);   // a name -> its channel in `from`
+  std::map<std::string, std::int64_t> in_pick;                            // a name -> its place in the statistic's pick
   std::set<std::string> covered_types;
   for (std::int64_t i = 0; i < M; ++i) {
     const auto c = static_cast<std::size_t>(pick[static_cast<std::size_t>(i)]);
@@ -905,6 +912,67 @@ void match_channels_by_name(nxr::io::SubjectWriter& sub, nxr::graph::Array& a, c
   a.meta.erase("channels_selection_id");                                 // the statistic's own pick no longer describes its rows
   a.meta["channels_matched"] = Json{{"by", "name"}, {"channels", from_name}, {"channels_id", from}, {"matched_to", to_name}, {"matched_to_id", to},
                                     {"mapping", mapping}, {"dropped", dropped}, {"not_covered", not_covered}};
+}
+
+// THE CHANNEL SET AN OPERATOR OVER CHANNELS IS MATCHED TO BY NAME (`match: by_name` on its input: source_flow's kernel): the set its input's `from:` names, when the operator found lies on
+// ANOTHER channel set of the subject (the rest's kernel handed with the empty room's recording); nullopt: on that set, or no such input
+std::optional<std::string> operator_matched_to(const Plan& P, const std::string& name) {
+  const Json& inputs = P.definition.inputs;
+  if (!inputs.contains(name) || inputs[name].value("match", std::string()) != "by_name" || !inputs[name].contains("from") || !P.found.count(name) || !P.found.at(name).row) return std::nullopt;
+  if (P.found.at(name).cls != "operator") return std::nullopt;
+  const std::string want = nxr::io::finder::relation(inputs[name]["from"].get<std::string>(), P.found, "inputs." + name);
+  if (text(*P.found.at(name).row, "from_manifold_id") == want) return std::nullopt;
+  return want;
+}
+
+// A DECLARED OPERATOR DERIVED FROM AN OPERATOR MATCHED BY NAME (source_flow's mode operator of the rest's kernel, run on the empty room): not stored by this run. It is the kernel's,
+// in the cortex's modes, the same for every recording; it belongs to the kernel's own channel set and is stored by a run on that set (the rest's). Its note says so.
+std::optional<std::string> not_stored_matched(const Plan& P, const Json& spec) {
+  if (spec.value("kind", std::string()) != "operator" || !spec.contains("derived_from") || !spec["derived_from"].is_string()) return std::nullopt;
+  const std::string in = spec["derived_from"].get<std::string>();
+  if (!operator_matched_to(P, in)) return std::nullopt;
+  return "derived from " + in + ", matched by name to the recording's channels: it is " + in + "'s own (the same for every recording), stored by a run on " + in + "'s channel set";
+}
+
+// THE MATCH BY NAME of an operator's columns (a kernel [sources x channels] over its pick of `from`, the rest's channel set) to the channels of `to` (the recording's set): each column's
+// channel found in `to` by name, so the operator reads the recording's channels in its own column order (meta.channels become `to`'s; nothing computed, no column moved). Every column's
+// channel must be in `to`, of the same type (else refused, naming the missing ones); `to`'s channels no column reads are left out (unused). The match is in meta.channels_matched.
+void match_operator_channels_by_name(nxr::io::SubjectWriter& sub, nxr::graph::Array& a, const std::string& from, const std::string& to) {
+  const std::string op = a.meta.value("name", std::string());
+  const std::vector<std::int32_t> columns = a.meta.value("channels", std::vector<std::int32_t>());
+  const auto from_row = sub.db().read("manifold", from), to_row = sub.db().read("manifold", to);
+  const std::string from_name = from_row ? text(*from_row, "name") : from, to_name = to_row ? text(*to_row, "name") : to;
+  if (static_cast<std::int64_t>(columns.size()) != a.cols) refuse("steps: " + op + " is on the channel set " + from_name + ", not " + to_name + ", and its columns are not its channels: only an operator over channels is matched by name");
+  const std::vector<std::string> from_names = nxr::pipelines::channel_names_of(sub, from), to_names = nxr::pipelines::channel_names_of(sub, to);
+  if (from_names.empty() || to_names.empty())
+    refuse("steps: " + op + " is on the channel set " + from_name + ", not " + to_name + ", and " + (from_names.empty() ? from_name : to_name) + " stores no channel names to match them by");
+  const std::vector<std::string> from_types = nxr::pipelines::channel_types_of(sub, from), to_types = nxr::pipelines::channel_types_of(sub, to);
+  channel_index_by_name(from_names, from_name);                           // the operator's own set: its names unique too
+  const std::map<std::string, std::int64_t> in_to = channel_index_by_name(to_names, to_name);
+  std::vector<std::string> missing, other_type;
+  std::vector<std::int32_t> channels;
+  Json mapping = Json::array();
+  std::set<std::int64_t> read;
+  for (const std::int32_t c : columns) {
+    if (c < 0 || static_cast<std::size_t>(c) >= from_names.size()) refuse("steps: " + op + ": a column's channel is outside " + from_name);
+    const std::string& n = from_names[static_cast<std::size_t>(c)];
+    const auto it = in_to.find(n);
+    if (it == in_to.end()) { missing.push_back(n); continue; }
+    const auto j = static_cast<std::size_t>(it->second);
+    if (static_cast<std::size_t>(c) < from_types.size() && j < to_types.size() && from_types[static_cast<std::size_t>(c)] != to_types[j]) other_type.push_back(n + " (" + from_types[static_cast<std::size_t>(c)] + " / " + to_types[j] + ")");
+    channels.push_back(static_cast<std::int32_t>(it->second));
+    read.insert(it->second);
+    mapping.push_back(Json{{"name", n}, {"from", c}, {"to", it->second}});
+  }
+  auto list = [](const std::vector<std::string>& v) { std::string l; for (std::size_t i = 0; i < v.size(); ++i) l += (i ? ", " : "") + v[i]; return l; };
+  if (!missing.empty())
+    refuse("steps: " + op + " (on the channel set " + from_name + ") reads " + std::to_string(missing.size()) + " channel(s) that " + to_name + " does not hold, matched by name: " + list(missing));
+  if (!other_type.empty()) refuse("steps: " + op + " (on the channel set " + from_name + "): channel(s) of another type in " + to_name + ", matched by name: " + list(other_type));
+  Json unused = Json::array();
+  for (std::size_t j = 0; j < to_names.size(); ++j) if (!read.count(static_cast<std::int64_t>(j))) unused.push_back(to_names[j]);
+  a.meta["channels"] = channels;
+  a.meta["from_manifold_id"] = to;
+  a.meta["channels_matched"] = Json{{"by", "name"}, {"channels", from_name}, {"channels_id", from}, {"matched_to", to_name}, {"matched_to_id", to}, {"mapping", mapping}, {"unused", unused}};
 }
 
 // what was handed, for the cache key and the provenance: the choice and each projector's name and status as handed
@@ -1059,6 +1127,9 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       if (nxr::bst::stored_projectors(sub.db(), sub.store(), *mid).empty()) continue;
       handed[k] = handed_record(handed_projectors(sub, *mid, opt.projectors), opt.projectors);
     }
+    // an operator matched by name to the recording's channel set (operator_matched_to, `match: by_name`): both sets in the key (the mapping is a function of the two)
+    for (const auto& [k, v] : P.found)
+      if (const auto to = operator_matched_to(P, k)) matched[k] = Json{{"channels", text(*v.row, "from_manifold_id")}, {"matched_to", *to}, {"by", "name"}};
     if (!handed.empty()) key.input["channel_projectors"] = handed;
     if (!matched.empty()) key.input["channels_by_name"] = matched;
   }
@@ -1071,6 +1142,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   for (const auto& [o, ospec] : d.outputs.items()) {
     const Value& v = P.values.at(o);
     if (ospec.value("get_or_create", false)) { stored.push_back(Json{{"output", o}, {"get_or_create", true}}); continue; }   // a maker's selection: found by its maker key or made, never a miss or a refusal
+    if (const auto why = not_stored_matched(P, ospec)) { stored.push_back(Json{{"output", o}, {"stored", false}, {"why", *why}}); continue; }
     if (ospec.value("kind", std::string()) == "recording") {                // a recording output: the field of that name holding the same key
       const auto row = nxr::pipelines::find_cached(sub.db(), sub.id(), "field", key, std::nullopt);
       if (!row || text(*row, "name") != declared_name(P, o)) { hit = false; break; }
@@ -1175,7 +1247,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   if (!opt.replace)
     for (const auto& [o, ospec_o] : d.outputs.items()) {
       const Value& v = P.values.at(o);
-      if (ospec_o.value("get_or_create", false)) continue;
+      if (ospec_o.value("get_or_create", false) || not_stored_matched(P, ospec_o)) continue;
       if (is_declared(P, o)) {
         for (const auto& [cls, path] : declared_places(P, o, sub))
           if (sub.find(task::to_string(cls), path))
@@ -1447,7 +1519,10 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         constants[name] = std::move(a);
       }
     for (const auto& [port, name] : n.in)
-      if (constants.count(name) && !constants.at(name).meta.value("hodge", false) && P.values.count(name) && P.values.at(name).cls == "operator" && P.found.count(name) && P.found.at(name).row) constants[name] = operator_constant(bound, sub, *P.found.at(name).row, name);
+      if (constants.count(name) && !constants.at(name).meta.value("hodge", false) && P.values.count(name) && P.values.at(name).cls == "operator" && P.found.count(name) && P.found.at(name).row) {
+        constants[name] = operator_constant(bound, sub, *P.found.at(name).row, name);
+        if (const auto to = operator_matched_to(P, name)) match_operator_channels_by_name(sub, constants[name], text(*P.found.at(name).row, "from_manifold_id"), *to);   // `match: by_name`
+      }
   }
   // EIGENMODES FIRST (the spec, question 6): when a step needs a surface's eigenmodes and none are stored, the runner runs the `eigenmodes` pipeline as its OWN run (its own provenance and
   // cache key), says what it made and why, and starts again: nothing is ever stored hidden inside this run. The Chebyshev series stays the announced fallback (`transform: chebyshev`).
@@ -1593,6 +1668,8 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     }
     producer["group"] = Json{{"subjects", group->subjects}, {"inputs", members}, {"members", each}};
   }
+  for (const auto& [k, a] : constants)                                       // an operator matched to the recording's channels by name: the mapping, in the provenance
+    if (a.meta.contains("channels_matched") && P.found.count(k) && P.found.at(k).cls == "operator") producer["channels_by_name"][k] = a.meta["channels_matched"];
   if (!P.preset.empty()) producer["preset"] = P.preset;                      // provenance only: the key holds the resolved parameters
   if (!d.chains.empty()) producer["chains"] = d.chains;
   if (!d.made.empty()) producer["made"] = d.made;
@@ -1653,6 +1730,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       const Value& v = P.values.at(o);
       if (declared_pass(o, spec, v) != ps) continue;
       if (spec.value("kind", std::string()) == "recording") continue;     // written as the loop ran
+      if (const auto why = not_stored_matched(P, spec)) { stored.push_back(Json{{"output", o}, {"stored", false}, {"why", *why}}); continue; }
       if (is_declared(P, o) && made_none(o)) { stored.push_back(Json{{"output", o}, {"stored", false}, {"why", "its node made none (an optional output)"}}); continue; }
       if (is_declared(P, o)) { if (ospec_kind(spec) != "manifold") stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced)); continue; }
       if (v.cls == "measurement" && v.facts.value("measure", std::string()) == "tile_crossings") { stored.push_back(store_crossings(sub, unit, P, o, v, data.at(o), made_by(key), opt.replace, replaced)); continue; }

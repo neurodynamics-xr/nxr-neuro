@@ -1407,12 +1407,21 @@ spectra stored before instead of the recording, as `connectome_flow` does: the s
 option A with the same `--sensor-package`) or an earlier source flow's own (option B, in channels); the recording is not read and no spectrum is stored again, the measurements stay
 of the recording. **The mode operator is stored** (option B): `<kernel>__in__<cortex solve>` (kind `mode_analysis`, [3 K x channels], the three components' blocks of K rows, from
 the channels to the cortex's eigen line, derived from the kernel), one per hemisphere or the glued cortex, so clients read it by name; option A's is it times the sensor coordinates'
-synthesis (not stored). The run still composes it from the stored kernel and modes (a product, no solve); a later run does not look it up by key yet (issue). Tests:
+synthesis (not stored). The run still composes it from the stored kernel and modes (a product, no solve); a later run does not look it up by key yet (issue).
+**Another channel set (2026-11-27).** The kernel input is `match: by_name`: a recording on another channel set than the kernel's (the empty room, stored as its own
+session's channels; a second run's set) reads the kernel's columns BY NAME, as `run inverse --noise-cov` matches a covariance (the same name index, `channel_index_by_name`
+in `pipelines/src/runner.cpp`): when the runner binds the kernel, each column's channel is found in the recording's set (same name, same type) and the run reads those
+channels in the kernel's column order (a relabelling of the columns, nothing computed; option A: the sensor surface's map numbers the kernel's own set, so its channels are
+found among the kernel's columns by that numbering and read in the recording by name); a kernel channel the recording does not hold is refused, naming it; the recording's
+other channels are not read. The mapping (`channels`, `matched_to`, `mapping`, `unused`) is in the outputs' provenance (`channels_by_name`) and both channel sets are in the
+cache key. The mode operator is then not stored by that run (it is the kernel's, the same for every recording, stored by a run on the kernel's own set; the run's report
+says so). So the empty room gets its cortex spectrum through the rest's kernel: `run source_flow --recording EMPTYROOM --kernel REST_KERNEL ...`. Tests:
 `test_source_flow` (compute: the bands add back to the kernel), `test_flow_readout` (compute: `pairFlow`, `timeCellPairFlow`, `takeWholeCells`, `flowSplit` against their definitions written out, the remainder split) and
 `test_source_flow_nodes` (two spheres as hemispheres and a 42-channel sheet: hemisphere selection, a glued package's zero bridge, option A = option B with a complete
 sensor basis, a travelling source mapped to an exact flow, the band pairs adding back, the time cells' sign-flip test) and `test_source_flow_store` (the definition end to end on a tiny
 synthetic subject: the chunk spectra stored with their axes, the coordinates on the sensor modes (A) or the kernel's channels (B), the float32 measurements stored per hemisphere, then
-the same from the stored spectra).
+the same from the stored spectra; an empty room on its own channel set (the names reversed, one extra) through the rest's kernel by name: its measurements equal the rest's on
+the same samples exactly, the mapping in the provenance, a rerun a hit, a set missing a kernel channel refused).
 
 ## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 
