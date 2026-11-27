@@ -346,6 +346,7 @@ wasm	operators.removeDC	nxr::operators::removeDC	ok
 wasm	operators.trivial	nxr::operators::connection::trivial	ok
 wasm	signal.hodge	nxr::signal::hodge	ok
 wasm	signal.isoline	nxr::signal::isoline	ok
+wasm	signal.rfft	nxr::signal::rfft	ok
 wasm	signal.streamline	nxr::signal::streamline	ok
 wasm	signal.whitney	nxr::signal::whitney	ok
 wasm	synthesis.dampedWave	nxr::synthesis::dampedWave	ok
