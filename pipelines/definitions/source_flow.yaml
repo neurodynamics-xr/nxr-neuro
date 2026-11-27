@@ -23,6 +23,13 @@
 # (`<recording>_<sensor package>_chunk_spectra`, in the sensor surface's field coordinates: option A, --columns sensor_coordinates with the same --sensor-package) or an earlier
 # source flow's own (option B, in channels). Nothing is read from the recording and no spectrum is stored again; the measurements stay of the recording.
 #
+# ANOTHER CHANNEL SET (2026-11-27): a recording on another channel set than the kernel's (the empty room, stored as its own session's channels) reads the kernel's columns' channels
+# BY NAME, as `run inverse --noise-cov` matches a covariance: each column's channel is found in the recording's set (same name, same type), so the run reads them in the kernel's column
+# order; a kernel channel the recording does not hold is refused, naming it; the recording's other channels are not read. The mapping is in the outputs' provenance (`channels_by_name`)
+# and both channel sets are in the cache key. This gives the empty room a cortex spectrum through the rest's kernel:
+#
+#   nxr-neuro run source_flow --dataset D --subject S --recording EMPTYROOM --kernel REST_KERNEL --columns channels --name EMPTYROOM_REST_KERNEL ...
+#
 #   nxr-neuro run source_flow --dataset D --subject S --recording REC --spectra REC_HELMET_chunk_spectra --columns sensor_coordinates --sensor-package HELMET --channel-map MAP ...
 pipeline: source_flow
 version: 1
@@ -31,7 +38,7 @@ scope: subject
 
 inputs:
   recording:      {field: recording, each: true, where: {name: $recording}}
-  kernel:         {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel}, hint: "a free-orientation minimum-norm kernel (`nxr-neuro run inverse` first)"}
+  kernel:         {operator: inverse kernel, from: recording.manifold.0, match: by_name, where: {name: $kernel}, hint: "a free-orientation minimum-norm kernel (`nxr-neuro run inverse` first); one on another channel set of the subject (the rest's, for the empty room) is matched to the recording's channels by name"}
   left:           {operator: eigenvectors, where: {name: "${left}_eigenvectors"}, when: {cortex: per_hemisphere}, hint: "the left hemisphere's Hodge-Dirac solve (`nxr-neuro run eigenmodes --surface <left hemisphere>`)"}
   right:          {operator: eigenvectors, where: {name: "${right}_eigenvectors"}, when: {cortex: per_hemisphere}, hint: "the right hemisphere's Hodge-Dirac solve"}
   glued:          {operator: eigenvectors, where: {name: "${glued}_eigenvectors"}, when: {cortex: glued}, hint: "the glued cortex's Hodge-Dirac solve (`nxr-neuro run glue`, then `eigenmodes`)"}

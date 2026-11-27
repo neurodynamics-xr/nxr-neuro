@@ -170,8 +170,20 @@ ng::NodeSpec source_mode_operator() {
       const std::vector<double> mass = pr.sensor_package.meta.at("mass").get<std::vector<double>>();
       if (static_cast<std::int64_t>(mass.size()) != S.cols) ng::refuse(std::string(kOperator) + ": the sensor package's vertices are not the sensor operator's columns");
       const std::vector<std::int32_t> sensorChannels = S.meta.at("channels").get<std::vector<std::int32_t>>();
+      // a kernel matched by name to the recording's channels (another channel set: the empty room's): the sensor surface's map numbers the channels of the set it was made
+      // on, the kernel's own, so the columns are found by the kernel's OWN numbering, and the serving operator reads each map channel's namesake in the recording
+      std::vector<std::int32_t> kernelOwn = kernelChannels;
+      std::map<std::int32_t, std::int32_t> inRecording;
+      if (pr.kernel.meta.contains("channels_matched")) {
+        const Json& mapping = pr.kernel.meta["channels_matched"]["mapping"];
+        if (mapping.size() != kernelChannels.size()) ng::refuse(std::string(kOperator) + ": the kernel's match by name does not cover its columns");
+        for (std::size_t i = 0; i < mapping.size(); ++i) {
+          kernelOwn[i] = mapping[i]["from"].get<std::int32_t>();
+          inRecording[kernelOwn[i]] = mapping[i]["to"].get<std::int32_t>();
+        }
+      }
       std::map<std::int32_t, Eigen::Index> kernelColumnOf;
-      for (std::size_t i = 0; i < kernelChannels.size(); ++i) kernelColumnOf[kernelChannels[i]] = static_cast<Eigen::Index>(i);
+      for (std::size_t i = 0; i < kernelOwn.size(); ++i) kernelColumnOf[kernelOwn[i]] = static_cast<Eigen::Index>(i);
       if (sensorChannels.size() != kernelChannels.size()) ng::refuse(std::string(kOperator) + ": the sensor surface has " + std::to_string(sensorChannels.size()) + " channels, the kernel " + std::to_string(kernelChannels.size()) + ": they must be the same channels");
       const Eigen::MatrixXd sensorAnalysis = matrix_of(S);                                    // [K_s x sensor vertices]
       const Eigen::MatrixXd synthesis = nxr::signal::synthesisFromAnalysis(sensorAnalysis, Eigen::Map<const Eigen::VectorXd>(mass.data(), static_cast<Eigen::Index>(mass.size())));   // [vertices x K_s]
@@ -187,6 +199,11 @@ ng::NodeSpec source_mode_operator() {
       composed = cortexOperator * synthesisByKernelColumn;
       kernelColumns = kernelRows * synthesisByKernelColumn;
       serving = S;
+      if (!inRecording.empty()) {
+        std::vector<std::int32_t> read;
+        for (const std::int32_t c : sensorChannels) read.push_back(inRecording.at(c));   // every map channel is a kernel column (checked above)
+        serving.meta["channels"] = read;
+      }
       columns = Json{{"are", "the sensor surface's field coordinates"}, {"members", S.meta.value("modes", Json::array())}, {"mu", S.meta.value("mu", Json::array())}};
       // what option A leaves out: the part of the field in the sensor coordinates the solve did not make, B (I - Q P), stated as its share of B's Frobenius norm
       const Eigen::MatrixXd leftOut = cortexOperator - composed * analysisByKernelColumn;

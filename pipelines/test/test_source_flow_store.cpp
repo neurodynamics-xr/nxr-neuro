@@ -3,7 +3,9 @@
 //   1. option B per hemisphere, reading the recording, with time cells: the run's own chunk spectra are stored as a statistic whose axes name what they run along (the chunks on
 //      the time line, the bins on the overlapped transform's frequency line, the coordinates on the channels), and cortical_flow's single-precision outputs are stored as
 //      measurements (they were refused as "gives 0 values"): per atom and per band pair, on each hemisphere (the rows' manifold in the key), the time cells and the sign-flip test;
-//   2. the same from the STORED chunk spectra (`--spectra`): the recording is not read, the measurements are stored again (--replace), no spectra stored twice.
+//   2. the same from the STORED chunk spectra (`--spectra`): the recording is not read, the measurements are stored again (--replace), no spectra stored twice;
+//   3. ANOTHER CHANNEL SET (the empty room): a recording on its own channel set (the kernel's channels by name in another order, plus one extra) reads the rest's kernel matched by
+//      name (`match: by_name`): its measurements equal the rest's on the same samples, the mapping is in the provenance and the cache key; a set missing a kernel channel is refused.
 #include <unistd.h>
 
 #include <cmath>
@@ -59,6 +61,9 @@ int main() {
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   const std::string cortex_id = text(*find_manifold(sub, "cortex"), "id");
+  std::vector<float> xf(static_cast<std::size_t>(M * T));
+  std::vector<std::string> names;
+  for (std::int64_t i = 0; i < M; ++i) names.push_back("C" + std::to_string(i));
   sub.compose([&] {
     // the channels, the time line, the recording (a 10 Hz rhythm in noise), the kernel's pick and the kernel [3 V x channels] on the cortex
     const std::string cid = uuid7();
@@ -72,6 +77,13 @@ int main() {
     sub.manifold(std::move(m));
     nxr::bst::label_set(sub, "sensor/sensors_labels", {{"type", std::vector<std::int64_t>(M, 0), {"MEG MAG"}, {}}, {"quality", std::vector<std::int64_t>(M, 0), {"good"}, {}}}, cid, "the montage families", std::nullopt,
                         [](const std::string& fam) { return std::make_pair(fam, std::string("app")); });
+    {
+      std::vector<std::int64_t> number(static_cast<std::size_t>(M));
+      for (std::int64_t i = 0; i < M; ++i) number[static_cast<std::size_t>(i)] = i;
+      nxr::bst::LabellingOptions lo;
+      lo.manifold_id = cid; lo.dictionary = "sensors_names"; lo.description = "the channel names";
+      nxr::bst::labelling(sub, "sensor/sensors_names", number, names, lo);
+    }
     ManifoldSpec tm;
     tm.name = "rest_time"; tm.path = "time/rest_time"; tm.type = "line"; tm.n_vertices = T;
     tm.topology = {"lattice", 1, 1, std::nullopt, {}};
@@ -83,7 +95,6 @@ int main() {
     tm.geometry = tg;
     const std::string tid = sub.manifold(std::move(tm));
     const std::string prod = sub.product({cid, tid});
-    std::vector<float> xf(static_cast<std::size_t>(M * T));
     for (std::int64_t i = 0; i < M; ++i)
       for (std::int64_t t = 0; t < T; ++t)
         xf[static_cast<std::size_t>(i * T + t)] = static_cast<float>(std::cos(2 * M_PI * 10.0 * static_cast<double>(t) / sfreq - 0.3 * static_cast<double>(i)) + 0.1 * nd(rng));
@@ -193,5 +204,139 @@ int main() {
   CHECK(why.empty());
   CHECK(probe.rows("statistic", {{"name", V("sf_chunk_spectra")}}).size() == 1);
   CHECK(measured("atoms", "power").size() == 2 && measured("atom_band_pairs", "phase_current").size() == 2);
+
+  // ── 3. another channel set: the empty room on its own channels, the rest's kernel matched by name ──
+  // the empty room's set: the rest's names reversed, with an extra channel X1 in the middle; its samples the rest's rows by name (X1 noise), so its flow is the rest's; the short set lacks C3
+  std::vector<std::string> er_names(names.rbegin(), names.rend());
+  er_names.insert(er_names.begin() + 7, "X1");
+  std::vector<std::string> short_names;
+  for (const auto& n : names) if (n != "C3") short_names.push_back(n);
+  auto channel_set = [&](const std::string& set, const std::vector<std::string>& set_names, const std::string& recording) {
+    const std::int64_t n = static_cast<std::int64_t>(set_names.size());
+    const std::string cid = uuid7();
+    std::vector<float> cpos(static_cast<std::size_t>(n * 3));
+    for (auto& p : cpos) p = static_cast<float>(nd(rng) * 0.1);
+    ManifoldSpec m;
+    m.id = cid; m.name = set; m.path = "sensor/" + set; m.type = "points"; m.n_vertices = n;
+    m.topology = {"none", 0, 1, std::nullopt, {}};
+    GeometrySpec g; g.form = "stored"; g.cs_key = "scs"; g.positions_path = "sensor/" + set; m.geometry = g;
+    m.populate = [&](nxr::io::Store&, const std::string&) { sub.write_array("sensor/" + set, view(cpos, {n, 3}), {}, std::nullopt, "manifold", cid); };
+    sub.manifold(std::move(m));
+    nxr::bst::label_set(sub, "sensor/" + set + "_labels", {{"type", std::vector<std::int64_t>(n, 0), {"MEG MAG"}, {}}, {"quality", std::vector<std::int64_t>(n, 0), {"good"}, {}}}, cid, "the montage families",
+                        std::nullopt, [](const std::string& fam) { return std::make_pair(fam, std::string("app")); });
+    std::vector<std::int64_t> number(static_cast<std::size_t>(n));
+    for (std::int64_t i = 0; i < n; ++i) number[static_cast<std::size_t>(i)] = i;
+    nxr::bst::LabellingOptions lo;
+    lo.manifold_id = cid; lo.dictionary = set + "_names"; lo.description = "the channel names";
+    nxr::bst::labelling(sub, "sensor/" + set + "_names", number, set_names, lo);
+    ManifoldSpec tm;
+    tm.name = recording + "_time"; tm.path = "time/" + recording + "_time"; tm.type = "line"; tm.n_vertices = T;
+    tm.topology = {"lattice", 1, 1, std::nullopt, {}};
+    const auto lc = lattice_counts({T});
+    if (lc.n_edges) tm.cols.set("n_edges", *lc.n_edges);
+    GeometrySpec tg; tg.form = "closed_form"; tg.cs_key = "clock";
+    DimensionSpec d; d.name = "time"; d.n_vertices = T; d.spacing = 1.0 / sfreq; d.origin = 0.0; d.unit = "s";
+    tg.dimensions.push_back(d);
+    tm.geometry = tg;
+    const std::string tid = sub.manifold(std::move(tm));
+    const std::string prod = sub.product({cid, tid});
+    std::vector<float> rf(static_cast<std::size_t>(n * T));
+    for (std::int64_t i = 0; i < n; ++i) {
+      const auto it = std::find(names.begin(), names.end(), set_names[static_cast<std::size_t>(i)]);
+      for (std::int64_t t = 0; t < T; ++t)
+        rf[static_cast<std::size_t>(i * T + t)] = it == names.end() ? static_cast<float>(nd(rng)) : xf[static_cast<std::size_t>((it - names.begin()) * T + t)];
+    }
+    FieldSpec rec;
+    rec.name = recording; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, recording); rec.kind = "recording"; rec.manifold_id = prod;
+    rec.data = view(rf, {n, T}); rec.array.chunks = Shape{n, 256}; rec.array.compress = false; rec.cols.set("unit", "T");
+    sub.field(std::move(rec));
+    ManifoldSpec fl;   // the line its chunk spectra lie on, as the rest's
+    fl.name = recording + "_freq_overlapped"; fl.path = "spectral/" + recording + "_freq_overlapped"; fl.type = "line"; fl.n_vertices = 257;
+    fl.topology = {"lattice", 1, 1, std::nullopt, {}};
+    const auto flc = lattice_counts({257});
+    if (flc.n_edges) fl.cols.set("n_edges", *flc.n_edges);
+    GeometrySpec fg; fg.form = "closed_form"; fg.cs_key = "hz";
+    DimensionSpec fd; fd.name = "frequency"; fd.n_vertices = 257; fd.spacing = sfreq / 512.0; fd.origin = 0.0; fd.unit = "Hz";
+    fg.dimensions.push_back(fd);
+    fl.geometry = fg;
+    sub.manifold(std::move(fl));
+  };
+  sub.compose([&] { channel_set("emptyroom_sensors", er_names, "emptyroom"); channel_set("short_sensors", short_names, "short"); });
+  Json er = run;
+  er["recording"] = "emptyroom";
+  er["time_cells"] = false;
+  er["name"] = "er";
+  std::vector<Json> er_report;
+  why.clear();
+  try { er_report = nxrtest::run_definition(ds, sub, "source_flow", er); } catch (const std::exception& x) { why = x.what(); }
+  std::printf("  source_flow on the empty room, the rest's kernel by name: %s\n", why.empty() ? "stored" : why.substr(0, 400).c_str());
+  CHECK(why.empty());
+  {   // the mode operator is the kernel's (stored by the rest's run): not stored again by the empty room's, and said so
+    const std::string report = er_report.empty() ? std::string() : er_report.front().dump();
+    CHECK(report.find("\"output\":\"left_operator\",\"stored\":false") != std::string::npos);
+    CHECK(probe.rows("operator", {{"name", V("kern__in__hodgeDirac__cortex_1_eigenvectors")}}).size() <= 1);
+  }
+  {
+    const std::string rest_id = id_of("field", "rest"), er_id = id_of("field", "emptyroom");
+    auto of = [&](const std::string& measure, const std::string& field) {
+      std::vector<Row> out;
+      for (const auto& r : measured("atoms", measure)) if (opt_text(r, "of_field_id").value_or("") == field) out.push_back(r);
+      std::sort(out.begin(), out.end(), [](const Row& a, const Row& b) { return text(a, "rows_manifold_id") < text(b, "rows_manifold_id"); });
+      return out;
+    };
+    auto values = [&](const Row& r) {
+      const ArrayReader ar = ArrayReader::open(sub.store(), text(r, "array_path"));
+      const auto raw = ar.read();
+      std::vector<double> v;
+      if (ar.dtype() == DType::Float32) { std::vector<float> f(raw.size() / 4); std::memcpy(f.data(), raw.data(), raw.size()); v.assign(f.begin(), f.end()); }
+      else { v.resize(raw.size() / 8); std::memcpy(v.data(), raw.data(), raw.size()); }
+      return v;
+    };
+    for (const char* measure : {"power", "phase_current", "flow_coefficient"}) {
+      const auto a = of(measure, rest_id), b = of(measure, er_id);
+      CHECK(a.size() == 2 && b.size() == 2);
+      if (a.size() != 2 || b.size() != 2) continue;
+      double worst = 0;
+      for (std::size_t h = 0; h < 2; ++h) {
+        CHECK(text(a[h], "rows_manifold_id") == text(b[h], "rows_manifold_id"));
+        const auto x = values(a[h]), y = values(b[h]);
+        CHECK(x.size() == y.size() && !x.empty());
+        double scale = 0, diff = 0;
+        for (std::size_t i = 0; i < x.size() && i < y.size(); ++i) { scale = std::max(scale, std::abs(x[i])); diff = std::max(diff, std::abs(x[i] - y[i])); }
+        worst = std::max(worst, diff / std::max(scale, 1e-300));
+      }
+      std::printf("  %-16s empty room vs rest (same samples by name): max relative difference %.2e\n", measure, worst);
+      CHECK(worst < 1e-5);                                                  // float32 measurements of the same samples, the channels in the same order
+    }
+    // the mapping, in the provenance of what the run stored
+    const auto b = of("power", er_id);
+    CHECK(!b.empty());
+    if (!b.empty()) {
+      const Json pj = Json::parse(opt_text(b.front(), "producer_json").value_or("{}"), nullptr, false);
+      std::string where = pj.dump();
+      const bool named = where.find("\"matched_to\":\"emptyroom_sensors\"") != std::string::npos && where.find("\"unused\":[\"X1\"]") != std::string::npos &&
+                         where.find("\"channels\":\"sensors\"") != std::string::npos;
+      std::printf("  the provenance names the match: %s\n", named ? "yes" : where.substr(0, 300).c_str());
+      CHECK(named);
+    }
+    // a rerun is a hit (both channel sets in the key)
+    std::string again_why;
+    std::vector<Json> rerun;
+    try { rerun = nxrtest::run_definition(ds, sub, "source_flow", er); } catch (const std::exception& x) { again_why = x.what(); }
+    CHECK(again_why.empty());
+    bool hit = !rerun.empty();
+    for (const auto& r : rerun) hit = hit && r.value("hit", false);
+    std::printf("  rerun: %s\n", hit ? "a hit" : (again_why.empty() ? (rerun.empty() ? std::string("nothing") : rerun.front().dump().substr(0, 300)) : again_why.substr(0, 300)).c_str());
+    CHECK(hit);
+  }
+  {   // a kernel channel the recording does not hold: refused, naming it
+    Json sh = er;
+    sh["recording"] = "short";
+    sh["name"] = "short";
+    std::string refused;
+    try { nxrtest::run_definition(ds, sub, "source_flow", sh); } catch (const std::exception& x) { refused = x.what(); }
+    std::printf("  a set missing C3: %s\n", refused.empty() ? "NOT refused" : refused.substr(0, 300).c_str());
+    CHECK(refused.find("C3") != std::string::npos && refused.find("short_sensors") != std::string::npos);
+  }
   return nxrtest::finish("test_source_flow_store");
 }

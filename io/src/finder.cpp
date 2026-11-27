@@ -137,7 +137,14 @@ std::vector<Row> matches(const Database& db, const std::string& subject_id, cons
                              ? db.all("SELECT * FROM \"" + table + "\" WHERE subject_id = ? AND status = 'complete' ORDER BY name", {V(subject_id)})
                              : db.all("SELECT * FROM \"" + table + "\" WHERE subject_id = ? AND status = 'complete' AND " + col + " = ? ORDER BY name", {V(subject_id), V(want.get<std::string>())});
   auto keep = [&](auto pred) { std::vector<Row> k; for (auto& r : out) if (pred(r)) k.push_back(std::move(r)); out = std::move(k); };
-  if (spec.contains("from")) { const std::string m = relation(spec["from"].get<std::string>(), found, w); keep([&](const Row& r) { return text(r, "from_manifold_id") == m; }); }
+  if (spec.contains("from")) {
+    const std::string m = relation(spec["from"].get<std::string>(), found, w);
+    // `match: by_name` (an operator over channels: the inverse kernel of source_flow): when none lies on `from`, one on ANOTHER channel set of the subject (the rest's kernel for the
+    // empty room) is kept; the runner matches its columns to `from`'s channels by name (match_operator_channels_by_name) and refuses a column whose channel `from` does not hold
+    std::vector<Row> other = spec.value("match", std::string()) == "by_name" ? out : std::vector<Row>();
+    keep([&](const Row& r) { return text(r, "from_manifold_id") == m; });
+    if (out.empty() && !other.empty()) out = std::move(other);
+  }
   if (spec.contains("to")) { const std::string m = relation(spec["to"].get<std::string>(), found, w); keep([&](const Row& r) { return opt_text(r, "to_manifold_id") == m; }); }
   if (spec.contains("is")) { const std::string m = relation(spec["is"].get<std::string>(), found, w); keep([&](const Row& r) { return text(r, "id") == m; }); }   // a manifold: the one a relation names (kernel.to)
   if (cls != "manifold" && spec.contains("manifold")) {
