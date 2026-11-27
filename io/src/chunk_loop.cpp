@@ -139,9 +139,10 @@ ChunkSource::ChunkSource(const Store& store, std::string array, std::int64_t wid
     n_samples_ = linked_->n_samples;
   } else {
     const ArrayReader ar = ArrayReader::open(*store_, array_);
-    if (ar.shape().size() != 2) throw Error(code::invalid_argument, "a recording is [channels x samples]: " + array_);
+    if (ar.shape().size() != 2 && ar.shape().size() != 3) throw Error(code::invalid_argument, "a recording is [channels x samples] (a field with components [rows x samples x components]): " + array_);
     n_channels_ = ar.shape()[0];
     n_samples_ = ar.shape()[1];
+    if (ar.shape().size() == 3) components_ = ar.shape()[2];
   }
   if (rows_.empty()) for (std::int64_t c = 0; c < n_channels_; ++c) rows_.push_back(static_cast<std::int32_t>(c));
   for (std::int32_t c : rows_) if (c < 0 || c >= n_channels_) throw Error(code::invalid_argument, "a channel index is outside the recording's channels");
@@ -155,7 +156,9 @@ template <class S> void widen(const std::uint8_t* src, std::int64_t row, std::in
 
 void ChunkSource::read(std::int64_t k, Chunk& out) const {
   const auto [first, last] = chunk_span(k, n_samples_, width_);              // the WHOLE chunk (the Studio's residency: never a part)
-  const std::int64_t n = last - first, R = reading_ == Reading::shape ? 0 : rows();      // a shape-only source reads no sample: the chunk's place and its good samples only
+  if (components_ > 1 && !components_read_)
+    throw Error(code::invalid_argument, "a recording is [channels x samples]: " + array_ + " holds " + std::to_string(components_) + " components a sample (read it with read field)");
+  const std::int64_t n = last - first, R = reading_ == Reading::shape ? 0 : rows(), m = n * components_;   // m: the values of a row (its samples x components)      // a shape-only source reads no sample: the chunk's place and its good samples only
   std::vector<std::uint8_t> raw;
   DType dtype = DType::Float32;
   if (reading_ == Reading::shape) {
@@ -165,19 +168,19 @@ void ChunkSource::read(std::int64_t k, Chunk& out) const {
     linked_->read(first, n, reinterpret_cast<float*>(raw.data()));
   } else {
     const ArrayReader ar = ArrayReader::open(*store_, array_);
-    raw = ar.read({0, first}, {n_channels_, last});    // [channels x n], row after row
+    raw = components_ > 1 ? ar.read({0, first, 0}, {n_channels_, last, components_}) : ar.read({0, first}, {n_channels_, last});    // [channels x n (x components)], row after row
     dtype = ar.dtype();
   }
   out.k = k;
   out.first = first;
   out.n = n;
-  out.data.resize(static_cast<std::size_t>(R * n));
+  out.data.resize(static_cast<std::size_t>(R * m));
   auto decode = [&](std::int64_t row, double* dst) {
     switch (dtype) {
-      case DType::Float32: widen<float>(raw.data(), row, n, dst); break;
-      case DType::Float64: widen<double>(raw.data(), row, n, dst); break;
-      case DType::Int16: widen<std::int16_t>(raw.data(), row, n, dst); break;
-      case DType::Int32: widen<std::int32_t>(raw.data(), row, n, dst); break;
+      case DType::Float32: widen<float>(raw.data(), row, m, dst); break;
+      case DType::Float64: widen<double>(raw.data(), row, m, dst); break;
+      case DType::Int16: widen<std::int16_t>(raw.data(), row, m, dst); break;
+      case DType::Int32: widen<std::int32_t>(raw.data(), row, m, dst); break;
       default: throw Error(code::unsupported, std::string("a recording of type ") + dtype_to_string(dtype) + " is not read here");
     }
   };
@@ -206,7 +209,7 @@ void ChunkSource::read(std::int64_t k, Chunk& out) const {
       }
     }
   } else {
-    for (std::int64_t i = 0; i < R; ++i) decode(rows_[static_cast<std::size_t>(i)], out.data.data() + static_cast<std::size_t>(i * n));
+    for (std::int64_t i = 0; i < R; ++i) decode(rows_[static_cast<std::size_t>(i)], out.data.data() + static_cast<std::size_t>(i * m));
   }
   out.good.clear();
   if (bad_) {
@@ -226,6 +229,7 @@ void ChunkSource::read(std::int64_t k, Chunk& out) const {
 std::int64_t ChunkSource::reads() const { return reads_->load(); }
 
 void ChunkSource::project(std::shared_ptr<const LoadProjection> p, Json record) {
+  if (p && components_ > 1) throw Error(code::invalid_argument, "projectors act on a recording's channels; " + array_ + " holds " + std::to_string(components_) + " components a sample");
   if (p && (p->n != n_channels_ || p->matrix.size() != static_cast<std::size_t>(n_channels_ * n_channels_)))
     throw Error(code::invalid_argument, "the projectors act on " + std::to_string(p->n) + " channels, the recording has " + std::to_string(n_channels_));
   projection_ = std::move(p);

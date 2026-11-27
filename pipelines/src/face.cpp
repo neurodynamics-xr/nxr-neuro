@@ -640,6 +640,8 @@ Stored read_series(SubjectWriter& sub, const task::Subject& ts, const task::Node
   if (!rq.region.empty()) throw task::Refused("'" + n.name + "' is a time-resolved field: its part is named by --rows and --from/--to, not --region");
   const Projectors projectors = projectors_from(rq.projectors);
   ChunkSource src = nxr::pipelines::source_of(sub, n, v.rate, v.origin, rq.rows, std::nullopt, projectors);
+  src.read_components();   // a field with a value type's components (complex, vector3 …) is read [rows x samples x components]
+  const std::int64_t comps = src.components();
   for (const std::int32_t r : rq.rows)
     if (r < 0 || r >= src.n_channels()) refuse("read: row " + std::to_string(r) + " is not one of the field's " + std::to_string(src.n_channels()) + " rows");
   const io::Span span = rq.from ? nxr::pipelines::span_of(n, src.n_samples(), v.rate, v.origin, std::nullopt, rq.from, rq.to)
@@ -673,9 +675,9 @@ Stored read_series(SubjectWriter& sub, const task::Subject& ts, const task::Node
   }
   const bool single = dtype == "float32";
   {   // the budget, before the array is made: the samples asked of the rows asked
-    const double bytes = static_cast<double>(rows) * static_cast<double>(width) * (single ? 4.0 : 8.0);
+    const double bytes = static_cast<double>(rows) * static_cast<double>(width) * static_cast<double>(comps) * (single ? 4.0 : 8.0);
     if (bytes > rq.budget) {
-      const double per_second = static_cast<double>(rows) * (single ? 4.0 : 8.0) * v.rate;
+      const double per_second = static_cast<double>(rows) * static_cast<double>(comps) * (single ? 4.0 : 8.0) * v.rate;
       char fit[64];
       std::snprintf(fit, sizeof fit, "%.3g", per_second > 0 ? rq.budget / per_second : 0.0);
       throw task::Refused("'" + n.name + "' as asked is " + size_text(bytes) + " (" + std::to_string(rows) + " rows x " + std::to_string(width) + " samples, " + dtype + "), above the read's budget of " +
@@ -685,15 +687,15 @@ Stored read_series(SubjectWriter& sub, const task::Subject& ts, const task::Node
   StoredArray a;
   a.name = "values";
   a.dtype = dtype;
-  a.shape = {rows, width};
-  a.bytes.resize(static_cast<std::size_t>(rows * width) * (single ? sizeof(float) : sizeof(double)));
+  a.shape = comps > 1 ? std::vector<std::int64_t>{rows, width, comps} : std::vector<std::int64_t>{rows, width};
+  a.bytes.resize(static_cast<std::size_t>(rows * width * comps) * (single ? sizeof(float) : sizeof(double)));
   if (width > 0)
     chunk_loop(src, span, [&](const Chunk& c) {
       const std::int64_t at = c.first - span.s0;
       for (std::int64_t r = 0; r < rows; ++r)
-        for (std::int64_t t = 0; t < c.n; ++t) {
-          const double x = c.data[static_cast<std::size_t>(r * c.n + t)];
-          const std::size_t i = static_cast<std::size_t>(r * width + at + t);
+        for (std::int64_t t = 0; t < c.n * comps; ++t) {   // a row's samples x components, contiguous in the chunk and in the result
+          const double x = c.data[static_cast<std::size_t>(r * c.n * comps + t)];
+          const std::size_t i = static_cast<std::size_t>((r * width + at) * comps + t);
           if (single) reinterpret_cast<float*>(a.bytes.data())[i] = static_cast<float>(x);
           else reinterpret_cast<double*>(a.bytes.data())[i] = x;
         }

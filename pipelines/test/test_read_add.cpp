@@ -185,6 +185,28 @@ int main() {
     const task::CommandResult back = face::read_field(r);
     CHECK_EQ(back.arrays.at(0).dtype, std::string("float64"));
     CHECK(back.arrays.at(0).bytes == raw(series));
+    // a time-resolved field with a value type's components ([rows x samples x 2], complex) is read back whole, as it was added
+    std::vector<double> band(3 * 50 * 2);
+    for (std::size_t i = 0; i < band.size(); ++i) band[i] = 0.5 * static_cast<double>(i) - 7.0;
+    task::AddFieldRequest c;
+    base(c, "band");
+    c.manifold = "sensors";
+    c.time = "epoch_time";
+    c.value_type = "complex";
+    c.values = npy(root / "in" / "band.npy", "float64", {3, 50, 2}, band).string();
+    task::add_field(c);
+    face::ReadNodeRequest rc = rq("band");
+    rc.all = true;
+    const task::CommandResult cb = face::read_field(rc);
+    CHECK(cb.arrays.at(0).shape == (std::vector<std::int64_t>{3, 50, 2}));
+    CHECK(cb.arrays.at(0).bytes == raw(band));
+    rc.all = false;
+    rc.from = 0.1;
+    rc.to = 0.2;
+    rc.rows = {2};
+    const task::CommandResult part = face::read_field(rc);   // a time range and a row: the components follow their samples
+    CHECK(part.arrays.at(0).shape == (std::vector<std::int64_t>{1, 10, 2}));
+    CHECK(part.arrays.at(0).bytes == raw(std::vector<double>(band.begin() + (2 * 50 + 10) * 2, band.begin() + (2 * 50 + 20) * 2)));
   }
   {
     task::AddSelectionRequest s;

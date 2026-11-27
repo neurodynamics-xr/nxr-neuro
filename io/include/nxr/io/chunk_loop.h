@@ -79,7 +79,7 @@ Json span_record(const Span& span, double sfreq, double t0);
 struct Chunk {
   std::int64_t k = 0;                         // the chunk's index
   std::int64_t first = 0, n = 0;              // its samples [first, first + n) (the span's part of the chunk)
-  std::vector<double> data;                   // [rows x n] row-major, the rows in the order asked for
+  std::vector<double> data;                   // [rows x n] row-major, the rows in the order asked for ([rows x n x components] when the source reads components)
   std::vector<std::uint8_t> good;             // [n] 1 = a good sample; empty when no bad spans were given
 };
 
@@ -137,6 +137,10 @@ class ChunkSource {
   std::int64_t n_channels() const { return n_channels_; }
   std::int64_t n_samples() const { return n_samples_; }
   std::int64_t rows() const { return static_cast<std::int64_t>(rows_.size()); }
+  /** the values a sample holds: 1 for a recording [channels x samples]; c for a field [rows x samples x c] (a value type's components: complex 2, vector3 3 …) */
+  std::int64_t components() const { return components_; }
+  /** a reader that handles the components (each chunk's data [rows x n x components]) says so; every other reader refuses a field with components */
+  void read_components() { components_read_ = true; }
   std::int64_t count() const { return (n_samples_ + width_ - 1) / width_; }
   /** chunk k, WHOLE (its first sample in out.first, its length in out.n) */
   void read(std::int64_t k, Chunk& out) const;
@@ -152,7 +156,8 @@ class ChunkSource {
   const Store* store_ = nullptr;   // the store must outlive the source (null: a linked recording)
   std::shared_ptr<const LinkedBlocks> linked_;
   std::string array_;    // the recording's key in it
-  std::int64_t width_ = kChunk, n_channels_ = 0, n_samples_ = 0;
+  std::int64_t width_ = kChunk, n_channels_ = 0, n_samples_ = 0, components_ = 1;
+  bool components_read_ = false;
   double sfreq_ = 0, t0_ = 0;
   std::vector<std::int32_t> rows_;
   std::optional<std::vector<std::pair<double, double>>> bad_;
