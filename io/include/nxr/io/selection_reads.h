@@ -60,6 +60,8 @@ std::map<std::string, std::string> measurement_arrays(const Database& db, const 
 std::vector<std::string> measures_over_field(const Database& db, const std::string& selection_id, const std::string& of_field_id, const std::optional<std::string>& except = std::nullopt);
 /** the distinct `computed_by` of the selection's rows over the field, optionally of one measure */
 std::vector<std::string> computed_by_over_field(const Database& db, const std::string& selection_id, const std::string& of_field_id, const std::optional<std::string>& measure = std::nullopt);
+/** the distinct `computed_by` of the selection's rows of a statistic (its slices: `of_statistic_id`), optionally of one measure */
+std::vector<std::string> computed_by_over_statistic(const Database& db, const std::string& selection_id, const std::string& of_statistic_id, const std::optional<std::string>& measure = std::nullopt);
 /** the selection a selection's rows are measured within (their `within_selection_id`), or nothing */
 std::optional<std::string> within_selection_of(const Database& db, const std::string& selection_id);
 /** the selection's array-backed rows with the kind and unit of the field they are of (columns `fkind`, `funit` beside the row's own) */

@@ -152,4 +152,44 @@ double exactDistance(const SurfaceArrays& surface, int vStart, int vEnd) {
     return d;
 }
 
+// Exact distance and log map from a surface point to every vertex: one MMP
+// propagation over the input mesh (as exactDistance), read out at all vertices.
+ExactFromPoint exactFromPoint(const SurfaceArrays& surface, const ExactSource& source) {
+    geometry::IntrinsicSurface gs(surface);
+    auto& mesh = gs.inputMesh();
+    auto& geom = gs.embedded();
+    const int nV = surface.nV();
+    const int nF = surface.nF();
+    GeodesicAlgorithmExact mmp(mesh, geom);
+    if (source.face < 0) {
+        if (source.vertex < 0 || source.vertex >= nV) {
+            throw Error(ErrorCode::InvalidInput,
+                "exactFromPoint: vertex index out of range (nV=" + std::to_string(nV) + ")");
+        }
+        mmp.propagate(mesh.vertex(source.vertex));
+    } else {
+        const Eigen::Vector3d& b = source.bary;
+        if (source.face >= nF) {
+            throw Error(ErrorCode::InvalidInput,
+                "exactFromPoint: face index out of range (nF=" + std::to_string(nF) + ")");
+        }
+        if (b.minCoeff() < 0.0 || std::abs(b.sum() - 1.0) > 1e-9) {
+            throw Error(ErrorCode::InvalidInput,
+                "exactFromPoint: barycentric coordinates must be non-negative and sum to 1");
+        }
+        mmp.propagate(SurfacePoint(mesh.face(source.face), Vector3{b[0], b[1], b[2]}));
+    }
+    ExactFromPoint out;
+    out.distance.resize(nV);
+    out.log.resize(nV, 2);
+    for (int v = 0; v < nV; v++) {
+        Vertex vv = mesh.vertex(v);
+        out.distance[v] = mmp.getDistance(vv);
+        Vector2 l = source.face < 0 ? mmp.getLog(vv) : mmp.getLog(SurfacePoint(vv));
+        out.log(v, 0) = l.x;
+        out.log(v, 1) = l.y;
+    }
+    return out;
+}
+
 } // namespace nxr::geometry::query

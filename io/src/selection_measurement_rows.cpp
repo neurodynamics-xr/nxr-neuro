@@ -262,12 +262,17 @@ MeasurementValues measurement_values(SubjectWriter& sub, const std::string& sele
   if (has_column(db, "selection_measurement", "rows_manifold_id")) {
     if (rows_manifold_id) { w += " AND rows_manifold_id = ?"; a.push_back(Value(*rows_manifold_id)); }
     else {
-      const auto on = db.all("SELECT DISTINCT rows_manifold_id FROM selection_measurement WHERE " + w + " AND array_path IS NOT NULL AND rows_manifold_id IS NOT NULL", a);
+      // the arrays stored without naming their rows' manifold (before #283, or with no --rows-on) are one more manifold, unnamed: never read silently in place of a named one (#290)
+      const auto on = db.all("SELECT DISTINCT rows_manifold_id FROM selection_measurement WHERE " + w + " AND array_path IS NOT NULL", a);
       if (on.size() > 1) {
         std::string names;
         for (const Row& r : on) {
-          const auto n = db.one("SELECT name FROM manifold WHERE id = ?", {Value(text(r, "rows_manifold_id"))});
-          names += (names.empty() ? "" : ", ") + (n ? text(*n, "name") : text(r, "rows_manifold_id"));
+          std::string nm = "an unnamed manifold (stored without --rows-on)";
+          if (!is_null(r, "rows_manifold_id")) {
+            const auto n = db.one("SELECT name FROM manifold WHERE id = ?", {Value(text(r, "rows_manifold_id"))});
+            nm = n ? text(*n, "name") : text(r, "rows_manifold_id");
+          }
+          names += (names.empty() ? "" : ", ") + nm;
         }
         throw Error(code::invalid_argument, "measurements: '" + measure + "' is stored on several manifolds (" + names + "): name the one its rows lie on");
       }
@@ -277,8 +282,20 @@ MeasurementValues measurement_values(SubjectWriter& sub, const std::string& sele
   }
   MeasurementValues out;
   std::set<std::string> by;
+  const bool producer_col = has_column(db, "selection_measurement", "producer_json");
+  const std::string producer_sel = producer_col ? ", producer_json" : "";
+  // the producer records of the rows read (#290: never another measurement's of the same measure)
+  auto add_producers = [&](const std::vector<Row>& rs) {
+    std::set<std::string> seen;
+    for (const Row& r : rs) {
+      if (!producer_col || is_null(r, "producer_json") || !seen.insert(text(r, "producer_json")).second) continue;
+      const Json j = Json::parse(text(r, "producer_json"), nullptr, false);
+      if (!j.is_discarded()) out.producers.push_back(j);
+    }
+  };
   // ARRAY-BACKED: [rows x members x components], this measure's component
-  if (const auto r = db.one("SELECT array_path, component, unit, computed_by FROM selection_measurement WHERE " + w + " AND array_path IS NOT NULL LIMIT 1", a)) {
+  if (const auto r = db.one("SELECT array_path, component, unit, computed_by" + producer_sel + " FROM selection_measurement WHERE " + w + " AND array_path IS NOT NULL LIMIT 1", a)) {
+    add_producers({*r});
     const ArrayReader ar = ArrayReader::open(sub.store(), text(*r, "array_path"));
     const auto shape = ar.shape();
     if (shape.size() != 3) throw Error(code::invalid_argument, "measurements: " + text(*r, "array_path") + " is not [rows x members x components]");
@@ -289,14 +306,32 @@ MeasurementValues measurement_values(SubjectWriter& sub, const std::string& sele
     else if (ar.dtype() == DType::Float64) std::memcpy(all.data(), raw.data(), all.size() * 8);
     else throw Error(code::invalid_argument, "measurements: " + text(*r, "array_path") + " is not float32 or float64");
     out.rows = R; out.members = T; out.array_backed = true; out.unit = opt_text(*r, "unit");
-    out.values.resize(static_cast<std::size_t>(R * T));
-    for (std::int64_t i = 0; i < R * T; ++i) out.values[static_cast<std::size_t>(i)] = all[static_cast<std::size_t>(i * C + comp)];
+    // A PART OF THE MEMBERS (issue #295: a span run's time cells): the rows' record says which; they are put in place among the selection's members, NaN elsewhere
+    Json held;
+    if (producer_col && !is_null(*r, "producer_json")) {
+      const Json pj = Json::parse(text(*r, "producer_json"), nullptr, false);
+      if (pj.is_object() && pj.contains("held_members") && pj["held_members"].is_object()) held = pj["held_members"];
+    }
+    if (held.is_object()) {
+      const std::int64_t f = held.value("first", std::int64_t(0)), c = held.value("count", std::int64_t(0)), N = held.value("radix", std::int64_t(0)), G = held.value("groups", std::int64_t(1));
+      if (c * G != T || f < 0 || f + c > N) throw Error(code::invalid_argument, "measurements: " + text(*r, "array_path") + " does not hold the members its record names (held_members)");
+      out.members = N * G;
+      out.values.assign(static_cast<std::size_t>(R * N * G), std::numeric_limits<double>::quiet_NaN());
+      for (std::int64_t row = 0; row < R; ++row)
+        for (std::int64_t q = 0; q < G; ++q)
+          for (std::int64_t j = 0; j < c; ++j)
+            out.values[static_cast<std::size_t>(row * N * G + f + j + N * q)] = all[static_cast<std::size_t>((row * T + j + c * q) * C + comp)];
+    } else {
+      out.values.resize(static_cast<std::size_t>(R * T));
+      for (std::int64_t i = 0; i < R * T; ++i) out.values[static_cast<std::size_t>(i)] = all[static_cast<std::size_t>(i * C + comp)];
+    }
     out.computed_by.push_back(opt_text(*r, "computed_by").value_or(""));
     return out;
   }
   // SCALAR ROWS: one value per member
-  const auto rows = db.all("SELECT code, value, unit, computed_by FROM selection_measurement WHERE " + w + " AND code IS NOT NULL ORDER BY code", a);
+  const auto rows = db.all("SELECT code, value, unit, computed_by" + producer_sel + " FROM selection_measurement WHERE " + w + " AND code IS NOT NULL ORDER BY code", a);
   if (rows.empty()) throw Error(code::no_such_row, "measurements: no stored '" + measure + "' of that on selection " + selection_id);
+  add_producers(rows);
   std::int64_t maxc = 0;
   for (const Row& r : rows) maxc = std::max(maxc, integer(r, "code"));
   out.rows = 1; out.members = maxc + 1; out.unit = opt_text(rows[0], "unit");

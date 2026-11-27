@@ -1323,6 +1323,21 @@ summary: Store a manifold of points (positions or one coordinate each) from a .n
 example: nxr-neuro add points --dataset /data/study --subject sub-01 --name electrodes --positions electrodes.npy
 opts: --by --coordinate-system --dataset* --description --name* --positions* --replace --subject*
 )TBL",
+R"TBL(@ add fibres
+old: __add fibres
+summary: Store a fibre bundle computed elsewhere (a tractography, a synthetic bundle) as a curve manifold, exactly as the template importers store one, so tile_network and connectome read it.
+example: nxr-neuro add fibres --dataset /data/study --subject sub-01 --name tracts --points tracts.npy
+opts: --by --comment --dataset* --name* --origin --points* --points-per-fibre --producer --source --subject*
+)TBL",
+R"TBL(--name@add fibres	NAME	Name the bundle (a curve manifold at fibre/NAME) is stored under in the subject; a name already used is refused.	required	-
+--points@add fibres	FILE.npy	The fibres' points in the subject's SCS, in metres: [fibres x points x 3], or [fibres·points x 3] with --points-per-fibre; float32 or float64, stored as given.	required	-
+--points-per-fibre@add fibres	N	With --points [rows x 3]: the points of each fibre (at least 2; the rows a whole number of fibres).	the points array's second axis	-
+--origin@add fibres	JSON	The bundle's origin (source, citation, licence, terms), a JSON object kept in its producer record and carried into what is derived from it.	none	-
+--source@add fibres	TEXT	The file or program the fibres came from, kept with the manifold.	the points file's name	-
+--comment@add fibres	TEXT	A comment kept with the manifold.	none	-
+--producer@add fibres	JSON	What the maker says of how the fibres were made (the tractography, its parameters), a JSON object kept in the producer record (not under the record's own keys: command, program, inputs, points_per_component, precision, origin, description).	none	-
+--by@add fibres	TEXT	Who made the node, recorded as its author (created_by); the producer record still names the program. Use it for the person or the application that computed the values.	the program (nxr-neuro and its version)	-
+)TBL",
 R"TBL(@ add line
 old: __add line
 summary: Store a line: n points a spacing apart from an origin (a time line in seconds, a frequency line), or points at the coordinates given (an eigenvalue axis).

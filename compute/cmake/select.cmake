@@ -8,6 +8,7 @@ target_sources(nxr_compute PRIVATE
   src/select/edges.cpp
   src/select/extent.cpp
   src/select/intervals.cpp
+  src/select/levels.cpp
   src/select/ladder.cpp
   src/select/peaks.cpp
   src/select/regions.cpp
@@ -36,6 +37,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_regions test/test_regions.cpp)
   target_link_libraries(test_regions PRIVATE nxr_compute)
   add_test(NAME test_regions COMMAND test_regions)
+  add_executable(test_levels test/test_levels.cpp)
+  target_link_libraries(test_levels PRIVATE nxr_compute)
+  add_test(NAME test_levels COMMAND test_levels)
   add_executable(test_extent test/test_extent.cpp)
   target_link_libraries(test_extent PRIVATE nxr_compute)
   add_test(NAME test_extent COMMAND test_extent)

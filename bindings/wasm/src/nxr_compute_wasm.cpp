@@ -39,6 +39,7 @@
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
+#include "nxr/signal/fourier.h"
 #include "nxr/operators/registry/operator_registry.h"
 #include "nxr/operators/registry/field_registry.h"
 
@@ -872,6 +873,44 @@ double exactDistanceJS(val surfaceVal, int vStart, int vEnd) {
     return guarded([&] { return geom::query::exactDistance(valToSurface(surfaceVal), vStart, vEnd); });
 }
 
+// signal.rfft(values, rows, cols, axis): numpy.fft.rfft of a real row-major [rows × cols] matrix along `axis` (0: down the rows, 1: along each
+// row), backward norm. → { re, im: Float64Array, rows, cols } row-major, the transformed axis holding n/2 + 1 bins.
+val rfftJS(val values, int rows, int cols, int axis) {
+    return guarded([&] {
+        const std::vector<double> x = emscripten::convertJSArrayToNumberVector<double>(values);
+        if (rows <= 0 || cols <= 0 || x.size() != static_cast<std::size_t>(rows) * static_cast<std::size_t>(cols)) invalidInput("rfft: values must hold rows × cols numbers");
+        if (axis != 0 && axis != 1) invalidInput("rfft: axis must be 0 or 1");
+        const Eigen::MatrixXd m = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(x.data(), rows, cols);
+        const Eigen::MatrixXcd X = nxr::signal::rfft(m, axis);
+        val out = val::object();
+        out.set("re", eigenMatrixToVal(X.real()));
+        out.set("im", eigenMatrixToVal(X.imag()));
+        out.set("rows", static_cast<int>(X.rows()));
+        out.set("cols", static_cast<int>(X.cols()));
+        return out;
+    });
+}
+
+// geometry.exactFromPoint(surface, face, bary, vertex): the source is a vertex (face < 0) or a face point (bary a Float64Array [3]).
+// → { distance: Float64Array [nV], log: Float64Array [2 nV] } (row-major).
+val exactFromPointJS(val surfaceVal, int face, val bary, int vertex) {
+    return guarded([&] {
+        geom::query::ExactSource src;
+        src.face = face;
+        src.vertex = vertex;
+        if (face >= 0) {
+            std::vector<double> b = emscripten::convertJSArrayToNumberVector<double>(bary);
+            if (b.size() != 3) throw std::runtime_error("exactFromPoint: bary must have 3 entries");
+            src.bary << b[0], b[1], b[2];
+        }
+        geom::query::ExactFromPoint r = geom::query::exactFromPoint(valToSurface(surfaceVal), src);
+        val out = val::object();
+        out.set("distance", eigenVectorToVal(r.distance));
+        out.set("log", eigenMatrixToVal(r.log));
+        return out;
+    });
+}
+
 // ── geometry: vector heat method ─────────────────────────────
 //
 // Each call builds the solver on the surface and drops it on return; the batch forms (Arrays of source sets / sources) share one solver and one factorization.
@@ -1128,6 +1167,8 @@ EMSCRIPTEN_BINDINGS(nxr_compute_wasm) {
     emscripten::function("geometry.heat", &heatJS);
     emscripten::function("geometry.tracePath", &tracePathJS);
     emscripten::function("geometry.exactDistance", &exactDistanceJS);
+    emscripten::function("geometry.exactFromPoint", &exactFromPointJS);
+    emscripten::function("signal.rfft", &rfftJS);
     emscripten::function("geometry.parallel", &parallelJS);
     emscripten::function("geometry.extendScalar", &extendScalarJS);
     emscripten::function("geometry.logMap", &logMapJS);

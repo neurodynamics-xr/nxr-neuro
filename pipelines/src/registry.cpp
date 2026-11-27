@@ -65,6 +65,7 @@ void add_extent_steps(std::vector<StepSpec>& r);   // extent_steps.cpp: cell_ext
 void add_cores_steps(std::vector<StepSpec>& r);    // cores_steps.cpp: core_histogram, cores
 void add_tracks_steps(std::vector<StepSpec>& r);   // tracks_steps.cpp: tracks
 void add_crossings_steps(std::vector<StepSpec>& r);   // crossings_steps.cpp: tile_crossings
+void add_level_steps(std::vector<StepSpec>& r);       // level_steps.cpp: select.level_complex
 void add_surrogate_steps(std::vector<StepSpec>& r);   // surrogate_steps.cpp: power_series, surrogate.lagfree_mixing, surrogate.lagfree
 void add_connectome_steps(std::vector<StepSpec>& r);   // connectome_steps.cpp: fiber_ends, nearest_vertex, end_gate, registration_match, carry_ends, smooth_memberships, partition_counts, end_connectome, connection_weights, prune_below, largest_component
 void add_tile_steps(std::vector<StepSpec>& r);          // tiles_steps.cpp: tile_grid, group_tile_grid
@@ -704,6 +705,7 @@ std::vector<StepSpec> build() {
   add_cores_steps(r);
   add_tracks_steps(r);
   add_crossings_steps(r);
+  add_level_steps(r);
   add_spatial_events_steps(r);
   add_gabor_steps(r);
   add_surrogate_steps(r);

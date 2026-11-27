@@ -32,6 +32,7 @@ Every pipeline `nxr-neuro run <name>` knows, one page each: what it measures, it
 | [`intrinsic`](intrinsic.md) | the intrinsic Delaunay triangulation of a stored surface (its own cells on the surface's positions), with d0, d1 and the Hodge stars as analytic operators |
 | [`inverse`](inverse.md) | the free-orientation minimum-norm kernel of a head model and a noise covariance |
 | [`lcmv`](lcmv.md) | the LCMV beamformer of a head model, a data covariance and a noise covariance (Brainstorm 2016 or MNE-Python make_lcmv conventions) |
+| [`level_complex`](level_complex.md) | the navigation operators of one level of a surface's dyadic grid (d0, the Galerkin star1, the crossing map, d1 of the junctions), stored on the surface and keyed by the grid and the level |
 | [`lowpass`](lowpass.md) | a zero-phase low-pass filter, written as a new recording |
 | [`measure`](measure.md) | a field (stored, or a field chain composed in) reduced over the members of a selection (stored, or made by a maker), by registry measures, into one measurement |
 | [`member_activation`](member_activation.md) | one filter-bank member's source activation on the cortex, at the frames of a frame grid (the optical flow's input) |

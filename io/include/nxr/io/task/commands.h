@@ -201,6 +201,25 @@ struct AddSurfaceRequest {
 };
 CommandResult add_surface(const AddSurfaceRequest& request, const Progress& progress = {});
 
+/** `add fibres`: a FIBRE BUNDLE computed elsewhere (a tractography, a synthetic bundle), stored exactly as the template importers store one (nxr::io::fibers::store_bundle: the
+ *  `curve` manifold `<name>` at `fibre/<name>`, fibre-major points in the subject's SCS in metres, its producer record naming the points per fibre, the precision and the origin),
+ *  so `tile_network` / `connectome` read it unchanged. `points` is [fibres x points x 3], or [fibres·points x 3] with `points_per_fibre`; float32 or float64, kept as given.
+ *  The ends on a surface are not stored here (`tile_network` finds them). Refused: a name the subject already has, fewer than 2 points a fibre, a shape that is not one of these,
+ *  integer or non-finite points. */
+struct AddFibresRequest {
+  std::string dataset, subject, name;
+  ArrayInput points;
+  std::optional<std::int64_t> points_per_fibre;   // with points [rows x 3]: the points of each fibre (rows a multiple of it)
+  std::optional<std::string> origin;              // JSON text: the origin document (source, citation, licence, terms), copied into the producer record; none: no origin
+  std::optional<std::string> source;              // the file or program the fibres came from (default: the points array's name)
+  std::optional<std::string> comment;
+  std::optional<std::string> producer;            // JSON text: what the maker says of how the fibres were made, added to the producer record
+ 
+  std::optional<std::string> by;         // the author recorded as the node's created_by (`--by`); default: the program (`created_by`), which the producer record always names
+  std::string created_by;
+};
+CommandResult add_fibres(const AddFibresRequest& request, const Progress& progress = {});
+
 // ---- `add <class>`: what a user computed, stored as ONE unit (docs/specs/2026-11-19-io-service.md, 4.2) ----
 // Each reads its arrays from .npy files or from memory (ArrayInput; C order, little-endian), keeps their precision (float32 stays float32), checks them against the manifold or selection they lie on
 // (a refusal says what was expected), and stores one node through io's typed writes (task::Unit) with a producer record naming the command, the program, the input FILES'

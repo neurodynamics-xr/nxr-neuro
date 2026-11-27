@@ -339,6 +339,7 @@ export interface NxrCompute {
   'operators.fieldById'(id: string): Record<string, unknown>
 
   /** omega: a 1-form on the operator (intrinsic triangulation) mesh's edges */
+  'signal.rfft'(values: ArrayLike<number>, rows: number, cols: number, axis: 0 | 1): { re: Float64Array; im: Float64Array; rows: number; cols: number }
   'signal.hodge'(surface: Surface, omega: Float64Array): HodgeResult
   'signal.isoline'(surface: Surface, scalars: Float64Array, numLevels?: number, minVal?: number, maxVal?: number): SegmentsResult
   'signal.streamline'(surface: Surface, faceField: Float64Array, numSeeds?: number, stepCoef?: number, maxSteps?: number): SegmentsResult
@@ -355,6 +356,8 @@ export interface NxrCompute {
   'geometry.heat'(surface: Surface, sources: Ints[], options?: { tCoef?: number; mesh?: 'intrinsic' | 'input' }): Float64Array[]
   'geometry.tracePath'(surface: Surface, vStart: number, vEnd: number): PolylineResult & { vertices: Int32Array; weights: Float64Array; length: number }
   'geometry.exactDistance'(surface: Surface, vStart: number, vEnd: number): number
+  /** exact distance [nV] and log map [2 nV, row-major] from a vertex (index) or a face point (barycentrics in the face's vertex order) to every vertex */
+  'geometry.exactFromPoint'(surface: Surface, source: number | { face: number; bary: ArrayLike<number> }): { distance: Float64Array; log: Float64Array }
   'geometry.parallel'(surface: Surface, sourceVerts: Ints, sourceVectors: Floats, tCoef?: number): Float64Array
   'geometry.parallel'(surface: Surface, sourceVerts: Ints[], sourceVectors: Floats[], tCoef?: number): Float64Array[]
   'geometry.extendScalar'(surface: Surface, sourceVerts: Ints, sourceValues: Floats, tCoef?: number): Float64Array

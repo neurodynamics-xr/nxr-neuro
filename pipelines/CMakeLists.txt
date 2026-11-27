@@ -59,6 +59,7 @@ add_library(nxr_pipelines
   src/cores_steps.cpp
   src/tracks_steps.cpp
   src/crossings_steps.cpp
+  src/level_steps.cpp
   src/connectome_steps.cpp
   src/montage_steps.cpp
   src/sensor_surface_steps.cpp
@@ -336,6 +337,10 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_select_makers PRIVATE nxr_pipelines)
   target_include_directories(test_select_makers PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_select_makers COMMAND test_select_makers)
+  add_executable(test_level_complex test/test_level_complex.cpp)
+  target_link_libraries(test_level_complex PRIVATE nxr_pipelines)
+  target_include_directories(test_level_complex PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_level_complex COMMAND test_level_complex)
   add_executable(test_glue_onto test/test_glue_onto.cpp)
   target_link_libraries(test_glue_onto PRIVATE nxr_pipelines)
   target_include_directories(test_glue_onto PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
@@ -458,6 +463,10 @@ add_executable(test_source_flow_nodes test/test_source_flow_nodes.cpp)   # the s
   target_link_libraries(test_source_flow_nodes PRIVATE nxr_pipelines)
   target_include_directories(test_source_flow_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_source_flow_nodes COMMAND test_source_flow_nodes)
+  add_executable(test_source_flow_store test/test_source_flow_store.cpp)   # run source_flow end to end on a tiny synthetic subject: its chunk spectra and float32 measurements stored (#292)
+  target_link_libraries(test_source_flow_store PRIVATE nxr_pipelines)
+  target_include_directories(test_source_flow_store PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_source_flow_store COMMAND test_source_flow_store)
   add_executable(test_connectome_nodes test/test_connectome_nodes.cpp)
   target_link_libraries(test_connectome_nodes PRIVATE nxr_pipelines)
   target_include_directories(test_connectome_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
@@ -500,9 +509,9 @@ add_executable(test_source_flow_nodes test/test_source_flow_nodes.cpp)   # the s
   target_link_libraries(test_migrate_eigensolve PRIVATE nxr_pipelines)
   target_include_directories(test_migrate_eigensolve PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_migrate_eigensolve COMMAND test_migrate_eigensolve)
-  add_executable(test_sensor_surface test/test_sensor_surface.cpp)   # the sensor surface (a derived manifold of the channels) and its Hodge-Dirac modes, synthetic
+  add_executable(test_sensor_surface test/test_sensor_surface.cpp)   # the sensor surface (a derived manifold of the channels) and its Hodge-Dirac modes, the sensor flow on it (a span: issue #291), the fibre network and its flow from `add fibres`; synthetic
   target_link_libraries(test_sensor_surface PRIVATE nxr_pipelines)
-  target_include_directories(test_sensor_surface PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  target_include_directories(test_sensor_surface PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_sensor_surface COMMAND test_sensor_surface)
   add_executable(test_copy_nodes test/test_copy_nodes.cpp)   # a subject's solves copied from another package (io/copy_nodes.h), read and found again without a solve, synthetic
   target_link_libraries(test_copy_nodes PRIVATE nxr_pipelines)

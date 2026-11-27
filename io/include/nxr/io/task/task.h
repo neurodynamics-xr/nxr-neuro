@@ -196,6 +196,9 @@ struct MeasurementOut {
   Json components;                                 // the value's parts when there are several, in order: ["re", "im"], matrix entries; null: one
   std::optional<std::string> of_statistic_id;      // the measurement is of a slice of a statistic (a band of a map statistic) rather than of a field: with `of_index`
   std::optional<std::int64_t> of_index;
+  Json held_members;                               // A PART OF THE SELECTION'S MEMBERS (issue #295: a span run's time cells): {factor 0, first, count, radix, groups}: the arrays hold the members whose
+                                                   // first-factor code lies in [first, first + count) of its `radix`, in the product's order (that factor fastest, then the `groups` members of the
+                                                   // others); recorded in each row's producer record and the arrays' attributes, and put in place by `measurement_values` (NaN elsewhere). null: every member
   std::optional<int> level;                        // the LEVEL of the selection's grid the members are at (the product's factor level, a dyadic level, a time level k): recorded in the array's attributes, so a reader
                                                    // of the array alone knows the scale; the selection (or its product) is the authority
   // TWO CODES A ROW (a measurement of a non-chunk array: the fiber counts between the regions of a partition): one value per ordered pair of the selection's members, a row (code, within_code, value)

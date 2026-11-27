@@ -125,6 +125,16 @@ std::vector<std::string> computed_by_over_field(const Database& db, const std::s
   return out;
 }
 
+std::vector<std::string> computed_by_over_statistic(const Database& db, const std::string& selection_id, const std::string& of_statistic_id, const std::optional<std::string>& measure) {
+  if (!has_column(db, "selection_measurement", "of_statistic_id")) return {};   // a dataset with no measurements of statistics
+  std::string sql = "SELECT DISTINCT computed_by FROM selection_measurement WHERE selection_id = ? AND of_statistic_id = ?";
+  std::vector<Value> a{V(selection_id), V(of_statistic_id)};
+  if (measure) { sql += " AND measure = ?"; a.push_back(V(*measure)); }
+  std::vector<std::string> out;
+  for (const Row& r : db.all(sql, a)) out.push_back(opt_text(r, "computed_by").value_or(""));
+  return out;
+}
+
 std::optional<std::string> within_selection_of(const Database& db, const std::string& selection_id) {
   const auto r = db.one("SELECT DISTINCT within_selection_id FROM selection_measurement WHERE selection_id = ? AND within_selection_id IS NOT NULL", {V(selection_id)});
   if (!r) return std::nullopt;

@@ -1084,7 +1084,16 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       if (P.found.count(of) && P.found.at(of).row) of_id = text(*P.found.at(of).row, "id");
       else for (const auto& e : stored) if (e.value("output", std::string()) == of && e.contains("id")) of_id = e["id"].get<std::string>();
     }
-    if (is_declared(P, o) && ospec["kind"] == "measurement" && ospec.contains("of") && !of_id.empty() && ospec["over"].is_string()) {
+    // or the found STATISTIC it is of (`of_statistic`, no `of`: connectome_flow's every output, issue #297): its rows are found by (selection, of_statistic_id) the same way
+    std::string of_stat_id;
+    if (is_declared(P, o) && ospec["kind"] == "measurement" && ospec.contains("of_statistic") && !ospec.contains("of") && ospec["of_statistic"].is_string()) {
+      const std::string of = ospec["of_statistic"].get<std::string>();
+      if (P.found.count(of) && P.found.at(of).row && P.found.at(of).cls == "statistic") of_stat_id = text(*P.found.at(of).row, "id");
+    }
+    auto computed_by_over = [&](const std::string& selection_id) {
+      return !of_id.empty() ? nxr::io::selection::computed_by_over_field(sub.db(), selection_id, of_id) : nxr::io::selection::computed_by_over_statistic(sub.db(), selection_id, of_stat_id);
+    };
+    if (is_declared(P, o) && ospec["kind"] == "measurement" && (ospec.contains("of") || ospec.contains("of_statistic")) && (!of_id.empty() || !of_stat_id.empty()) && ospec["over"].is_string()) {
       // a declared measurement of a FOUND field (or of the run's own stored field) over a found selection, or over a MAKER's selection of this run (get-or-create: stored by its maker key, so a rerun finds it
       // at its place) takes no node: it is a hit when every row of the pair was made by this very run (same key)
       const std::string over = ospec["over"].get<std::string>();
@@ -1100,9 +1109,9 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         if (sel.empty()) { hit = false; break; }                              // its maker's selection is not stored yet: a first run
       }
       if (!sel.empty()) {
-        auto by = nxr::io::selection::computed_by_over_field(sub.db(), sel, of_id);
+        auto by = computed_by_over(sel);
         if (by.empty())                                                   // a node may have measured over a member of the found selection (a level's tile set of a grid: describe.over_member)
-          for (const nxr::io::Row& mr : nxr::io::selection::member_rows(sub.db(), sel, false)) { by = nxr::io::selection::computed_by_over_field(sub.db(), text(mr, "id"), of_id); if (!by.empty()) break; }
+          for (const nxr::io::Row& mr : nxr::io::selection::member_rows(sub.db(), sel, false)) { by = computed_by_over(text(mr, "id")); if (!by.empty()) break; }
         if (by.empty() && ospec.value("optional", false)) { stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}, {"stored", false}, {"why", "an optional output this run did not make"}}); continue; }
         if (by.size() != 1 || by[0] != made_by(key)) { hit = false; break; }
         stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}});
@@ -1689,7 +1698,8 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         const auto orig = sub.db().read("manifold", glue->original_id);
         if (!orig) refuse("outputs." + o + ": the original surface of the glued one it lies on is not among the subject's rows");
         back = data.at(o);
-        back.data = restrict_to_original(data.at(o).data, components(v), *glue, nxr::io::integer(*orig, "n_vertices"));
+        back.data = restrict_to_original(data.at(o).values(), components(v), *glue, nxr::io::integer(*orig, "n_vertices"));   // a single-precision node's values too (#292)
+        back.single.clear();
         back.rows = nxr::io::integer(*orig, "n_vertices"); back.cols = components(v);
         mid = glue->original_id;
       } else {

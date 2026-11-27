@@ -24,8 +24,8 @@ nxr-neuro run sensor_flow --dataset D --subject S --recording REC --all --packag
 | `bands` | selection any, where {"name": "$bands"} (the eigenvalue bands, a kernel set on the solve's eigenvalue line (`nxr-neuro run select_kernels --profile cos2_partition` first)) | yes |
 | `pairs` | selection any, where {"name": "$pairs"} (the band pairs' members: atoms x bands x bands (`nxr-neuro run select_kernel_product --factors 3 --first ATOMS --second BANDS --third BANDS` first)) | yes |
 | `atom_bands` | selection any, where {"name": "$atom_bands"} (the sign-flip test's members: atoms x bands (`nxr-neuro run select_kernel_product --factors 2 --first ATOMS --second BANDS` first)) | yes |
-| `time_grid` | selection any, manifold recording.time, where {"name": "$time_grid"} (the recording's stored time grid, whose tiles are the time cells (`nxr-neuro run select_time_grid --rule tiles --duration D` first: D no longer than the finest atom's own window)) | yes |
-| `time_atom_bands` | selection any, where {"name": "$time_atom_bands"} (the product the time cells are measured over: the time grid x the atoms x the bands (`nxr-neuro run select_product --time-grid GRID --atoms ATOMS --scales BANDS` first)) | yes |
+| `time_grid` | selection any, manifold recording.time, where {"name": "$time_grid"}, when {"time_cells": true} (the recording's stored time grid, whose tiles are the time cells (`nxr-neuro run select_time_grid --rule tiles --duration D` first: D no longer than the finest atom's own window)) | yes |
+| `time_atom_bands` | selection any, where {"name": "$time_atom_bands"}, when {"time_cells": true} (the product the time cells are measured over: the time grid x the atoms x the bands (`nxr-neuro run select_product --time-grid GRID --atoms ATOMS --scales BANDS` first)) | yes |
 
 ## Parameters
 
@@ -45,8 +45,9 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `frequency_span` | `--frequency-span` | `[0, 60]` | Hz |  | [lo, hi) the bins kept of each chunk's transform (the physiological bands) |
 | `frequency_normalisation` | `--frequency-normalisation` | `sum_of_squared_gains` | - | sum_of_squared_gains, none | the atoms divided at each bin by the square root of their squared gains' sum (they add back to the whole span) \| none (nxr's flow analysis's gains as they are) |
 | `support_floor` | `--support-floor` | `0.001` | - |  | a bin whose atoms' squared gains sum to less than this fraction of their largest sum lies outside the atoms (gain 0) |
-| `time_grid` | `--time-grid` | `required` | - |  | the stored time grid of the recording by name (one level of its dyadic tiling): the time cells are its tiles, stored as measurements over time_atom_bands |
-| `time_atom_bands` | `--time-atom-bands` | `required` | - |  | the product time grid x atoms x bands by name: the time cells are measured over its members |
+| `time_cells` | `--time-cells` | true | - |  | also sum each atom and band over the stored time grid's tiles and test them (sign flip); false: the whole-run flow only, no time grid needed |
+| `time_grid` | `--time-grid` | none | - |  | with time_cells: the stored time grid of the recording by name (one level of its dyadic tiling): the time cells are its tiles, stored as measurements over time_atom_bands; a run on a time range (--from/--to, a span of whole chunks) measures the grid's tiles inside it, the same codes, the others NaN |
+| `time_atom_bands` | `--time-atom-bands` | none | - |  | with time_cells: the product time grid x atoms x bands by name: the time cells are measured over its members |
 | `cell_width` | `--cell-width` | `2.0` | - |  | each atom's own window for the sign-flip test (a box): this many of the atom's time standard deviations (1 / (2 pi sigma_f)), snapped to the nearest dyadic level of the grid's tiling (not finer than the grid) |
 | `flip_elements` | `--flip-elements` | `edges` | - | edges, vertices | the sign-flip test's elements: edges (the edge phase current) \| vertices (the vertex phase current, three components) |
 | `patterns` | `--patterns` | `2000` | - |  | the sign-flip test's random patterns (nxr's flow analysis's maps: 2000) |
@@ -85,10 +86,10 @@ Each is an option `--<name> VALUE` (dashes for underscores; the value is read as
 | `pair_vertices` | kind measurement, rows package.to, over pairs, of recording |
 | `pair_edges` | kind measurement, rows package.to, over pairs, of recording |
 | `pair_modes` | kind measurement, rows package.from, over pairs, of recording |
-| `edge_cells` | kind measurement, rows package.to, over time_atom_bands, of recording |
-| `vertex_cells` | kind measurement, rows package.to, over time_atom_bands, of recording |
-| `consistency` | kind measurement, rows package.to, over atom_bands, of recording |
-| `consistency_summary` | kind measurement, rows package.to, over atom_bands, of recording |
+| `edge_cells` | kind measurement, rows package.to, over time_atom_bands, of recording, when {"time_cells": true} |
+| `vertex_cells` | kind measurement, rows package.to, over time_atom_bands, of recording, when {"time_cells": true} |
+| `consistency` | kind measurement, rows package.to, over atom_bands, of recording, when {"time_cells": true} |
+| `consistency_summary` | kind measurement, rows package.to, over atom_bands, of recording, when {"time_cells": true} |
 | `power` | kind statistic, name {name}_sensor_power, of recording, when $aperiodic |
 | `aperiodic_fit` | kind statistic, name {name}_aperiodic, of recording, when {"aperiodic": true, "aperiodic_fixed": true} |
 | `aperiodic_fit_knee` | kind statistic, name {name}_aperiodic_knee, of recording, when {"aperiodic": true, "aperiodic_knee": true} |
@@ -111,6 +112,10 @@ the bands: profile cos2_partition on the eigenvalue line, chart log2, centres as
 
 What it cannot resolve: the field on the helmet only (no source, no field spread); patterns shorter than about two sensor spacings; a whole-run cross-spectrum keeps the net
 quadrature only (the time cells test it); the apparent speed derived at read is an upper bound; an incomplete eigensolve leaves coordinates and flow modes out (stated).
+
+THE SPAN (issue #291): the run reads the span the caller names (--chunks K | A-B | all, or --start/--stop, snapped to whole tiles); the stored time grid always covers the whole
+line and is RESTRICTED to the span's tiles (the same codes: a tile outside the span is NaN in the cells), never made again; the span is in the run's producer (run.span, and the
+cells' grid.span) and in its cache key, so a span run is never read as the whole recording's. A one-chunk canary: --chunks 0.
 
   nxr-neuro run sensor_flow --dataset D --subject S --recording REC --all --package hodgeDirac__SURFACE --channel-map SURFACE_map --atoms "ATOMS" --bands "BANDS"
 ```

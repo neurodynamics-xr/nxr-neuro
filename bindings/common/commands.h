@@ -500,6 +500,20 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.by = o.maybe("by");
     q.created_by = created_by;
     call([&] { return task::add_points(q, progress); });
+  } else if (c == "add fibres") {
+    task::AddFibresRequest q;
+    q.dataset = o.str("dataset");
+    q.subject = o.str("subject");
+    q.name = o.str("name");
+    q.points = o.array_required("points");
+    q.points_per_fibre = o.integer("points_per_fibre");
+    q.origin = o.maybe("origin");
+    q.source = o.maybe("source");
+    q.comment = o.maybe("comment");
+    q.producer = o.maybe("producer");
+    q.by = o.maybe("by");
+    q.created_by = created_by;
+    call([&] { return task::add_fibres(q, progress); });
   } else if (c == "add line") {
     task::AddLineRequest q;
     q.dataset = o.str("dataset");

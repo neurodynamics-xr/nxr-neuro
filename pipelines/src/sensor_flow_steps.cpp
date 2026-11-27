@@ -11,6 +11,7 @@
 #include "nxr/pipelines/sensor_flow_steps.h"
 
 #include <algorithm>
+#include <limits>
 #include <functional>
 #include <cmath>
 #include <complex>
@@ -246,7 +247,7 @@ ng::NodeSpec chunk_spectra() {
                               {"axes", Json::array({Json{{"name", "chunk"}, {"size", T}, {"values", chunks}},
                                                     Json{{"name", "frequency"}, {"size", pr.bins}, {"members", bin_members}, {"line", Json{{"spacing", df}, {"origin", static_cast<double>(pr.first) * df}, {"unit", "Hz"}, {"dimension", "frequency"},
                                                                                                              {"fft", Json{{"n", pr.transform}, {"fs", pr.sfreq}}}}}},
-                                                    Json{{"name", "coordinate"}, {"size", R}, {"members", pr.op_meta.value("modes", Json::array())}}})},
+                                                    Json{{"name", "coordinate"}, {"size", R}, {"members", pr.op_meta.contains("coordinate_members") ? pr.op_meta["coordinate_members"] : pr.op_meta.value("modes", Json::array())}}})},
                               {"options", Json{{"overlap_samples", pr.overlap}, {"transform_samples", pr.transform}, {"operator", pr.op_meta},
                                                {"transform", "one-sided, unscaled, no window, no taper, no zero padding; reflected at the recording's ends"}}},
                               {"producer", producer},
@@ -364,7 +365,10 @@ Eigen::MatrixXcd weighted_columns(const Spectra& s, const Eigen::RowVectorXd& ga
 
 // ── the time cells on a stored time grid (chunk_spectra_readers.h) ──────────────────────────────────────────────────────────────────────────────────
 Json TimeGrid::record() const {
-  return Json{{"name", name}, {"level", level}, {"tile_samples", width}, {"tile_seconds", static_cast<double>(width) / rate}, {"tiles", count}, {"line_samples", size}, {"rate", rate}};
+  // the span measured (issue #291): a span run's cells are never read as the whole recording's (its producer and its cache key say which tiles it holds)
+  const Json span = Json{{"start_sample", start}, {"stop_sample", stop}, {"start_s", static_cast<double>(start) / rate}, {"stop_s", static_cast<double>(stop) / rate},
+                         {"first_tile", first}, {"tiles", tiles}, {"whole_line", whole()}};
+  return Json{{"name", name}, {"level", level}, {"tile_samples", width}, {"tile_seconds", static_cast<double>(width) / rate}, {"tiles", count}, {"line_samples", size}, {"rate", rate}, {"span", span}};
 }
 TimeGrid time_grid_of(const ng::Array& grid, const Spectra& s, const char* who) {
   const Json prm = grid.meta.contains("describe") && grid.meta["describe"].is_object() && grid.meta["describe"].contains("params") ? grid.meta["describe"]["params"] : grid.meta.value("params", Json::object());
@@ -379,11 +383,24 @@ TimeGrid time_grid_of(const ng::Array& grid, const Spectra& s, const char* who) 
   if (g.value("hop", t.width) != t.width || t.width != (std::int64_t(1) << t.level) || g.value("origin", std::int64_t(0)) != 0)
     ng::refuse(std::string(who) + ": " + name + " is not one level of the line's dyadic tiling from its first sample (rule tiles, origin start): the cells are its tiles");
   if (std::abs(t.rate - s.sfreq) > 1e-9 * s.sfreq) ng::refuse(std::string(who) + ": " + name + " lies on a line of " + std::to_string(t.rate) + " Hz, the spectra's on one of " + std::to_string(s.sfreq) + " Hz");
-  std::int64_t samples = 0;
-  for (std::size_t c = 0; c < s.owns.size(); ++c) samples = std::max(samples, s.firsts[c] + s.owns[c]);
-  if (t.size == 0) t.size = samples;
-  if (samples != t.size) ng::refuse(std::string(who) + ": " + name + " covers " + std::to_string(t.size) + " samples, the spectra's line " + std::to_string(samples) + ": not the recording's grid");
+  // THE SPAN the spectra cover (issue #291): their chunks' samples, one run of consecutive chunks; the grid is restricted to its tiles (the same codes), never made again
+  if (s.owns.empty() || s.owns.size() != s.firsts.size()) ng::refuse(std::string(who) + ": the spectra do not record each chunk's samples");
+  std::vector<std::pair<std::int64_t, std::int64_t>> parts;
+  for (std::size_t c = 0; c < s.owns.size(); ++c) parts.emplace_back(s.firsts[c], s.firsts[c] + s.owns[c]);
+  std::sort(parts.begin(), parts.end());
+  for (std::size_t c = 1; c < parts.size(); ++c)
+    if (parts[c].first != parts[c - 1].second) ng::refuse(std::string(who) + ": the spectra's chunks are not one run of consecutive samples (" + std::to_string(parts[c - 1].second) + " then " + std::to_string(parts[c].first) + ")");
+  t.start = parts.front().first;
+  t.stop = parts.back().second;
+  if (t.size == 0) t.size = t.stop;                                            // a grid recorded without its line's length: the spectra's line
   if (t.count != (t.size + t.width - 1) / t.width) ng::refuse(std::string(who) + ": " + name + "'s tiles do not cover its line");
+  if (t.start < 0 || t.stop > t.size)
+    ng::refuse(std::string(who) + ": " + name + " covers " + std::to_string(t.size) + " samples, the spectra reach samples [" + std::to_string(t.start) + ", " + std::to_string(t.stop) + "): not the recording's grid");
+  if (t.start % t.width != 0 || (t.stop % t.width != 0 && t.stop != t.size))
+    ng::refuse(std::string(who) + ": the spectra's span [" + std::to_string(t.start) + ", " + std::to_string(t.stop) + ") samples is not a run of whole tiles of " + name + " (2^" + std::to_string(t.level) +
+               " samples): run the flow on whole tiles (a span of whole chunks, on a grid no coarser than a chunk)");
+  t.first = t.start / t.width;
+  t.tiles = (t.stop + t.width - 1) / t.width - t.first;
   return t;
 }
 int own_level(double cellWidth, double frequencySd, const TimeGrid& g, const char* who) {
@@ -415,19 +432,19 @@ TileSums tile_sums(const Spectra& s, const Eigen::RowVectorXd& gains, const Time
                    const Eigen::SparseMatrix<double>* sharp) {
   TileSums out;
   const Eigen::Index V = readout.rows() / components, P = static_cast<Eigen::Index>(pairs.size() / 2);
-  out.power = Eigen::MatrixXd::Zero(V, g.count);
-  out.pairReal = Eigen::MatrixXd::Zero(P, g.count);
-  out.pairImaginary = Eigen::MatrixXd::Zero(P, g.count);
-  if (sharp) out.vertexCurrent = Eigen::MatrixXd::Zero(3 * V, g.count);
-  out.samples.assign(static_cast<std::size_t>(g.count), 0);
+  out.power = Eigen::MatrixXd::Zero(V, g.tiles);                            // the span's tiles only: column j is the grid's tile g.first + j
+  out.pairReal = Eigen::MatrixXd::Zero(P, g.tiles);
+  out.pairImaginary = Eigen::MatrixXd::Zero(P, g.tiles);
+  if (sharp) out.vertexCurrent = Eigen::MatrixXd::Zero(3 * V, g.tiles);
+  out.samples.assign(static_cast<std::size_t>(g.tiles), 0);
   for (std::int64_t t = 0; t < s.chunks; ++t) {
     Eigen::MatrixXcd X(s.rows, s.bins);
     for (std::int64_t k = 0; k < s.bins; ++k) for (std::int64_t r = 0; r < s.rows; ++r) X(r, k) = gains(k) * s.at(t, k, r);
     const nxr::signal::TimeCellPairFlow part = nxr::signal::timeCellPairFlow(X, s.first, s.transform, s.overlap, s.owns[static_cast<std::size_t>(t)], s.firsts[static_cast<std::size_t>(t)],
                                                                              g.width, readout, components, pairs, sharp);
     for (Eigen::Index j = 0; j < part.power.cols(); ++j) {                  // a tile cut by the chunk's edge: its parts added (each sample once)
-      const std::int64_t tile = part.firstCell + j;
-      if (tile < 0 || tile >= g.count) ng::refuse("time cells: a chunk's samples lie outside the time grid's tiles");
+      const std::int64_t tile = part.firstCell + j - g.first;
+      if (tile < 0 || tile >= g.tiles) ng::refuse("time cells: a chunk's samples lie outside the span's tiles of the time grid");
       out.power.col(tile) += part.power.col(j);
       out.pairReal.col(tile) += part.pairReal.col(j);
       out.pairImaginary.col(tile) += part.pairImaginary.col(j);
@@ -439,27 +456,33 @@ TileSums tile_sums(const Spectra& s, const Eigen::RowVectorXd& gains, const Time
 }
 ng::Array cells_measurement(const std::vector<std::vector<Eigen::MatrixXd>>& values, const std::vector<std::string>& measures, const TimeGrid& g, const Json& groups, const char* rowsAre,
                             const Json& producer) {
-  const std::int64_t G = static_cast<std::int64_t>(values.size()), K = static_cast<std::int64_t>(measures.size()), N = g.count;
+  const std::int64_t G = static_cast<std::int64_t>(values.size()), K = static_cast<std::int64_t>(measures.size()), N = g.tiles;
   const std::int64_t rows = G > 0 && K > 0 ? values[0][0].rows() : 0, members = N * G;
   ng::Array a;
   a.rows = rows * members; a.cols = K;
+  // ONLY THE SPAN'S TILES (issue #295): the array is [rows x span tiles x groups x measures], never the whole grid's (memory and the store follow the span, not the recording);
+  // on the whole line the span's tiles are the grid's, so the array is the product's members as before
   a.data.assign(static_cast<std::size_t>(rows * members * K), 0.0);
   for (std::int64_t q = 0; q < G; ++q)
     for (std::int64_t k = 0; k < K; ++k) {
       const Eigen::MatrixXd& v = values[static_cast<std::size_t>(q)][static_cast<std::size_t>(k)];
-      if (v.rows() != rows || v.cols() != N) ng::refuse("time cells: a member's sums do not fit the grid");
+      if (v.rows() != rows || v.cols() != g.tiles) ng::refuse("time cells: a member's sums do not fit the span's tiles of the grid");
       for (std::int64_t r = 0; r < rows; ++r)
-        for (std::int64_t n = 0; n < N; ++n)                                 // stored float32: the run reads what the store holds
-          a.data[static_cast<std::size_t>((r * members + n + N * q) * K + k)] = static_cast<double>(static_cast<float>(v(r, n)));
+        for (std::int64_t j = 0; j < g.tiles; ++j)                           // stored float32: the run reads what the store holds
+          a.data[static_cast<std::size_t>((r * members + j + N * q) * K + k)] = static_cast<double>(static_cast<float>(v(r, j)));
     }
   Json ms = Json::array();
   for (const auto& m : measures) ms.push_back(Json{{"measure", m}});
   a.meta["producer"] = producer;
   a.meta["describe"] = Json{{"method", "time_cells"}, {"measures", ms}, {"shape", Json::array({rows, members, K})}, {"values_shape", Json::array({rows, members})}, {"values_f32", true},
                             {"producer", producer},
-                            {"attributes", Json{{"rows", rowsAre}, {"members", "the product of the time grid's tiles (fastest) with the groups: member n + tiles x group"},
+                            {"attributes", Json{{"rows", rowsAre},
+                                                {"members", g.whole() ? "the product of the time grid's tiles (fastest) with the groups: member n + tiles x group"
+                                                                      : "the span's tiles of the time grid (fastest; grid.span.first_tile + j) with the groups: member j + span tiles x group"},
                                                 {"grid", g.record()}, {"groups", groups},
                                                 {"sum_over", "a tile's samples (each sample once; a tile cut by a chunk's edge completed from the next chunk; the line's last tile as long as it is)"}}}};
+  // a span holds a part of the product's members: its first factor (the grid's tiles) in [first, first + count), every member of the others; the store records it with the rows
+  if (!g.whole()) a.meta["describe"]["held_members"] = Json{{"factor", 0}, {"first", g.first}, {"count", g.tiles}, {"radix", g.count}, {"groups", G}};
   declare_flow_measures(a.meta["describe"]["measures"]);
   return a;
 }
@@ -472,8 +495,15 @@ StoredCells stored_cells(const ng::Array& cells, const char* who) {
   c.array = &cells;
   c.rows = d["shape"][0]; c.members = d["shape"][1]; c.K = d["shape"][2];
   c.tiles = at["grid"]["tiles"]; c.width = at["grid"]["tile_samples"]; c.size = at["grid"]["line_samples"]; c.level = at["grid"]["level"];
+  const Json span = at["grid"].value("span", Json::object());                // cells stored before spans: the whole line
+  c.start = span.value("start_sample", std::int64_t(0)); c.stop = span.value("stop_sample", c.size);
   c.groups = at["groups"]; c.measures = d.value("measures", Json::array());
-  if (c.tiles * static_cast<std::int64_t>(c.groups.size()) != c.members) ng::refuse(std::string(who) + ": the cells' members are not the grid's tiles times their groups");
+  // the tiles the array holds (issue #295): a span's alone (held_members), else the whole grid's
+  const Json held = d.value("held_members", Json());
+  c.first = held.is_object() ? held.value("first", std::int64_t(0)) : 0;
+  c.held = held.is_object() ? held.value("count", c.tiles) : c.tiles;
+  if (c.first < 0 || c.first + c.held > c.tiles) ng::refuse(std::string(who) + ": the cells hold tiles outside their grid");
+  if (c.held * static_cast<std::int64_t>(c.groups.size()) != c.members) ng::refuse(std::string(who) + ": the cells' members are not the tiles they hold times their groups");
   return c;
 }
 std::int64_t StoredCells::measure_index(const std::string& name, const char* who) const {
@@ -487,14 +517,20 @@ Eigen::MatrixXd StoredCells::rolled(std::int64_t group, std::int64_t measure) co
   grid.family = nxr::selection::Family::grid;
   grid.tiling = nxr::selection::Tiling{0.0, static_cast<double>(width), static_cast<double>(width), tiles};
   const nxr::selection::Elements cells = nxr::measurement::coarser_groups(grid, level, own);
-  std::int64_t whole = 0;                                                    // whole cells only: a cell holding samples past the line's end (its last part tile) is left out
-  while (whole < cells.members() && ((whole + 1) << own) <= size) ++whole;
-  Eigen::MatrixXd out = Eigen::MatrixXd::Zero(whole, rows);
-  for (std::int64_t c = 0; c < whole; ++c)
+  // whole cells only: a cell holding samples past the line's end (its last part tile) is left out, and so is one not wholly inside the span measured (issue #291)
+  std::vector<std::int64_t> kept;
+  for (std::int64_t c = 0; c < cells.members(); ++c)
+    if ((c << own) >= start && ((c + 1) << own) <= std::min(stop, size)) kept.push_back(c);
+  Eigen::MatrixXd out = Eigen::MatrixXd::Zero(static_cast<Eigen::Index>(kept.size()), rows);
+  for (std::size_t i = 0; i < kept.size(); ++i) {
+    const std::int64_t c = kept[i];
     for (std::int64_t e = cells.offsets[static_cast<std::size_t>(c)]; e < cells.offsets[static_cast<std::size_t>(c) + 1]; ++e) {
-      const std::int64_t member = cells.elements[static_cast<std::size_t>(e)] + tiles * group;
-      for (std::int64_t r = 0; r < rows; ++r) out(c, r) += array->at(static_cast<std::size_t>((r * members + member) * K + measure));
+      const std::int64_t tile = cells.elements[static_cast<std::size_t>(e)] - first;   // a kept cell lies inside the span: its tiles are held
+      if (tile < 0 || tile >= held) ng::refuse("time cells: a cell inside the span reaches a tile the cells do not hold");
+      const std::int64_t member = tile + held * group;
+      for (std::int64_t r = 0; r < rows; ++r) out(static_cast<Eigen::Index>(i), r) += array->at(static_cast<std::size_t>((r * members + member) * K + measure));
     }
+  }
   return out;
 }
 }  // namespace spectra_readers
@@ -694,7 +730,7 @@ ng::NodeSpec atom_time_cells() {
       const Eigen::MatrixXd bandReadout = Psi * pr.scale.row(q).transpose().asDiagonal();     // Psi diag(h_q), once per band
       for (Eigen::Index a = 0; a < A; ++a) {
         TileSums t = tile_sums(s, pr.frequency.row(a), g, bandReadout, 1, cx.edges, &sharpWeights);
-        Eigen::MatrixXd x(S, g.count), y(S, g.count), z(S, g.count);
+        Eigen::MatrixXd x(S, g.tiles), y(S, g.tiles), z(S, g.tiles);
         for (Eigen::Index v = 0; v < S; ++v) { x.row(v) = t.vertexCurrent.row(3 * v); y.row(v) = t.vertexCurrent.row(3 * v + 1); z.row(v) = t.vertexCurrent.row(3 * v + 2); }
         edges.push_back({std::move(t.pairImaginary)});
         vertices.push_back({std::move(x), std::move(y), std::move(z), std::move(t.power)});
