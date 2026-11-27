@@ -109,6 +109,7 @@ struct ReadRequest {
   std::optional<std::string> measure;      // `name` is a selection: its measurement table of this measure
   std::optional<std::string> rows_on;      // ... whose rows lie on this manifold (by name)
   std::optional<std::string> of_field;     // ... of this field, when several are measured over the selection
+  std::optional<std::string> of_statistic; // ... or of this statistic (by name or id: connectome_flow's measurements of the chunk spectra); not with of_field
   // A TIME-RESOLVED FIELD (a recording, a source series: [rows x samples] on its time line) is read through io's chunk service, one chunk at a time:
   std::optional<std::int64_t> start, stop; // the samples [start, stop) of its time axis (both, or neither: the whole recording, still read chunk by chunk)
   std::vector<std::int32_t> rows;          // its rows (channels), in the order given; empty: every row
@@ -163,6 +164,7 @@ struct ReadNodeRequest {
   bool shape_only = false;                 // field: its description only, no sample read
   bool projection_only = false;            // field: the projection the chosen projectors make [channels x channels] (every channel of the recording) and its record, no sample read
   std::optional<std::string> measure, field;   // selection: its measurement table of this measure (of this field)
+  std::optional<std::string> of_statistic; // selection: ... or of this statistic (a measurement OF a statistic: connectome_flow's of the chunk spectra); not with field
   std::optional<std::string> rows_on;      // selection: ... whose rows lie on this manifold, by name (two hemispheres' arrays of one measure: issue #264)
   std::optional<std::string> family;       // manifold: one labelling of it
   std::optional<std::string> out;          // the .npy file (or stem) the arrays are written to

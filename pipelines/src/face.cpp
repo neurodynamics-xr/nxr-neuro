@@ -820,10 +820,19 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
     const auto sel = ts.by_id_or_name(task::Cls::selection, name);
     if (!sel) throw Error(code::no_such_row, "no selection named '" + name + "' in subject " + subject);
     Json q = Json{{"selectionId", sel->id}, {"measure", *measure}};
+    if (of_field && rq.of_statistic) refuse("read: a measurement is of a field or of a statistic: give --field or --of-statistic, not both");
     if (of_field) {
       const auto f = ts.by_id_or_name(task::Cls::field, *of_field);
       if (!f) throw Error(code::no_such_row, "no field named '" + *of_field + "' in subject " + subject);
       q["ofFieldId"] = f->id;
+    }
+    std::optional<std::string> stat_id, stat_name;   // the statistic it is of (`of_statistic_id`, its whole: of_index 0), named or the one its arrays are stored under
+    if (rq.of_statistic) {
+      const auto st = ts.by_id_or_name(task::Cls::statistic, *rq.of_statistic);
+      if (!st) throw Error(code::no_such_row, "no statistic named '" + *rq.of_statistic + "' in subject " + subject + " (--of-statistic)");
+      stat_id = st->id; stat_name = st->name;
+      q["ofStatisticId"] = st->id;
+      q["ofIndex"] = 0;
     }
     {   // AN ARRAY A MEMBER (an array-backed measurement: a value a vertex, an edge, a mode for each member): the array, member first [members x rows], as it was given
       std::optional<std::string> fid;
@@ -835,7 +844,17 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
         on = m->id;
       }
       std::optional<MeasurementValues> mv;
-      try { mv = measurement_values(sub, sel->id, fid, std::nullopt, std::nullopt, *measure, on); } catch (const Error& e) { if (e.code() != code::no_such_row) throw; }
+      try { mv = measurement_values(sub, sel->id, fid, stat_id, stat_id ? std::optional<std::int64_t>(0) : std::nullopt, *measure, on); } catch (const Error& e) { if (e.code() != code::no_such_row) throw; }
+      if ((!mv || !mv->array_backed) && !fid && !stat_id) {
+        // NEITHER KEY NAMED and no array of neither: the one key its arrays are stored under (io's lookup; refused, naming each with its --field or --of-statistic, when several),
+        // so a measure stored of one field or of one statistic only (connectome_flow's, of the chunk spectra) reads as it is
+        if (const auto of = ts.measured_of(sel->id, *measure); of && (of->of_field_id || of->of_statistic_id)) {
+          fid = of->of_field_id;
+          stat_id = of->of_statistic_id;
+          if (stat_id) if (const auto st = ts.by_id_or_name(task::Cls::statistic, *stat_id)) stat_name = st->name;
+          mv = measurement_values(sub, sel->id, fid, stat_id, stat_id ? std::optional<std::int64_t>(0) : std::nullopt, *measure, on);
+        }
+      }
       if (mv && mv->array_backed) {
         std::vector<double> by_member(static_cast<std::size_t>(mv->rows * mv->members));
         for (std::int64_t r = 0; r < mv->rows; ++r)
@@ -847,7 +866,8 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
         out.arrays = {doubles("code", code_v), std::move(values)};
         out.meta = Json{{"class", "measurements"}, {"name", name}, {"selection", sel->id}, {"measure", *measure}, {"array_backed", true}, {"members", mv->members},
                         {"values_a_member", mv->rows}, {"unit", mv->unit ? Json(*mv->unit) : Json()}};
-        const Json provenance = ts.measurement_provenance(sel->id, fid, *measure);   // what the measure IS (declared) and how it was made
+        if (stat_id) out.meta["of_statistic"] = stat_name ? Json(*stat_name) : Json(*stat_id);   // the key it was read by
+        const Json provenance = ts.measurement_provenance(sel->id, fid, *measure, stat_id);   // what the measure IS (declared) and how it was made
         for (const auto& [k, v] : provenance.items()) out.meta[k] = v;
         out.meta["producers"] = mv->producers;                                 // only the producer of the array read (#290), not every measurement of the measure
         return out;
@@ -863,7 +883,9 @@ Stored read(const fs::path& dataset, const std::string& subject, const std::stri
     }
     out.arrays = {doubles("code", code_v), doubles("value", value), doubles("weight", weight), doubles("members", members)};
     out.meta = Json{{"class", "measurements"}, {"name", name}, {"selection", sel->id}, {"measure", *measure}, {"rows", rows.size()}};
-    const Json provenance = ts.measurement_provenance(sel->id, q.contains("ofFieldId") ? std::optional<std::string>(q["ofFieldId"].get<std::string>()) : std::nullopt, *measure);
+    if (rq.of_statistic) out.meta["of_statistic"] = *stat_name;
+    const Json provenance = ts.measurement_provenance(sel->id, q.contains("ofFieldId") ? std::optional<std::string>(q["ofFieldId"].get<std::string>()) : std::nullopt, *measure,
+                                                      rq.of_statistic ? stat_id : std::nullopt);
     for (const auto& [k, v] : provenance.items()) out.meta[k] = v;
     Window w = window_of(rq, name);
     window_made(out.arrays, w);
@@ -1002,10 +1024,12 @@ CommandResult read_class(const std::string& cls, const ReadNodeRequest& r) {
   if (cls == "selection") {
     if (r.field && !r.measure) throw task::Refused("--field names the field a measurement is of: give --measure too");
     if (r.rows_on && !r.measure) throw task::Refused("--rows-on names the manifold a measurement's rows lie on: give --measure too");
+    if (r.of_statistic && !r.measure) throw task::Refused("--of-statistic names the statistic a measurement is of: give --measure too");
     rq.measure = r.measure;
     rq.of_field = r.field;
+    rq.of_statistic = r.of_statistic;
     rq.rows_on = r.rows_on;
-  } else if (r.measure || r.field || r.rows_on) {
+  } else if (r.measure || r.field || r.rows_on || r.of_statistic) {
     throw task::Refused("--measure and --field read a selection's measurement table: options of `read selection`");
   }
   if (cls == "field" || cls == "operator") rq.onto = r.onto;

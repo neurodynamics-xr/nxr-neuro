@@ -721,6 +721,7 @@ export interface ReadSelectionOptions {
   field?: string | number;
   measure?: string | number;
   name: string | number;
+  of_statistic?: string | number;
   out?: string | number;
   region?: string | number;
   rows_on?: string | number;

@@ -1173,6 +1173,7 @@ R"TBL(--name@read selection	NAME	The stored selection to read, by name or id.	re
 --rows-on@read selection	NAME	With --measure: the manifold the measurement's rows lie on (a hemisphere, an eigen line), when the measure is stored on several (two hemispheres' arrays of one measure).	none (the one manifold it is stored on)	-
 --measure@read selection	NAME	Read the selection's measurement table of this measure (code, value, weight, members a member) instead of its array or spans.	none (its array or spans)	-
 --field@read selection	NAME	With --measure: the field the measurement is of, when several are measured over the selection.	the only field measured	-
+--of-statistic@read selection	NAME	With --measure: the statistic the measurement is of (by name or id), for a measurement OF a statistic rather than of a field (connectome_flow's, of the chunk spectra). Not with --field.	the only statistic measured, when the measure is stored of no field	-
 )TBL",
 R"TBL(--name@read manifold	NAME	The stored manifold to read, by name or id.	required	-
 --out@read manifold	FILE.npy	Write its arrays as .npy files: one array to FILE itself; several (positions and cells_<rank>) as <stem>.<array>.npy.	none (the result only, as JSON)	-
@@ -1279,7 +1280,7 @@ R"TBL(@ read selection
 old: __read selection
 summary: Read a stored selection by name: its per-element array, or its spans and dictionary, or its measurement table of a measure.
 example: nxr-neuro read selection --dataset /data/study --subject sub-01 --name rest_bad_segments --out bad.npy
-opts: --budget --dataset* --field --measure --name* --out --region --rows-on --subject*
+opts: --budget --dataset* --field --measure --name* --of-statistic --out --region --rows-on --subject*
 )TBL",
 R"TBL(@ read manifold
 old: __read manifold

@@ -489,6 +489,51 @@ int main() {
         for (std::int64_t m = 0; m < members; ++m) { const std::int64_t n = m % 64; const double v = cells[static_cast<std::size_t>(r * members + m)]; spanOnly = spanOnly && ((n >= 8 && n < 16) ? std::isfinite(v) && v >= 0 : std::isnan(v)); }
       CHECK(T == 8 && spanOnly);                                                                // eight tiles of the network; chunk 1's grid tiles measured, in place among the product's members
     }
+    // READ BACK BY THE STATISTIC (`read selection --measure M --of-statistic S`): connectome_flow's edge flows are of the chunk spectra, not of a field; the read gives the
+    // stored array member first [members x pairs], the same numbers, and names the statistic it read by
+    {
+      const auto spectra = probe.rows("statistic", {{"name", V("flow_chunk1_chunk_spectra")}});
+      const auto rows = probe.rows("selection_measurement", {{"selection_id", V(selection_id("atoms"))}, {"measure", V("mean_edge_flow")}});
+      CHECK(spectra.size() == 1 && rows.size() == 1);
+      if (spectra.size() == 1 && rows.size() == 1) {
+        CHECK(text(rows.front(), "of_statistic_id") == text(spectra.front(), "id") && is_null(rows.front(), "of_field_id"));
+        const std::vector<double> held = read_as<double>(sub, text(rows.front(), "array_path"));   // [pairs x members x components] as stored
+        const auto shape = ArrayReader::open(sub.store(), text(rows.front(), "array_path")).shape();
+        const std::int64_t P = shape[0], M = shape[1], C = shape[2], comp = integer(rows.front(), "component");
+        auto reading = [&](std::optional<std::string> stat, std::optional<std::string> field) {
+          nxr::pipelines::face::ReadNodeRequest r;
+          r.dataset = (root / "demo").string(); r.subject = "S1"; r.name = "atoms"; r.measure = std::string("mean_edge_flow"); r.of_statistic = stat; r.field = field;
+          return r;
+        };
+        auto same = [&](const nxr::io::task::CommandResult& back) {
+          const auto v = std::find_if(back.arrays.begin(), back.arrays.end(), [](const auto& a) { return a.name == "values"; });
+          if (v == back.arrays.end() || v->dtype != "float64" || v->shape != std::vector<std::int64_t>{M, P}) return false;
+          std::vector<double> got(static_cast<std::size_t>(M * P));
+          std::memcpy(got.data(), v->bytes.data(), got.size() * 8);
+          bool eq = true;
+          for (std::int64_t r = 0; r < P; ++r)
+            for (std::int64_t m = 0; m < M; ++m) {
+              const double a = got[static_cast<std::size_t>(m * P + r)], b = held[static_cast<std::size_t>((r * M + m) * C + comp)];
+              eq = eq && ((std::isnan(a) && std::isnan(b)) || a == b);
+            }
+          return eq;
+        };
+        const auto byStat = nxr::pipelines::face::read_selection(reading(std::string("flow_chunk1_chunk_spectra"), std::nullopt));
+        std::printf("  [fibres] read back mean_edge_flow by the chunk spectra: %lld pairs x %lld atoms, of_statistic %s\n", static_cast<long long>(P), static_cast<long long>(M),
+                    byStat.result.value("of_statistic", std::string("?")).c_str());
+        CHECK(P > 0 && same(byStat) && byStat.result.value("of_statistic", std::string()) == "flow_chunk1_chunk_spectra" && byStat.result.value("array_backed", false));
+        CHECK(same(nxr::pipelines::face::read_selection(reading(text(spectra.front(), "id"), std::nullopt))));   // by id as by name
+        CHECK(same(nxr::pipelines::face::read_selection(reading(std::nullopt, std::nullopt))));                 // named neither: its one key (stored of that statistic only)
+        // refused: both keys; a statistic that is not; a statistic it is not of; a measure stored of several (flow_coefficient: the sensor flow's and the network's), naming each
+        CHECK(refusal([&] { nxr::pipelines::face::read_selection(reading(std::string("flow_chunk1_chunk_spectra"), std::string("rest"))); }).find("not both") != std::string::npos);
+        CHECK(refusal([&] { nxr::pipelines::face::read_selection(reading(std::string("no_such_statistic"), std::nullopt)); }).find("--of-statistic") != std::string::npos);
+        nxr::pipelines::face::ReadNodeRequest coef = reading(std::nullopt, std::nullopt);
+        coef.measure = std::string("flow_coefficient");
+        const std::string several = refusal([&] { nxr::pipelines::face::read_selection(coef); });
+        std::printf("  [fibres] flow_coefficient named by neither key: %s\n", several.c_str());
+        CHECK(several.find("several") != std::string::npos);
+      }
+    }
     // RUN AGAIN with the same inputs and parameters: a cache hit, nothing refused (issue #297: every output is a measurement of the spectra, `of_statistic`)
     std::printf("  [fibres] connectome_flow again\n");
     const auto flowAgain = nxrtest::run_definition(ds, sub, "connectome_flow", cf);

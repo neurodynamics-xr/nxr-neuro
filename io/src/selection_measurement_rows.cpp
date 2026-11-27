@@ -15,6 +15,7 @@
 #include "nxr/io/bundle.h"
 #include "nxr/io/errors.h"
 #include "nxr/io/rollup.h"
+#include "nxr/io/selection_reads.h"
 #include "nxr/io/spatial_bands.h"
 #include "nxr/io/store.h"
 
@@ -136,7 +137,8 @@ std::int64_t write_measurements(Database& db, const Json& rows, const std::optio
   return static_cast<std::int64_t>(rows.size());
 }
 
-Json measurement_provenance(const Database& db, const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure) {
+Json measurement_provenance(const Database& db, const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure,
+                           const std::optional<std::string>& of_statistic_id) {
   Json out = Json{{"declaration", nullptr}, {"declared", false}, {"producers", Json::array()}};
   if (const auto d = declared_measure(db, measure)) { out["declaration"] = *d; out["declared"] = true; }
   else if (const auto r = measure_spec(measure)) out["declaration"] = *r;
@@ -144,6 +146,7 @@ Json measurement_provenance(const Database& db, const std::string& selection_id,
   std::string sql = "SELECT DISTINCT producer_json FROM selection_measurement WHERE selection_id = ? AND measure = ? AND producer_json IS NOT NULL";
   std::vector<Value> a{Value(selection_id), Value(measure)};
   if (of_field_id) { sql += " AND of_field_id = ?"; a.push_back(Value(*of_field_id)); }
+  if (of_statistic_id && has_column(db, "selection_measurement", "of_statistic_id")) { sql += " AND of_statistic_id = ?"; a.push_back(Value(*of_statistic_id)); }
   for (const Row& r : db.all(sql, a)) {
     const Json j = Json::parse(text(r, "producer_json"), nullptr, false);
     if (!j.is_discarded()) out["producers"].push_back(j);
@@ -593,13 +596,9 @@ MeasurementValues member_measure_values(SubjectWriter& sub, const std::string& s
   const auto spec = measure_spec(measure);
   const bool derived = spec && !(*spec)["derived_from"].is_null();
   const std::string probe = derived ? (*spec)["derived_from"][0].get<std::string>() : measure;
-  const auto rows = sub.db().all("SELECT DISTINCT of_field_id, of_statistic_id FROM selection_measurement WHERE selection_id = ? AND measure = ? AND array_path IS NOT NULL", {Value(selection_id), Value(probe)});
-  if (rows.empty()) throw Error(code::no_such_row, "measurements: the selection holds no '" + probe + "'" + (derived ? " (an ingredient of '" + measure + "')" : std::string()));
-  if (rows.size() > 1) throw Error(code::invalid_argument, "measurements: the selection holds '" + probe + "' of several fields or statistics: name the one");
-  const std::optional<std::string> of_field = is_null(rows[0], "of_field_id") ? std::nullopt : std::optional<std::string>(text(rows[0], "of_field_id"));
-  const std::optional<std::string> of_stat = is_null(rows[0], "of_statistic_id") ? std::nullopt : std::optional<std::string>(text(rows[0], "of_statistic_id"));
-  const std::optional<std::int64_t> of_index = of_stat ? std::optional<std::int64_t>(0) : std::nullopt;
-  return derived ? derived_measurement_values(sub, selection_id, of_field, of_stat, of_index, measure) : measurement_values(sub, selection_id, of_field, of_stat, of_index, measure);
+  const std::optional<selection::MeasuredOf> of = selection::measured_of(sub.db(), selection_id, probe);   // the one key its arrays are stored under (refused when several)
+  if (!of) throw Error(code::no_such_row, "measurements: the selection holds no '" + probe + "'" + (derived ? " (an ingredient of '" + measure + "')" : std::string()));
+  return derived ? derived_measurement_values(sub, selection_id, of->field_id, of->statistic_id, of->index, measure) : measurement_values(sub, selection_id, of->field_id, of->statistic_id, of->index, measure);
 }
 
 }  // namespace nxr::io

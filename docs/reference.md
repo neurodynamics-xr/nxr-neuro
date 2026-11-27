@@ -566,7 +566,7 @@ A refusal is the checker's message (`<use> -> <output>: port <port>: <why> (<val
 | `nxr-neuro read field` | A stored field by name: its values (a time-resolved field over a stated time range), its manifold and cells. | |
 | `nxr-neuro read statistic` | A stored statistic by name: its values on its axes. | |
 | `nxr-neuro read operator` | A stored operator by name: dense values, or a sparse operator's `data`, `indices`, `indptr`; with `--onto GLUED` its rows carried onto a glued cortex. | |
-| `nxr-neuro read selection` | A stored selection by name: its per-element array, its spans and dictionary, or (`--measure M [--field F]`) its measurement table. | |
+| `nxr-neuro read selection` | A stored selection by name: its per-element array, its spans and dictionary, or (`--measure M [--field F \| --of-statistic S]`) its measurement table. | |
 | `nxr-neuro read manifold` | A stored manifold by name: positions, cells, axes, element names, coordinate system; or (`--family NAME`) one labelling. | |
 
 **`read <class>`** (spec `docs/specs/2026-11-19-io-service.md`, 4.1) reads ONE stored node by name or id: `--dataset D --subject S --name N`, the class named by the command (a name of
@@ -1363,7 +1363,8 @@ samples]. `run connectome_flow_replication` (`stats.run_replication`): per atom 
 the coefficients synthesising the flow back, a gradient and a circulation), `test_graph_network` (a synthetic brain: the graph manifold, its metric, `eigenmodes --graph`, store on miss), `test_tile_flow` (a planted directed lag), `test_network_flip` (golden: numpy and nxr's
 flip and control), `test_connectome_flow` (the nodes on hand-made arrays with a planted lag), `test_sensor_surface` (end to end on a synthetic subject: the bundle stored by `add fibres`, `tile_network`, `connectome_flow` on a one-chunk span's chunk spectra; issue #291; a rerun is a
 cache hit, issue #297). Every output of `connectome_flow` is a measurement of the chunk spectra (`of_statistic`): the runner's hit check finds it by the rows over (selection, the
-statistic) made by the run's key, as it finds a measurement `of:` a field by (selection, field); before #297 a rerun was refused (`already exists; pass --replace`). The network is
+statistic) made by the run's key, as it finds a measurement `of:` a field by (selection, field); before #297 a rerun was refused (`already exists; pass --replace`). Read them back by the statistic: `read selection --name atoms --measure mean_edge_flow --of-statistic
+<chunk spectra>` (one array of the joined pairs a member). The network is
 typed a graph (its port type's kind `graph`, as its row's; before #298 `list manifolds` printed `points`).
 ## The source mapping of the flow (`run source_flow`, `run source_flow_bins`; the nodes `signal.source_mode_operator`, `signal.cortical_flow`, `signal.cortical_time_cells`; compute `nxr/signal/source_flow.h`; spec `docs/specs/2026-11-24-source-flow.md`)
 
@@ -2407,6 +2408,12 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
     '{"measure": {"description": "...", "unit_rule": "..."}, "method": {"description": "..."}}'` (kept in the statistic's `producer.declared`), else refused. A declared `unit_rule`
     that contradicts the registry's, or another statistic's declaration of the same measure in the subject, is refused.
   - **Read back:** `read selection --name SEL --measure M [--field F]` gives `declaration` (the subject's, else the registry's entry), `declared` and `producers` beside the values.
+  - **A measurement OF A STATISTIC (2026-11-27).** A measurement is of a field (`of_field_id`) or of a statistic (`of_statistic_id`, its whole: `of_index` 0; `connectome_flow`'s every
+    output, of the chunk spectra). `read selection --measure M --of-statistic S` reads it by the statistic (by name or id; not with `--field`; Python `of_statistic=`, JavaScript
+    `of_statistic`); the result names it (`of_statistic`) and its `producers` are that statistic's rows' only. Named neither, a measure with no array of neither is read under the one
+    key its arrays are stored under (io's `selection::measured_of`, through `task::Subject::measured_of`; `member_measure_values` uses it too); stored of several fields or statistics, the read is refused, naming each
+    with the option that picks it (`--field NAME`, `--of-statistic NAME`). `test_sensor_surface` reads `connectome_flow`'s `mean_edge_flow` back by the chunk spectra and compares it
+    with the stored array.
   Test: `test_measure_declarations` (a new measure rolled up by its declared rule; a p value declared `none` refused at roll-up; an undeclared unknown measure refused; the
   contradictions), `test_pieces_deletes_jobs` (the commands).
 - **The manifold its rows lie on (2026-11-26, issue #264).** An array-backed measurement may name the manifold its rows are the elements of (`selection_measurement.rows_manifold_id`,

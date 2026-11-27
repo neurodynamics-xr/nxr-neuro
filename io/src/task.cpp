@@ -492,8 +492,13 @@ NodeCounts Subject::node_counts() const {
   return NodeCounts{count("manifold"), count("field"), count("operator"), count("selection")};
 }
 
-Json Subject::measurement_provenance(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure) const {
-  return ::nxr::io::measurement_provenance(*impl_->db, selection_id, of_field_id, measure);
+Json Subject::measurement_provenance(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure, const std::optional<std::string>& of_statistic_id) const {
+  return ::nxr::io::measurement_provenance(*impl_->db, selection_id, of_field_id, measure, of_statistic_id);
+}
+std::optional<Subject::MeasuredOfKey> Subject::measured_of(const std::string& selection_id, const std::string& measure) const {
+  const auto of = selection::measured_of(*impl_->db, selection_id, measure);
+  if (!of) return std::nullopt;
+  return MeasuredOfKey{of->field_id, of->statistic_id};
 }
 Json Subject::read_measurements(const Json& q) const {
   if (impl_->writer) return query_measurements(*impl_->db, impl_->writer->store(), q);

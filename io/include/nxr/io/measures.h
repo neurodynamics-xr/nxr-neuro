@@ -72,7 +72,8 @@ bool ensure_measurement_producer(Database& db);
 bool ensure_measurement_rows_manifold(Database& db);
 // What a measurement of a selection IS and how it was made, for a read: {declaration (the subject's, else the registry's entry, else null), declared (true when the
 // subject declares it), producers: [the distinct producer records of its rows]} (`read selection --measure` gives them beside the values)
-Json measurement_provenance(const Database& db, const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure);
+Json measurement_provenance(const Database& db, const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::string& measure,
+                           const std::optional<std::string>& of_statistic_id = std::nullopt);   // of a statistic: only its rows' producers
 // {"<measure>": "sum" | "max" | "min" | "mean" | "none" | "derived", ...} for every registered measure: the table compute reads.
 Json measure_merge_table();
 

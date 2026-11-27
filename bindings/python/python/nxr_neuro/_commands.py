@@ -85,7 +85,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("read", "field", "", "all! budget dataset* from name* onto out projection_only! projectors region rows shape_only! subject* to"),
     ("read", "statistic", "", "budget dataset* name* out region subject*"),
     ("read", "operator", "", "budget dataset* name* onto out region subject*"),
-    ("read", "selection", "", "budget dataset* field measure name* out region rows_on subject*"),
+    ("read", "selection", "", "budget dataset* field measure name* of_statistic out region rows_on subject*"),
     ("read", "manifold", "", "budget dataset* family name* out region subject*"),
     ("query", "measurements", "", "band dataset* factor field limit max_value measure* min_value order selection* spatial_scale subject* subjects tile where"),
     ("compile", "", "definition", "dataset inputs set+ signatures subject"),
