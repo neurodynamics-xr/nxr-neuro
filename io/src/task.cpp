@@ -132,6 +132,21 @@ Json Subject::grid_levels(const std::string& selection_id) const {
   Json out = Json::array();
   auto node = by_id(Cls::selection, selection_id);
   if (node && node->type != std::optional<std::string>("ladder") && node->member_of_id) node = by_id(Cls::selection, *node->member_of_id);   // a level of a grid: its grid
+  // A TIME GRID stored alone (`select_time_grid`: spans whose params name the grid, kind time, its level k and the line's samples): its own level and every coarser one, level k
+  // tiles of 2^k samples from the first, up to the first that holds the whole line in one tile
+  if (node && node->type != std::optional<std::string>("ladder") && node->params.is_object() && node->params.contains("grid") && node->params["grid"].is_object()) {
+    const Json& g = node->params["grid"];
+    if (g.value("kind", std::string()) == "time" && g.contains("rate") && g["rate"].is_number() && g["rate"].get<double>() > 0 && g.contains("level") && g["level"].is_number_integer() &&
+        g.contains("size") && g["size"].is_number_integer()) {
+      const double rate = g["rate"].get<double>();
+      const std::int64_t samples = g["size"].get<std::int64_t>();
+      for (int k = g["level"].get<int>(); k <= 40; ++k) {
+        out.push_back(Json{{"level", k}, {"measurement", static_cast<double>(std::int64_t(1) << k) / rate}, {"unit", "s"}, {"attributes", Json{{"samples", std::int64_t(1) << k}}}});
+        if ((std::int64_t(1) << k) >= samples) break;
+      }
+      return out;
+    }
+  }
   if (!node || node->type != std::optional<std::string>("ladder")) return out;
   const Json grid = node->params.is_object() && node->params.contains("grid") ? node->params["grid"] : Json::object();
   if (grid.is_object() && grid.value("kind", std::string()) == "time" && grid.contains("rate") && grid["rate"].is_number() && grid["rate"].get<double>() > 0) {

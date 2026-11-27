@@ -147,6 +147,8 @@ R"TBL(--extra-surface	FILE	An extra surface file to import with the condition (r
 --field	NAME	Name of a stored field to read (measure query: restrict the query to this field; phasegradient: the phase 1-form to build, only gradient exists).	measure query: none; phasegradient: gradient	-
 --factor@query measurements	NAME	For a product selection: the factor the roll-up runs along, by its name; with none, the only grid factor.	the only grid factor	-
 --field@query measurements	NAME	The stored field the measurement was made of, by name or id.	the only field measured	-
+--of-statistic@query measurements	NAME	The statistic the measurement is of (by name or id), for a measurement OF a statistic rather than of a field. Not with --field.	the only statistic measured, when the measure is stored of no field	-
+--rows-on@query measurements	NAME	An array a member: the manifold the measurement's rows lie on (a hemisphere, an eigen line), when the measure is stored on several.	the one manifold it is stored on	-
 --fields	PATTERN	Regular expression matched against the whole name of each stored field to measure (export: the first capture group names the condition)	none (required)	-
 --fields@export measurements	REGEX	Regular expression over Field names selecting the Fields to export; its first capture group names the condition (e.g. the band)	required	-
 --file	FILE	A Brainstorm anatomy file (tess_*.mat) to convert; repeat or give several.	none (required)	-
@@ -1124,7 +1126,7 @@ R"TBL(@ query measurements
 old: measure query
 alias: refused
 summary: Query stored measurements over a selection's members at any spatial and temporal scale, stated as quantities (rolled up at read).
-opts: --band --dataset* --factor --field --limit --max-value --measure* --min-value --order --selection* --spatial-scale --subject* --subjects --tile --where
+opts: --band --dataset* --factor --field --limit --max-value --measure* --min-value --of-statistic --order --rows-on --selection* --spatial-scale --subject* --subjects --tile --where
 )TBL",
 R"TBL(@ export measurements
 old: measure export

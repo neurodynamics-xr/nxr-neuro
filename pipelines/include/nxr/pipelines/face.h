@@ -93,6 +93,8 @@ struct MeasurementQuery {
   std::string selection;                   // the selection (a grid, a product or an event set) the measurement is over, by name or id
   std::string measure;                     // a stored or derived measure
   std::optional<std::string> of_field;     // the field it is of, when several are measured over the selection
+  std::optional<std::string> of_statistic; // or the statistic it is of (by name or id: a measurement OF a statistic); not with of_field
+  std::optional<std::string> rows_on;      // an array a member: the manifold its rows lie on (by name), when the measure is stored on several
   std::optional<std::string> to;           // the level asked, a quantity ("tile 20 mm", "wavelength 40 mm", "2 s", "whole"); none: as stored (the finest)
   std::optional<std::string> factor;       // for a product: the factor the roll-up runs along (its name); none: the only grid factor
   std::vector<std::string> subjects;       // across subjects (the same members in each): ingredients summed code for code before the roll-up; empty: the one subject
@@ -227,7 +229,7 @@ CommandResult read_crossspectrum(const ReadCrossspectrumRequest& request, const 
 /** `query measurements`: `measurement_query` with the command's options; one of band, spatial_scale, tile is the level asked. Result {selection, measure, result}. */
 struct QueryMeasurementsRequest {
   std::string dataset, subject, selection, measure;
-  std::optional<std::string> field, band, spatial_scale, tile, factor, where;
+  std::optional<std::string> field, band, spatial_scale, tile, factor, where, of_statistic, rows_on;
   std::optional<std::vector<std::string>> subjects;
   std::optional<double> min_value, max_value;
   std::optional<std::int64_t> limit;

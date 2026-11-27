@@ -780,6 +780,8 @@ inline task::CommandResult command(const std::string& verb, const std::string& n
     q.spatial_scale = o.maybe("spatial_scale");
     q.tile = o.maybe("tile");
     q.factor = o.maybe("factor");
+    q.of_statistic = o.maybe("of_statistic");
+    q.rows_on = o.maybe("rows_on");
     q.where = o.maybe("where");
     q.subjects = o.maybe_commas("subjects");
     q.min_value = o.number("min_value");

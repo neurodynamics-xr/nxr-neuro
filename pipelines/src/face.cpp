@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <memory>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -323,6 +324,63 @@ std::pair<int, Json> level_for(const std::string& to, const Json& grid) {
   }
   refuse("measurement query: '" + to + "' names no level of this grid (levels: " + std::to_string(levels.size()) + "; give a tile diameter in mm, a duration in s, a wavelength in mm or whole)");
 }
+
+// A GRID AS A ROLL-UP READS IT: io's level dictionary (`Subject::grid_levels`) as `level_for` reads it, the kind (a time grid's levels are its tiles' durations: coarser is a LARGER level;
+// a dyadic grid's are tile diameters: coarser is a smaller one) and the level the selection itself is at (a time grid's own k; a dyadic grid's level ordinal, else its finest).
+Json roll_grid_of(const task::Subject& ts, const task::Node& sel) {
+  Json grid = Json{{"kind", "dyadic"}, {"levels", Json::array()}};
+  for (const Json& e : ts.grid_levels(sel.id)) {
+    Json L = Json{{"level", e["level"]}};
+    const Json& at = e["attributes"];
+    if (e.contains("measurement") && e.value("unit", std::string()) == "mm") L["diameter_mm"] = e["measurement"];
+    else if (at.contains("diameter_mm")) L["diameter_mm"] = at["diameter_mm"];
+    if (e.contains("measurement") && e.value("unit", std::string()) == "s") L["seconds"] = e["measurement"];
+    else if (at.contains("window_s")) L["seconds"] = at["window_s"];
+    if (at.contains("weyl_band_per_m2")) L["weyl_band_per_m2"] = at["weyl_band_per_m2"];
+    grid["levels"].push_back(std::move(L));
+  }
+  const Json g = sel.params.is_object() && sel.params.contains("grid") && sel.params["grid"].is_object() ? sel.params["grid"] : Json::object();
+  if (g.value("kind", std::string()) == "time" && g.contains("level") && g["level"].is_number_integer()) { grid["kind"] = "time"; grid["level"] = g["level"]; }
+  else grid["level"] = static_cast<int>(sel.member_ordinal.value_or(grid["levels"].empty() ? 0 : static_cast<std::int64_t>(grid["levels"].size()) - 1));
+  return grid;
+}
+// the code shift io's SQL query rolls up by, from the selection's own level to `target` (kWhole: -1 is the whole, a shift no code survives)
+std::int64_t roll_shift(const Json& grid, int target) {
+  const int from = grid.value("level", 0);
+  if (target < 0) return 62;
+  return grid.value("kind", std::string()) == "time" ? std::max(0, target - from) : std::max(0, from - target);
+}
+
+// THE MEASURE ITSELF over a selection's members (no ingredients stored: a measure declared by its writer or registered, stored as it is: a value a member, or an array a member
+// [rows x members], of a field or of a statistic, its rows on a named manifold, or a part of the members, `held_members`): io's `measurement_values` reads it, the key named or the
+// one its arrays are stored under (io's `measured_of`), the unheld members NaN.
+MeasurementValues measure_itself(SubjectWriter& sub, const task::Subject& ts, const std::string& subject, const std::string& selection_id, const MeasurementQuery& q, const std::string& measure) {
+  std::optional<std::string> fid, sid, on;
+  if (q.of_field) {
+    const auto f = ts.by_id_or_name(task::Cls::field, *q.of_field);
+    if (!f) throw Error(code::no_such_row, "no field named '" + *q.of_field + "' in subject " + subject);
+    fid = f->id;
+  }
+  if (q.of_statistic) {
+    const auto st = ts.by_id_or_name(task::Cls::statistic, *q.of_statistic);
+    if (!st) throw Error(code::no_such_row, "no statistic named '" + *q.of_statistic + "' in subject " + subject + " (--of-statistic)");
+    sid = st->id;
+  }
+  if (q.rows_on) {
+    const auto m = ts.by_id_or_name(task::Cls::manifold, *q.rows_on);
+    if (!m) throw Error(code::no_such_row, "no manifold named '" + *q.rows_on + "' in subject " + subject + " (--rows-on)");
+    on = m->id;
+  }
+  const auto read = [&] { return measurement_values(sub, selection_id, fid, sid, sid ? std::optional<std::int64_t>(0) : std::nullopt, measure, on); };
+  if (fid || sid) return read();
+  try { return read(); } catch (const Error& e) { if (e.code() != code::no_such_row) throw; }
+  // neither key named and none stored of neither: the one key its arrays are stored under (refused, naming each with the option that picks it, when several)
+  const auto of = ts.measured_of(selection_id, measure);
+  if (!of || (!of->of_field_id && !of->of_statistic_id)) throw Error(code::no_such_row, "measurement query: the selection holds no '" + measure + "'" + (on ? " with rows on " + *q.rows_on : std::string()));
+  fid = of->of_field_id;
+  sid = of->of_statistic_id;
+  return read();
+}
 }  // namespace
 
 Json measurement_query(const fs::path& dataset, const std::string& subject, const MeasurementQuery& q) {
@@ -340,8 +398,15 @@ Json measurement_query(const fs::path& dataset, const std::string& subject, cons
     if (!f) throw Error(code::no_such_row, "no field named '" + *q.of_field + "' in subject " + subject);
     field_id = f->id;
   }
+  if (q.of_field && q.of_statistic) refuse("measurement query: a measurement is of a field or of a statistic: give --field or --of-statistic, not both");
   Json jq = Json{{"selectionId", sel->id}, {"measure", q.measure}};
   if (!field_id.empty()) jq["ofFieldId"] = field_id;
+  if (q.of_statistic) {
+    const auto st = ts.by_id_or_name(task::Cls::statistic, *q.of_statistic);
+    if (!st) throw Error(code::no_such_row, "no statistic named '" + *q.of_statistic + "' in subject " + subject + " (--of-statistic)");
+    jq["ofStatisticId"] = st->id;
+    jq["ofIndex"] = 0;
+  }
   const bool filtered = q.min_value || q.max_value || q.limit > 0 || !q.order.empty();
   if (filtered && q.where != "io") throw Error(code::invalid_argument, "measurement query: --min-value, --max-value, --limit and --order are filters of io's query: use --where io");
   if (q.where == "io" && filtered) {                                        // the value filters, the order and the limit are io's SQL (query::members), the level through the grid's closed-form shift
@@ -356,38 +421,149 @@ Json measurement_query(const fs::path& dataset, const std::string& subject, cons
     iq.limit = q.limit;
     if (!q.order.empty() && q.order != "asc" && q.order != "desc") throw Error(code::invalid_argument, "measurement query: --order is asc or desc");
     if (q.to) {
-      Json grid = Json{{"levels", Json::array()}};
-      for (const Json& e : ts.grid_levels(sel->id)) {
-        Json L = Json{{"level", e["level"]}};
-        if (e.contains("measurement") && e.value("unit", std::string()) == "mm") L["diameter_mm"] = e["measurement"];
-        if (e.contains("measurement") && e.value("unit", std::string()) == "s") L["seconds"] = e["measurement"];
-        if (e["attributes"].contains("weyl_band_per_m2")) L["weyl_band_per_m2"] = e["attributes"]["weyl_band_per_m2"];
-        grid["levels"].push_back(L);
-      }
+      const Json grid = roll_grid_of(ts, *sel);
       const auto [target, snapped] = level_for(*q.to, grid);
       if (target < 0) iq.roll.whole = true;
-      else iq.roll.shift = std::max(0, static_cast<int>(sel->member_ordinal.value_or(grid["levels"].size() - 1)) - target);   // coarser than the stored level by the difference of the levels
+      else iq.roll.shift = static_cast<int>(roll_shift(grid, target));   // coarser than the stored level by the difference of the levels (a time grid's levels grow coarser)
     }
     if (!q.subjects.empty() && q.subjects.size() > 1) iq.roll.across_subjects = true;
     return Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "io"}, {"rows", ts.query_members(iq)}};
   }
   if (q.where == "io") {                                                    // the SQL query: the roll-up and the derived measures in io's query, across subjects when asked
-    if (q.to) jq["to"] = *q.to;
-    if (q.factor) jq["factor"] = *q.factor;
-    if (!q.subjects.empty()) jq["subjects"] = q.subjects;
-    return Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "io"}, {"rows", ts.read_measurements(jq)}};
+    if (q.rows_on) refuse("measurement query: --rows-on names an array a member, which io's SQL query does not read: use --where compute");
+    Json level_json;
+    if (q.to) {                                                             // the level asked as io's code shift (the query reads `shift`; a level it was not told is no roll-up)
+      if (q.factor) refuse("measurement query: a product's factor is rolled up in memory: use --where compute");
+      const Json grid = roll_grid_of(ts, *sel);
+      const auto [target, snapped] = level_for(*q.to, grid);
+      jq["shift"] = roll_shift(grid, target);
+      level_json = Json{{"level", target}, {"snapped", snapped}};
+    }
+    if (q.subjects.size() > 1) refuse("measurement query: across subjects in io's SQL query is `--where io` with a value filter (min, max, order, limit), or `--where compute`");
+    Json out = Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "io"}, {"rows", ts.read_measurements(jq)}};
+    if (q.to) { out["to"] = *q.to; out["level"] = level_json; }
+    return out;
   }
-  // a selection holding no ingredients but the measure itself (or the stored sums a derived measure is a ratio of): the values member by member, as stored or derived at read
+  // A SELECTION HOLDING NO INGREDIENTS BUT THE MEASURE ITSELF (declared by its writer or registered; a value a member or an array a member, of a field or a statistic, rows on a
+  // named manifold, a part of the members held): read as stored, or rolled up by the measure's merge rule (the subject's declaration first, then the registry: io's measure_merge)
+  // through the grid's closed form, compute's `roll_values`; across subjects the same members of each are merged by the same rule. A derived measure is read member by member only.
   {
-    bool has_ingredients = true;
-    try { (void)measurement_ingredients_of(sub, sel->id, field_id.empty() ? std::nullopt : std::optional<std::string>(field_id), q.measure); }
-    catch (const Error& e) { if (e.code() != code::no_such_row) throw; has_ingredients = false; }
-    if (!has_ingredients && q.subjects.size() <= 1 && !q.to) {
-      const MeasurementValues mv = member_measure_values(sub, sel->id, q.measure);
-      if (mv.rows != 1) throw Error(code::invalid_argument, "measurement query: '" + q.measure + "' holds " + std::to_string(mv.rows) + " values a member (a map): query a measure of one value a member");
-      Json rows = Json::array();
-      for (std::int64_t m = 0; m < mv.members; ++m) rows.push_back(Json{{"code", m}, {"value", mv.values[static_cast<std::size_t>(m)]}});
-      return Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "compute"}, {"unit", mv.unit ? Json(*mv.unit) : Json()}, {"rows", rows}};
+    bool has_ingredients = !(q.of_statistic || q.rows_on);
+    if (has_ingredients) {
+      try { (void)measurement_ingredients_of(sub, sel->id, field_id.empty() ? std::nullopt : std::optional<std::string>(field_id), q.measure); }
+      catch (const Error& e) { if (e.code() != code::no_such_row) throw; has_ingredients = false; }
+    }
+    if (!has_ingredients) {
+      const bool derived = measure_is_derived(q.measure);
+      if (derived && (q.to || q.subjects.size() > 1))
+        refuse("measurement query: '" + q.measure + "' is derived at read from stored ingredients, which this selection does not hold: it is read member by member, never rolled up");
+      const MeasurementValues mv = derived ? member_measure_values(sub, sel->id, q.measure) : measure_itself(sub, ts, subject, sel->id, q, q.measure);
+      if (!q.to && q.subjects.size() <= 1 && mv.rows == 1) {                 // a value a member, as stored: the rows one a member (the form it always had)
+        Json rows = Json::array();
+        for (std::int64_t m = 0; m < mv.members; ++m) rows.push_back(Json{{"code", m}, {"value", mv.values[static_cast<std::size_t>(m)]}});
+        return Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "compute"}, {"unit", mv.unit ? Json(*mv.unit) : Json()}, {"rows", rows}};
+      }
+      const auto shape_of = [&](const MeasurementValues& v) { return Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(v.values.data(), v.rows, v.members); };
+      Eigen::MatrixXd values = shape_of(mv);
+      std::vector<std::string> names{subject};
+      std::vector<Eigen::MatrixXd> per{values};
+      for (const auto& other : q.subjects) {                                 // the same members in each subject asked
+        if (other == subject) continue;
+        task::Lease olease = task::open_reader(dataset.string(), other);
+        SubjectWriter osub = SubjectWriter::open(*olease, other);
+        const task::Subject ots = task::Subject::of(osub);
+        const auto osel = ots.by_id_or_name(task::Cls::selection, q.selection);
+        if (!osel) throw Error(code::no_such_row, "no selection named '" + q.selection + "' in subject " + other);
+        const MeasurementValues omv = measure_itself(osub, ots, other, osel->id, q, q.measure);
+        if (omv.rows != mv.rows || omv.members != mv.members)
+          refuse("measurement query: '" + q.measure + "' is " + std::to_string(omv.rows) + " x " + std::to_string(omv.members) + " in " + other + " and " + std::to_string(mv.rows) + " x " +
+                 std::to_string(mv.members) + " in " + subject + ": across subjects the same members are merged");
+        per.push_back(shape_of(omv));
+        names.push_back(other);
+      }
+      std::string merge = "stored", weighting;
+      Json level_json = Json::object();
+      if (q.to || per.size() > 1) {
+        const MergeRule rule = measure_merge(sub.db(), q.measure);           // the declaration, else the registry; neither: refused, naming the declaration it needs
+        if (rule == MergeRule::none || rule == MergeRule::derived)
+          refuse("measurement query: '" + q.measure + "' is declared `" + merge_rule_name(rule) + "`: its value is a member's own, read at the stored level only, never rolled up");
+        merge = merge_rule_name(rule);
+        // a weighted mean's weight: the measure the declaration (or the registry) names, read under the same key; none named: every member weighs one (as io's SQL query's absent weight)
+        std::optional<std::string> wname;
+        if (rule == MergeRule::mean) {
+          if (const auto d = declared_measure(sub.db(), q.measure); d && d->contains("weight") && (*d)["weight"].is_string() && !(*d)["weight"].get<std::string>().empty()) wname = (*d)["weight"].get<std::string>();
+          else if (const auto r = measure_spec(q.measure); r && r->contains("weight") && (*r)["weight"].is_string() && !(*r)["weight"].get<std::string>().empty()) wname = (*r)["weight"].get<std::string>();
+        }
+        weighting = rule != MergeRule::mean ? "" : wname ? *wname : "uniform";
+        nxr::measurement::MeasureSpec spec;
+        spec.name = q.measure;
+        spec.merge = nxr::measurement::merge_from(merge);
+        if (wname) spec.weight = *wname;
+        const nxr::measurement::Registry reg({spec});
+        // the fine members' groups at the level asked (the stored level when only subjects are merged), then each subject's members side by side: coarse member j holds every subject's
+        nxr::selection::Elements groups;
+        if (q.to) {
+          const Json grid = roll_grid_of(ts, *sel);
+          const auto [to_level, snapped] = level_for(*q.to, grid);
+          const int from_level = grid.value("level", 0);
+          const nxr::selection::Selection grid_selection = nxr::pipelines::made(nxr::io::selection::load(sub, sel->id).description);
+          try {
+            if (q.factor) {
+              // the factor by its place in the product (0 the first): a product's factors carry no names in its stored description
+              std::size_t factor = grid_selection.factors.size();
+              if (!q.factor->empty() && std::all_of(q.factor->begin(), q.factor->end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)) != 0; })) factor = std::stoul(*q.factor);
+              if (factor >= grid_selection.factors.size())
+                refuse("measurement query: the product has no factor '" + *q.factor + "' (name it by its place, 0 to " + std::to_string(static_cast<long>(grid_selection.factors.size()) - 1) + ")");
+              groups = nxr::measurement::coarser_groups(grid_selection, factor, from_level, to_level);
+            } else {
+              groups = nxr::measurement::coarser_groups(grid_selection, from_level, to_level);
+            }
+          } catch (const std::invalid_argument& e) { refuse(std::string("measurement query: ") + e.what()); }
+          if (groups.size != mv.members) refuse("measurement query: the grid's " + std::to_string(groups.size) + " members are not the " + std::to_string(mv.members) + " the measurement holds");
+          level_json = Json{{"level", to_level}, {"snapped", snapped}};
+        } else {
+          groups.size = mv.members;
+          groups.offsets.resize(static_cast<std::size_t>(mv.members) + 1);
+          groups.elements.resize(static_cast<std::size_t>(mv.members));
+          for (std::int64_t m = 0; m <= mv.members; ++m) groups.offsets[static_cast<std::size_t>(m)] = m;
+          for (std::int64_t m = 0; m < mv.members; ++m) groups.elements[static_cast<std::size_t>(m)] = m;
+        }
+        const std::int64_t S = static_cast<std::int64_t>(per.size()), M = mv.members;
+        Eigen::MatrixXd all(mv.rows, M * S), weights = Eigen::MatrixXd::Ones(mv.rows, M * S);
+        for (std::int64_t k = 0; k < S; ++k) all.middleCols(k * M, M) = per[static_cast<std::size_t>(k)];
+        if (wname) {
+          for (std::int64_t k = 0; k < S; ++k) {
+            const std::string& who = names[static_cast<std::size_t>(k)];
+            task::Lease wl = task::open_reader(dataset.string(), who);
+            SubjectWriter wsub = SubjectWriter::open(*wl, who);
+            const task::Subject wts = task::Subject::of(wsub);
+            const auto wsel = wts.by_id_or_name(task::Cls::selection, q.selection);
+            MeasurementValues wv;
+            try { wv = measure_itself(wsub, wts, who, wsel->id, q, *wname); }
+            catch (const Error& e) { if (e.code() != code::no_such_row) throw; refuse("measurement query: '" + q.measure + "' is a mean weighted by '" + *wname + "', which " + who + " does not hold under the same key"); }
+            if (wv.members != M || (wv.rows != mv.rows && wv.rows != 1)) refuse("measurement query: the weight '" + *wname + "' is not one a member of the measurement in " + who);
+            const Eigen::MatrixXd w = shape_of(wv);
+            weights.middleCols(k * M, M) = wv.rows == 1 ? Eigen::MatrixXd(w.replicate(mv.rows, 1)) : w;
+          }
+        }
+        nxr::selection::Elements across;                                     // each coarse member's fine members in every subject
+        across.size = M * S;
+        across.offsets.assign(groups.offsets.size(), 0);
+        for (std::int64_t g = 0; g < groups.members(); ++g) {
+          for (std::int64_t k = 0; k < S; ++k)
+            for (std::int64_t j = groups.offsets[static_cast<std::size_t>(g)]; j < groups.offsets[static_cast<std::size_t>(g) + 1]; ++j) across.elements.push_back(groups.elements[static_cast<std::size_t>(j)] + k * M);
+          across.offsets[static_cast<std::size_t>(g) + 1] = static_cast<std::int64_t>(across.elements.size());
+        }
+        try { values = nxr::measurement::roll_values(reg, q.measure, all, &weights, across); }
+        catch (const std::invalid_argument& e) { refuse(std::string("measurement query: ") + e.what()); }
+      }
+      std::vector<double> data(static_cast<std::size_t>(values.size()));
+      for (Eigen::Index r = 0; r < values.rows(); ++r) for (Eigen::Index m = 0; m < values.cols(); ++m) data[static_cast<std::size_t>(r * values.cols() + m)] = values(r, m);
+      Json out = Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "compute"}, {"read", "measure"}, {"subjects", Json(names)}, {"to", q.to ? Json(*q.to) : Json()},
+                      {"level", level_json}, {"merge", merge}, {"rows", values.rows()}, {"members", values.cols()},
+                      {"values", Json{{"shape", Json::array({values.rows(), values.cols()})}, {"data", data}}}, {"unit", mv.unit ? Json(*mv.unit) : Json()}};
+      if (!weighting.empty()) out["weights"] = weighting;
+      return out;
     }
   }
   // compute: the finest ingredients (of each subject asked), summed code for code across subjects, rolled up through the grid's closed form, the measure derived from them
@@ -414,7 +590,7 @@ Json measurement_query(const fs::path& dataset, const std::string& subject, cons
   Json level_json = Json::object();
   if (q.to) {
     const auto [to_level, snapped] = level_for(*q.to, grid);
-    const int from_level = grid.value("level", grid.value("depth", 0));
+    const int from_level = roll_grid_of(ts, *sel).value("level", 0);   // the level the selection is at (a time grid's own k), not the first of its dictionary
     const nxr::selection::Selection grid_selection = nxr::pipelines::made(nxr::io::selection::load(sub, sel->id).description);
     const nxr::selection::Elements groups = grid.value("kind", std::string()) == "product" && q.factor
                                                 ? nxr::measurement::coarser_groups(grid_selection, [&] { const Json fs = grid.value("factors", Json::array()); for (std::size_t i = 0; i < fs.size(); ++i) if (fs[i].value("name", std::string()) == *q.factor) return i; refuse("measurement query: the product has no factor '" + *q.factor + "'"); }(), from_level, to_level)

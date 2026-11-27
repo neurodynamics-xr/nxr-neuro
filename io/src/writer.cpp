@@ -169,6 +169,10 @@ void DatasetWriter::close() {
   lock_.release();
   if (failed) std::rethrow_exception(failed);
 }
+void DatasetWriter::also_before_close(std::function<void(DatasetWriter&)> hook) {
+  if (!before_close_) { before_close_ = std::move(hook); return; }
+  before_close_ = [first = std::move(before_close_), then = std::move(hook)](DatasetWriter& w) { first(w); then(w); };
+}
 DatastoreStore& DatasetWriter::store() {
   if (!store_) throw Error(code::invalid_argument, "this writer is over a subject package, which has no datastore: use node_store()");
   return *store_;
