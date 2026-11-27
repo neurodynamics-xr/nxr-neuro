@@ -61,7 +61,7 @@ int measure_export_main(const std::vector<std::string>& rest) {
 // are compute's (pipelines/face.h `measurement_query`); the level read is printed with its snapped quantity
 int measure_query_main(const std::vector<std::string>& argv) {
   const std::string prog = "nxr-neuro measure query";
-  const cli::Args a = cli::parse(prog, argv, {"--dataset", "--subject", "--selection", "--field", "--measure", "--band", "--spatial-scale", "--tile", "--min-value", "--max-value", "--limit", "--order", "--where", "--subjects", "--factor"}, {},
+  const cli::Args a = cli::parse(prog, argv, {"--dataset", "--subject", "--selection", "--field", "--measure", "--band", "--spatial-scale", "--tile", "--min-value", "--max-value", "--limit", "--order", "--where", "--subjects", "--factor", "--of-statistic", "--rows-on"}, {},
                                  {"--dataset", "--subject", "--selection", "--measure"});
   try {
     nxr::pipelines::face::QueryMeasurementsRequest rq;
@@ -74,6 +74,8 @@ int measure_query_main(const std::vector<std::string>& argv) {
     rq.spatial_scale = a.maybe("--spatial-scale");
     rq.tile = a.maybe("--tile");
     rq.factor = a.maybe("--factor");
+    rq.of_statistic = a.maybe("--of-statistic");
+    rq.rows_on = a.maybe("--rows-on");
     if (const auto v = a.maybe("--subjects")) rq.subjects = split(*v, ',');
     rq.where = a.maybe("--where");
     if (const auto v = a.maybe("--min-value")) rq.min_value = std::stod(*v);

@@ -485,6 +485,31 @@ SubjectPackage open_dataset_template(const fs::path& folder) {
 
 bool is_catalogue_dataset(const std::filesystem::path& dataset_folder) { return std::filesystem::is_regular_file(dataset_folder / kCatalogueFile); }
 
+namespace {
+// THE ENTRY FOLLOWS ITS PACKAGE. A writer opened through the catalogue (a command naming --dataset and --subject, a group analysis's template) brings the member's entry up to
+// date when it closes: the content hash its package's record now holds (recomputed by the package's own hook just before, from its key digests and rows), its versions and its
+// counts. Only an entry still `registered` and only when the hash moved: a writer that wrote nothing leaves the catalogue as it was. The catalogue's own writer lock is not taken (a
+// write into one member never waits on another's): the one-row update is its own SQLite transaction. A package written by its own path (`--package`) is not followed: its entry is
+// `stale` until it is registered again, as before.
+void follow_in_catalogue(DatasetWriter& w, const std::filesystem::path& catalogue_folder, const std::string& subject_id) {
+  if (w.db().read_only()) return;
+  w.also_before_close([folder = catalogue_folder, subject_id](DatasetWriter& d) {
+    if (d.db().read_only()) return;
+    const PackageRecord rec = read_package_record(d.db());
+    if (rec.content_hash.empty() || rec.subject_id != subject_id) return;
+    const auto n = d.db().one("SELECT n_acquisitions, n_recordings, n_surfaces, n_fields, n_operators FROM subject_status WHERE id = ?", {rec.subject_id});
+    if (!n) return;
+    Database cat = Database::open(folder / kCatalogueFile);
+    cat.tx([&] {
+      cat.execute("UPDATE subject_entry SET content_hash = ?, schema_version = ?, store_format = ?, n_acquisitions = ?, n_recordings = ?, n_surfaces = ?, n_fields = ?, n_operators = ? "
+                  "WHERE subject_id = ? AND status = 'registered' AND content_hash <> ?",
+                  {rec.content_hash, V(rec.schema_version), V(rec.store_format), n->at("n_acquisitions"), n->at("n_recordings"), n->at("n_surfaces"), n->at("n_fields"), n->at("n_operators"),
+                   rec.subject_id, rec.content_hash});
+    });
+  });
+}
+}  // namespace
+
 DatasetWriter open_subject_package(const std::filesystem::path& dataset_folder, const std::string& subject, const OpenOptions& opt) {
   namespace fs = std::filesystem;
   const Catalogue cat = Catalogue::open(dataset_folder);
@@ -493,7 +518,9 @@ DatasetWriter open_subject_package(const std::filesystem::path& dataset_folder, 
   if (entry->status != "registered") throw Error(code::invalid_argument, subject + ": the catalogue lists it as `" + entry->status + "`; register its package again");
   const fs::path folder = cat.package_path(*entry);
   if (!fs::is_regular_file(folder / kPackageDatabaseFile)) throw Error(code::not_found, subject + ": its package " + folder.string() + " is missing");
-  return open_package_writer(folder, opt);   // a subject is self-contained (format 56): nothing is routed to a template
+  DatasetWriter w = open_package_writer(folder, opt);   // a subject is self-contained (format 56): nothing is routed to a template
+  follow_in_catalogue(w, cat.folder(), entry->subject_id);
+  return w;
 }
 
 namespace {
@@ -536,6 +563,7 @@ GroupAnalysis GroupAnalysis::open(const std::filesystem::path& dataset_folder, c
   m.template_name = t.name;
   m.template_folder = cat.package_path(t);
   m.writer = std::make_unique<DatasetWriter>(open_package_writer(m.template_folder));
+  follow_in_catalogue(*m.writer, cat.folder(), t.subject_id);
   return a;
 }
 

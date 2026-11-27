@@ -81,6 +81,9 @@ class DatasetWriter {
   bool locked() const { return static_cast<bool>(lock_); }
   // Close the writer: its `before_close` hook (a package's record and content hash) runs first and may throw (the lock is released all the same).
   void close();
+  // A further hook run after `before_close` (only when it succeeded), while the database is still open: the catalogue's entry following the package a writer opened through it
+  // (catalogue.cpp, `open_subject_package`). Hooks added in turn run in turn.
+  void also_before_close(std::function<void(DatasetWriter&)> hook);
   // Package mode (used by subject_package.cpp): the writer over a subject package's database. `make_store` is given the database in its final place.
   static DatasetWriter over_package(Database db, std::filesystem::path package_folder, Row home_dataset, WriterLock lock,
                                     const std::function<std::unique_ptr<Store>(Database&)>& make_store, std::function<void(DatasetWriter&)> before_close);

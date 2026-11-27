@@ -184,6 +184,8 @@ CommandResult query_measurements(const QueryMeasurementsRequest& rq) {
   q.selection = rq.selection;
   q.measure = rq.measure;
   q.of_field = rq.field;
+  q.of_statistic = rq.of_statistic;
+  q.rows_on = rq.rows_on;
   int quantities = 0;
   for (const auto* v : {&rq.band, &rq.spatial_scale, &rq.tile})
     if (*v) { q.to = **v; ++quantities; }
